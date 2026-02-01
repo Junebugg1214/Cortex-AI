@@ -1,53 +1,48 @@
-# Chatbot Memory Importer
+---
+name: chatbot-memory-importer
+description: Convert universal portable user context (from chatbot-memory-extractor) into platform-specific memory formats including Claude preferences, Claude memories, system prompts, Notion pages, Notion databases, and Google Docs. Version 4.0 adds Notion export and Google Docs HTML export. Use when users want to import their context, set up their profile, configure Claude with their history, apply extracted memories, or export to Notion or Google Docs. Triggers on phrases like "import my context", "configure Claude with my history", "apply my extracted memories", "export to Notion", "create Google Doc from context".
+---
 
-Convert universal portable user context (from chatbot-memory-extractor) into platform-specific memory formats including Claude, Notion, Google Docs, and more.
+# Chatbot Memory Importer v4.0
 
-## Version
+Convert universal context into platform-specific memory formats.
 
-4.0.0
+## What's New in v4
 
-## Triggers
+| Feature | Description |
+|---------|-------------|
+| **Notion Export** | Markdown pages + database JSON ready for import |
+| **Google Docs Export** | Styled HTML that pastes directly into Google Docs |
+| **Confidence Filtering** | Export only high/medium/low confidence items |
 
-Use when users want to:
-- "import my context"
-- "set up my profile"
-- "configure Claude with my history"
-- "apply my extracted memories"
-- "use my context file"
-- "export to Notion"
-- "create Google Doc from context"
-
-## Output Formats (v4)
-
-| Format | Flag | Description |
-|--------|------|-------------|
-| Claude Preferences | `claude-preferences` | Natural language for Settings > Profile |
-| Claude Memories | `claude-memories` | JSON for memory_user_edits tool |
-| System Prompt | `system-prompt` | XML context block for LLM APIs |
-| Notion Page | `notion` | Markdown with emoji headers and badges |
-| Notion Database | `notion-db` | JSON rows for database import |
-| Google Docs | `gdocs` | Styled HTML for Google Docs |
-| Summary | `summary` | Markdown with confidence indicators |
-| Full JSON | `full` | Lossless v4 schema backup |
-
-## Usage
+## Quick Start
 
 ```bash
 # Export all formats
-python import_memory.py context.json -f all -c medium -o ./output
+python scripts/import_memory.py context.json -f all -c medium -o ./output
 
 # Just Claude formats
-python import_memory.py context.json -f claude-preferences -c high
+python scripts/import_memory.py context.json -f claude-preferences -c high
 
 # Notion export
-python import_memory.py context.json -f notion -c medium -o ./notion
-
-# Google Docs
-python import_memory.py context.json -f gdocs -c high
+python scripts/import_memory.py context.json -f notion -c medium
 
 # Preview without writing
-python import_memory.py context.json --dry-run -c medium
+python scripts/import_memory.py context.json --dry-run -c medium
 ```
+
+## Output Formats
+
+| Format | Flag | Output File | Use Case |
+|--------|------|-------------|----------|
+| Claude Preferences | `claude-preferences` | `claude_preferences.txt` | Settings > Profile |
+| Claude Memories | `claude-memories` | `claude_memories.json` | memory_user_edits tool |
+| System Prompt | `system-prompt` | `system_prompt.txt` | Any LLM API |
+| Notion Page | `notion` | `notion_page.md` | Notion page import |
+| Notion Database | `notion-db` | `notion_database.json` | Notion DB rows |
+| Google Docs | `gdocs` | `google_docs.html` | Google Docs import |
+| Summary | `summary` | `summary.md` | Human overview |
+| Full JSON | `full` | `full_export.json` | Lossless backup |
 
 ## Confidence Levels
 
@@ -68,7 +63,7 @@ Role: CMO and co-founder of BurnaAI
 Business: AI-powered oncology clinical intelligence platform
 Currently focused on: Mayo validation study; CTCAE automation
 Technical: TypeScript; Vercel; Convex
-Values: Accuracy over agreement; Precise communication
+Values: Accuracy over agreement
 ```
 
 ### System Prompt (XML)
@@ -87,25 +82,24 @@ Values: Accuracy over agreement; Precise communication
 
 ### Notion Page
 
-```markdown
-# User Context Profile
+Markdown with emoji headers and confidence badges:
+- 🟢 High confidence (≥0.8)
+- 🟡 Medium confidence (0.6-0.8)
+- 🟠 Low confidence (<0.6)
 
-## 👤 Identity
-### 🟢 Marc Saint-Jour
-CMO and co-founder of BurnaAI
-- **Timeline:** current
+### Google Docs
 
-## 🏢 Business/Company
-- 🟢 **BurnaAI**: AI oncology platform
-```
+Styled HTML with color-coded badges, summary tables, and clean typography.
 
-### Google Docs (HTML)
+## Workflow
 
-Styled HTML with:
-- Color-coded confidence badges
-- Summary tables
-- Metric highlights
-- Clean typography
+1. Extract context using `chatbot-memory-extractor` skill
+2. Preview with `--dry-run -c medium`
+3. Export all formats with `-f all`
+4. Apply to target platforms:
+   - Copy `claude_preferences.txt` → Claude Settings > Profile
+   - Import `notion_page.md` → Notion
+   - Open `google_docs.html` → Copy to Google Docs
 
 ## Output Files
 
@@ -119,24 +113,6 @@ output/
 ├── google_docs.html         # Google Docs
 ├── summary.md               # Human summary
 └── full_export.json         # Lossless backup
-```
-
-## Workflow
-
-```bash
-# 1. Extract from source chatbot
-python extract_memory.py chatgpt-export.zip -o context.json
-
-# 2. Preview what will be imported
-python import_memory.py context.json --dry-run -c medium
-
-# 3. Export all formats
-python import_memory.py context.json -f all -c medium -o ./import
-
-# 4. Apply to platforms:
-#    - Copy claude_preferences.txt → Claude Settings > Profile
-#    - Import notion_page.md → Notion
-#    - Open google_docs.html → Copy to Google Docs
 ```
 
 ## Dependencies
