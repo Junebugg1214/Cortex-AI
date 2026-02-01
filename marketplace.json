@@ -1,0 +1,39 @@
+{
+  "$schema": "https://claude.ai/schemas/marketplace.json",
+  "name": "chatbot-memory-migration",
+  "version": "1.0.0",
+  "description": "Skills for migrating user context and memories between AI chatbots (ChatGPT, Claude, Gemini, etc.)",
+  "author": "BurnaAI",
+  "license": "MIT",
+  "repository": "https://github.com/Junebugg1214/chatbot-memory-skills",
+  "plugins": [
+    {
+      "name": "chatbot-memory-extractor",
+      "description": "Extract user context from any chatbot export (ChatGPT, Claude, Gemini, generic JSON/text) into a universal portable format with confidence scoring and recency/frequency weighting.",
+      "version": "1.0.0",
+      "source": "./skills/chatbot-memory-extractor",
+      "category": "productivity",
+      "tags": ["memory", "migration", "chatgpt", "context", "export", "import", "profile"]
+    },
+    {
+      "name": "chatbot-memory-importer",
+      "description": "Convert universal portable context into platform-specific formats: Claude preferences, Claude memories, generic LLM system prompts, and more.",
+      "version": "1.0.0",
+      "source": "./skills/chatbot-memory-importer",
+      "category": "productivity",
+      "tags": ["memory", "migration", "claude", "preferences", "system-prompt", "import"]
+    }
+  ],
+  "keywords": [
+    "chatbot",
+    "memory",
+    "migration",
+    "chatgpt",
+    "claude",
+    "gemini",
+    "context",
+    "preferences",
+    "export",
+    "import"
+  ]
+}
