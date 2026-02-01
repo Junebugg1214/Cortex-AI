@@ -1,39 +1,80 @@
 {
-  "$schema": "https://claude.ai/schemas/marketplace.json",
-  "name": "chatbot-memory-migration",
-  "version": "1.0.0",
-  "description": "Skills for migrating user context and memories between AI chatbots (ChatGPT, Claude, Gemini, etc.)",
-  "author": "BurnaAI",
-  "license": "MIT",
+  "name": "chatbot-memory-skills",
+  "version": "4.0.0",
+  "description": "Migrate AI conversation history between platforms with semantic deduplication, time decay, and multi-format export",
+  "author": "Junebugg1214",
   "repository": "https://github.com/Junebugg1214/chatbot-memory-skills",
-  "plugins": [
-    {
-      "name": "chatbot-memory-extractor",
-      "description": "Extract user context from any chatbot export (ChatGPT, Claude, Gemini, generic JSON/text) into a universal portable format with confidence scoring and recency/frequency weighting.",
-      "version": "1.0.0",
-      "source": "./skills/chatbot-memory-extractor",
-      "category": "productivity",
-      "tags": ["memory", "migration", "chatgpt", "context", "export", "import", "profile"]
-    },
-    {
-      "name": "chatbot-memory-importer",
-      "description": "Convert universal portable context into platform-specific formats: Claude preferences, Claude memories, generic LLM system prompts, and more.",
-      "version": "1.0.0",
-      "source": "./skills/chatbot-memory-importer",
-      "category": "productivity",
-      "tags": ["memory", "migration", "claude", "preferences", "system-prompt", "import"]
-    }
-  ],
+  "license": "MIT",
   "keywords": [
     "chatbot",
     "memory",
     "migration",
     "chatgpt",
     "claude",
-    "gemini",
+    "notion",
     "context",
-    "preferences",
-    "export",
-    "import"
-  ]
+    "extraction",
+    "import",
+    "export"
+  ],
+  "skills": [
+    {
+      "name": "chatbot-memory-extractor",
+      "path": "skills/chatbot-memory-extractor",
+      "description": "Extract user context from any chatbot export (ChatGPT, Claude, Gemini) with semantic deduplication and time decay",
+      "version": "4.0.0",
+      "triggers": [
+        "extract my context",
+        "import my ChatGPT history",
+        "migrate my conversations",
+        "export my memory"
+      ]
+    },
+    {
+      "name": "chatbot-memory-importer",
+      "path": "skills/chatbot-memory-importer",
+      "description": "Convert universal context to Claude, Notion, Google Docs, and other platform formats",
+      "version": "4.0.0",
+      "triggers": [
+        "import my context",
+        "configure Claude with my history",
+        "export to Notion",
+        "create Google Doc from context"
+      ]
+    }
+  ],
+  "changelog": {
+    "4.0.0": {
+      "date": "2025-02-01",
+      "changes": [
+        "Added semantic deduplication (fuzzy matching at 85% threshold)",
+        "Improved hyphenated/compound name handling (Saint-Jour, O'Brien)",
+        "Added time decay (recent mentions boost confidence more)",
+        "Added topic merging within categories",
+        "Added Notion export (Markdown page + database JSON)",
+        "Added Google Docs export (styled HTML)"
+      ]
+    },
+    "3.0.0": {
+      "date": "2025-01-31",
+      "changes": [
+        "Added confidence-weighted detail levels",
+        "Added aggressive extraction mode",
+        "12 extraction categories"
+      ]
+    },
+    "2.0.0": {
+      "date": "2025-01-31",
+      "changes": [
+        "Multi-format output support",
+        "System prompt XML export"
+      ]
+    },
+    "1.0.0": {
+      "date": "2025-01-31",
+      "changes": [
+        "Initial release"
+      ]
+    }
+  }
 }

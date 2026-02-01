@@ -1,32 +1,33 @@
-# Universal Context Schema Reference
+# Context Schema v4.0
 
-This document defines the portable user context format used for cross-platform chatbot memory migration.
-
-## Schema Version: 1.0
-
-## JSON Structure
+## Full Schema
 
 ```json
 {
-  "schema_version": "1.0",
-  "generated_at": "ISO8601 timestamp",
-  "source": {
-    "source_file": "filename",
-    "source_type": "json|text",
-    "total_messages": number,
-    "user_messages": number,
-    "extraction_date": "ISO8601 timestamp"
+  "schema_version": "4.0",
+  "meta": {
+    "generated_at": "ISO-8601 timestamp",
+    "method": "aggressive_extraction_v4",
+    "features": ["semantic_dedup", "time_decay", "topic_merging"],
+    "source_format": "openai|claude|generic|text"
   },
   "categories": {
-    "<category_name>": {
-      "facts": [<fact_object>],
-      "total_extracted": number
-    }
-  },
-  "summary": {
-    "total_facts": number,
-    "high_confidence_facts": number,
-    "categories_with_data": number
+    "<category_name>": [
+      {
+        "topic": "string - main topic name",
+        "brief": "string - short description",
+        "full_description": "string - detailed description with context",
+        "confidence": 0.0-1.0,
+        "mention_count": "integer",
+        "extraction_method": "explicit_statement|self_reference|direct_description|contextual|mentioned|inferred",
+        "metrics": ["array of related numbers/metrics"],
+        "relationships": ["array of related entities"],
+        "timeline": ["current", "past", "planned"],
+        "source_quotes": ["array of source text snippets"],
+        "first_seen": "ISO-8601 timestamp or null",
+        "last_seen": "ISO-8601 timestamp or null"
+      }
+    ]
   }
 }
 ```
@@ -35,69 +36,80 @@ This document defines the portable user context format used for cross-platform c
 
 | Category | Description | Examples |
 |----------|-------------|----------|
-| `identity` | Name, role, title, company, location | "Marc", "CMO", "Delaware" |
-| `professional_context` | Company, projects, industry, team, clients | "BurnaAI", "healthcare AI", "Mayo Clinic partnership" |
-| `personal_context` | Family, hobbies, interests, lifestyle | "two kids", "enjoys hiking" |
-| `communication_preferences` | Tone, format, verbosity, style preferences | "prefers bullet points", "be direct" |
-| `technical_expertise` | Programming languages, tools, platforms, skills | "Python", "AWS", "TypeScript" |
-| `recurring_workflows` | Common task patterns and requests | "writes investor materials", "creates presentations" |
-| `domain_knowledge` | Specialized knowledge areas | "CTCAE grading", "clinical trials", "FDA compliance" |
-| `active_priorities` | Current focus areas, deadlines, urgent work | "seed funding round", "Q4 launch" |
+| `identity` | User's name, credentials, titles | "Marc Saint-Jour", "MD", "PhD" |
+| `professional_context` | Roles, positions, job titles | "CMO", "Software Engineer" |
+| `business_context` | Companies, products, stage | "BurnaAI", "Series A startup" |
+| `active_priorities` | Current focus, goals, projects | "Mayo validation study" |
+| `relationships` | Partners, advisors, collaborators | "Mayo Clinic Platform" |
+| `technical_expertise` | Languages, frameworks, tools | "TypeScript", "React", "AWS" |
+| `domain_knowledge` | Fields, specializations | "Healthcare", "AI/ML", "Legal" |
+| `market_context` | Competitors, market references | "Flatiron Health" |
+| `metrics` | Numbers, money, percentages | "$15B market", "≥0.8 kappa" |
+| `values` | Principles, beliefs | "Accuracy over agreement" |
+| `communication_preferences` | Style preferences | "Precise, non-verbose" |
+| `mentions` | Low-confidence catch-all | Entities that don't fit elsewhere |
 
-## Fact Object Structure
+## Confidence Scoring
 
-```json
-{
-  "text": "The extracted fact text",
-  "normalized": "lowercase normalized version",
-  "frequency": 5,
-  "recency_score": 0.85,
-  "frequency_score": 0.71,
-  "combined_score": 0.79,
-  "confidence": {
-    "level": "high|medium|low|very_low",
-    "score": 0.9,
-    "factors": {
-      "frequency": 5,
-      "has_explicit_statement": true
-    }
-  },
-  "occurrences": 5,
-  "extraction_type": "pattern|entity"
-}
+### Base Confidence by Extraction Method
+
+| Method | Base Score | Example Pattern |
+|--------|------------|-----------------|
+| `explicit_statement` | 0.85 | "I am X", "My name is Y" |
+| `self_reference` | 0.80 | "my company", "our product" |
+| `direct_description` | 0.75 | "I'm building X" |
+| `contextual` | 0.60 | Inferred from surrounding text |
+| `mentioned` | 0.40 | Passing reference |
+| `inferred` | 0.30 | Weak inference |
+
+### Mention Count Boost
+
+| Mentions | Boost |
+|----------|-------|
+| 1 | +0.00 |
+| 2 | +0.10 |
+| 3 | +0.15 |
+| 5+ | +0.20 |
+| 10+ | +0.25 |
+| 20+ | +0.30 |
+
+### Time Decay Multiplier
+
+| Age | Multiplier |
+|-----|------------|
+| < 1 week | 1.0 |
+| < 1 month | 0.9 |
+| < 3 months | 0.7 |
+| < 6 months | 0.5 |
+| < 1 year | 0.3 |
+| > 1 year | 0.1 |
+
+Final confidence = min(0.95, base + (boost × decay))
+
+## Semantic Deduplication
+
+Topics are merged when similarity ≥ 85%:
+
+```
+Similarity = max(
+  SequenceMatcher ratio,
+  Word overlap (Jaccard)
+)
 ```
 
-## Scoring Algorithms
+When merged:
+- Keep longer/better topic name
+- Sum mention counts
+- Take max confidence
+- Combine metrics, relationships, timeline
+- Keep first_seen from earliest, last_seen from latest
 
-### Combined Score
-```
-combined_score = (recency_score × 0.6) + (frequency_score × 0.4)
-```
+## Topic Merging
 
-- **Recency score**: Position of most recent mention (0 = oldest, 1 = newest)
-- **Frequency score**: `min(1.0, (frequency / 10)^0.5)` — log scale to prevent outliers
+Within mergeable categories, topics with ≥80% similarity are combined:
 
-### Confidence Levels
-
-| Level | Score Range | Criteria |
-|-------|-------------|----------|
-| High | 0.8 - 1.0 | 5+ mentions AND explicit pattern match |
-| Medium | 0.6 - 0.79 | 3+ mentions OR explicit pattern match |
-| Low | 0.4 - 0.59 | 2+ mentions |
-| Very Low | 0.3 - 0.39 | Single mention only |
-
-## Supported Input Formats
-
-The extractor auto-detects these formats:
-
-1. **ChatGPT Export** — `conversations[].mapping{}.message{}`
-2. **Claude Export** — `chat_messages[].text`
-3. **Generic JSON** — Arrays with `role`/`content` or `author`/`text` fields
-4. **Text Transcript** — `User:` / `Assistant:` turn markers
-
-## Usage Notes
-
-- Facts are deduplicated by normalized text
-- Maximum 20 facts retained per category
-- Markdown output shows top 10 per category for readability
-- Review extracted data before importing to target platform
+- `technical_expertise`: "React" + "React.js" → merged
+- `domain_knowledge`: "AI" + "Artificial Intelligence" → merged
+- `business_context`: Company variants consolidated
+- `relationships`: Partner references deduplicated
+- `active_priorities`: Similar projects combined

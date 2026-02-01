@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
 """
-Chatbot Memory Importer
+Chatbot Memory Importer v4.0
 
-Converts universal portable context (from chatbot-memory-extractor) into 
-platform-specific memory formats.
+EXPORTS TO:
+- Claude Preferences (Settings > Profile)
+- Claude Memories (JSON for memory_user_edits)
+- System Prompts (XML for any LLM API)
+- Notion (Markdown for Notion pages/databases)
+- Google Docs (HTML for Google Docs import)
+- Summary (Markdown with confidence indicators)
+- Full JSON (lossless v4 schema)
 
 Usage:
-    python import_memory.py <context_file.json> [options]
-
-Supported output formats:
-    - claude-preferences: Text for Claude's Settings > Profile
-    - claude-memories: Structured memory edits for Claude
-    - system-prompt: Generic system prompt for any LLM
-    - summary: Condensed human-readable summary
-    - all: Generate all formats
+    python import_memory_v4.py <context_file> [options]
+    
+    # All formats
+    python import_memory_v4.py context.json -f all -o ./output
+    
+    # Just Notion export
+    python import_memory_v4.py context.json -f notion -c medium
+    
+    # Google Docs with high confidence only
+    python import_memory_v4.py context.json -f gdocs -c high
 """
 
 import json
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from typing import Any
+
 
 # ============================================================================
 # CONFIGURATION
@@ -33,393 +43,614 @@ CONFIDENCE_THRESHOLDS = {
     "all": 0.0
 }
 
-CATEGORY_DISPLAY_NAMES = {
+CATEGORY_LABELS = {
     "identity": "Identity",
-    "professional_context": "Professional Context",
-    "personal_context": "Personal Context",
-    "communication_preferences": "Communication Preferences",
-    "technical_expertise": "Technical Expertise",
-    "recurring_workflows": "Recurring Workflows",
-    "domain_knowledge": "Domain Knowledge",
-    "active_priorities": "Active Priorities"
+    "professional_context": "Professional Role",
+    "business_context": "Business/Company",
+    "active_priorities": "Current Focus",
+    "relationships": "Relationships & Partners",
+    "technical_expertise": "Technical Skills",
+    "domain_knowledge": "Domain Expertise",
+    "market_context": "Market Context",
+    "metrics": "Key Metrics",
+    "values": "Values & Principles",
+    "communication_preferences": "Communication Style",
+    "history": "History",
+    "mentions": "Other Mentions"
 }
 
-# Priority order for presenting facts (most important first)
-CATEGORY_PRIORITY = [
-    "identity",
-    "professional_context",
-    "active_priorities",
-    "technical_expertise",
-    "domain_knowledge",
-    "communication_preferences",
-    "recurring_workflows",
-    "personal_context"
+CATEGORY_ORDER = [
+    "identity", "professional_context", "business_context", "active_priorities",
+    "relationships", "technical_expertise", "domain_knowledge", "market_context",
+    "metrics", "values", "communication_preferences", "history", "mentions"
 ]
 
-# ============================================================================
-# TEXT CLEANING
-# ============================================================================
-
-def clean_fact_text(text: str, category: str) -> str | None:
-    """Clean and validate fact text, return None if unusable"""
-    text = text.strip()
-    
-    # Remove leading/trailing punctuation fragments
-    text = text.strip('.,;:!?')
-    
-    # Skip very short facts
-    if len(text) < 4:
-        return None
-    
-    # Skip fragments that are just conjunctions or prepositions
-    skip_starts = ['and ', 'or ', 'but ', 'the ', 'a ', 'an ', 'to ', 'for ', 'with ', 'on ', 'in ']
-    lower = text.lower()
-    for skip in skip_starts:
-        if lower.startswith(skip) and len(text) < 15:
-            return None
-    
-    # Skip incomplete phrases (ending with prepositions/conjunctions)
-    skip_ends = [' and', ' or', ' the', ' a', ' to', ' for', ' with', ' on', ' in', ' is', ' are']
-    for skip in skip_ends:
-        if lower.endswith(skip):
-            return None
-    
-    # Skip facts that are just verbs or verb phrases without objects
-    verb_only = ['focused on', 'working on', 'looking at', 'thinking about']
-    if lower in verb_only:
-        return None
-    
-    # Skip facts with question marks (likely incomplete extractions)
-    if '?' in text:
-        return None
-    
-    # Clean up "I'm" / "I am" at the start (redundant in memory context)
-    if lower.startswith("i'm ") or lower.startswith("i am "):
-        text = text[4:].strip() if lower.startswith("i'm ") else text[5:].strip()
-    
-    # Capitalize first letter
-    if text and text[0].islower():
-        text = text[0].upper() + text[1:]
-    
-    return text if len(text) >= 4 else None
-
-
-def is_meaningful_fact(fact: dict, category: str) -> bool:
-    """Check if a fact is meaningful enough to import"""
-    text = fact.get("text", "").strip().lower()
-    
-    # Must have reasonable length
-    if len(text) < 4:
-        return False
-    
-    # Skip very generic terms
-    generic = ['user', 'thing', 'stuff', 'something', 'anything']
-    if text in generic:
-        return False
-    
-    return True
+# Notion colors for different confidence levels
+NOTION_COLORS = {
+    "high": "green",
+    "medium": "yellow", 
+    "low": "gray"
+}
 
 
 # ============================================================================
-# FILTERING
+# DATA LOADING
 # ============================================================================
 
-def load_context(file_path: Path) -> dict:
-    """Load and validate the universal context JSON"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+@dataclass
+class TopicDetail:
+    topic: str
+    category: str
+    brief: str = ""
+    full_description: str = ""
+    confidence: float = 0.5
+    mention_count: int = 1
+    metrics: list[str] = field(default_factory=list)
+    relationships: list[str] = field(default_factory=list)
+    timeline: list[str] = field(default_factory=list)
+    source_quotes: list[str] = field(default_factory=list)
+    first_seen: str = ""
+    last_seen: str = ""
     
-    # Validate schema
-    if data.get("schema_version") != "1.0":
-        print(f"⚠️  Warning: Unknown schema version {data.get('schema_version')}")
+    @classmethod
+    def from_dict(cls, data: dict, category: str) -> 'TopicDetail':
+        return cls(
+            topic=data.get("topic", ""),
+            category=category,
+            brief=data.get("brief", data.get("topic", "")),
+            full_description=data.get("full_description", ""),
+            confidence=data.get("confidence", 0.5),
+            mention_count=data.get("mention_count", 1),
+            metrics=data.get("metrics", []),
+            relationships=data.get("relationships", []),
+            timeline=data.get("timeline", []),
+            source_quotes=data.get("source_quotes", []),
+            first_seen=data.get("first_seen", ""),
+            last_seen=data.get("last_seen", "")
+        )
     
-    if "categories" not in data:
-        raise ValueError("Invalid context file: missing 'categories' field")
+    def get_detail_level(self) -> str:
+        if self.confidence >= 0.8:
+            return "full"
+        elif self.confidence >= 0.6:
+            return "moderate"
+        else:
+            return "minimal"
     
-    return data
+    def format_full(self) -> str:
+        parts = [self.full_description or self.brief or self.topic]
+        if self.metrics:
+            parts.append(f"Metrics: {', '.join(self.metrics[:3])}")
+        if self.relationships:
+            parts.append(f"Related: {', '.join(self.relationships[:3])}")
+        if self.timeline:
+            parts.append(f"Timeline: {', '.join(self.timeline)}")
+        return " | ".join(parts)
+    
+    def format_moderate(self) -> str:
+        return self.brief or self.topic
+    
+    def format_minimal(self) -> str:
+        return f"Mentioned: {self.topic}"
+    
+    def format_by_confidence(self, min_threshold: float = 0.4) -> str:
+        if self.confidence < min_threshold:
+            return ""
+        level = self.get_detail_level()
+        if level == "full":
+            return self.format_full()
+        elif level == "moderate":
+            return self.format_moderate()
+        else:
+            return self.format_minimal()
 
 
-def filter_facts(context: dict, min_confidence: float, categories: list[str] | None) -> dict:
-    """Filter facts by confidence threshold and category selection"""
-    filtered = {}
+@dataclass
+class NormalizedContext:
+    categories: dict[str, list[TopicDetail]] = field(default_factory=dict)
+    meta: dict = field(default_factory=dict)
     
-    for category, data in context["categories"].items():
-        # Skip if category not in selection (when selection is specified)
-        if categories and category not in categories:
-            continue
+    @classmethod
+    def from_v4(cls, data: dict) -> 'NormalizedContext':
+        ctx = cls()
+        ctx.meta = data.get("meta", {})
+        for category, topics in data.get("categories", {}).items():
+            ctx.categories[category] = [TopicDetail.from_dict(t, category) for t in topics]
+        return ctx
+    
+    @classmethod
+    def from_v3(cls, data: dict) -> 'NormalizedContext':
+        return cls.from_v4(data)  # Same structure
+    
+    @classmethod
+    def from_openai(cls, data: dict) -> 'NormalizedContext':
+        """Parse OpenAI context export format"""
+        ctx = cls()
+        ctx.meta = {"source": "openai", "generated_at": datetime.now(timezone.utc).isoformat()}
         
-        # Filter facts by confidence
-        filtered_facts = [
-            f for f in data.get("facts", [])
-            if f["confidence"]["score"] >= min_confidence
-        ]
+        mappings = {
+            "identity": ["identity", "name", "who_i_am"],
+            "professional_context": ["professional_roles", "job", "occupation", "role"],
+            "business_context": ["company", "organization", "business", "startup"],
+            "active_priorities": ["active_projects", "current_focus", "goals", "priorities"],
+            "technical_expertise": ["technical_skills", "technologies", "tools", "languages", "frameworks"],
+            "domain_knowledge": ["domains_of_expertise", "expertise", "knowledge_areas", "specializations"],
+            "values": ["values", "principles", "beliefs", "values_and_constraints"],
+            "communication_preferences": ["preferences", "communication_style", "style"],
+            "relationships": ["relationships", "partnerships", "collaborations"],
+            "market_context": ["market", "competitors", "industry"],
+        }
         
-        if filtered_facts:
-            filtered[category] = filtered_facts
-    
-    return filtered
-
-
-def deduplicate_facts(facts: dict) -> dict:
-    """Remove near-duplicate facts across categories"""
-    seen_normalized = set()
-    deduplicated = {}
-    
-    for category in CATEGORY_PRIORITY:
-        if category not in facts:
-            continue
+        for target_cat, source_keys in mappings.items():
+            topics = []
+            for key in source_keys:
+                if key in data:
+                    value = data[key]
+                    if isinstance(value, str):
+                        topics.append(TopicDetail(topic=value, category=target_cat, brief=value, confidence=0.8))
+                    elif isinstance(value, list):
+                        for item in value:
+                            if isinstance(item, str):
+                                topics.append(TopicDetail(topic=item, category=target_cat, brief=item, confidence=0.7))
+                            elif isinstance(item, dict):
+                                topics.append(TopicDetail(
+                                    topic=item.get("name", item.get("topic", str(item))),
+                                    category=target_cat,
+                                    brief=item.get("description", item.get("brief", "")),
+                                    full_description=item.get("details", item.get("full_description", "")),
+                                    confidence=item.get("confidence", 0.7)
+                                ))
+            if topics:
+                ctx.categories[target_cat] = topics
         
-        unique_facts = []
-        for fact in facts[category]:
-            normalized = fact.get("normalized", fact["text"].lower().strip())
-            
-            # Skip if we've seen something very similar
-            if normalized in seen_normalized:
-                continue
-            
-            # Check for substring matches (avoid "Python" and "Python is my go-to")
-            is_substring = any(
-                normalized in seen or seen in normalized
-                for seen in seen_normalized
-                if len(normalized) > 5 and len(seen) > 5
-            )
-            
-            if not is_substring:
-                seen_normalized.add(normalized)
-                unique_facts.append(fact)
-        
-        if unique_facts:
-            deduplicated[category] = unique_facts
+        return ctx
     
-    return deduplicated
+    @classmethod
+    def load(cls, file_path: Path) -> 'NormalizedContext':
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        version = data.get("schema_version", "")
+        if version.startswith("4"):
+            return cls.from_v4(data)
+        elif version.startswith("3"):
+            return cls.from_v3(data)
+        elif "categories" in data:
+            return cls.from_v4(data)
+        else:
+            return cls.from_openai(data)
+    
+    def get_topics_by_confidence(self, min_confidence: float = 0.4) -> dict[str, list[TopicDetail]]:
+        result = {}
+        for cat in CATEGORY_ORDER:
+            if cat in self.categories:
+                filtered = [t for t in self.categories[cat] if t.confidence >= min_confidence]
+                if filtered:
+                    result[cat] = sorted(filtered, key=lambda t: -t.confidence)
+        return result
+    
+    def stats(self, min_confidence: float = 0.0) -> dict:
+        topics = self.get_topics_by_confidence(min_confidence)
+        total = sum(len(t) for t in topics.values())
+        high = sum(1 for ts in topics.values() for t in ts if t.confidence >= 0.8)
+        med = sum(1 for ts in topics.values() for t in ts if 0.6 <= t.confidence < 0.8)
+        low = sum(1 for ts in topics.values() for t in ts if t.confidence < 0.6)
+        return {
+            "total": total,
+            "by_category": {cat: len(ts) for cat, ts in topics.items()},
+            "by_confidence": {"high": high, "medium": med, "low": low}
+        }
 
 
 # ============================================================================
-# OUTPUT GENERATORS
+# EXPORT FORMATS
 # ============================================================================
 
-def generate_claude_preferences(facts: dict) -> str:
-    """
-    Generate text for Claude's Settings > Profile (user preferences).
-    Format: Natural language, concise, prioritized.
-    """
+def export_claude_preferences(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
+    """Generate natural language for Claude Settings > Profile"""
     lines = []
+    topics = ctx.get_topics_by_confidence(min_confidence)
     
-    # Identity section - combine into natural sentences
-    if "identity" in facts:
-        identity_parts = []
-        for f in facts["identity"][:5]:
-            cleaned = clean_fact_text(f["text"], "identity")
-            if cleaned and len(cleaned) > 3:
-                identity_parts.append(cleaned)
-        identity_parts = list(dict.fromkeys(identity_parts))[:3]
-        if identity_parts:
-            lines.append(f"I am {', '.join(identity_parts)}.")
+    # Identity
+    if "identity" in topics:
+        names = [t.topic for t in topics["identity"]]
+        lines.append(f"I am {'; '.join(names)}.")
     
-    # Professional context
-    if "professional_context" in facts:
-        prof_parts = []
-        for f in facts["professional_context"][:5]:
-            cleaned = clean_fact_text(f["text"], "professional_context")
-            if cleaned and len(cleaned) > 3:
-                prof_parts.append(cleaned)
-        prof_parts = list(dict.fromkeys(prof_parts))[:3]
-        if prof_parts:
-            lines.append(f"My work involves {'; '.join(prof_parts)}.")
+    # Professional
+    if "professional_context" in topics:
+        roles = [t.format_by_confidence(min_confidence) for t in topics["professional_context"]]
+        lines.append(f"Role: {'; '.join(filter(None, roles))}")
     
-    # Active priorities
-    if "active_priorities" in facts:
-        priorities = []
-        for f in facts["active_priorities"][:5]:
-            cleaned = clean_fact_text(f["text"], "active_priorities")
-            if cleaned and len(cleaned) > 3:
-                priorities.append(cleaned)
-        priorities = list(dict.fromkeys(priorities))[:3]
-        if priorities:
-            lines.append(f"Currently focused on: {'; '.join(priorities)}.")
+    # Business
+    if "business_context" in topics:
+        biz = [t.format_by_confidence(min_confidence) for t in topics["business_context"]]
+        lines.append(f"Business: {'; '.join(filter(None, biz))}")
     
-    # Technical expertise
-    if "technical_expertise" in facts:
-        tech = []
-        for f in facts["technical_expertise"][:8]:
-            cleaned = clean_fact_text(f["text"], "technical_expertise")
-            if cleaned and len(cleaned) > 1:
-                tech.append(cleaned)
-        tech = list(dict.fromkeys(tech))[:5]
-        if tech:
-            lines.append(f"Technical skills: {', '.join(tech)}.")
+    # Focus
+    if "active_priorities" in topics:
+        focus = [t.format_by_confidence(min_confidence) for t in topics["active_priorities"][:5]]
+        lines.append(f"Currently focused on: {'; '.join(filter(None, focus))}")
     
-    # Domain knowledge
-    if "domain_knowledge" in facts:
-        domains = []
-        for f in facts["domain_knowledge"][:5]:
-            cleaned = clean_fact_text(f["text"], "domain_knowledge")
-            if cleaned and len(cleaned) > 2:
-                domains.append(cleaned)
-        domains = list(dict.fromkeys(domains))[:3]
-        if domains:
-            lines.append(f"Domain expertise: {', '.join(domains)}.")
+    # Technical
+    if "technical_expertise" in topics:
+        tech = [t.brief for t in topics["technical_expertise"]]
+        lines.append(f"Technical: {'; '.join(tech[:10])}")
     
-    # Communication preferences
-    if "communication_preferences" in facts:
-        prefs = []
-        for f in facts["communication_preferences"][:3]:
-            cleaned = clean_fact_text(f["text"], "communication_preferences")
-            if cleaned and len(cleaned) > 2:
-                prefs.append(cleaned)
-        prefs = list(dict.fromkeys(prefs))[:2]
-        if prefs:
-            lines.append(f"Communication preference: {'; '.join(prefs)}.")
+    # Domain
+    if "domain_knowledge" in topics:
+        domains = [t.brief for t in topics["domain_knowledge"]]
+        lines.append(f"Domain expertise: {'; '.join(domains[:10])}")
     
-    # Recurring workflows
-    if "recurring_workflows" in facts:
-        workflows = []
-        for f in facts["recurring_workflows"][:3]:
-            cleaned = clean_fact_text(f["text"], "recurring_workflows")
-            if cleaned and len(cleaned) > 2:
-                workflows.append(cleaned)
-        workflows = list(dict.fromkeys(workflows))[:2]
-        if workflows:
-            lines.append(f"I frequently {'; '.join(workflows)}.")
+    # Values
+    if "values" in topics:
+        vals = [t.topic for t in topics["values"]]
+        lines.append(f"Values: {'; '.join(vals)}")
     
-    # Personal context (brief)
-    if "personal_context" in facts:
-        personal = []
-        for f in facts["personal_context"][:3]:
-            cleaned = clean_fact_text(f["text"], "personal_context")
-            if cleaned and len(cleaned) > 2:
-                personal.append(cleaned)
-        personal = list(dict.fromkeys(personal))[:2]
-        if personal:
-            lines.append(f"Personal: {'; '.join(personal)}.")
+    # Communication
+    if "communication_preferences" in topics:
+        prefs = [t.topic for t in topics["communication_preferences"]]
+        lines.append(f"Communication: {'; '.join(prefs)}")
+    
+    # Relationships
+    if "relationships" in topics:
+        rels = [t.format_by_confidence(min_confidence) for t in topics["relationships"][:5]]
+        lines.append(f"Key relationships: {'; '.join(filter(None, rels))}")
+    
+    # Market
+    if "market_context" in topics:
+        market = [t.brief for t in topics["market_context"]]
+        lines.append(f"Market context: {'; '.join(market)}")
+    
+    # Metrics
+    if "metrics" in topics:
+        metrics = [t.brief for t in topics["metrics"][:5]]
+        lines.append(f"Key metrics: {'; '.join(metrics)}")
     
     return "\n".join(lines)
 
 
-def generate_claude_memories(facts: dict) -> list[str]:
-    """
-    Generate structured memory edits for Claude's memory system.
-    Format: List of concise statements (max 200 chars each).
-    """
+def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, max_items: int = 30) -> list[dict]:
+    """Generate memories for Claude memory_user_edits tool"""
     memories = []
+    topics = ctx.get_topics_by_confidence(min_confidence)
     
-    # Process in priority order
-    for category in CATEGORY_PRIORITY:
-        if category not in facts:
+    priority_order = ["identity", "business_context", "professional_context", "active_priorities",
+                      "relationships", "technical_expertise", "domain_knowledge", "market_context",
+                      "metrics", "values", "communication_preferences", "mentions"]
+    
+    for category in priority_order:
+        if category not in topics:
             continue
         
-        for fact in facts[category][:5]:  # Max 5 per category
-            # Clean the text first
-            cleaned = clean_fact_text(fact["text"], category)
+        for topic in topics[category]:
+            if len(memories) >= max_items:
+                break
             
-            # Skip if cleaning returned None (unusable text)
-            if not cleaned or len(cleaned) < 4:
-                continue
+            level = topic.get_detail_level()
             
-            # Construct memory statement based on category
             if category == "identity":
-                if any(kw in cleaned.lower() for kw in ["cto", "ceo", "cmo", "coo", "founder", "director", "manager", "engineer", "developer", "physician", "doctor"]):
-                    memory = f"User is {cleaned}"
-                elif cleaned.lower().startswith(("the ", "a ")):
-                    memory = f"User is {cleaned}"
-                else:
-                    memory = f"User: {cleaned}"
+                text = f"User is {topic.topic}"
+            elif category == "business_context":
+                text = f"User's business: {topic.format_by_confidence(min_confidence)}"
             elif category == "professional_context":
-                memory = f"User's work involves {cleaned}"
-            elif category == "technical_expertise":
-                memory = f"User works with {cleaned}"
-            elif category == "communication_preferences":
-                memory = f"User prefers {cleaned}"
-            elif category == "recurring_workflows":
-                memory = f"User frequently {cleaned}"
-            elif category == "domain_knowledge":
-                memory = f"User has expertise in {cleaned}"
+                text = f"User role: {topic.format_by_confidence(min_confidence)}"
             elif category == "active_priorities":
-                memory = f"User is focused on {cleaned}"
-            elif category == "personal_context":
-                memory = f"User: {cleaned}"
+                text = f"User focus: {topic.format_by_confidence(min_confidence)}"
+            elif category == "relationships":
+                text = f"User relationship: {topic.format_by_confidence(min_confidence)}"
+            elif category == "technical_expertise":
+                text = f"User tech: {topic.brief}"
+            elif category == "domain_knowledge":
+                text = f"User domain: {topic.brief}"
+            elif category == "market_context":
+                text = f"Market context: {topic.brief}"
+            elif category == "metrics":
+                text = f"Key metric: {topic.brief}"
+            elif category == "values":
+                text = f"User values {topic.topic}"
+            elif category == "communication_preferences":
+                text = f"User prefers {topic.topic}"
             else:
-                memory = f"User: {cleaned}"
+                text = f"Mentioned: {topic.brief}"
             
-            # Truncate to max length
-            if len(memory) > 200:
-                memory = memory[:197] + "..."
+            # Truncate to fit Claude memory limits
+            if len(text) > 200:
+                text = text[:197] + "..."
             
-            # Avoid duplicates
-            if memory not in memories:
-                memories.append(memory)
+            memories.append({
+                "text": text,
+                "confidence": topic.confidence,
+                "category": category
+            })
+        
+        if len(memories) >= max_items:
+            break
     
-    # Limit total memories (Claude has a limit of 30)
-    return memories[:30]
+    return memories
 
 
-def generate_system_prompt(facts: dict, include_header: bool = True) -> str:
-    """
-    Generate a generic system prompt section for any LLM.
-    Can be prepended to existing system prompts.
-    """
-    lines = []
+def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
+    """Generate XML context block for system prompts"""
+    lines = ["<user_context>"]
+    topics = ctx.get_topics_by_confidence(min_confidence)
     
-    if include_header:
-        lines.append("<user_context>")
-        lines.append("The following information about the user was extracted from their conversation history:")
-        lines.append("")
-    
-    for category in CATEGORY_PRIORITY:
-        if category not in facts:
+    for category in CATEGORY_ORDER:
+        if category not in topics:
             continue
         
-        display_name = CATEGORY_DISPLAY_NAMES.get(category, category)
-        category_facts = []
-        for f in facts[category][:5]:
-            cleaned = clean_fact_text(f["text"], category)
-            if cleaned and len(cleaned) > 2:
-                category_facts.append(cleaned)
-        category_facts = list(dict.fromkeys(category_facts))  # Dedupe
+        label = CATEGORY_LABELS.get(category, category)
+        lines.append(f"  <{category}>")
         
-        if category_facts:
-            lines.append(f"**{display_name}:** {'; '.join(category_facts)}")
+        for topic in topics[category]:
+            level = topic.get_detail_level()
+            formatted = topic.format_by_confidence(min_confidence)
+            if formatted:
+                if level == "minimal":
+                    lines.append(f"    [{formatted}]")
+                else:
+                    lines.append(f"    - {formatted}")
+        
+        lines.append(f"  </{category}>")
     
-    if include_header:
-        lines.append("")
-        lines.append("</user_context>")
-    
+    lines.append("</user_context>")
     return "\n".join(lines)
 
 
-def generate_summary(facts: dict, context: dict) -> str:
-    """Generate a condensed human-readable summary"""
-    lines = [
-        "# Imported User Context",
-        "",
-        f"*Generated: {datetime.now(timezone.utc).isoformat()}*",
-        f"*Source: {context.get('source', {}).get('source_file', 'Unknown')}*",
-        "",
-        "---",
-        ""
-    ]
-    
-    total_facts = sum(len(f) for f in facts.values())
-    lines.append(f"**Total facts imported:** {total_facts}")
-    lines.append(f"**Categories:** {len(facts)}")
+def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
+    """Generate Notion-flavored Markdown for import"""
+    lines = ["# User Context Profile", ""]
+    lines.append(f"> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"> Confidence threshold: {min_confidence}")
     lines.append("")
     
-    for category in CATEGORY_PRIORITY:
-        if category not in facts:
+    topics = ctx.get_topics_by_confidence(min_confidence)
+    
+    # Summary callout
+    stats = ctx.stats(min_confidence)
+    lines.append("## 📊 Summary")
+    lines.append("")
+    lines.append(f"| Metric | Value |")
+    lines.append(f"|--------|-------|")
+    lines.append(f"| Total Topics | {stats['total']} |")
+    lines.append(f"| High Confidence | {stats['by_confidence']['high']} |")
+    lines.append(f"| Medium Confidence | {stats['by_confidence']['medium']} |")
+    lines.append(f"| Low Confidence | {stats['by_confidence']['low']} |")
+    lines.append("")
+    
+    # Categories
+    for category in CATEGORY_ORDER:
+        if category not in topics:
             continue
         
-        display_name = CATEGORY_DISPLAY_NAMES.get(category, category)
-        lines.append(f"## {display_name}")
+        label = CATEGORY_LABELS.get(category, category)
+        emoji = {
+            "identity": "👤", "professional_context": "💼", "business_context": "🏢",
+            "active_priorities": "🎯", "relationships": "🤝", "technical_expertise": "💻",
+            "domain_knowledge": "📚", "market_context": "📈", "metrics": "📊",
+            "values": "💡", "communication_preferences": "💬", "mentions": "📌"
+        }.get(category, "•")
+        
+        lines.append(f"## {emoji} {label}")
         lines.append("")
         
-        for fact in facts[category][:5]:
-            confidence = fact["confidence"]["level"]
-            emoji = {"high": "🟢", "medium": "🟡", "low": "🟠", "very_low": "🔴"}.get(confidence, "⚪")
-            lines.append(f"- {emoji} {fact['text']}")
+        for topic in topics[category]:
+            level = topic.get_detail_level()
+            conf_badge = {"full": "🟢", "moderate": "🟡", "minimal": "🟠"}.get(level, "⚪")
+            
+            if level == "full":
+                lines.append(f"### {conf_badge} {topic.topic}")
+                if topic.full_description:
+                    lines.append(f"{topic.full_description}")
+                elif topic.brief and topic.brief != topic.topic:
+                    lines.append(f"{topic.brief}")
+                if topic.metrics:
+                    lines.append(f"- **Metrics:** {', '.join(topic.metrics[:3])}")
+                if topic.relationships:
+                    lines.append(f"- **Related:** {', '.join(topic.relationships[:3])}")
+                if topic.timeline:
+                    lines.append(f"- **Timeline:** {', '.join(topic.timeline)}")
+                lines.append("")
+            elif level == "moderate":
+                lines.append(f"- {conf_badge} **{topic.topic}**: {topic.brief}")
+            else:
+                lines.append(f"- {conf_badge} {topic.topic}")
+        
+        lines.append("")
+    
+    # Database template
+    lines.append("---")
+    lines.append("## 📋 Database Template")
+    lines.append("")
+    lines.append("To create a Notion database from this data, use these properties:")
+    lines.append("")
+    lines.append("| Property | Type | Description |")
+    lines.append("|----------|------|-------------|")
+    lines.append("| Topic | Title | The main topic name |")
+    lines.append("| Category | Select | Category classification |")
+    lines.append("| Confidence | Number | 0.0-1.0 confidence score |")
+    lines.append("| Detail Level | Select | full/moderate/minimal |")
+    lines.append("| Brief | Text | Short description |")
+    lines.append("| Metrics | Multi-select | Associated metrics |")
+    lines.append("")
+    
+    return "\n".join(lines)
+
+
+def export_notion_database_json(ctx: NormalizedContext, min_confidence: float = 0.6) -> list[dict]:
+    """Generate JSON for Notion database import"""
+    rows = []
+    topics = ctx.get_topics_by_confidence(min_confidence)
+    
+    for category in CATEGORY_ORDER:
+        if category not in topics:
+            continue
+        
+        for topic in topics[category]:
+            rows.append({
+                "Topic": topic.topic,
+                "Category": CATEGORY_LABELS.get(category, category),
+                "Confidence": topic.confidence,
+                "Detail Level": topic.get_detail_level(),
+                "Brief": topic.brief,
+                "Full Description": topic.full_description,
+                "Metrics": topic.metrics[:5],
+                "Relationships": topic.relationships[:5],
+                "Timeline": ", ".join(topic.timeline) if topic.timeline else "",
+                "Mention Count": topic.mention_count
+            })
+    
+    return rows
+
+
+def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
+    """Generate HTML for Google Docs import"""
+    lines = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "<meta charset='UTF-8'>",
+        "<title>User Context Profile</title>",
+        "<style>",
+        "body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }",
+        "h1 { color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 10px; }",
+        "h2 { color: #34a853; margin-top: 30px; }",
+        "h3 { color: #333; }",
+        ".high { color: #34a853; }",
+        ".medium { color: #fbbc04; }",
+        ".low { color: #9aa0a6; }",
+        ".badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }",
+        ".badge-high { background: #e6f4ea; color: #34a853; }",
+        ".badge-medium { background: #fef7e0; color: #f9ab00; }",
+        ".badge-low { background: #f1f3f4; color: #5f6368; }",
+        "table { border-collapse: collapse; width: 100%; margin: 20px 0; }",
+        "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }",
+        "th { background: #f1f3f4; }",
+        ".metric { background: #e8f0fe; padding: 4px 8px; border-radius: 4px; margin: 2px; display: inline-block; }",
+        "</style>",
+        "</head>",
+        "<body>",
+        "<h1>User Context Profile</h1>",
+        f"<p><em>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</em></p>",
+    ]
+    
+    topics = ctx.get_topics_by_confidence(min_confidence)
+    stats = ctx.stats(min_confidence)
+    
+    # Summary table
+    lines.append("<h2>Summary</h2>")
+    lines.append("<table>")
+    lines.append("<tr><th>Metric</th><th>Value</th></tr>")
+    lines.append(f"<tr><td>Total Topics</td><td>{stats['total']}</td></tr>")
+    lines.append(f"<tr><td>High Confidence</td><td class='high'>{stats['by_confidence']['high']}</td></tr>")
+    lines.append(f"<tr><td>Medium Confidence</td><td class='medium'>{stats['by_confidence']['medium']}</td></tr>")
+    lines.append(f"<tr><td>Low Confidence</td><td class='low'>{stats['by_confidence']['low']}</td></tr>")
+    lines.append("</table>")
+    
+    # Categories
+    for category in CATEGORY_ORDER:
+        if category not in topics:
+            continue
+        
+        label = CATEGORY_LABELS.get(category, category)
+        lines.append(f"<h2>{label}</h2>")
+        
+        for topic in topics[category]:
+            level = topic.get_detail_level()
+            badge_class = f"badge-{level}"
+            
+            if level == "full":
+                lines.append(f"<h3>{topic.topic} <span class='badge {badge_class}'>High</span></h3>")
+                if topic.full_description:
+                    lines.append(f"<p>{topic.full_description}</p>")
+                elif topic.brief and topic.brief != topic.topic:
+                    lines.append(f"<p>{topic.brief}</p>")
+                if topic.metrics:
+                    lines.append("<p><strong>Metrics:</strong> ")
+                    for m in topic.metrics[:3]:
+                        lines.append(f"<span class='metric'>{m}</span> ")
+                    lines.append("</p>")
+                if topic.relationships:
+                    lines.append(f"<p><strong>Related:</strong> {', '.join(topic.relationships[:3])}</p>")
+                if topic.timeline:
+                    lines.append(f"<p><strong>Timeline:</strong> {', '.join(topic.timeline)}</p>")
+            elif level == "moderate":
+                lines.append(f"<p><strong>{topic.topic}</strong> <span class='badge {badge_class}'>Medium</span>: {topic.brief}</p>")
+            else:
+                lines.append(f"<p class='low'>{topic.topic} <span class='badge {badge_class}'>Low</span></p>")
+    
+    lines.append("</body>")
+    lines.append("</html>")
+    
+    return "\n".join(lines)
+
+
+def export_summary(ctx: NormalizedContext, min_confidence: float = 0.4) -> str:
+    """Generate markdown summary with confidence indicators"""
+    lines = ["# User Context Summary", ""]
+    
+    topics = ctx.get_topics_by_confidence(min_confidence)
+    stats = ctx.stats(min_confidence)
+    
+    lines.append(f"**Total:** {stats['total']} topics")
+    lines.append(f"- 🟢 High confidence: {stats['by_confidence']['high']}")
+    lines.append(f"- 🟡 Medium confidence: {stats['by_confidence']['medium']}")
+    lines.append(f"- 🟠 Low confidence: {stats['by_confidence']['low']}")
+    lines.append("")
+    
+    for category in CATEGORY_ORDER:
+        if category not in topics:
+            continue
+        
+        label = CATEGORY_LABELS.get(category, category)
+        lines.append(f"## {label}")
+        lines.append("")
+        
+        # Group by detail level
+        full_items = [t for t in topics[category] if t.get_detail_level() == "full"]
+        mod_items = [t for t in topics[category] if t.get_detail_level() == "moderate"]
+        min_items = [t for t in topics[category] if t.get_detail_level() == "minimal"]
+        
+        for item in full_items:
+            lines.append(f"- 🟢 **{item.topic}**: {item.format_full()}")
+        for item in mod_items:
+            lines.append(f"- 🟡 {item.topic}: {item.brief}")
+        for item in min_items:
+            lines.append(f"- 🟠 {item.topic}")
         
         lines.append("")
     
     return "\n".join(lines)
+
+
+def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dict:
+    """Export full lossless JSON"""
+    topics = ctx.get_topics_by_confidence(min_confidence)
+    
+    return {
+        "schema_version": "4.0",
+        "meta": {
+            **ctx.meta,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "confidence_threshold": min_confidence
+        },
+        "categories": {
+            cat: [
+                {
+                    "topic": t.topic,
+                    "brief": t.brief,
+                    "full_description": t.full_description,
+                    "confidence": t.confidence,
+                    "mention_count": t.mention_count,
+                    "detail_level": t.get_detail_level(),
+                    "metrics": t.metrics,
+                    "relationships": t.relationships,
+                    "timeline": t.timeline
+                }
+                for t in topics_list
+            ]
+            for cat, topics_list in topics.items()
+        }
+    }
 
 
 # ============================================================================
@@ -427,99 +658,126 @@ def generate_summary(facts: dict, context: dict) -> str:
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Import universal context into platform-specific formats"
-    )
-    parser.add_argument("context_file", help="Path to context JSON from chatbot-memory-extractor")
-    parser.add_argument("--output-dir", "-o", default=".", help="Output directory")
+    parser = argparse.ArgumentParser(description="Import context to various formats (v4)")
+    parser.add_argument("input_file", help="Path to context JSON file")
+    parser.add_argument("--output", "-o", help="Output directory", default=".")
     parser.add_argument(
-        "--format", "-f", 
-        choices=["claude-preferences", "claude-memories", "system-prompt", "summary", "all"],
+        "--format", "-f",
+        choices=["all", "claude-preferences", "claude-memories", "system-prompt", "notion", "notion-db", "gdocs", "summary", "full"],
         default="all",
-        help="Output format"
+        help="Output format(s)"
     )
     parser.add_argument(
         "--confidence", "-c",
         choices=["high", "medium", "low", "all"],
         default="medium",
-        help="Minimum confidence threshold (default: medium)"
+        help="Minimum confidence level"
     )
-    parser.add_argument(
-        "--categories",
-        nargs="+",
-        choices=list(CATEGORY_DISPLAY_NAMES.keys()),
-        help="Only include specific categories"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Preview without writing files")
     
     args = parser.parse_args()
+    input_path = Path(args.input_file)
+    output_dir = Path(args.output)
     
-    input_path = Path(args.context_file)
-    output_dir = Path(args.output_dir)
+    if not input_path.exists():
+        print(f"❌ File not found: {input_path}")
+        return 1
+    
+    print(f"📂 Loading: {input_path}")
+    ctx = NormalizedContext.load(input_path)
+    
+    min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
+    stats = ctx.stats(min_conf)
+    
+    print(f"📊 Loaded {stats['total']} topics across {len(stats['by_category'])} categories")
+    print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
+    print(f"✅ Exporting {stats['total']} items (confidence >= {min_conf})")
+    
+    formats_to_export = []
+    if args.format == "all":
+        formats_to_export = ["claude-preferences", "claude-memories", "system-prompt", "notion", "notion-db", "gdocs", "summary", "full"]
+    else:
+        formats_to_export = [args.format]
+    
+    if args.dry_run:
+        print("\n" + "=" * 60)
+        print("🔍 DRY RUN PREVIEW")
+        print("=" * 60)
+        
+        if "claude-preferences" in formats_to_export:
+            print("\n--- Claude Preferences ---")
+            print(export_claude_preferences(ctx, min_conf))
+        
+        if "claude-memories" in formats_to_export:
+            print("\n--- Claude Memories (first 10) ---")
+            memories = export_claude_memories(ctx, min_conf)
+            for i, m in enumerate(memories[:10], 1):
+                print(f"  {i}. {m['text']}")
+            if len(memories) > 10:
+                print(f"  ... and {len(memories) - 10} more")
+        
+        if "summary" in formats_to_export:
+            print("\n--- Summary ---")
+            summary = export_summary(ctx, min_conf)
+            # Show first 50 lines
+            for line in summary.split('\n')[:50]:
+                print(line)
+        
+        return 0
+    
+    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Load context
-    print(f"📂 Loading: {input_path}")
-    context = load_context(input_path)
+    outputs = []
     
-    # Get confidence threshold
-    min_confidence = CONFIDENCE_THRESHOLDS[args.confidence]
-    print(f"🎯 Confidence threshold: {args.confidence} (>= {min_confidence})")
+    if "claude-preferences" in formats_to_export:
+        path = output_dir / "claude_preferences.txt"
+        path.write_text(export_claude_preferences(ctx, min_conf))
+        outputs.append(("Claude Preferences", path))
     
-    # Filter facts
-    filtered = filter_facts(context, min_confidence, args.categories)
-    filtered = deduplicate_facts(filtered)
+    if "claude-memories" in formats_to_export:
+        path = output_dir / "claude_memories.json"
+        memories = export_claude_memories(ctx, min_conf)
+        path.write_text(json.dumps(memories, indent=2))
+        outputs.append((f"Claude Memories ({len(memories)} items)", path))
     
-    total_facts = sum(len(f) for f in filtered.values())
-    print(f"✅ Filtered to {total_facts} facts across {len(filtered)} categories")
+    if "system-prompt" in formats_to_export:
+        path = output_dir / "system_prompt.txt"
+        path.write_text(export_system_prompt(ctx, min_conf))
+        outputs.append(("System Prompt", path))
     
-    if total_facts == 0:
-        print("⚠️  No facts match the criteria. Try lowering the confidence threshold.")
-        return
+    if "notion" in formats_to_export:
+        path = output_dir / "notion_page.md"
+        path.write_text(export_notion(ctx, min_conf))
+        outputs.append(("Notion Page (Markdown)", path))
     
-    # Generate outputs
-    base_name = input_path.stem.replace("_context", "")
-    formats_to_generate = (
-        ["claude-preferences", "claude-memories", "system-prompt", "summary"]
-        if args.format == "all"
-        else [args.format]
-    )
+    if "notion-db" in formats_to_export:
+        path = output_dir / "notion_database.json"
+        rows = export_notion_database_json(ctx, min_conf)
+        path.write_text(json.dumps(rows, indent=2))
+        outputs.append((f"Notion Database ({len(rows)} rows)", path))
     
-    for fmt in formats_to_generate:
-        if fmt == "claude-preferences":
-            content = generate_claude_preferences(filtered)
-            out_path = output_dir / f"{base_name}_claude_preferences.txt"
-            with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"📄 Claude preferences: {out_path}")
-            
-        elif fmt == "claude-memories":
-            memories = generate_claude_memories(filtered)
-            out_path = output_dir / f"{base_name}_claude_memories.json"
-            with open(out_path, 'w', encoding='utf-8') as f:
-                json.dump({"memories": memories, "count": len(memories)}, f, indent=2)
-            print(f"🧠 Claude memories: {out_path} ({len(memories)} items)")
-            
-        elif fmt == "system-prompt":
-            content = generate_system_prompt(filtered)
-            out_path = output_dir / f"{base_name}_system_prompt.txt"
-            with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"💬 System prompt: {out_path}")
-            
-        elif fmt == "summary":
-            content = generate_summary(filtered, context)
-            out_path = output_dir / f"{base_name}_import_summary.md"
-            with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"📝 Summary: {out_path}")
+    if "gdocs" in formats_to_export:
+        path = output_dir / "google_docs.html"
+        path.write_text(export_google_docs(ctx, min_conf))
+        outputs.append(("Google Docs (HTML)", path))
     
-    # Print quick preview
-    print("\n" + "="*50)
-    print("📋 QUICK PREVIEW (Claude Preferences)")
-    print("="*50)
-    preview = generate_claude_preferences(filtered)
-    print(preview[:500] + ("..." if len(preview) > 500 else ""))
+    if "summary" in formats_to_export:
+        path = output_dir / "summary.md"
+        path.write_text(export_summary(ctx, min_conf))
+        outputs.append(("Summary", path))
+    
+    if "full" in formats_to_export:
+        path = output_dir / "full_export.json"
+        path.write_text(json.dumps(export_full_json(ctx, min_conf), indent=2))
+        outputs.append(("Full JSON", path))
+    
+    print(f"\n💾 Exported {len(outputs)} files to {output_dir}/:")
+    for name, path in outputs:
+        print(f"   ✓ {name}: {path.name}")
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

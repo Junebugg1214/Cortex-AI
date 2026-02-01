@@ -4,20 +4,14 @@ __pycache__/
 *$py.class
 *.so
 .Python
+env/
 venv/
-ENV/
+.env
 
-# Output files (users should generate their own)
+# Output files (user-specific)
 *_context.json
-*_context.md
-*_claude_preferences.txt
-*_claude_memories.json
-*_system_prompt.txt
-*_import_summary.md
-
-# OS
-.DS_Store
-Thumbs.db
+output/
+*.zip
 
 # IDE
 .vscode/
@@ -25,6 +19,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# OS
+.DS_Store
+Thumbs.db
+
 # Test files
 test_*.json
-output/
+sample_*.json

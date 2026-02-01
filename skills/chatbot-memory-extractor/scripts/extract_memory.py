@@ -1,684 +1,739 @@
 #!/usr/bin/env python3
 """
-Chatbot Memory Extractor
+Chatbot Memory Extractor v4.0
 
-Extracts user context from any chatbot export (JSON, text) using structure-agnostic parsing.
-Outputs a universal portable context format (JSON + Markdown).
+IMPROVEMENTS OVER v3:
+- Semantic deduplication (fuzzy matching, not just exact)
+- Better hyphenated/compound name handling (O'Brien, Saint-Jour, etc.)
+- Time decay (older mentions = reduced confidence boost)
+- Topic merging heuristics (combine related topics)
+- Improved entity extraction
 
 Usage:
-    python extract_memory.py <input_file> [--output-dir <dir>] [--format json|markdown|both]
+    python extract_memory_v4.py <export_file> [options]
 """
 
 import json
 import re
-import sys
 import argparse
+import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
-from collections import defaultdict
 from typing import Any
+from dataclasses import dataclass, field
+from collections import defaultdict
+import difflib
+import unicodedata
+
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-CATEGORIES = [
-    "identity",
-    "professional_context", 
-    "personal_context",
-    "communication_preferences",
-    "technical_expertise",
-    "recurring_workflows",
-    "domain_knowledge",
-    "active_priorities"
-]
+MENTION_COUNT_BOOST = {1: 0.0, 2: 0.1, 3: 0.15, 5: 0.2, 10: 0.25, 20: 0.3}
 
-# Patterns for extracting information (category -> list of regex patterns)
-EXTRACTION_PATTERNS = {
-    "identity": [
-        r"(?:my name is|i'm|i am|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
-        r"(?:i work as|i'm a|i am a|my role is|my title is)\s+([^,.]+)",
-        r"(?:i live in|i'm based in|located in|i'm from)\s+([^,.]+)",
-        r"(?:i'm the|i am the)\s+(CEO|CTO|CMO|COO|founder|co-founder|director|manager|engineer|developer|physician|doctor|nurse|analyst|consultant|designer)[^,.]*",
-    ],
-    "professional_context": [
-        r"(?:my company|our company|i work at|i work for|my startup|our startup)\s+(?:is\s+)?([^,.]+)",
-        r"(?:we're building|i'm building|working on|my project|our project)\s+([^,.]+)",
-        r"(?:my team|our team)\s+([^,.]+)",
-        r"(?:my industry|our industry|i work in)\s+([^,.]+)",
-        r"(?:my clients|our clients|my customers|our customers)\s+([^,.]+)",
-    ],
-    "personal_context": [
-        r"(?:my wife|my husband|my partner|my spouse)\s+([^,.]+)",
-        r"(?:my kids|my children|my son|my daughter)\s+([^,.]+)",
-        r"(?:my hobby|my hobbies|i enjoy|i like to|in my free time)\s+([^,.]+)",
-        r"(?:i'm interested in|my interest|my interests)\s+([^,.]+)",
-    ],
-    "communication_preferences": [
-        r"(?:i prefer|i like|please use|don't use|avoid)\s+([^,.]+(?:format|style|tone|bullets|lists|markdown|code)[^,.]*)",
-        r"(?:keep it|make it|be)\s+(brief|concise|detailed|thorough|simple|direct)[^,.]*",
-        r"(?:i'm a)\s+(visual learner|hands-on|technical|non-technical)[^,.]*",
-    ],
-    "technical_expertise": [
-        r"(?:i use|i know|i'm familiar with|experience with|skilled in|proficient in)\s+([^,.]+)",
-        r"(?:my stack|our stack|tech stack|using)\s+([^,.]+)",
-        r"(?:programming in|coding in|develop in|write)\s+([^,.]+)",
-        r"(?:python|javascript|typescript|react|node|aws|gcp|azure|docker|kubernetes|sql|mongodb|postgresql)[^,.]*",
-    ],
-    "recurring_workflows": [
-        r"(?:i often|i usually|i always|i regularly|every week|every day|frequently)\s+([^,.]+)",
-        r"(?:help me|can you|i need to)\s+(write|create|build|analyze|review|edit|format|convert|generate)[^,.]+",
-    ],
-    "domain_knowledge": [
-        r"(?:in my field|in my industry|in my domain|specialized in|expert in|my expertise)\s+([^,.]+)",
-        r"(?:clinical|medical|legal|financial|engineering|scientific|academic|research)[^,.]+(?:knowledge|expertise|background)",
-    ],
-    "active_priorities": [
-        r"(?:right now|currently|this week|this month|my priority|my focus|working on|preparing for)\s+([^,.]+)",
-        r"(?:deadline|due date|launch|release|presentation|meeting|milestone)\s+([^,.]+)",
-        r"(?:i need to|i have to|i must|urgent|asap|important)\s+([^,.]+)",
-    ],
+TIME_DECAY = {
+    7: 1.0,       # Within a week
+    30: 0.9,      # Within a month
+    90: 0.7,      # Within 3 months
+    180: 0.5,     # Within 6 months
+    365: 0.3,     # Within a year
+    float('inf'): 0.1
 }
 
-# ============================================================================
-# STRUCTURE-AGNOSTIC PARSING
-# ============================================================================
+BASE_CONFIDENCE = {
+    "explicit_statement": 0.85,
+    "self_reference": 0.8,
+    "direct_description": 0.75,
+    "contextual": 0.6,
+    "mentioned": 0.4,
+    "inferred": 0.3
+}
 
-def detect_and_parse_conversations(data: Any) -> list[dict]:
-    """
-    Detect the structure of the input and extract conversations.
-    Returns a list of messages with: role, content, timestamp (if available)
-    """
-    messages = []
-    
-    if isinstance(data, dict):
-        # Try common structures
-        messages = (
-            parse_chatgpt_format(data) or
-            parse_claude_format(data) or
-            parse_generic_dict(data) or
-            []
-        )
-    elif isinstance(data, list):
-        messages = parse_list_format(data)
-    
-    return messages
+SIMILARITY_THRESHOLD = 0.85
+MERGEABLE_CATEGORIES = {"technical_expertise", "domain_knowledge", "active_priorities", "business_context", "relationships"}
 
+# Patterns for hyphenated/compound names
+IDENTITY_PATTERNS = [
+    r"(?:my name is|i'?m|i am|call me)\s+([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*)*)",
+    r"(?:this is)\s+(?:Dr\.?\s+)?([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*)*)",
+    r"(?:i'?m|i am)\s+([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*)*),?\s*(?:MD|PhD|JD|MBA|DO|DDS|RN|PE|CPA)",
+    r"(?:Dr\.?|Doctor)\s+([A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)*)",
+]
 
-def parse_chatgpt_format(data: dict) -> list[dict] | None:
-    """Parse ChatGPT export format"""
-    if "conversations" not in data and "mapping" not in data:
-        # Check if it's a single conversation file
-        if "mapping" in data:
-            return extract_chatgpt_messages(data)
-        return None
-    
-    messages = []
-    conversations = data.get("conversations", [data])
-    
-    for conv in conversations:
-        messages.extend(extract_chatgpt_messages(conv))
-    
-    return messages if messages else None
+ROLE_PATTERNS = [
+    r"i(?:'m| am) (?:a |an |the )?([a-z]+(?:\s+[a-z]+)?(?:ist|er|or|ant|ent|ian|ive|manager|director|officer|founder|engineer|developer|designer|analyst|scientist|physician|doctor|nurse|lawyer|consultant))",
+    r"(?:work(?:ing)? as|my (?:job|role|position|title) is)(?: a| an| the)?\s+([^.,]+)",
+    r"i (?:lead|manage|run|head|oversee)\s+([^.,]+)",
+]
 
+COMPANY_PATTERNS = [
+    r"(?:my |our )(?:company|startup|business|firm|organization|org)(?: is)?\s+(?:called\s+)?([A-Z][A-Za-z0-9]+(?:[-\s][A-Z]?[A-Za-z0-9]+)*)",
+    r"(?:i |we )(?:founded|started|co-?founded|built|created|launched)\s+([A-Z][A-Za-z0-9]+(?:[-\s][A-Z]?[A-Za-z0-9]+)*)",
+    r"(?:co-?founder|founder|CEO|CTO|CMO|COO|CIO)\s+(?:of|at)\s+([A-Z][A-Za-z0-9]+(?:[-\s][A-Z]?[A-Za-z0-9]+)*)",
+    r"(?:of|at)\s+([A-Z][A-Za-z0-9]+(?:[-\s][A-Z]?[A-Za-z0-9]+)*)\.\s+(?:We|I|Our)",
+]
 
-def extract_chatgpt_messages(conv: dict) -> list[dict]:
-    """Extract messages from a single ChatGPT conversation"""
-    messages = []
-    mapping = conv.get("mapping", {})
-    
-    for node_id, node in mapping.items():
-        msg = node.get("message")
-        if not msg:
-            continue
-        
-        role = msg.get("author", {}).get("role", "")
-        content = msg.get("content", {})
-        
-        # Handle different content structures
-        if isinstance(content, dict):
-            parts = content.get("parts", [])
-            text = " ".join(str(p) for p in parts if p)
-        elif isinstance(content, str):
-            text = content
-        else:
-            continue
-        
-        if not text or role not in ("user", "assistant", "system"):
-            continue
-        
-        timestamp = msg.get("create_time")
-        
-        messages.append({
-            "role": role,
-            "content": text,
-            "timestamp": timestamp
-        })
-    
-    return messages
+PROJECT_PATTERNS = [
+    r"(?:working on|building|developing|creating)\s+(?:a |an |the )?([^.,]+?)(?:\s+(?:which|that|to|for)|\.|,|$)",
+    r"(?:my |our )(?:project|product|platform|app|tool|system|solution)\s+(?:is\s+)?(?:called\s+)?([A-Z][A-Za-z0-9]+(?:[-\s][A-Z]?[A-Za-z0-9]+)*)?",
+]
 
+TECH_KEYWORDS = {
+    "languages": ["python", "javascript", "typescript", "java", "c++", "c#", "ruby", "rust", "swift", "kotlin", "php", "scala", "matlab", "sql", "html", "css", "golang"],
+    "frameworks": ["react", "angular", "vue", "django", "flask", "fastapi", "express", "next.js", "nextjs", "nuxt", "rails", "spring", "laravel", ".net", "tensorflow", "pytorch", "keras", "langchain"],
+    "platforms": ["aws", "gcp", "azure", "vercel", "netlify", "heroku", "docker", "kubernetes", "linux", "ubuntu", "windows", "macos", "ec2", "lambda", "cloudflare"],
+    "databases": ["postgresql", "postgres", "mysql", "mongodb", "redis", "elasticsearch", "dynamodb", "firebase", "supabase", "convex", "planetscale", "pinecone"],
+    "tools": ["git", "github", "gitlab", "jira", "confluence", "slack", "notion", "figma", "vscode", "vim", "cursor", "copilot"]
+}
 
-def parse_claude_format(data: dict) -> list[dict] | None:
-    """Parse Claude export format (if available)"""
-    # Claude conversations typically have a different structure
-    # This handles potential Claude export formats
-    
-    if "chat_messages" in data:
-        messages = []
-        for msg in data["chat_messages"]:
-            messages.append({
-                "role": msg.get("sender", "user"),
-                "content": msg.get("text", ""),
-                "timestamp": msg.get("created_at")
-            })
-        return messages if messages else None
-    
-    return None
+TECH_FALSE_POSITIVES = {"go", "r", "c", "rust", "swift", "ruby"}
 
+DOMAIN_KEYWORDS = {
+    "healthcare": ["clinical", "medical", "health", "patient", "hospital", "physician", "doctor", "nurse", "diagnosis", "treatment", "fda", "hipaa", "ehr", "emr", "ctcae", "oncology", "cancer", "therapy", "pharmaceutical", "drug", "trial"],
+    "finance": ["financial", "banking", "investment", "trading", "portfolio", "stock", "bond", "crypto", "blockchain", "fintech", "payment", "lending", "insurance"],
+    "ai_ml": ["machine learning", "deep learning", "neural network", "nlp", "computer vision", "ai", "artificial intelligence", "model", "training", "inference", "llm", "gpt", "transformer", "rag", "embedding"],
+    "legal": ["legal", "law", "attorney", "lawyer", "contract", "compliance", "regulatory", "litigation", "intellectual property", "patent", "trademark"],
+    "education": ["education", "learning", "teaching", "student", "course", "curriculum", "school", "university", "academic", "research"],
+}
 
-def parse_generic_dict(data: dict) -> list[dict] | None:
-    """Parse generic dictionary formats by looking for message-like structures"""
-    messages = []
-    
-    # Look for common keys that might contain messages
-    for key in ["messages", "conversation", "chat", "history", "turns", "dialogue"]:
-        if key in data:
-            result = parse_list_format(data[key])
-            if result:
-                return result
-    
-    # Recursively search for message arrays
-    for value in data.values():
-        if isinstance(value, list):
-            result = parse_list_format(value)
-            if result:
-                messages.extend(result)
-        elif isinstance(value, dict):
-            result = parse_generic_dict(value)
-            if result:
-                messages.extend(result)
-    
-    return messages if messages else None
+RELATIONSHIP_PATTERNS = [
+    r"(?:partner(?:ship|ed|ing)?|collaborat(?:e|ion|ing)|work(?:ing)? with)\s+([A-Z][A-Za-z0-9\s-]+?)(?:\s+(?:on|to|for)|\.|,|$)",
+    r"(?:advisor|mentor|investor|client|customer)\s+(?:from|at|is)\s+([A-Z][A-Za-z0-9\s-]+)",
+    r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is our|are our)\s+(?:partner|client|investor|advisor)",
+]
 
+VALUE_PATTERNS = [
+    r"i (?:believe|think|value|prioritize|care about)\s+([^.,]+)",
+    r"(?:important to me|matters to me|i always)\s+([^.,]+)",
+    r"(?:my |our )(?:principle|value|philosophy|approach) is\s+([^.,]+)",
+]
 
-def parse_list_format(data: list) -> list[dict] | None:
-    """Parse list of messages in various formats"""
-    messages = []
-    
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        
-        # Try to extract role and content
-        role = (
-            item.get("role") or 
-            item.get("author") or 
-            item.get("sender") or 
-            item.get("from") or
-            ""
-        )
-        
-        if isinstance(role, dict):
-            role = role.get("role", "")
-        
-        content = (
-            item.get("content") or 
-            item.get("text") or 
-            item.get("message") or 
-            item.get("body") or
-            ""
-        )
-        
-        if isinstance(content, dict):
-            content = content.get("text", "") or content.get("parts", [""])[0]
-        if isinstance(content, list):
-            content = " ".join(str(c) for c in content)
-        
-        # Normalize role names
-        role = str(role).lower()
-        if role in ("human", "user", "customer", "person"):
-            role = "user"
-        elif role in ("assistant", "ai", "bot", "claude", "chatgpt", "gpt"):
-            role = "assistant"
-        
-        if role in ("user", "assistant") and content:
-            timestamp = (
-                item.get("timestamp") or 
-                item.get("created_at") or 
-                item.get("create_time") or
-                item.get("time") or
-                item.get("date")
-            )
-            
-            messages.append({
-                "role": role,
-                "content": str(content),
-                "timestamp": timestamp
-            })
-    
-    return messages if messages else None
+CURRENT_INDICATORS = ["currently", "now", "right now", "at the moment", "these days", "lately", "recently", "this week", "this month", "this year", "2024", "2025", "2026"]
+PAST_INDICATORS = ["used to", "previously", "formerly", "back when", "in the past", "years ago", "last year", "before"]
+FUTURE_INDICATORS = ["planning to", "going to", "will", "want to", "hope to", "aiming to", "targeting", "goal is"]
 
-
-def parse_text_transcript(text: str) -> list[dict]:
-    """Parse plain text conversation transcript"""
-    messages = []
-    
-    # Common patterns for conversation turns
-    patterns = [
-        r"(?:^|\n)(User|Human|Me|You):\s*(.+?)(?=\n(?:User|Human|Me|You|Assistant|AI|Bot|Claude|ChatGPT):|$)",
-        r"(?:^|\n)(Assistant|AI|Bot|Claude|ChatGPT):\s*(.+?)(?=\n(?:User|Human|Me|You|Assistant|AI|Bot|Claude|ChatGPT):|$)",
-    ]
-    
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, re.IGNORECASE | re.DOTALL):
-            role = match.group(1).lower()
-            content = match.group(2).strip()
-            
-            if role in ("user", "human", "me", "you"):
-                role = "user"
-            else:
-                role = "assistant"
-            
-            messages.append({
-                "role": role,
-                "content": content,
-                "timestamp": None
-            })
-    
-    return messages
+STRIP_PREFIXES = ["in ", "that ", "the ", "a ", "an ", "to ", "for ", "with ", "about "]
+NOISE_WORDS = {'strategies', 'doing', 'things', 'stuff', 'something', 'anything', 'working', 'building', 'creating', 'developing', 'using', 'good', 'great', 'best', 'better', 'important', 'new', 'old', 'first', 'last', 'next', 'other'}
+SKIP_WORDS = {'the', 'this', 'that', 'what', 'when', 'where', 'which', 'who', 'how', 'why', 'our', 'my', 'your', 'their', 'his', 'her', 'its', 'we', 'they', 'he', 'she', 'it', 'you', 'i', 'also', 'just', 'now', 'then', 'here', 'there', 'please', 'thanks', 'thank', 'hello', 'hi', 'hey', 'currently', 'recently', 'basically', 'actually'}
 
 
 # ============================================================================
-# INFORMATION EXTRACTION
+# SIMILARITY UTILITIES
 # ============================================================================
-
-def extract_facts(messages: list[dict]) -> dict[str, list[dict]]:
-    """
-    Extract facts from messages using pattern matching and heuristics.
-    Returns facts organized by category with metadata.
-    """
-    facts = defaultdict(list)
-    user_messages = [m for m in messages if m["role"] == "user"]
-    
-    for i, msg in enumerate(user_messages):
-        content = msg["content"]
-        timestamp = msg.get("timestamp")
-        position = i / max(len(user_messages), 1)  # 0 = oldest, 1 = newest
-        
-        # Extract facts using patterns
-        for category, patterns in EXTRACTION_PATTERNS.items():
-            for pattern in patterns:
-                for match in re.finditer(pattern, content, re.IGNORECASE):
-                    fact_text = match.group(1) if match.groups() else match.group(0)
-                    fact_text = fact_text.strip()
-                    
-                    if len(fact_text) < 2 or len(fact_text) > 200:
-                        continue
-                    
-                    facts[category].append({
-                        "text": fact_text,
-                        "source": content[:100] + "..." if len(content) > 100 else content,
-                        "timestamp": timestamp,
-                        "position": position,
-                        "extraction_type": "pattern"
-                    })
-        
-        # Extract topics and entities from user messages (frequency analysis)
-        extract_topics_and_entities(content, timestamp, position, facts)
-    
-    return facts
-
-
-def extract_topics_and_entities(content: str, timestamp: Any, position: float, facts: dict):
-    """Extract topics and named entities from content"""
-    
-    # Technical terms and tools
-    tech_patterns = [
-        r"\b(Python|JavaScript|TypeScript|React|Node\.js|AWS|GCP|Azure|Docker|Kubernetes|SQL|MongoDB|PostgreSQL|Redis|GraphQL|REST|API|Git|GitHub|VS Code|Linux|macOS|Windows)\b",
-        r"\b(machine learning|deep learning|neural network|NLP|computer vision|data science|AI|ML|LLM)\b",
-        r"\b(Vercel|Netlify|Heroku|Firebase|Supabase|Convex|Prisma|Next\.js|Vue|Angular|Svelte)\b",
-    ]
-    
-    for pattern in tech_patterns:
-        for match in re.finditer(pattern, content, re.IGNORECASE):
-            facts["technical_expertise"].append({
-                "text": match.group(0),
-                "timestamp": timestamp,
-                "position": position,
-                "extraction_type": "entity"
-            })
-    
-    # Domain-specific terms
-    domain_patterns = [
-        r"\b(clinical trial|FDA|HIPAA|EHR|EMR|healthcare|medical|patient|diagnosis|treatment|oncology|cardiology|neurology)\b",
-        r"\b(CTCAE|adverse event|CDI|documentation|ICD-10|CPT|revenue cycle|billing)\b",
-        r"\b(investment|funding|seed|Series [A-Z]|venture|valuation|pitch deck|investor|startup|founder)\b",
-        r"\b(contract|legal|compliance|regulatory|policy|governance|audit)\b",
-    ]
-    
-    for pattern in domain_patterns:
-        for match in re.finditer(pattern, content, re.IGNORECASE):
-            facts["domain_knowledge"].append({
-                "text": match.group(0),
-                "timestamp": timestamp,
-                "position": position,
-                "extraction_type": "entity"
-            })
-
-
-# ============================================================================
-# WEIGHTING AND SCORING
-# ============================================================================
-
-def calculate_weights(facts: dict[str, list[dict]]) -> dict[str, list[dict]]:
-    """
-    Apply recency and frequency weighting to facts.
-    More recent + more frequent = higher importance.
-    """
-    weighted_facts = {}
-    
-    for category, fact_list in facts.items():
-        # Group by normalized text
-        grouped = defaultdict(list)
-        for fact in fact_list:
-            normalized = normalize_text(fact["text"])
-            grouped[normalized].append(fact)
-        
-        # Calculate weighted scores
-        scored_facts = []
-        for normalized, occurrences in grouped.items():
-            # Frequency score (log scale to prevent outliers from dominating)
-            frequency = len(occurrences)
-            frequency_score = min(1.0, (frequency / 10) ** 0.5)
-            
-            # Recency score (average position, weighted toward most recent)
-            positions = [f["position"] for f in occurrences]
-            recency_score = max(positions)  # Use most recent occurrence
-            
-            # Combined score (recency weighted slightly higher)
-            combined_score = (recency_score * 0.6) + (frequency_score * 0.4)
-            
-            # Confidence based on extraction quality and frequency
-            confidence = calculate_confidence(occurrences, frequency)
-            
-            # Use the most recent/best occurrence as representative
-            best_occurrence = max(occurrences, key=lambda x: x["position"])
-            
-            scored_facts.append({
-                "text": best_occurrence["text"],
-                "normalized": normalized,
-                "frequency": frequency,
-                "recency_score": round(recency_score, 3),
-                "frequency_score": round(frequency_score, 3),
-                "combined_score": round(combined_score, 3),
-                "confidence": confidence,
-                "occurrences": frequency,
-                "extraction_type": best_occurrence.get("extraction_type", "unknown")
-            })
-        
-        # Sort by combined score (highest first)
-        scored_facts.sort(key=lambda x: x["combined_score"], reverse=True)
-        weighted_facts[category] = scored_facts
-    
-    return weighted_facts
-
-
-def calculate_confidence(occurrences: list[dict], frequency: int) -> dict:
-    """Calculate confidence score for a fact"""
-    
-    # Base confidence from extraction type
-    extraction_types = [o.get("extraction_type", "unknown") for o in occurrences]
-    has_pattern_match = "pattern" in extraction_types
-    
-    # Scoring factors
-    if frequency >= 5 and has_pattern_match:
-        level = "high"
-        score = 0.9
-    elif frequency >= 3 or has_pattern_match:
-        level = "medium"
-        score = 0.7
-    elif frequency >= 2:
-        level = "low"
-        score = 0.5
-    else:
-        level = "very_low"
-        score = 0.3
-    
-    # Boost for explicit statements (pattern matches)
-    if has_pattern_match:
-        score = min(1.0, score + 0.1)
-    
-    return {
-        "level": level,
-        "score": round(score, 2),
-        "factors": {
-            "frequency": frequency,
-            "has_explicit_statement": has_pattern_match
-        }
-    }
-
 
 def normalize_text(text: str) -> str:
-    """Normalize text for comparison"""
-    return re.sub(r'\s+', ' ', text.lower().strip())
+    text = text.lower()
+    text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
+    text = re.sub(r"[^\w\s-]", "", text)
+    return " ".join(text.split())
+
+def get_similarity(s1: str, s2: str) -> float:
+    n1, n2 = normalize_text(s1), normalize_text(s2)
+    if n1 == n2:
+        return 1.0
+    if n1 in n2 or n2 in n1:
+        return min(len(n1), len(n2)) / max(len(n1), len(n2)) if max(len(n1), len(n2)) > 0 else 0
+    return difflib.SequenceMatcher(None, n1, n2).ratio()
+
+def get_word_overlap(s1: str, s2: str) -> float:
+    w1, w2 = set(normalize_text(s1).split()), set(normalize_text(s2).split())
+    if not w1 or not w2:
+        return 0.0
+    return len(w1 & w2) / len(w1 | w2)
+
+def are_similar(s1: str, s2: str, threshold: float = SIMILARITY_THRESHOLD) -> bool:
+    return max(get_similarity(s1, s2), get_word_overlap(s1, s2)) >= threshold
+
+def find_best_match(topic: str, existing: dict, threshold: float = SIMILARITY_THRESHOLD) -> str | None:
+    best_key, best_score = None, threshold
+    for key in existing:
+        score = max(get_similarity(topic, key), get_word_overlap(topic, key))
+        if score > best_score:
+            best_score, best_key = score, key
+    return best_key
 
 
 # ============================================================================
-# OUTPUT GENERATION
+# TIME UTILITIES
 # ============================================================================
 
-def generate_universal_context(weighted_facts: dict, metadata: dict) -> dict:
-    """Generate the universal portable context format (JSON)"""
-    
-    context = {
-        "schema_version": "1.0",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source": metadata,
-        "categories": {},
-        "summary": {}
-    }
-    
-    for category in CATEGORIES:
-        facts = weighted_facts.get(category, [])
-        
-        # Filter to meaningful facts (confidence > very_low or high combined score)
-        meaningful = [
-            f for f in facts 
-            if f["confidence"]["score"] >= 0.3 or f["combined_score"] >= 0.5
-        ]
-        
-        context["categories"][category] = {
-            "facts": meaningful[:20],  # Top 20 per category
-            "total_extracted": len(facts)
-        }
-    
-    # Generate summary statistics
-    context["summary"] = {
-        "total_facts": sum(len(c["facts"]) for c in context["categories"].values()),
-        "high_confidence_facts": sum(
-            1 for cat in context["categories"].values() 
-            for f in cat["facts"] 
-            if f["confidence"]["level"] == "high"
-        ),
-        "categories_with_data": sum(
-            1 for cat in context["categories"].values() 
-            if cat["facts"]
-        )
-    }
-    
-    return context
+def parse_timestamp(ts: Any) -> datetime | None:
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts
+    if isinstance(ts, (int, float)):
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except:
+            return None
+    if isinstance(ts, str):
+        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+            try:
+                return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
+            except:
+                continue
+    return None
+
+def get_time_decay_multiplier(last_seen: datetime | None, reference: datetime | None = None) -> float:
+    if last_seen is None:
+        return 0.5
+    if reference is None:
+        reference = datetime.now(timezone.utc)
+    days_ago = (reference - last_seen).days
+    for threshold, multiplier in sorted(TIME_DECAY.items()):
+        if days_ago <= threshold:
+            return multiplier
+    return 0.1
 
 
-def generate_markdown(context: dict) -> str:
-    """Generate human-readable Markdown from the universal context"""
-    
-    lines = [
-        "# User Context Profile",
-        "",
-        f"*Generated: {context['generated_at']}*",
-        "",
-        "---",
-        "",
-        "## Summary",
-        "",
-        f"- **Total facts extracted:** {context['summary']['total_facts']}",
-        f"- **High confidence facts:** {context['summary']['high_confidence_facts']}",
-        f"- **Categories with data:** {context['summary']['categories_with_data']}/{len(CATEGORIES)}",
-        "",
+# ============================================================================
+# TEXT UTILITIES
+# ============================================================================
+
+def clean_extracted_text(text: str) -> str:
+    text = text.strip()
+    lower = text.lower()
+    for prefix in STRIP_PREFIXES:
+        if lower.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    text = text.rstrip('.,;:!?')
+    if text and text[0].islower():
+        text = text[0].upper() + text[1:]
+    return text.strip()
+
+def extract_numbers(text: str) -> list[str]:
+    patterns = [
+        r'\$[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|M|B|k|K))?',
+        r'[\d,]+(?:\.\d+)?%',
+        r'[\d,]+(?:\.\d+)?\s*(?:million|billion|M|B|k|K)\b',
+        r'\b\d{4}\b(?!\d)',
+        r'(?:≥|>=|≤|<=|>|<)\s*[\d.]+',
+        r'\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?)\b',
+        r'\b\d+\s*(?:users?|customers?|clients?|employees?|people)\b',
     ]
-    
-    # Category display names
-    category_names = {
-        "identity": "Identity",
-        "professional_context": "Professional Context",
-        "personal_context": "Personal Context", 
-        "communication_preferences": "Communication Preferences",
-        "technical_expertise": "Technical Expertise",
-        "recurring_workflows": "Recurring Workflows",
-        "domain_knowledge": "Domain Knowledge",
-        "active_priorities": "Active Priorities"
-    }
-    
-    for category, display_name in category_names.items():
-        cat_data = context["categories"].get(category, {"facts": []})
-        facts = cat_data["facts"]
-        
-        lines.append(f"## {display_name}")
-        lines.append("")
-        
-        if not facts:
-            lines.append("*No data extracted*")
-            lines.append("")
-            continue
-        
-        for fact in facts[:10]:  # Top 10 for readability
-            confidence = fact["confidence"]["level"]
-            confidence_emoji = {
-                "high": "🟢",
-                "medium": "🟡", 
-                "low": "🟠",
-                "very_low": "🔴"
-            }.get(confidence, "⚪")
-            
-            lines.append(f"- {confidence_emoji} **{fact['text']}**")
-            lines.append(f"  - Confidence: {confidence} ({fact['confidence']['score']})")
-            lines.append(f"  - Mentioned {fact['occurrences']}x | Importance: {fact['combined_score']}")
-        
-        lines.append("")
-    
-    lines.extend([
-        "---",
-        "",
-        "## Confidence Legend",
-        "",
-        "- 🟢 High: Multiple explicit mentions, reliable",
-        "- 🟡 Medium: Clear references, likely accurate", 
-        "- 🟠 Low: Inferred or few mentions",
-        "- 🔴 Very Low: Single mention, use with caution",
-        "",
-        "---",
-        "",
-        "*This profile was automatically extracted. Review for accuracy before importing.*"
-    ])
-    
-    return "\n".join(lines)
+    results = []
+    for pattern in patterns:
+        results.extend(re.findall(pattern, text, re.IGNORECASE))
+    return list(set(results))
+
+def extract_with_context(text: str, keyword: str, window: int = 50) -> str:
+    pos = text.lower().find(keyword.lower())
+    if pos == -1:
+        return ""
+    start, end = max(0, pos - window), min(len(text), pos + len(keyword) + window)
+    while start > 0 and text[start] not in ' \n\t':
+        start -= 1
+    while end < len(text) and text[end] not in ' \n\t':
+        end += 1
+    return text[start:end].strip()
+
+def extract_entities(text: str) -> list[tuple[str, str]]:
+    entities = []
+    # Hyphenated/apostrophe names
+    for match in re.finditer(r'\b([A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*)*)\b', text):
+        entity = match.group(1)
+        if len(entity) > 2 and entity.lower() not in SKIP_WORDS:
+            entities.append((entity, "entity"))
+    # Acronyms/CamelCase
+    for match in re.finditer(r'\b([A-Z][a-z]+[A-Z][A-Za-z]*|[A-Z]{2,})\b', text):
+        entities.append((match.group(1), "tech_entity"))
+    return entities
+
+def is_user_message(message: dict) -> bool:
+    role = message.get("role", message.get("author", {}).get("role", ""))
+    return role in ["user", "human"]
+
+def get_message_text(message: dict) -> str:
+    if "content" in message:
+        content = message["content"]
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict) and "text" in part:
+                    parts.append(part["text"])
+            return " ".join(parts)
+    if "text" in message:
+        return message["text"]
+    if "message" in message:
+        return get_message_text({"content": message["message"]})
+    return ""
 
 
 # ============================================================================
-# MAIN
+# DATA STRUCTURES
 # ============================================================================
+
+@dataclass
+class ExtractedTopic:
+    topic: str
+    category: str
+    brief: str = ""
+    full_description: str = ""
+    confidence: float = 0.5
+    extraction_method: str = "mentioned"
+    mention_count: int = 1
+    metrics: list[str] = field(default_factory=list)
+    relationships: list[str] = field(default_factory=list)
+    timeline: list[str] = field(default_factory=list)
+    source_quotes: list[str] = field(default_factory=list)
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+    mention_timestamps: list[datetime] = field(default_factory=list)
+    
+    def apply_boosts(self, reference_time: datetime | None = None):
+        mention_boost = 0.0
+        for threshold, b in sorted(MENTION_COUNT_BOOST.items()):
+            if self.mention_count >= threshold:
+                mention_boost = b
+        decay = get_time_decay_multiplier(self.last_seen, reference_time)
+        self.confidence = min(0.95, self.confidence + (mention_boost * decay))
+    
+    def merge_with(self, other: 'ExtractedTopic'):
+        self.mention_count += other.mention_count
+        self.confidence = max(self.confidence, other.confidence)
+        if len(other.brief) > len(self.brief):
+            self.brief = other.brief
+        if len(other.full_description) > len(self.full_description):
+            self.full_description = other.full_description
+        self.metrics = list(set(self.metrics + other.metrics))
+        self.relationships = list(set(self.relationships + other.relationships))
+        self.timeline = list(set(self.timeline + other.timeline))
+        self.source_quotes = list(set(self.source_quotes + other.source_quotes))[:5]
+        self.mention_timestamps.extend(other.mention_timestamps)
+        if other.first_seen and (self.first_seen is None or other.first_seen < self.first_seen):
+            self.first_seen = other.first_seen
+        if other.last_seen and (self.last_seen is None or other.last_seen > self.last_seen):
+            self.last_seen = other.last_seen
+    
+    def to_dict(self) -> dict:
+        return {
+            "topic": self.topic,
+            "brief": self.brief or self.topic,
+            "full_description": self.full_description,
+            "confidence": round(self.confidence, 2),
+            "mention_count": self.mention_count,
+            "metrics": self.metrics[:10],
+            "relationships": self.relationships[:10],
+            "timeline": self.timeline[:5],
+            "extraction_method": self.extraction_method,
+            "source_quotes": self.source_quotes[:3],
+            "first_seen": self.first_seen.isoformat() if self.first_seen else None,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None
+        }
+
+
+@dataclass
+class ExtractionContext:
+    topics: dict[str, dict[str, ExtractedTopic]] = field(default_factory=lambda: defaultdict(dict))
+    extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    def add_topic(self, category: str, topic: str, brief: str = "", full_description: str = "",
+                  confidence: float = None, extraction_method: str = "mentioned",
+                  metrics: list[str] = None, relationships: list[str] = None,
+                  timeline: list[str] = None, source_quote: str = "", timestamp: datetime | None = None):
+        if not topic or len(topic.strip()) < 2:
+            return
+        topic = topic.strip()
+        key = normalize_text(topic)
+        if confidence is None:
+            confidence = BASE_CONFIDENCE.get(extraction_method, 0.4)
+        
+        existing_key = find_best_match(key, self.topics[category])
+        if existing_key:
+            existing = self.topics[category][existing_key]
+            existing.mention_count += 1
+            existing.confidence = max(existing.confidence, confidence)
+            if brief and len(brief) > len(existing.brief):
+                existing.brief = brief
+            if full_description and len(full_description) > len(existing.full_description):
+                existing.full_description = full_description
+            if metrics:
+                existing.metrics = list(set(existing.metrics + metrics))
+            if relationships:
+                existing.relationships = list(set(existing.relationships + relationships))
+            if timeline:
+                existing.timeline = list(set(existing.timeline + timeline))
+            if source_quote and source_quote not in existing.source_quotes:
+                existing.source_quotes.append(source_quote[:200])
+            if timestamp:
+                existing.mention_timestamps.append(timestamp)
+                if existing.last_seen is None or timestamp > existing.last_seen:
+                    existing.last_seen = timestamp
+        else:
+            self.topics[category][key] = ExtractedTopic(
+                topic=topic, category=category, brief=brief or topic,
+                full_description=full_description, confidence=confidence,
+                extraction_method=extraction_method, metrics=metrics or [],
+                relationships=relationships or [], timeline=timeline or [],
+                source_quotes=[source_quote[:200]] if source_quote else [],
+                first_seen=timestamp, last_seen=timestamp,
+                mention_timestamps=[timestamp] if timestamp else []
+            )
+    
+    def merge_similar_topics(self):
+        for category in MERGEABLE_CATEGORIES:
+            if category not in self.topics:
+                continue
+            keys = list(self.topics[category].keys())
+            merged = set()
+            for i, key1 in enumerate(keys):
+                if key1 in merged:
+                    continue
+                for key2 in keys[i+1:]:
+                    if key2 in merged:
+                        continue
+                    topic1, topic2 = self.topics[category][key1], self.topics[category][key2]
+                    if are_similar(topic1.topic, topic2.topic, threshold=0.8):
+                        if topic1.confidence >= topic2.confidence:
+                            topic1.merge_with(topic2)
+                            merged.add(key2)
+                        else:
+                            topic2.merge_with(topic1)
+                            merged.add(key1)
+                            break
+            for key in merged:
+                if key in self.topics[category]:
+                    del self.topics[category][key]
+    
+    def apply_time_decay(self):
+        for topics in self.topics.values():
+            for topic in topics.values():
+                topic.apply_boosts(self.extraction_time)
+    
+    def export(self) -> dict:
+        output = {
+            "schema_version": "4.0",
+            "meta": {
+                "generated_at": self.extraction_time.isoformat(),
+                "method": "aggressive_extraction_v4",
+                "features": ["semantic_dedup", "time_decay", "topic_merging"]
+            },
+            "categories": {}
+        }
+        for category, topics in self.topics.items():
+            if topics:
+                sorted_topics = sorted(topics.values(), key=lambda t: (t.confidence, t.mention_count), reverse=True)
+                output["categories"][category] = [t.to_dict() for t in sorted_topics]
+        return output
+    
+    def stats(self) -> dict:
+        total = sum(len(t) for t in self.topics.values())
+        by_category = {cat: len(topics) for cat, topics in self.topics.items()}
+        high = sum(1 for topics in self.topics.values() for t in topics.values() if t.confidence >= 0.8)
+        med = sum(1 for topics in self.topics.values() for t in topics.values() if 0.6 <= t.confidence < 0.8)
+        low = sum(1 for topics in self.topics.values() for t in topics.values() if t.confidence < 0.6)
+        return {"total": total, "by_category": by_category, "by_confidence": {"high": high, "medium": med, "low": low}}
+
+
+# ============================================================================
+# EXTRACTOR
+# ============================================================================
+
+class AggressiveExtractor:
+    def __init__(self):
+        self.context = ExtractionContext()
+        self.all_user_text = []
+    
+    def extract_from_text(self, text: str, timestamp: datetime | None = None):
+        if not text or len(text.strip()) < 10:
+            return
+        self.all_user_text.append(text)
+        self._extract_identity(text, timestamp)
+        self._extract_roles(text, timestamp)
+        self._extract_companies(text, timestamp)
+        self._extract_projects(text, timestamp)
+        self._extract_technical(text, timestamp)
+        self._extract_domains(text, timestamp)
+        self._extract_relationships(text, timestamp)
+        self._extract_values(text, timestamp)
+        self._extract_priorities(text, timestamp)
+        self._extract_metrics(text, timestamp)
+        self._extract_entities_generic(text, timestamp)
+        self._extract_temporal(text, timestamp)
+    
+    def _extract_identity(self, text: str, timestamp: datetime | None = None):
+        for pattern in IDENTITY_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                name = match.group(1).strip()
+                if name.lower() not in SKIP_WORDS:
+                    self.context.add_topic("identity", name, brief=name, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+        for pattern in [r'\b(MD|PhD|JD|MBA|CPA|RN|DO|DDS|DVM|PE|PMP|FACS|FACP)\b']:
+            for match in re.finditer(pattern, text):
+                self.context.add_topic("identity", match.group(1), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_roles(self, text: str, timestamp: datetime | None = None):
+        for pattern in ROLE_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                role = match.group(1).strip()
+                if 3 < len(role) < 100:
+                    self.context.add_topic("professional_context", role, brief=role, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+        for match in re.finditer(r'\b(CEO|CTO|CFO|COO|CMO|CIO|CISO|VP|SVP|EVP|Director|Manager|Lead|Head|Chief|Principal|Senior|Junior|Staff)\s+(?:of\s+)?([A-Za-z\s]+?)(?:\s+at|\s+for|,|\.|$)', text, re.IGNORECASE):
+            self.context.add_topic("professional_context", f"{match.group(1)} {match.group(2)}".strip(), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_companies(self, text: str, timestamp: datetime | None = None):
+        for pattern in COMPANY_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                company = match.group(1).strip()
+                if 1 < len(company) < 50:
+                    self.context.add_topic("business_context", company, brief=company, full_description=extract_with_context(text, company, 100), extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp)
+        for match in re.finditer(r'(?:my|our)\s+(company|startup|business|organization|team|product|platform|app|service|tool)\s+([^.,]+)', text, re.IGNORECASE):
+            thing = match.group(2).strip()
+            cat = "business_context" if match.group(1) in ["company", "startup", "business", "organization"] else "active_priorities"
+            self.context.add_topic(cat, thing, extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_projects(self, text: str, timestamp: datetime | None = None):
+        for pattern in PROJECT_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                project = match.group(1).strip() if match.lastindex >= 1 else ""
+                if 3 < len(project) < 200:
+                    self.context.add_topic("active_priorities", project, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
+        for pattern in [r'(?:focused on|working on|building|developing|researching|exploring)\s+([^.,]+)', r'(?:my|our)\s+(?:current|main|primary|key)\s+(?:focus|priority|project|work)\s+(?:is\s+)?([^.,]+)']:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                focus = match.group(1).strip()
+                if 5 < len(focus) < 200:
+                    self.context.add_topic("active_priorities", focus, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_technical(self, text: str, timestamp: datetime | None = None):
+        lower = text.lower()
+        for category, keywords in TECH_KEYWORDS.items():
+            for keyword in keywords:
+                if len(keyword) <= 3:
+                    if not re.search(r'\b' + re.escape(keyword) + r'\b', lower):
+                        continue
+                    if keyword in TECH_FALSE_POSITIVES and not any(tc in lower for tc in ["language", "programming", "code", "develop", "stack", "use", "prefer"]):
+                        continue
+                elif keyword not in lower:
+                    continue
+                method = "self_reference" if any(p in lower for p in ["i use", "i prefer", "we use", "our stack", "i work with", "tech stack"]) else "mentioned"
+                self.context.add_topic("technical_expertise", keyword.title() if len(keyword) > 3 else keyword.upper(), brief=f"{category}: {keyword}", extraction_method=method, source_quote=extract_with_context(text, keyword, 30), timestamp=timestamp)
+    
+    def _extract_domains(self, text: str, timestamp: datetime | None = None):
+        lower = text.lower()
+        for domain, keywords in DOMAIN_KEYWORDS.items():
+            matches = [kw for kw in keywords if kw in lower]
+            if matches:
+                for kw in matches:
+                    self.context.add_topic("domain_knowledge", kw.title(), brief=f"{domain}: {kw}", extraction_method="contextual", source_quote=extract_with_context(text, kw, 50), timestamp=timestamp)
+                if len(matches) >= 2:
+                    self.context.add_topic("domain_knowledge", domain.replace("_", " ").title(), extraction_method="inferred", timestamp=timestamp)
+    
+    def _extract_relationships(self, text: str, timestamp: datetime | None = None):
+        for pattern in RELATIONSHIP_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                entity = match.group(1).strip()
+                if 2 < len(entity) < 100:
+                    self.context.add_topic("relationships", entity, full_description=extract_with_context(text, entity, 100), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+        for match in re.finditer(r'(?:working|partnering|collaborating|meeting)\s+with\s+([A-Z][A-Za-z\s-]+?)(?:\s+(?:on|to|for|about)|\.|,|$)', text):
+            entity = match.group(1).strip()
+            if len(entity) > 2:
+                self.context.add_topic("relationships", entity, extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+        for pattern in [r'(?:validation|study|partnership|collaboration)\s+(?:with|from|at)\s+([A-Z][A-Za-z\s-]+?)(?:\.|,|$|\s+(?:for|to|which))', r'([A-Z][A-Za-z]+(?:\s+(?:Clinic|Hospital|Medical|Health|University|Institute|Platform|Labs?))?)\s+(?:validation|partnership|study)', r'(?:advisors?|network)\s+(?:from|includes?|at)\s+([A-Z][A-Za-z,\s-]+?)(?:\.|$)']:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                orgs = match.group(1).strip()
+                for org in re.split(r',\s*|\s+and\s+', orgs):
+                    org = org.strip()
+                    if len(org) > 3 and org[0].isupper():
+                        self.context.add_topic("relationships", org, brief=extract_with_context(text, org, 50)[:100], extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+        for pattern in [r'(?:looked at|compared to|competitor|like)\s+(?:what\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)\s+(?:is doing|does|offers)?', r'([A-Z][A-Za-z]+(?:\s+Health)?)\s+(?:in this space|as a competitor|for comparison)']:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                competitor = match.group(1).strip()
+                if len(competitor) > 3:
+                    self.context.add_topic("market_context", competitor, brief=f"Competitor/reference: {competitor}", extraction_method="mentioned", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_values(self, text: str, timestamp: datetime | None = None):
+        for pattern in VALUE_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                value = clean_extracted_text(match.group(1))
+                if 5 < len(value) < 200:
+                    self.context.add_topic("values", value, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+        for pattern in [r'i (?:prefer|like|want|need)\s+([^.,]+)', r'(?:please|always|never)\s+([^.,]+)']:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                pref = clean_extracted_text(match.group(1))
+                if 5 < len(pref) < 100:
+                    self.context.add_topic("communication_preferences", pref, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_priorities(self, text: str, timestamp: datetime | None = None):
+        for pattern in [r'(?:my|our)\s+(?:goal|target|objective|priority|plan)\s+(?:is\s+)?(?:to\s+)?([^.,]+)', r'(?:trying to|aiming to|planning to|hoping to|want to|need to)\s+([^.,]+)', r'(?:preparing for|getting ready for|working towards)\s+([^.,]+)']:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                priority = match.group(1).strip()
+                if 5 < len(priority) < 200:
+                    self.context.add_topic("active_priorities", priority, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
+    
+    def _extract_metrics(self, text: str, timestamp: datetime | None = None):
+        for num in extract_numbers(text):
+            context_text = extract_with_context(text, num, 50)
+            cat = "business_context" if any(kw in context_text.lower() for kw in ["funding", "raise", "revenue", "cost", "price", "budget", "investment"]) else "metrics"
+            self.context.add_topic(cat, num, brief=context_text[:100], extraction_method="contextual", source_quote=context_text, timestamp=timestamp)
+    
+    def _extract_entities_generic(self, text: str, timestamp: datetime | None = None):
+        for entity, entity_type in extract_entities(text):
+            if entity.lower() in SKIP_WORDS | NOISE_WORDS or len(entity) < 3:
+                continue
+            if not any(find_best_match(normalize_text(entity), topics, threshold=0.8) for cat, topics in self.context.topics.items() if cat != "mentions"):
+                self.context.add_topic("mentions", entity, brief=extract_with_context(text, entity, 30)[:100] or entity, extraction_method="mentioned", source_quote=extract_with_context(text, entity, 30), timestamp=timestamp)
+    
+    def _extract_temporal(self, text: str, timestamp: datetime | None = None):
+        lower = text.lower()
+        is_current = any(ind in lower for ind in CURRENT_INDICATORS)
+        is_past = any(ind in lower for ind in PAST_INDICATORS)
+        is_future = any(ind in lower for ind in FUTURE_INDICATORS)
+        for topics in self.context.topics.values():
+            for key, topic in topics.items():
+                if key in lower or normalize_text(topic.topic) in normalize_text(text):
+                    if is_current:
+                        topic.timeline.append("current")
+                    if is_past:
+                        topic.timeline.append("past")
+                    if is_future:
+                        topic.timeline.append("planned")
+    
+    def post_process(self):
+        for cat in ['relationships', 'market_context', 'mentions']:
+            if cat in self.context.topics:
+                to_remove = {key for key, topic in list(self.context.topics[cat].items()) if key in NOISE_WORDS or topic.topic.lower() in NOISE_WORDS or (len(topic.topic.split()) == 1 and len(topic.topic) < 6 and topic.confidence < 0.6)}
+                for key in to_remove:
+                    if key in self.context.topics[cat]:
+                        del self.context.topics[cat][key]
+        self.context.merge_similar_topics()
+        self.context.apply_time_decay()
+        if "mentions" in self.context.topics:
+            better_topics = {key for cat, topics in self.context.topics.items() for key in topics if cat != "mentions"}
+            to_remove = {key for key in list(self.context.topics["mentions"].keys()) if any(are_similar(key, better, threshold=0.7) for better in better_topics)}
+            for key in to_remove:
+                if key in self.context.topics["mentions"]:
+                    del self.context.topics["mentions"][key]
+    
+    def process_openai_export(self, data: list | dict) -> dict:
+        conversations = data if isinstance(data, list) else data.get("conversations", data.get("items", []))
+        for conv in conversations:
+            for node in conv.get("mapping", {}).values():
+                message = node.get("message")
+                if message and is_user_message(message):
+                    self.extract_from_text(get_message_text(message), parse_timestamp(message.get("create_time")))
+        self.post_process()
+        return self.context.export()
+    
+    def process_messages_list(self, messages: list) -> dict:
+        for message in messages:
+            if is_user_message(message):
+                self.extract_from_text(get_message_text(message), parse_timestamp(message.get("timestamp", message.get("created_at"))))
+        self.post_process()
+        return self.context.export()
+    
+    def process_plain_text(self, text: str) -> dict:
+        for chunk in text.split('\n\n'):
+            if len(chunk.strip()) > 20:
+                self.extract_from_text(chunk)
+        self.post_process()
+        return self.context.export()
+
+
+# ============================================================================
+# FILE HANDLERS
+# ============================================================================
+
+def load_file(file_path: Path) -> tuple[Any, str]:
+    if file_path.suffix == '.zip':
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            for name in zf.namelist():
+                if 'conversations.json' in name:
+                    with zf.open(name) as f:
+                        return json.load(f), "openai"
+            for name in zf.namelist():
+                if name.endswith('.json'):
+                    with zf.open(name) as f:
+                        return json.load(f), "generic"
+            for name in zf.namelist():
+                if name.endswith('.txt'):
+                    with zf.open(name) as f:
+                        return f.read().decode('utf-8'), "text"
+        raise ValueError("No supported files in zip")
+    if file_path.suffix == '.json':
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list) and data and "mapping" in data[0]:
+            return data, "openai"
+        if "conversations" in data or "mapping" in data:
+            return data, "openai"
+        if "messages" in data:
+            return data.get("messages", []), "messages"
+        return data, "generic"
+    if file_path.suffix in ['.txt', '.md']:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read(), "text"
+    raise ValueError(f"Unsupported format: {file_path.suffix}")
+
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Extract user context from chatbot exports"
-    )
-    parser.add_argument("input_file", help="Path to chatbot export file (JSON or text)")
-    parser.add_argument("--output-dir", "-o", default=".", help="Output directory")
-    parser.add_argument("--format", "-f", choices=["json", "markdown", "both"], 
-                        default="both", help="Output format")
-    
+    parser = argparse.ArgumentParser(description="Aggressive memory extraction v4")
+    parser.add_argument("input_file", help="Path to export file")
+    parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--format", "-f", choices=["auto", "openai", "messages", "text", "generic"], default="auto")
+    parser.add_argument("--stats", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
-    
     input_path = Path(args.input_file)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Read input file
-    print(f"📂 Reading: {input_path}")
+    if not input_path.exists():
+        print(f"❌ File not found: {input_path}")
+        return 1
     
-    with open(input_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Try to parse as JSON first
+    print(f"📂 Loading: {input_path}")
     try:
-        data = json.loads(content)
-        messages = detect_and_parse_conversations(data)
-        source_type = "json"
-    except json.JSONDecodeError:
-        # Fall back to text parsing
-        messages = parse_text_transcript(content)
-        source_type = "text"
+        data, detected_format = load_file(input_path)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
     
-    if not messages:
-        print("❌ Could not extract any messages from the input file.")
-        print("   Supported formats: ChatGPT export, Claude export, generic JSON, text transcript")
-        sys.exit(1)
+    fmt = args.format if args.format != "auto" else detected_format
+    print(f"🔍 Format: {fmt}")
     
-    print(f"✅ Parsed {len(messages)} messages ({source_type} format)")
+    extractor = AggressiveExtractor()
+    print("🔬 Extracting (semantic dedup, time decay, topic merging)...")
     
-    user_messages = [m for m in messages if m["role"] == "user"]
-    print(f"   - User messages: {len(user_messages)}")
-    print(f"   - Assistant messages: {len(messages) - len(user_messages)}")
+    if fmt == "openai":
+        result = extractor.process_openai_export(data)
+    elif fmt == "messages":
+        result = extractor.process_messages_list(data)
+    elif fmt == "text":
+        result = extractor.process_plain_text(data)
+    else:
+        if isinstance(data, list):
+            result = extractor.process_messages_list(data)
+        elif isinstance(data, dict) and "messages" in data:
+            result = extractor.process_messages_list(data["messages"])
+        else:
+            result = extractor.process_plain_text(json.dumps(data))
     
-    # Extract facts
-    print("🔍 Extracting facts...")
-    facts = extract_facts(messages)
+    stats = extractor.context.stats()
+    print(f"✅ Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
     
-    # Apply weighting
-    print("⚖️  Applying recency/frequency weighting...")
-    weighted_facts = calculate_weights(facts)
+    if args.stats or args.verbose:
+        print("\n📊 By category:")
+        for cat, count in sorted(stats['by_category'].items(), key=lambda x: -x[1]):
+            print(f"   {cat}: {count}")
     
-    # Generate metadata
-    metadata = {
-        "source_file": input_path.name,
-        "source_type": source_type,
-        "total_messages": len(messages),
-        "user_messages": len(user_messages),
-        "extraction_date": datetime.now(timezone.utc).isoformat()
-    }
+    if args.verbose:
+        print("\n🔎 Sample extractions:")
+        for cat, topics in list(result["categories"].items())[:5]:
+            print(f"\n  [{cat}]")
+            for topic in topics[:3]:
+                print(f"    • {topic['topic']} (conf: {topic['confidence']}, mentions: {topic['mention_count']})")
     
-    # Generate outputs
-    context = generate_universal_context(weighted_facts, metadata)
-    
-    base_name = input_path.stem + "_context"
-    
-    if args.format in ("json", "both"):
-        json_path = output_dir / f"{base_name}.json"
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(context, f, indent=2, ensure_ascii=False)
-        print(f"📄 JSON output: {json_path}")
-    
-    if args.format in ("markdown", "both"):
-        md_path = output_dir / f"{base_name}.md"
-        markdown = generate_markdown(context)
-        with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(markdown)
-        print(f"📝 Markdown output: {md_path}")
-    
-    # Print summary
-    print("\n" + "="*50)
-    print("📊 EXTRACTION SUMMARY")
-    print("="*50)
-    print(f"Total facts: {context['summary']['total_facts']}")
-    print(f"High confidence: {context['summary']['high_confidence_facts']}")
-    print(f"Categories with data: {context['summary']['categories_with_data']}/{len(CATEGORIES)}")
-    print()
-    
-    for category, data in context["categories"].items():
-        if data["facts"]:
-            top_fact = data["facts"][0]["text"][:50]
-            print(f"  {category}: {len(data['facts'])} facts (top: \"{top_fact}...\")")
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(result, f, indent=2)
+    print(f"\n💾 Saved to: {output_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

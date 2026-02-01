@@ -1,68 +1,110 @@
----
-name: chatbot-memory-extractor
-description: Extract user context and knowledge from any chatbot export (ChatGPT, Claude, Gemini, or generic conversation logs) into a universal portable format. Use when users want to migrate their chatbot history, import conversation context from another AI, extract their profile from chat exports, or preserve their accumulated knowledge from one assistant to use with another. Triggers on phrases like "import my ChatGPT history", "extract my context", "migrate my conversations", "export my memory", or "transfer my profile from [chatbot]".
----
-
 # Chatbot Memory Extractor
 
-Extract user context from any chatbot export into a universal portable format (JSON + Markdown).
+Extract user context and knowledge from any chatbot export (ChatGPT, Claude, Gemini, or generic conversation logs) into a universal portable format.
 
-## Quick Start
+## Version
+
+4.0.0
+
+## Triggers
+
+Use when users want to:
+- "import my ChatGPT history"
+- "extract my context"
+- "migrate my conversations"
+- "export my memory"
+- "transfer my profile from [chatbot]"
+
+## Features (v4)
+
+| Feature | Description |
+|---------|-------------|
+| **Semantic Deduplication** | Fuzzy matching merges similar topics (85% threshold) |
+| **Hyphenated Names** | Captures "Saint-Jour", "O'Brien", "Van Der Berg" |
+| **Time Decay** | Recent mentions boost confidence more than old ones |
+| **Topic Merging** | Combines related topics within categories |
+| **12 Categories** | Identity, professional, business, priorities, relationships, technical, domain, market, metrics, values, communication, mentions |
+
+## Usage
 
 ```bash
-python scripts/extract_memory.py <input_file> --output-dir <dir>
+# Basic extraction
+python extract_memory.py conversations.json -o context.json
+
+# With verbose output
+python extract_memory.py conversations.json --verbose --stats
+
+# Specify format explicitly
+python extract_memory.py export.zip -f openai -o context.json
 ```
 
-**Output:** `<filename>_context.json` + `<filename>_context.md`
+## Supported Formats
 
-## How It Works
+| Format | Extension | Detection |
+|--------|-----------|-----------|
+| OpenAI/ChatGPT | `.json`, `.zip` | Auto-detected by `mapping` structure |
+| Claude | `.json` | Auto-detected by `messages` array |
+| Generic JSON | `.json` | Fallback for message lists |
+| Plain text | `.txt`, `.md` | Paragraph-based extraction |
 
-1. **Structure-agnostic parsing** — Auto-detects ChatGPT, Claude, or generic JSON/text formats
-2. **Pattern extraction** — Identifies identity, professional context, preferences, expertise, etc.
-3. **Weighting algorithm** — Recency (60%) + Frequency (40%) = importance score
-4. **Confidence scoring** — Each fact rated high/medium/low/very_low based on evidence strength
+## Output Schema (v4)
 
-## Categories Extracted
+```json
+{
+  "schema_version": "4.0",
+  "meta": {
+    "generated_at": "2025-01-31T12:00:00Z",
+    "method": "aggressive_extraction_v4",
+    "features": ["semantic_dedup", "time_decay", "topic_merging"]
+  },
+  "categories": {
+    "identity": [
+      {
+        "topic": "Marc Saint-Jour",
+        "brief": "Marc Saint-Jour",
+        "full_description": "CMO and co-founder, MD",
+        "confidence": 0.95,
+        "mention_count": 5,
+        "metrics": [],
+        "relationships": ["BurnaAI"],
+        "timeline": ["current"],
+        "first_seen": "2025-01-15T10:00:00Z",
+        "last_seen": "2025-01-31T12:00:00Z"
+      }
+    ]
+  }
+}
+```
 
-| Category | What it captures |
-|----------|------------------|
-| Identity | Name, role, title, company, location |
-| Professional Context | Industry, projects, goals, team, clients |
-| Personal Context | Family, interests, hobbies, lifestyle |
-| Communication Preferences | Tone, format, verbosity, style |
-| Technical Expertise | Languages, tools, platforms, skills |
-| Recurring Workflows | Common task patterns |
-| Domain Knowledge | Specialized knowledge areas |
-| Active Priorities | Current focus, deadlines, urgent work |
+## Confidence Scoring
+
+Base confidence by extraction method:
+- `explicit_statement`: 0.85 ("I am X", "My name is")
+- `self_reference`: 0.80 ("my company", "our product")
+- `direct_description`: 0.75 (describing own work)
+- `contextual`: 0.60 (inferred from context)
+- `mentioned`: 0.40 (passing reference)
+- `inferred`: 0.30 (weak inference)
+
+Mention count boost: +0.1 (2x), +0.15 (3x), +0.2 (5x), +0.25 (10x), +0.3 (20x)
+
+Time decay: Recent mentions (< 1 week) get full boost, older mentions decay to 10% boost.
 
 ## Workflow
 
-1. User provides chatbot export file (JSON or text)
-2. Run extraction script
-3. Review generated Markdown for accuracy
-4. Use JSON for import to target platform (see `chatbot-memory-importer` skill)
+```bash
+# 1. Download export from ChatGPT/Claude
+# 2. Extract context
+python extract_memory.py ~/Downloads/chatgpt-export.zip -o context.json
 
-## Output Format
+# 3. Preview extraction
+python extract_memory.py context.json --verbose
 
-See `references/context_schema.md` for complete schema documentation.
+# 4. Import to target platform
+python import_memory.py context.json -f all -c medium -o ./output
+```
 
-### Confidence Levels
+## Dependencies
 
-- 🟢 **High** — Multiple explicit mentions, reliable
-- 🟡 **Medium** — Clear references, likely accurate
-- 🟠 **Low** — Inferred or few mentions
-- 🔴 **Very Low** — Single mention, verify before using
-
-## Supported Input Formats
-
-- ChatGPT export (JSON with `conversations[]` → `mapping{}`)
-- Claude export (JSON with `chat_messages[]`)
-- Generic JSON (arrays with `role`/`content` fields)
-- Plain text transcripts (`User:` / `Assistant:` format)
-
-## Notes
-
-- Extraction focuses on **user messages only** (what the user said, not the assistant)
-- Facts are deduplicated and weighted by importance
-- Maximum 20 facts per category retained
-- Always review extracted data before importing — automated extraction may miss context or misinterpret statements
+- Python 3.10+
+- No external packages required (uses only stdlib)

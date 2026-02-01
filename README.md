@@ -1,166 +1,130 @@
-# Chatbot Memory Migration Skills
+# Chatbot Memory Skills v4.0
 
-Migrate your accumulated knowledge and context from one AI chatbot to another. Extract your profile from ChatGPT, Claude, Gemini, or any conversation export — then import it into your preferred platform.
+Migrate your AI conversation history between platforms. Extract context from ChatGPT, Claude, or any chatbot and import it into Claude, Notion, Google Docs, or any LLM.
 
-## Why?
+## What's New in v4
 
-When you switch AI assistants, you lose all the context that chatbot learned about you — your name, job, projects, preferences, expertise, and workflows. These skills solve that problem by creating a **universal portable context format** that works across platforms.
+| Feature | Description |
+|---------|-------------|
+| **Semantic Deduplication** | Fuzzy matching merges "BurnaAI" and "Burna AI" automatically |
+| **Better Name Handling** | Properly captures "Saint-Jour", "O'Brien", "Mary-Jane" |
+| **Time Decay** | Recent mentions boost confidence more than old ones |
+| **Topic Merging** | Combines related topics within categories |
+| **Notion Export** | Markdown pages + database JSON ready for import |
+| **Google Docs Export** | Styled HTML that pastes directly into Google Docs |
+
+## Quick Start
+
+```bash
+# 1. Download your ChatGPT export (Settings → Data controls → Export)
+
+# 2. Extract context
+python skills/chatbot-memory-extractor/scripts/extract_memory.py \
+  ~/Downloads/chatgpt-export.zip -o context.json
+
+# 3. Export to all formats
+python skills/chatbot-memory-importer/scripts/import_memory.py \
+  context.json -f all -c medium -o ./output
+```
 
 ## Skills Included
 
-### 1. `chatbot-memory-extractor`
+### chatbot-memory-extractor
 
-Extract user context from any chatbot export into a universal portable format.
+Extracts user context from conversation exports:
 
-**Features:**
-- Structure-agnostic parsing (ChatGPT, Claude, Gemini, generic JSON, plain text)
-- Recency + frequency weighting (recent & repeated = important)
-- Confidence scoring (high/medium/low/very_low)
-- Outputs both JSON (machine-readable) and Markdown (human-reviewable)
+- **Input:** ChatGPT `.zip`, Claude `.json`, generic messages, plain text
+- **Output:** Universal v4 context JSON
+- **Features:** 12 extraction categories, semantic dedup, time decay
 
-**Categories extracted:**
-- Identity (name, role, company, location)
-- Professional context (projects, industry, team)
-- Personal context (interests, family, hobbies)
-- Communication preferences (tone, format, style)
-- Technical expertise (languages, tools, platforms)
-- Recurring workflows (common tasks)
-- Domain knowledge (specialized areas)
-- Active priorities (current focus)
+```bash
+python extract_memory.py conversations.json --verbose --stats
+```
 
-### 2. `chatbot-memory-importer`
+### chatbot-memory-importer
 
-Convert the universal context into platform-specific formats.
+Converts context to platform-specific formats:
 
-**Output formats:**
-| Format | Use Case |
-|--------|----------|
-| `claude-preferences` | Paste into Claude Settings > Profile |
-| `claude-memories` | Structured memory statements |
-| `system-prompt` | XML block for any LLM API |
-| `summary` | Human review before importing |
+| Format | Output File | Use Case |
+|--------|-------------|----------|
+| Claude Preferences | `claude_preferences.txt` | Settings > Profile |
+| Claude Memories | `claude_memories.json` | memory_user_edits |
+| System Prompt | `system_prompt.txt` | Any LLM API |
+| Notion Page | `notion_page.md` | Notion import |
+| Notion Database | `notion_database.json` | Notion DB rows |
+| Google Docs | `google_docs.html` | Google Docs |
+| Summary | `summary.md` | Human overview |
+| Full JSON | `full_export.json` | Lossless backup |
+
+```bash
+python import_memory.py context.json -f all -c medium -o ./output
+```
+
+## Confidence Levels
+
+| Flag | Threshold | Behavior |
+|------|-----------|----------|
+| `-c high` | ≥0.8 | Only high-confidence topics |
+| `-c medium` | ≥0.6 | High + medium confidence |
+| `-c low` | ≥0.4 | Include low confidence |
+| `-c all` | ≥0.0 | Everything |
 
 ## Installation
 
-### Claude Code
+### As Claude Skills
+
+1. Download this repo
+2. In Claude.ai, go to **Settings > Skills**
+3. Add each skill folder
+
+### As Claude Code Plugin
 
 ```bash
-# Add this marketplace
 /plugin marketplace add Junebugg1214/chatbot-memory-skills
-
-# Install the skills
 /plugin install chatbot-memory-extractor
 /plugin install chatbot-memory-importer
 ```
 
-### Manual Installation
+### Standalone
 
 ```bash
-# Clone to your skills directory
 git clone https://github.com/Junebugg1214/chatbot-memory-skills.git
-cp -r chatbot-memory-skills/skills/* ~/.claude/skills/
+cd chatbot-memory-skills
+
+# Extract
+python skills/chatbot-memory-extractor/scripts/extract_memory.py input.json -o context.json
+
+# Import
+python skills/chatbot-memory-importer/scripts/import_memory.py context.json -f all -o ./output
 ```
 
-## Usage
-
-### Step 1: Export your chatbot history
-
-**ChatGPT:**
-1. Go to Settings → Data controls → Export data
-2. Download the ZIP, extract `conversations.json`
-
-**Claude:** Export from Settings (if available) or copy conversation text
-
-**Other chatbots:** Export JSON or copy/paste conversations
-
-### Step 2: Extract your context
+## Example Workflow: ChatGPT → Claude + Notion
 
 ```bash
-python extract_memory.py conversations.json -o ./output
+# Extract from ChatGPT
+python extract_memory.py ~/Downloads/chatgpt-export.zip -o context.json
+
+# Preview
+python import_memory.py context.json --dry-run -c medium
+
+# Export all formats
+python import_memory.py context.json -f all -c medium -o ./import
+
+# Apply:
+# 1. Copy claude_preferences.txt → Claude Settings > Profile
+# 2. Import notion_page.md → Notion
+# 3. Open google_docs.html → Copy to Google Docs
 ```
 
-**Output:**
-- `conversations_context.json` — Universal portable format (source of truth)
-- `conversations_context.md` — Human-readable for review
+## Requirements
 
-### Step 3: Review for accuracy
-
-Open the Markdown file and verify the extracted facts are correct. The confidence indicators help you spot uncertain extractions:
-- 🟢 High — Multiple explicit mentions
-- 🟡 Medium — Clear references
-- 🟠 Low — Inferred from context
-- 🔴 Very Low — Single mention, verify
-
-### Step 4: Import to target platform
-
-```bash
-python import_memory.py output/conversations_context.json -o ./output -c medium
-```
-
-**Options:**
-- `--confidence, -c` — Filter by confidence: `high`, `medium`, `low`, `all`
-- `--format, -f` — Output format: `claude-preferences`, `claude-memories`, `system-prompt`, `summary`, `all`
-
-### Step 5: Apply to your new chatbot
-
-**For Claude:**
-1. Copy contents of `_claude_preferences.txt`
-2. Go to Settings → Profile → "What would you like Claude to know about you?"
-3. Paste and save
-
-**For other LLMs (API):**
-1. Prepend contents of `_system_prompt.txt` to your system prompt
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                                                         │
-│  ANY CHATBOT EXPORT              UNIVERSAL FORMAT         TARGET PLATFORM
-│                                                                         │
-│  ChatGPT JSON ──┐                                    ┌─► Claude Preferences
-│  Claude export ─┼──► EXTRACTOR ──► context.json ──► IMPORTER ─┼─► Claude Memories
-│  Gemini export ─┤                       │                     ├─► System Prompt
-│  Plain text ────┘                       ▼                     └─► Any LLM
-│                                   context.md                            │
-│                                 (human review)                          │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-## Universal Context Schema
-
-```json
-{
-  "schema_version": "1.0",
-  "generated_at": "ISO8601",
-  "source": { ... },
-  "categories": {
-    "identity": { "facts": [...] },
-    "professional_context": { "facts": [...] },
-    ...
-  },
-  "summary": { ... }
-}
-```
-
-Each fact includes:
-- `text` — The extracted information
-- `confidence` — Score (0-1) and level (high/medium/low/very_low)
-- `combined_score` — Importance based on recency (60%) + frequency (40%)
-- `occurrences` — How many times it was mentioned
+- Python 3.10+
+- No external packages (stdlib only)
 
 ## License
 
-MIT License — use freely, attribution appreciated.
+MIT License - See [LICENSE](LICENSE)
 
-## Contributing
+## Author
 
-PRs welcome! Ideas for improvement:
-- Add more source format parsers
-- Add more target platform outputs
-- Improve extraction patterns
-- Add language support beyond English
-
-## Credits
-
-Built with Claude by BurnaAI.
+Created by [@Junebugg1214](https://github.com/Junebugg1214)
