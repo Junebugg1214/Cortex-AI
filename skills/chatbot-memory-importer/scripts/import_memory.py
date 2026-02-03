@@ -53,8 +53,12 @@ CATEGORY_LABELS = {
     "domain_knowledge": "Domain Expertise",
     "market_context": "Market Context",
     "metrics": "Key Metrics",
+    "constraints": "Constraints & Limitations",
     "values": "Values & Principles",
+    "negations": "Dislikes & Avoidances",
+    "user_preferences": "User Preferences",
     "communication_preferences": "Communication Style",
+    "correction_history": "Corrections & Clarifications",
     "history": "History",
     "mentions": "Other Mentions"
 }
@@ -62,7 +66,8 @@ CATEGORY_LABELS = {
 CATEGORY_ORDER = [
     "identity", "professional_context", "business_context", "active_priorities",
     "relationships", "technical_expertise", "domain_knowledge", "market_context",
-    "metrics", "values", "communication_preferences", "history", "mentions"
+    "metrics", "constraints", "values", "negations", "user_preferences",
+    "communication_preferences", "correction_history", "history", "mentions"
 ]
 
 # Notion colors for different confidence levels
@@ -305,7 +310,27 @@ def export_claude_preferences(ctx: NormalizedContext, min_confidence: float = 0.
     if "metrics" in topics:
         metrics = [t.brief for t in topics["metrics"][:5]]
         lines.append(f"Key metrics: {'; '.join(metrics)}")
-    
+
+    # Constraints
+    if "constraints" in topics:
+        constraints = [t.brief for t in topics["constraints"]]
+        lines.append(f"Constraints: {'; '.join(constraints)}")
+
+    # Negations
+    if "negations" in topics:
+        negations = [t.topic for t in topics["negations"]]
+        lines.append(f"Avoids/dislikes: {'; '.join(negations)}")
+
+    # User Preferences
+    if "user_preferences" in topics:
+        prefs = [t.topic for t in topics["user_preferences"]]
+        lines.append(f"Preferences: {'; '.join(prefs)}")
+
+    # Correction History
+    if "correction_history" in topics:
+        corrections = [t.brief for t in topics["correction_history"][:3]]
+        lines.append(f"Recent clarifications: {'; '.join(corrections)}")
+
     return "\n".join(lines)
 
 
@@ -316,7 +341,8 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
     
     priority_order = ["identity", "business_context", "professional_context", "active_priorities",
                       "relationships", "technical_expertise", "domain_knowledge", "market_context",
-                      "metrics", "values", "communication_preferences", "mentions"]
+                      "metrics", "constraints", "values", "negations", "user_preferences",
+                      "communication_preferences", "correction_history", "mentions"]
     
     for category in priority_order:
         if category not in topics:
@@ -350,6 +376,14 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
                 text = f"User values {topic.topic}"
             elif category == "communication_preferences":
                 text = f"User prefers {topic.topic}"
+            elif category == "constraints":
+                text = f"Constraint: {topic.brief}"
+            elif category == "negations":
+                text = f"User avoids: {topic.topic}"
+            elif category == "user_preferences":
+                text = f"User prefers: {topic.topic}"
+            elif category == "correction_history":
+                text = f"User clarified: {topic.brief}"
             else:
                 text = f"Mentioned: {topic.brief}"
             
@@ -373,14 +407,42 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
     """Generate XML context block for system prompts"""
     lines = ["<user_context>"]
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     for category in CATEGORY_ORDER:
         if category not in topics:
             continue
-        
+
         label = CATEGORY_LABELS.get(category, category)
+
+        # Special treatment for constraints
+        if category == "constraints":
+            lines.append(f"  <{category}>")
+            lines.append("    <!-- IMPORTANT: These are hard constraints that must be respected -->")
+            for topic in topics[category]:
+                lines.append(f"    - {topic.brief}")
+            lines.append(f"  </{category}>")
+            continue
+
+        # Special treatment for negations
+        if category == "negations":
+            lines.append(f"  <{category}>")
+            lines.append("    <!-- User explicitly avoids these -->")
+            for topic in topics[category]:
+                lines.append(f"    - {topic.topic}")
+            lines.append(f"  </{category}>")
+            continue
+
+        # Special treatment for correction history
+        if category == "correction_history":
+            lines.append(f"  <{category}>")
+            lines.append("    <!-- Patterns where user has corrected themselves before -->")
+            for topic in topics[category]:
+                lines.append(f"    - {topic.brief}")
+            lines.append(f"  </{category}>")
+            continue
+
         lines.append(f"  <{category}>")
-        
+
         for topic in topics[category]:
             level = topic.get_detail_level()
             formatted = topic.format_by_confidence(min_confidence)
@@ -389,9 +451,9 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
                     lines.append(f"    [{formatted}]")
                 else:
                     lines.append(f"    - {formatted}")
-        
+
         lines.append(f"  </{category}>")
-    
+
     lines.append("</user_context>")
     return "\n".join(lines)
 
@@ -427,7 +489,9 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
             "identity": "👤", "professional_context": "💼", "business_context": "🏢",
             "active_priorities": "🎯", "relationships": "🤝", "technical_expertise": "💻",
             "domain_knowledge": "📚", "market_context": "📈", "metrics": "📊",
-            "values": "💡", "communication_preferences": "💬", "mentions": "📌"
+            "constraints": "🚧", "values": "💡", "negations": "🚫",
+            "user_preferences": "⚙️", "communication_preferences": "💬",
+            "correction_history": "✏️", "mentions": "📌"
         }.get(category, "•")
         
         lines.append(f"## {emoji} {label}")

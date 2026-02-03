@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 Chatbot Memory Extractor v4.0
 
@@ -112,6 +113,66 @@ VALUE_PATTERNS = [
 CURRENT_INDICATORS = ["currently", "now", "right now", "at the moment", "these days", "lately", "recently", "this week", "this month", "this year", "2024", "2025", "2026"]
 PAST_INDICATORS = ["used to", "previously", "formerly", "back when", "in the past", "years ago", "last year", "before"]
 FUTURE_INDICATORS = ["planning to", "going to", "will", "want to", "hope to", "aiming to", "targeting", "goal is"]
+
+# Negation patterns for detecting what users explicitly reject/avoid
+NEGATION_PATTERNS = [
+    r"(?:i|we)\s+(?:don'?t|do not|never|won'?t|will not|refuse to|stopped)\s+(?:use|like|want|prefer|work with|recommend|trust|support)\s+([^.,]+)",
+    r"(?:i|we)\s+(?:avoid|stay away from|steer clear of|moved away from|dropped|ditched|abandoned)\s+([^.,]+)",
+    r"(?:i|we)\s+(?:hate|dislike|can'?t stand|am not a fan of|am against)\s+([^.,]+)",
+    r"(?:not|no longer)\s+(?:using|a fan of|interested in|working with)\s+([^.,]+)",
+    r"(?:switched|migrated|moved)\s+(?:from|away from)\s+([A-Za-z0-9]+)\s+(?:to|over to)",
+    r"(?:i|we)\s+(?:quit|stopped|gave up on|abandoned)\s+([^.,]+)",
+]
+NEGATION_KEYWORDS = {"never", "don't", "dont", "won't", "wont", "avoid", "hate", "dislike", "stopped", "quit", "abandoned", "dropped", "switched from", "no longer", "not anymore", "refuse", "against"}
+
+# Preference patterns for detecting user style/tool preferences
+PREFERENCES_PATTERNS = [
+    r"(?:i|we)\s+(?:prefer|like|love|enjoy|favor)\s+([^.,]+?)(?:\s+(?:over|to|rather than|instead of)|[.,]|$)",
+    r"(?:my|our)\s+(?:preferred|favorite|go-to|default)\s+(?:tool|approach|method|style|way|stack)\s+(?:is|for)\s+([^.,]+)",
+    r"(?:i|we)\s+(?:always|usually|typically|generally|tend to)\s+([^.,]+?)(?:\s+(?:when|for|because)|[.,]|$)",
+    r"i(?:'m| am)\s+(?:a|an)\s+([A-Za-z-]+)\s+(?:person|type|kind of (?:person|developer|engineer))",
+    r"(?:my|our)\s+(?:style|approach|way)\s+(?:is|involves?)\s+([^.,]+)",
+]
+PREFERENCE_INDICATORS = {"prefer", "like", "love", "favor", "enjoy", "always", "usually", "typically", "my style", "my approach", "go-to", "favorite"}
+
+# Constraint patterns for budget/timeline/team/technical requirements
+CONSTRAINTS_PATTERNS = [
+    r"(?:budget|funding|spend|cost)\s+(?:is|of|around|about|under|limit(?:ed to)?)\s*\$?([\d,]+(?:\.\d+)?(?:\s*(?:k|K|M|million|billion))?)",
+    r"\$?([\d,]+(?:\.\d+)?(?:\s*(?:k|K|M|million|billion))?)\s+(?:budget|funding|to spend)",
+    r"(?:can(?:'t| not)?|cannot)\s+(?:spend|afford)\s+(?:more than|over)\s*\$?([\d,]+)",
+    r"(?:deadline|timeline|timeframe|due|launch|go-live)\s+(?:is|in|by|within)\s+([^.,]+)",
+    r"(?:need|must|have to)\s+(?:finish|complete|deliver|launch|ship)\s+(?:by|in|within)\s+([^.,]+)",
+    r"([0-9]+)\s*(?:weeks?|months?|days?|years?)\s+(?:timeline|deadline|to (?:launch|complete|finish))",
+    r"(?:team|staff|engineers?|developers?)\s+(?:of|is|are)\s+([0-9]+(?:\s+(?:people|engineers?|developers?))?)",
+    r"([0-9]+)\s+(?:person|people|engineer|developer)s?\s+(?:team|working on)",
+    r"(?:only|just)\s+([0-9]+)\s+(?:of us|people|engineers?)",
+    r"(?:must|have to|need to|required to)\s+(?:use|support|integrate with|be compatible with)\s+([^.,]+)",
+    r"(?:limited|restricted|constrained)\s+(?:to|by)\s+([^.,]+)",
+    r"(?:must|need to)\s+(?:comply with|meet|follow|adhere to)\s+([A-Z]{2,}(?:\s+[A-Za-z]+)*)",
+    r"([A-Z]{2,})\s+(?:compliant|compliance|certified|requirements?)",
+]
+CONSTRAINT_TYPES = {
+    "budget": ["budget", "funding", "cost", "spend", "afford", "$", "k", "million"],
+    "timeline": ["deadline", "timeline", "weeks", "months", "days", "by", "due", "launch"],
+    "team": ["team", "people", "engineers", "developers", "staff", "headcount"],
+    "technical": ["must use", "limited to", "compatible", "integrate", "support"],
+    "regulatory": ["comply", "hipaa", "gdpr", "pci", "sox", "fda", "regulation"],
+}
+
+# Correction patterns for tracking user self-corrections
+CORRECTIONS_PATTERNS = [
+    # "I meant X not Y" pattern - captures wrong (Y) then correct (X) for consistency
+    r"(?:i meant|actually)\s+([A-Za-z0-9]+)\s+not\s+([A-Za-z0-9]+)",
+    # General correction patterns
+    r"(?:actually|sorry|correction|to clarify|let me correct|i misspoke),?\s+(?:i meant|it(?:'s| is)|that(?:'s| is)|it should be|i mean)\s+([^.,]+)",
+    r"(?:not|no,?)\s+([A-Za-z0-9\s]+),?\s+(?:but|rather|i meant?|it(?:'s| is))\s+([A-Za-z0-9\s]+)",
+    r"(?:i said|when i said)\s+([^,]+),?\s+(?:i meant|but i meant|i actually meant)\s+([^.,]+)",
+    r"(?:that(?:'s| is)|i was)\s+wrong,?\s+(?:it(?:'s| is)|it should be|the correct (?:answer|thing) is)\s+([^.,]+)",
+    r"(?:typo|error|mistake),?\s+(?:i meant|should be|it(?:'s| is))\s+([^.,]+)",
+    r"(?:wait|hold on|no wait),?\s+(?:i meant?|it(?:'s| is)|that(?:'s| is))\s+([^.,]+)",
+    r"(?:let me (?:rephrase|restate|clarify)|to be (?:clear|more precise)),?\s+([^.,]+)",
+]
+CORRECTION_KEYWORDS = {"actually", "correction", "sorry", "i meant", "typo", "mistake", "wrong", "error", "let me correct", "to clarify", "i misspoke", "wait", "hold on"}
 
 STRIP_PREFIXES = ["in ", "that ", "the ", "a ", "an ", "to ", "for ", "with ", "about "]
 NOISE_WORDS = {'strategies', 'doing', 'things', 'stuff', 'something', 'anything', 'working', 'building', 'creating', 'developing', 'using', 'good', 'great', 'best', 'better', 'important', 'new', 'old', 'first', 'last', 'next', 'other'}
@@ -440,6 +501,7 @@ class AggressiveExtractor:
     def __init__(self):
         self.context = ExtractionContext()
         self.all_user_text = []
+        self._negated_items = set()  # Track negated items for cross-category filtering
     
     def extract_from_text(self, text: str, timestamp: datetime | None = None):
         if not text or len(text.strip()) < 10:
@@ -455,6 +517,10 @@ class AggressiveExtractor:
         self._extract_values(text, timestamp)
         self._extract_priorities(text, timestamp)
         self._extract_metrics(text, timestamp)
+        self._extract_negations(text, timestamp)
+        self._extract_preferences(text, timestamp)
+        self._extract_constraints(text, timestamp)
+        self._extract_corrections(text, timestamp)
         self._extract_entities_generic(text, timestamp)
         self._extract_temporal(text, timestamp)
     
@@ -593,7 +659,154 @@ class AggressiveExtractor:
                         topic.timeline.append("past")
                     if is_future:
                         topic.timeline.append("planned")
-    
+
+    def _extract_negations(self, text: str, timestamp: datetime | None = None):
+        """Extract items the user explicitly rejects or avoids."""
+        lower = text.lower()
+
+        # Only process if negation context exists
+        has_negation_context = any(kw in lower for kw in NEGATION_KEYWORDS)
+        if not has_negation_context:
+            return
+
+        for pattern in NEGATION_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                negated_item = clean_extracted_text(match.group(1))
+                if 2 < len(negated_item) < 100:
+                    self.context.add_topic(
+                        category="negations",
+                        topic=negated_item,
+                        brief=f"User avoids: {negated_item}",
+                        full_description=match.group(0)[:200],
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0)[:200],
+                        timestamp=timestamp
+                    )
+                    # Store normalized form for filtering other categories
+                    self._negated_items.add(normalize_text(negated_item))
+                    # Also add individual words from the negated item for broader matching
+                    for word in negated_item.lower().split():
+                        if len(word) > 2 and word not in SKIP_WORDS:
+                            self._negated_items.add(word)
+
+    def _extract_preferences(self, text: str, timestamp: datetime | None = None):
+        """Extract user preferences and style choices."""
+        lower = text.lower()
+
+        for pattern in PREFERENCES_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                pref = clean_extracted_text(match.group(1))
+                if 3 < len(pref) < 150:
+                    # Determine extraction strength
+                    has_strong_indicator = any(ind in lower for ind in {"prefer", "always", "favorite", "love"})
+                    method = "explicit_statement" if has_strong_indicator else "self_reference"
+
+                    self.context.add_topic(
+                        category="user_preferences",
+                        topic=pref,
+                        brief=f"Prefers: {pref}",
+                        extraction_method=method,
+                        source_quote=match.group(0)[:200],
+                        timestamp=timestamp
+                    )
+
+        # Extract communication style preferences specifically
+        comm_patterns = [
+            r"(?:please|always)\s+(be\s+(?:concise|detailed|thorough|brief|specific))",
+            r"(?:i|we)\s+(?:like|prefer|want)\s+((?:detailed|concise|brief|thorough)\s+(?:explanations?|responses?|answers?))",
+            r"(?:give me|provide)\s+((?:more|less)\s+(?:detail|context|examples?))",
+        ]
+        for pattern in comm_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                pref = clean_extracted_text(match.group(1))
+                if len(pref) > 3:
+                    self.context.add_topic(
+                        category="communication_preferences",
+                        topic=pref,
+                        brief=f"Communication: {pref}",
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0)[:200],
+                        timestamp=timestamp
+                    )
+
+    def _extract_constraints(self, text: str, timestamp: datetime | None = None):
+        """Extract constraints (budget, timeline, team size, requirements)."""
+
+        for pattern in CONSTRAINTS_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                constraint = match.group(1).strip() if match.lastindex >= 1 else match.group(0).strip()
+                if len(constraint) < 2:
+                    continue
+
+                # Classify constraint type
+                constraint_type = self._classify_constraint(match.group(0).lower())
+
+                # Extract associated metrics
+                metrics = extract_numbers(match.group(0))
+
+                self.context.add_topic(
+                    category="constraints",
+                    topic=constraint,
+                    brief=f"{constraint_type.title()}: {constraint}",
+                    full_description=match.group(0)[:200],
+                    extraction_method="explicit_statement",
+                    metrics=metrics,
+                    source_quote=match.group(0)[:200],
+                    timestamp=timestamp
+                )
+
+    def _classify_constraint(self, text: str) -> str:
+        """Classify constraint into type."""
+        for ctype, keywords in CONSTRAINT_TYPES.items():
+            if any(kw in text for kw in keywords):
+                return ctype
+        return "general"
+
+    def _extract_corrections(self, text: str, timestamp: datetime | None = None):
+        """Extract user corrections and clarifications."""
+        lower = text.lower()
+
+        # Only process if correction context exists
+        has_correction_context = any(kw in lower for kw in CORRECTION_KEYWORDS)
+        if not has_correction_context:
+            return
+
+        for pattern in CORRECTIONS_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                # Handle both single-group and two-group patterns
+                if match.lastindex >= 2:
+                    # Check if this is the "X not Y" pattern where X is correct, Y is wrong
+                    if " not " in match.group(0).lower():
+                        correct_item = match.group(1).strip()
+                        wrong_item = match.group(2).strip()
+                    else:
+                        # Standard pattern: group 1 is wrong, group 2 is correct
+                        wrong_item = match.group(1).strip()
+                        correct_item = match.group(2).strip()
+                    correction_text = f"Corrected '{wrong_item}' to '{correct_item}'"
+                    topic_name = correct_item
+                    # Add the wrong item to negated items for filtering
+                    if len(wrong_item) > 2:
+                        self._negated_items.add(normalize_text(wrong_item))
+                        for word in wrong_item.lower().split():
+                            if len(word) > 2 and word not in SKIP_WORDS:
+                                self._negated_items.add(word)
+                else:
+                    correct_item = match.group(1).strip()
+                    correction_text = f"Clarified: {correct_item}"
+                    topic_name = correct_item
+
+                if 2 < len(topic_name) < 150:
+                    self.context.add_topic(
+                        category="correction_history",
+                        topic=topic_name,
+                        brief=correction_text,
+                        full_description=match.group(0)[:200],
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0)[:200],
+                        timestamp=timestamp
+                    )
+
     def post_process(self):
         for cat in ['relationships', 'market_context', 'mentions']:
             if cat in self.context.topics:
@@ -601,6 +814,20 @@ class AggressiveExtractor:
                 for key in to_remove:
                     if key in self.context.topics[cat]:
                         del self.context.topics[cat][key]
+
+        # Filter negated items from positive categories
+        if self._negated_items:
+            categories_to_filter = ["technical_expertise", "domain_knowledge", "values", "user_preferences"]
+            for category in categories_to_filter:
+                if category in self.context.topics:
+                    to_remove = set()
+                    for key in list(self.context.topics[category].keys()):
+                        # Check if this item was negated (fuzzy match)
+                        if any(are_similar(key, neg, threshold=0.8) for neg in self._negated_items):
+                            to_remove.add(key)
+                    for key in to_remove:
+                        del self.context.topics[category][key]
+
         self.context.merge_similar_topics()
         self.context.apply_time_decay()
         if "mentions" in self.context.topics:
@@ -634,6 +861,89 @@ class AggressiveExtractor:
         self.post_process()
         return self.context.export()
 
+    def process_gemini_export(self, data: dict) -> dict:
+        """Process Gemini/Google AI Studio exports."""
+        conversations = data.get("conversations", [])
+
+        for conv in conversations:
+            # Handle "turns" format
+            if "turns" in conv:
+                for turn in conv["turns"]:
+                    if turn.get("role") == "user":
+                        self.extract_from_text(
+                            turn.get("text", ""),
+                            parse_timestamp(turn.get("timestamp", turn.get("create_time")))
+                        )
+            # Handle "messages" format
+            elif "messages" in conv:
+                for msg in conv["messages"]:
+                    author = msg.get("author", msg.get("role", ""))
+                    if author in ["user", "human"]:
+                        content = msg.get("content", msg.get("text", ""))
+                        if isinstance(content, list):
+                            content = " ".join(
+                                p.get("text", str(p)) if isinstance(p, dict) else str(p)
+                                for p in content
+                            )
+                        self.extract_from_text(
+                            content,
+                            parse_timestamp(msg.get("timestamp", msg.get("create_time")))
+                        )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_perplexity_export(self, data: dict) -> dict:
+        """Process Perplexity exports."""
+        threads = data.get("threads", [])
+
+        for thread in threads:
+            for msg in thread.get("messages", []):
+                if msg.get("role") == "user":
+                    self.extract_from_text(
+                        msg.get("content", ""),
+                        parse_timestamp(msg.get("created_at"))
+                    )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_jsonl_messages(self, messages: list) -> dict:
+        """Process JSONL message list."""
+        for msg in messages:
+            if is_user_message(msg):
+                self.extract_from_text(
+                    get_message_text(msg),
+                    parse_timestamp(msg.get("timestamp", msg.get("created_at")))
+                )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_api_logs(self, data: dict) -> dict:
+        """Process OpenAI/Anthropic API request logs."""
+        requests = data.get("requests", [])
+
+        for req in requests:
+            messages = req.get("messages", [])
+            for msg in messages:
+                if msg.get("role") in ["user", "human"]:
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        # Handle Anthropic content blocks
+                        content = " ".join(
+                            block.get("text", "")
+                            for block in content
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        )
+                    self.extract_from_text(
+                        content,
+                        parse_timestamp(req.get("timestamp", req.get("created_at")))
+                    )
+
+        self.post_process()
+        return self.context.export()
+
 
 # ============================================================================
 # FILE HANDLERS
@@ -655,16 +965,73 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                     with zf.open(name) as f:
                         return f.read().decode('utf-8'), "text"
         raise ValueError("No supported files in zip")
+
+    # JSONL format: one JSON object per line
+    if file_path.suffix == '.jsonl':
+        messages = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        messages.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        return messages, "jsonl"
+
     if file_path.suffix == '.json':
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
+
+        # Detection order: most specific to most generic
+
+        # 1. OpenAI export (has "mapping" structure)
         if isinstance(data, list) and data and "mapping" in data[0]:
             return data, "openai"
-        if "conversations" in data or "mapping" in data:
-            return data, "openai"
-        if "messages" in data:
+        if isinstance(data, dict) and ("conversations" in data or "mapping" in data):
+            if "mapping" in data:
+                return data, "openai"
+            convs = data.get("conversations", [])
+            if convs and isinstance(convs, list) and convs[0] and "mapping" in convs[0]:
+                return data, "openai"
+
+        # 2. Perplexity (has "threads" key with specific structure)
+        if isinstance(data, dict) and "threads" in data:
+            threads = data["threads"]
+            if threads and isinstance(threads[0], dict) and "messages" in threads[0]:
+                return data, "perplexity"
+
+        # 3. Gemini (has "conversations" with "turns" or "model" author format)
+        if isinstance(data, dict) and "conversations" in data:
+            convs = data["conversations"]
+            if convs and isinstance(convs[0], dict):
+                first_conv = convs[0]
+                # Check for Gemini "turns" structure
+                if "turns" in first_conv:
+                    return data, "gemini"
+                # Check for Gemini author format
+                if "messages" in first_conv:
+                    msgs = first_conv["messages"]
+                    if msgs and isinstance(msgs[0], dict) and msgs[0].get("author") in ["user", "model"]:
+                        return data, "gemini"
+
+        # 4. API logs (has "requests" with messages arrays)
+        if isinstance(data, dict) and "requests" in data:
+            return data, "api_logs"
+        if isinstance(data, list) and data and "messages" in data[0] and "model" in data[0]:
+            return {"requests": data}, "api_logs"
+
+        # 5. Generic messages list
+        if isinstance(data, dict) and "messages" in data:
             return data.get("messages", []), "messages"
+
+        # 6. Plain messages array
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            if "role" in data[0] or "author" in data[0]:
+                return data, "messages"
+
         return data, "generic"
+
     if file_path.suffix in ['.txt', '.md']:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read(), "text"
@@ -675,31 +1042,39 @@ def main():
     parser = argparse.ArgumentParser(description="Aggressive memory extraction v4")
     parser.add_argument("input_file", help="Path to export file")
     parser.add_argument("--output", "-o", help="Output file path")
-    parser.add_argument("--format", "-f", choices=["auto", "openai", "messages", "text", "generic"], default="auto")
+    parser.add_argument("--format", "-f", choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"], default="auto")
     parser.add_argument("--stats", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
     input_path = Path(args.input_file)
-    
+
     if not input_path.exists():
-        print(f"❌ File not found: {input_path}")
+        print(f"File not found: {input_path}")
         return 1
-    
-    print(f"📂 Loading: {input_path}")
+
+    print(f"Loading: {input_path}")
     try:
         data, detected_format = load_file(input_path)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         return 1
-    
+
     fmt = args.format if args.format != "auto" else detected_format
-    print(f"🔍 Format: {fmt}")
-    
+    print(f"Format: {fmt}")
+
     extractor = AggressiveExtractor()
-    print("🔬 Extracting (semantic dedup, time decay, topic merging)...")
-    
+    print("Extracting (semantic dedup, time decay, topic merging, negation filtering)...")
+
     if fmt == "openai":
         result = extractor.process_openai_export(data)
+    elif fmt == "gemini":
+        result = extractor.process_gemini_export(data)
+    elif fmt == "perplexity":
+        result = extractor.process_perplexity_export(data)
+    elif fmt == "jsonl":
+        result = extractor.process_jsonl_messages(data)
+    elif fmt == "api_logs":
+        result = extractor.process_api_logs(data)
     elif fmt == "messages":
         result = extractor.process_messages_list(data)
     elif fmt == "text":
