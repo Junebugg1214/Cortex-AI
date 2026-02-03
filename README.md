@@ -2,6 +2,25 @@
 
 Migrate your AI conversation history between platforms. Extract context from ChatGPT, Claude, Gemini, Perplexity, or any chatbot and import it into Claude, Notion, Google Docs, or any LLM.
 
+## Quick Migrate
+
+```bash
+# One command: extract + import
+python migrate.py chatgpt-export.zip --to claude -o ./output
+
+# Export to all platforms
+python migrate.py chatgpt-export.zip --to all
+
+# With PII redaction
+python migrate.py chatgpt-export.zip --to claude --redact
+
+# Extract only
+python migrate.py extract chatgpt-export.zip -o context.json
+
+# Import only
+python migrate.py import context.json --to notion -o ./output
+```
+
 ## What's New in v4.3
 
 | Feature | Description |
