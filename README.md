@@ -2,7 +2,14 @@
 
 Migrate your AI conversation history between platforms. Extract context from ChatGPT, Claude, Gemini, Perplexity, or any chatbot and import it into Claude, Notion, Google Docs, or any LLM.
 
-## What's New in v4.2
+## What's New in v4.3
+
+| Feature | Description |
+|---------|-------------|
+| **PII Redaction** | `--redact` flag replaces emails, phones, SSNs, credit cards, API keys, IPs, and addresses with typed placeholders before extraction |
+| **Custom Redaction Patterns** | `--redact-patterns <file.json>` adds custom regex patterns alongside built-ins |
+
+## What's in v4.2
 
 | Feature | Description |
 |---------|-------------|
@@ -232,6 +239,54 @@ The merge:
 - Adds new topics from the new extraction
 - Deduplicates similar topics automatically
 - Preserves relationship types and other metadata
+
+## PII Redaction
+
+Strip sensitive data before extraction with `--redact`:
+
+```bash
+# Enable PII redaction — replaces PII with placeholders like [EMAIL], [PHONE]
+python extract_memory.py conversations.json --redact -o context.json --verbose
+
+# Add custom patterns alongside built-ins
+echo '{"EMPLOYEE_ID": "\\bEMP-\\d{6}\\b", "INTERNAL_CODE": "\\bINT-[A-Z]{3}-\\d{4}\\b"}' > custom.json
+python extract_memory.py conversations.json --redact --redact-patterns custom.json -o context.json
+```
+
+**What gets redacted:**
+
+| Type | Example | Placeholder |
+|------|---------|-------------|
+| Email | `john@example.com` | `[EMAIL]` |
+| Phone | `(555) 123-4567` | `[PHONE]` |
+| SSN | `123-45-6789` | `[SSN]` |
+| Credit Card | `4111111111111111` | `[CREDIT_CARD]` |
+| API Key | `sk-abc123...` | `[API_KEY]` |
+| IP Address | `192.168.1.100` | `[IP_ADDRESS]` |
+| Street Address | `123 Main St` | `[STREET_ADDRESS]` |
+
+**Not redacted:** Names, company names, technical terms, domain knowledge, general numbers/metrics.
+
+**Custom patterns file format** (`--redact-patterns`):
+
+```json
+{
+    "EMPLOYEE_ID": "\\bEMP-\\d{6}\\b",
+    "INTERNAL_CODE": "\\bINT-[A-Z]{3}-\\d{4}\\b"
+}
+```
+
+The redaction summary is included in the output JSON when `--redact` is enabled:
+
+```json
+{
+  "redaction_summary": {
+    "redaction_applied": true,
+    "total_redactions": 5,
+    "by_type": {"EMAIL": 2, "PHONE": 1, "IP_ADDRESS": 2}
+  }
+}
+```
 
 ## Claude Memory Import (Bidirectional Sync)
 
