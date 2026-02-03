@@ -1,6 +1,6 @@
 {
   "name": "chatbot-memory-skills",
-  "version": "4.0.0",
+  "version": "4.3.0",
   "description": "Migrate AI conversation history between platforms with semantic deduplication, time decay, and multi-format export",
   "author": "Junebugg1214",
   "repository": "https://github.com/Junebugg1214/chatbot-memory-skills",
@@ -22,7 +22,7 @@
       "name": "chatbot-memory-extractor",
       "path": "skills/chatbot-memory-extractor",
       "description": "Extract user context from any chatbot export (ChatGPT, Claude, Gemini) with semantic deduplication and time decay",
-      "version": "4.0.0",
+      "version": "4.3.0",
       "triggers": [
         "extract my context",
         "import my ChatGPT history",
@@ -34,7 +34,7 @@
       "name": "chatbot-memory-importer",
       "path": "skills/chatbot-memory-importer",
       "description": "Convert universal context to Claude, Notion, Google Docs, and other platform formats",
-      "version": "4.0.0",
+      "version": "4.3.0",
       "triggers": [
         "import my context",
         "configure Claude with my history",
