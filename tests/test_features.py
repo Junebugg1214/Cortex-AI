@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "chatbot-memory
 from extract_memory import (
     AggressiveExtractor, ExtractionContext, ExtractedTopic,
     are_similar, normalize_text, merge_contexts, parse_timestamp,
-    RELATIONSHIP_TYPE_PATTERNS
+    RELATIONSHIP_TYPE_PATTERNS, PIIRedactor, PII_PATTERNS
 )
 from import_memory import NormalizedContext, TopicDetail
 
@@ -327,6 +327,162 @@ class TestBidirectionalSync:
         assert topic.relationship_type == "investor"
 
 
+class TestPIIRedaction:
+    """Tests for PII Redaction feature"""
+
+    def test_redaction_disabled_by_default(self):
+        """PII should be preserved when no redactor is provided"""
+        extractor = AggressiveExtractor()
+        extractor.extract_from_text("Contact me at john@example.com for details.")
+        extractor.post_process()
+        result = extractor.context.export()
+        assert "redaction_summary" not in result
+
+    def test_email_redaction(self):
+        """Emails should be replaced with [EMAIL]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("Email me at john@example.com please.")
+        assert "[EMAIL]" in result
+        assert "john@example.com" not in result
+
+    def test_phone_redaction(self):
+        """Phone numbers should be replaced with [PHONE]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("Call me at (555) 123-4567.")
+        assert "[PHONE]" in result
+        assert "123-4567" not in result
+
+    def test_ssn_redaction(self):
+        """SSNs should be replaced with [SSN]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("My SSN is 123-45-6789.")
+        assert "[SSN]" in result
+        assert "123-45-6789" not in result
+
+    def test_credit_card_redaction(self):
+        """Credit card numbers should be replaced with [CREDIT_CARD]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("Card number 4111111111111111 on file.")
+        assert "[CREDIT_CARD]" in result
+        assert "4111111111111111" not in result
+
+    def test_api_key_redaction(self):
+        """API keys should be replaced with [API_KEY]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("Use sk-abcdefghijklmnopqrstuvwxyz0123456789 for auth.")
+        assert "[API_KEY]" in result
+        assert "sk-abcdefghijklmnopqrstuvwxyz0123456789" not in result
+
+    def test_ip_address_redaction(self):
+        """IP addresses should be replaced with [IP_ADDRESS]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("Server at 192.168.1.100 is down.")
+        assert "[IP_ADDRESS]" in result
+        assert "192.168.1.100" not in result
+
+    def test_street_address_redaction(self):
+        """Street addresses should be replaced with [STREET_ADDRESS]"""
+        redactor = PIIRedactor()
+        result = redactor.redact("I live at 123 Main St.")
+        assert "[STREET_ADDRESS]" in result
+        assert "123 Main St" not in result
+
+    def test_names_not_redacted(self):
+        """Names should NOT be redacted"""
+        redactor = PIIRedactor()
+        result = redactor.redact("My name is John Smith and I'm a developer.")
+        assert "John Smith" in result
+
+    def test_technical_terms_not_redacted(self):
+        """Technical terms and company names should NOT be redacted"""
+        redactor = PIIRedactor()
+        result = redactor.redact("I use Python and React at Google.")
+        assert "Python" in result
+        assert "React" in result
+        assert "Google" in result
+
+    def test_summary_counts_accurate(self):
+        """Redaction summary should accurately count replacements"""
+        redactor = PIIRedactor()
+        redactor.redact("Email john@example.com and jane@test.com. Call (555) 123-4567.")
+        summary = redactor.get_summary()
+        assert summary["redaction_applied"] is True
+        assert summary["total_redactions"] == 3
+        assert summary["by_type"]["EMAIL"] == 2
+        assert summary["by_type"]["PHONE"] == 1
+
+    def test_custom_patterns_work(self):
+        """Custom patterns should extend built-in patterns"""
+        custom = {"EMPLOYEE_ID": r'\bEMP-\d{6}\b'}
+        redactor = PIIRedactor(custom_patterns=custom)
+        result = redactor.redact("Employee EMP-123456 reported an issue.")
+        assert "[EMPLOYEE_ID]" in result
+        assert "EMP-123456" not in result
+
+    def test_custom_patterns_extend_builtins(self):
+        """Custom patterns should work alongside built-in patterns"""
+        custom = {"INTERNAL_CODE": r'\bINT-[A-Z]{3}-\d{4}\b'}
+        redactor = PIIRedactor(custom_patterns=custom)
+        result = redactor.redact("Code INT-ABC-1234, email john@test.com.")
+        assert "[INTERNAL_CODE]" in result
+        assert "[EMAIL]" in result
+
+    def test_redacted_text_flows_into_extraction(self):
+        """PII should never enter extraction context when redactor is active"""
+        redactor = PIIRedactor()
+        extractor = AggressiveExtractor(redactor=redactor)
+        extractor.extract_from_text("I'm a developer, email me at secret@company.com for the project details.")
+        extractor.post_process()
+
+        # Check no email address leaked into any extracted topic
+        export = extractor.context.export()
+        export_str = json.dumps(export)
+        assert "secret@company.com" not in export_str
+
+    def test_redaction_summary_in_export(self):
+        """Redaction summary should appear in exported JSON when enabled"""
+        redactor = PIIRedactor()
+        extractor = AggressiveExtractor(redactor=redactor)
+        extractor.extract_from_text("Contact john@example.com for more information about our project.")
+        extractor.post_process()
+
+        result = extractor.context.export()
+        assert "redaction_summary" in result
+        assert result["redaction_summary"]["redaction_applied"] is True
+        assert result["redaction_summary"]["total_redactions"] >= 1
+
+    def test_no_redaction_summary_when_disabled(self):
+        """No redaction_summary key when redaction is not enabled"""
+        extractor = AggressiveExtractor()
+        extractor.extract_from_text("Contact john@example.com for details about the project.")
+        extractor.post_process()
+
+        result = extractor.context.export()
+        assert "redaction_summary" not in result
+
+    def test_multiple_pii_types_in_one_text(self):
+        """Multiple PII types in a single text block should all be redacted"""
+        redactor = PIIRedactor()
+        text = "Email john@test.com, call (555) 123-4567, SSN 123-45-6789, server 10.0.0.1."
+        result = redactor.redact(text)
+        assert "[EMAIL]" in result
+        assert "[PHONE]" in result
+        assert "[SSN]" in result
+        assert "[IP_ADDRESS]" in result
+        summary = redactor.get_summary()
+        assert summary["total_redactions"] == 4
+        assert len(summary["by_type"]) == 4
+
+    def test_empty_redaction_when_no_pii_found(self):
+        """Summary should show zero redactions when text has no PII"""
+        redactor = PIIRedactor()
+        redactor.redact("I am a software engineer who uses Python.")
+        summary = redactor.get_summary()
+        assert summary["redaction_applied"] is True
+        assert summary["total_redactions"] == 0
+        assert summary["by_type"] == {}
+
+
 class TestIntegration:
     """Integration tests combining multiple features"""
 
@@ -390,6 +546,7 @@ def run_tests():
         TestConflictDetection,
         TestIncrementalMerge,
         TestBidirectionalSync,
+        TestPIIRedaction,
         TestIntegration,
     ]
 

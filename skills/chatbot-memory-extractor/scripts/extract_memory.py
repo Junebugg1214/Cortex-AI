@@ -205,6 +205,50 @@ STRIP_PREFIXES = ["in ", "that ", "the ", "a ", "an ", "to ", "for ", "with ", "
 NOISE_WORDS = {'strategies', 'doing', 'things', 'stuff', 'something', 'anything', 'working', 'building', 'creating', 'developing', 'using', 'good', 'great', 'best', 'better', 'important', 'new', 'old', 'first', 'last', 'next', 'other'}
 SKIP_WORDS = {'the', 'this', 'that', 'what', 'when', 'where', 'which', 'who', 'how', 'why', 'our', 'my', 'your', 'their', 'his', 'her', 'its', 'we', 'they', 'he', 'she', 'it', 'you', 'i', 'also', 'just', 'now', 'then', 'here', 'there', 'please', 'thanks', 'thank', 'hello', 'hi', 'hey', 'currently', 'recently', 'basically', 'actually'}
 
+# Order matters: longer/more specific patterns must come before PHONE to avoid
+# partial matches (e.g., PHONE matching trailing digits of a credit card number).
+PII_PATTERNS = [
+    ("EMAIL", r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
+    ("SSN", r'\b\d{3}-\d{2}-\d{4}\b'),
+    ("CREDIT_CARD", r'\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b'),
+    ("API_KEY", r'(?:sk_live_[A-Za-z0-9]{24,}|sk-[A-Za-z0-9]{32,}|api[_-]?key[=:\s]+[A-Za-z0-9_\-]{20,})'),
+    ("IP_ADDRESS", r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
+    ("STREET_ADDRESS", r'\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Ave|Blvd|Dr|Rd|Ln|Ct|Way|Pl|Cir|Ter|Pkwy)\.?\b'),
+    ("PHONE", r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?)[0-9]{3}[-.\s]?[0-9]{4}\b'),
+]
+
+
+class PIIRedactor:
+    """Replaces PII in text with typed placeholders like [EMAIL], [PHONE], etc."""
+
+    def __init__(self, custom_patterns: dict[str, str] | None = None):
+        self._patterns: list[tuple[str, re.Pattern]] = []
+        for label, pattern in PII_PATTERNS:
+            self._patterns.append((label, re.compile(pattern)))
+        if custom_patterns:
+            for label, pattern in custom_patterns.items():
+                self._patterns.append((label, re.compile(pattern)))
+        self._counts: dict[str, int] = defaultdict(int)
+        self._total: int = 0
+
+    def redact(self, text: str) -> str:
+        """Replace all PII matches with [TYPE] placeholders."""
+        for label, compiled in self._patterns:
+            def _replacer(match, _label=label):
+                self._counts[_label] += 1
+                self._total += 1
+                return f"[{_label}]"
+            text = compiled.sub(_replacer, text)
+        return text
+
+    def get_summary(self) -> dict:
+        """Return redaction statistics. Never includes original PII values."""
+        return {
+            "redaction_applied": True,
+            "total_redactions": self._total,
+            "by_type": dict(self._counts),
+        }
+
 
 # ============================================================================
 # SIMILARITY UTILITIES
@@ -426,6 +470,7 @@ class ExtractionContext:
     topics: dict[str, dict[str, ExtractedTopic]] = field(default_factory=lambda: defaultdict(dict))
     extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     conflicts: list[dict] = field(default_factory=list)
+    redaction_summary: dict | None = field(default=None)
     
     def add_topic(self, category: str, topic: str, brief: str = "", full_description: str = "",
                   confidence: float = None, extraction_method: str = "mentioned",
@@ -568,6 +613,8 @@ class ExtractionContext:
                 output["categories"][category] = [t.to_dict() for t in sorted_topics]
         if self.conflicts:
             output["conflicts"] = self.conflicts
+        if self.redaction_summary is not None:
+            output["redaction_summary"] = self.redaction_summary
         return output
     
     def stats(self) -> dict:
@@ -584,14 +631,17 @@ class ExtractionContext:
 # ============================================================================
 
 class AggressiveExtractor:
-    def __init__(self):
+    def __init__(self, redactor: PIIRedactor | None = None):
         self.context = ExtractionContext()
         self.all_user_text = []
         self._negated_items = set()  # Track negated items for cross-category filtering
+        self._redactor = redactor
     
     def extract_from_text(self, text: str, timestamp: datetime | None = None):
         if not text or len(text.strip()) < 10:
             return
+        if self._redactor:
+            text = self._redactor.redact(text)
         self.all_user_text.append(text)
         self._extract_identity(text, timestamp)
         self._extract_roles(text, timestamp)
@@ -961,6 +1011,10 @@ class AggressiveExtractor:
         # Detect conflicts between positive categories and negations
         self.context.conflicts = self.context.detect_conflicts()
 
+        # Inject redaction summary if redactor was used
+        if self._redactor:
+            self.context.redaction_summary = self._redactor.get_summary()
+
         if "mentions" in self.context.topics:
             better_topics = {key for cat, topics in self.context.topics.items() for key in topics if cat != "mentions"}
             to_remove = {key for key in list(self.context.topics["mentions"].keys()) if any(are_similar(key, better, threshold=0.7) for better in better_topics)}
@@ -1208,6 +1262,8 @@ def main():
     parser.add_argument("--output", "-o", help="Output file path")
     parser.add_argument("--format", "-f", choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"], default="auto")
     parser.add_argument("--merge", "-m", help="Existing context file to merge with (incremental extraction)")
+    parser.add_argument("--redact", action="store_true", help="Enable PII redaction (emails, phones, SSNs, etc.)")
+    parser.add_argument("--redact-patterns", help="Path to JSON file with custom redaction patterns {\"LABEL\": \"regex\"}")
     parser.add_argument("--stats", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
@@ -1227,7 +1283,23 @@ def main():
     fmt = args.format if args.format != "auto" else detected_format
     print(f"Format: {fmt}")
 
-    extractor = AggressiveExtractor()
+    # Build optional PII redactor
+    redactor = None
+    if args.redact:
+        custom_patterns = None
+        if args.redact_patterns:
+            patterns_path = Path(args.redact_patterns)
+            if patterns_path.exists():
+                with open(patterns_path, 'r', encoding='utf-8') as f:
+                    custom_patterns = json.load(f)
+                print(f"🔒 Loaded {len(custom_patterns)} custom redaction patterns from {patterns_path}")
+            else:
+                print(f"⚠️  Redaction patterns file not found: {patterns_path}")
+                return 1
+        redactor = PIIRedactor(custom_patterns)
+        print("🔒 PII redaction enabled")
+
+    extractor = AggressiveExtractor(redactor=redactor)
 
     # Handle merge with existing context file
     if args.merge:
@@ -1285,6 +1357,14 @@ def main():
             print(f"\n⚠️  Detected {len(result['conflicts'])} conflicts:")
             for conflict in result["conflicts"][:5]:
                 print(f"    • {conflict['positive_category']}: '{conflict['positive_topic']}' vs negation '{conflict['negative_topic']}' → {conflict['resolution']}")
+
+    # Show redaction summary
+    if result.get("redaction_summary"):
+        summary = result["redaction_summary"]
+        print(f"\n🔒 Redaction: {summary['total_redactions']} items redacted")
+        if args.verbose and summary["by_type"]:
+            for pii_type, count in sorted(summary["by_type"].items()):
+                print(f"   {pii_type}: {count}")
     
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
     with open(output_path, 'w', encoding='utf-8') as f:
