@@ -104,6 +104,33 @@ RELATIONSHIP_PATTERNS = [
     r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is our|are our)\s+(?:partner|client|investor|advisor)",
 ]
 
+RELATIONSHIP_TYPE_PATTERNS = {
+    "partner": [
+        r"(?:partner(?:ship|ing)?|collaborat(?:e|ing|ion))\s+(?:with|and)\s+([A-Z][A-Za-z0-9\s-]+?)(?:\s+(?:on|to|for)|\.|,|$)",
+        r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is our|are our)\s+(?:partner|collaborator)",
+    ],
+    "mentor": [
+        r"(?:mentor(?:ed)?|mentoring)\s+(?:by|from|is)\s+([A-Z][A-Za-z0-9\s-]+)",
+        r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is my|as my)\s+mentor",
+    ],
+    "advisor": [
+        r"(?:advisor|advised)\s+(?:by|from|is)\s+([A-Z][A-Za-z0-9\s-]+)",
+        r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is an?|as an?)\s+advisor",
+    ],
+    "investor": [
+        r"(?:investor|invested|backed|funded)\s+(?:by|from|is)\s+([A-Z][A-Za-z0-9\s-]+)",
+        r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:invested|is an investor)",
+    ],
+    "client": [
+        r"(?:client|customer)s?\s+(?:include|is|are)\s+([A-Z][A-Za-z0-9\s-]+)",
+        r"([A-Z][A-Za-z0-9\s-]+?)\s+(?:is a|as a)\s+(?:client|customer)",
+    ],
+    "competitor": [
+        r"(?:competitor|competing)\s+(?:with|is|like)\s+([A-Z][A-Za-z0-9\s-]+)",
+        r"(?:vs|versus|compared to)\s+([A-Z][A-Za-z0-9\s-]+)",
+    ],
+}
+
 VALUE_PATTERNS = [
     r"i (?:believe|think|value|prioritize|care about)\s+([^.,]+)",
     r"(?:important to me|matters to me|i always)\s+([^.,]+)",
@@ -347,6 +374,7 @@ class ExtractedTopic:
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     mention_timestamps: list[datetime] = field(default_factory=list)
+    relationship_type: str = ""  # partner, mentor, advisor, investor, client, competitor
     
     def apply_boosts(self, reference_time: datetime | None = None):
         mention_boost = 0.0
@@ -374,7 +402,7 @@ class ExtractedTopic:
             self.last_seen = other.last_seen
     
     def to_dict(self) -> dict:
-        return {
+        result = {
             "topic": self.topic,
             "brief": self.brief or self.topic,
             "full_description": self.full_description,
@@ -388,24 +416,29 @@ class ExtractedTopic:
             "first_seen": self.first_seen.isoformat() if self.first_seen else None,
             "last_seen": self.last_seen.isoformat() if self.last_seen else None
         }
+        if self.relationship_type:
+            result["relationship_type"] = self.relationship_type
+        return result
 
 
 @dataclass
 class ExtractionContext:
     topics: dict[str, dict[str, ExtractedTopic]] = field(default_factory=lambda: defaultdict(dict))
     extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    conflicts: list[dict] = field(default_factory=list)
     
     def add_topic(self, category: str, topic: str, brief: str = "", full_description: str = "",
                   confidence: float = None, extraction_method: str = "mentioned",
                   metrics: list[str] = None, relationships: list[str] = None,
-                  timeline: list[str] = None, source_quote: str = "", timestamp: datetime | None = None):
+                  timeline: list[str] = None, source_quote: str = "", timestamp: datetime | None = None,
+                  relationship_type: str = ""):
         if not topic or len(topic.strip()) < 2:
             return
         topic = topic.strip()
         key = normalize_text(topic)
         if confidence is None:
             confidence = BASE_CONFIDENCE.get(extraction_method, 0.4)
-        
+
         existing_key = find_best_match(key, self.topics[category])
         if existing_key:
             existing = self.topics[category][existing_key]
@@ -427,6 +460,9 @@ class ExtractionContext:
                 existing.mention_timestamps.append(timestamp)
                 if existing.last_seen is None or timestamp > existing.last_seen:
                     existing.last_seen = timestamp
+            # Update relationship_type if provided and not already set
+            if relationship_type and not existing.relationship_type:
+                existing.relationship_type = relationship_type
         else:
             self.topics[category][key] = ExtractedTopic(
                 topic=topic, category=category, brief=brief or topic,
@@ -435,7 +471,8 @@ class ExtractionContext:
                 relationships=relationships or [], timeline=timeline or [],
                 source_quotes=[source_quote[:200]] if source_quote else [],
                 first_seen=timestamp, last_seen=timestamp,
-                mention_timestamps=[timestamp] if timestamp else []
+                mention_timestamps=[timestamp] if timestamp else [],
+                relationship_type=relationship_type
             )
     
     def merge_similar_topics(self):
@@ -467,14 +504,61 @@ class ExtractionContext:
         for topics in self.topics.values():
             for topic in topics.values():
                 topic.apply_boosts(self.extraction_time)
-    
+
+    def detect_conflicts(self) -> list[dict]:
+        """Detect contradictory statements across categories.
+
+        Looks for items that appear in both positive categories (like technical_expertise)
+        AND negations category. For example, "I use Python" vs "I don't use Python".
+        """
+        conflicts = []
+
+        if "negations" not in self.topics:
+            return conflicts
+
+        # Check for items in both positive categories AND negations
+        positive_categories = ["technical_expertise", "domain_knowledge", "values", "user_preferences"]
+
+        for pos_category in positive_categories:
+            if pos_category not in self.topics:
+                continue
+
+            for pos_key, pos_topic in self.topics[pos_category].items():
+                for neg_key, neg_topic in self.topics["negations"].items():
+                    if are_similar(pos_topic.topic, neg_topic.topic, threshold=0.7):
+                        # Determine which is more recent
+                        pos_time = pos_topic.last_seen
+                        neg_time = neg_topic.last_seen
+
+                        # Determine resolution strategy
+                        if neg_time and pos_time and neg_time > pos_time:
+                            resolution = "prefer_negation"
+                        elif pos_time and neg_time and pos_time > neg_time:
+                            resolution = "prefer_positive"
+                        else:
+                            resolution = "needs_review"
+
+                        conflicts.append({
+                            "type": "negation_conflict",
+                            "positive_category": pos_category,
+                            "positive_topic": pos_topic.topic,
+                            "positive_confidence": round(pos_topic.confidence, 2),
+                            "positive_last_seen": pos_time.isoformat() if pos_time else None,
+                            "negative_topic": neg_topic.topic,
+                            "negative_confidence": round(neg_topic.confidence, 2),
+                            "negative_last_seen": neg_time.isoformat() if neg_time else None,
+                            "resolution": resolution
+                        })
+
+        return conflicts
+
     def export(self) -> dict:
         output = {
             "schema_version": "4.0",
             "meta": {
                 "generated_at": self.extraction_time.isoformat(),
                 "method": "aggressive_extraction_v4",
-                "features": ["semantic_dedup", "time_decay", "topic_merging"]
+                "features": ["semantic_dedup", "time_decay", "topic_merging", "conflict_detection", "typed_relationships"]
             },
             "categories": {}
         }
@@ -482,6 +566,8 @@ class ExtractionContext:
             if topics:
                 sorted_topics = sorted(topics.values(), key=lambda t: (t.confidence, t.mention_count), reverse=True)
                 output["categories"][category] = [t.to_dict() for t in sorted_topics]
+        if self.conflicts:
+            output["conflicts"] = self.conflicts
         return output
     
     def stats(self) -> dict:
@@ -591,22 +677,63 @@ class AggressiveExtractor:
                     self.context.add_topic("domain_knowledge", domain.replace("_", " ").title(), extraction_method="inferred", timestamp=timestamp)
     
     def _extract_relationships(self, text: str, timestamp: datetime | None = None):
+        """Extract relationships with type classification"""
+        extracted = {}  # Track what we've extracted to avoid duplicates
+
+        # First pass: typed patterns (partner, mentor, advisor, investor, client, competitor)
+        for rel_type, patterns in RELATIONSHIP_TYPE_PATTERNS.items():
+            for pattern in patterns:
+                for match in re.finditer(pattern, text, re.IGNORECASE):
+                    entity = match.group(1).strip()
+                    if 2 < len(entity) < 100:
+                        key = normalize_text(entity)
+                        if key not in extracted:
+                            extracted[key] = rel_type
+                            self.context.add_topic(
+                                "relationships", entity,
+                                brief=f"{rel_type.title()}: {entity}",
+                                full_description=extract_with_context(text, entity, 100),
+                                extraction_method="explicit_statement",
+                                source_quote=match.group(0),
+                                timestamp=timestamp,
+                                relationship_type=rel_type
+                            )
+
+        # Second pass: generic relationship patterns (untyped)
         for pattern in RELATIONSHIP_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 entity = match.group(1).strip()
-                if 2 < len(entity) < 100:
-                    self.context.add_topic("relationships", entity, full_description=extract_with_context(text, entity, 100), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+                key = normalize_text(entity)
+                if 2 < len(entity) < 100 and key not in extracted:
+                    extracted[key] = ""
+                    self.context.add_topic(
+                        "relationships", entity,
+                        full_description=extract_with_context(text, entity, 100),
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                        relationship_type=""
+                    )
+
+        # Additional contextual patterns
         for match in re.finditer(r'(?:working|partnering|collaborating|meeting)\s+with\s+([A-Z][A-Za-z\s-]+?)(?:\s+(?:on|to|for|about)|\.|,|$)', text):
             entity = match.group(1).strip()
-            if len(entity) > 2:
+            key = normalize_text(entity)
+            if len(entity) > 2 and key not in extracted:
+                extracted[key] = ""
                 self.context.add_topic("relationships", entity, extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+
         for pattern in [r'(?:validation|study|partnership|collaboration)\s+(?:with|from|at)\s+([A-Z][A-Za-z\s-]+?)(?:\.|,|$|\s+(?:for|to|which))', r'([A-Z][A-Za-z]+(?:\s+(?:Clinic|Hospital|Medical|Health|University|Institute|Platform|Labs?))?)\s+(?:validation|partnership|study)', r'(?:advisors?|network)\s+(?:from|includes?|at)\s+([A-Z][A-Za-z,\s-]+?)(?:\.|$)']:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 orgs = match.group(1).strip()
                 for org in re.split(r',\s*|\s+and\s+', orgs):
                     org = org.strip()
-                    if len(org) > 3 and org[0].isupper():
+                    key = normalize_text(org)
+                    if len(org) > 3 and org[0].isupper() and key not in extracted:
+                        extracted[key] = ""
                         self.context.add_topic("relationships", org, brief=extract_with_context(text, org, 50)[:100], extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+
+        # Competitor detection (goes to market_context)
         for pattern in [r'(?:looked at|compared to|competitor|like)\s+(?:what\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)\s+(?:is doing|does|offers)?', r'([A-Z][A-Za-z]+(?:\s+Health)?)\s+(?:in this space|as a competitor|for comparison)']:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 competitor = match.group(1).strip()
@@ -830,6 +957,10 @@ class AggressiveExtractor:
 
         self.context.merge_similar_topics()
         self.context.apply_time_decay()
+
+        # Detect conflicts between positive categories and negations
+        self.context.conflicts = self.context.detect_conflicts()
+
         if "mentions" in self.context.topics:
             better_topics = {key for cat, topics in self.context.topics.items() for key in topics if cat != "mentions"}
             to_remove = {key for key in list(self.context.topics["mentions"].keys()) if any(are_similar(key, better, threshold=0.7) for better in better_topics)}
@@ -949,6 +1080,39 @@ class AggressiveExtractor:
 # FILE HANDLERS
 # ============================================================================
 
+def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'AggressiveExtractor':
+    """Merge new extraction with existing v4 context file.
+
+    Loads topics from existing context file and adds them to the new extraction.
+    Uses add_topic() which handles deduplication via find_best_match.
+    """
+    with open(existing_path, 'r', encoding='utf-8') as f:
+        existing = json.load(f)
+
+    # Load existing topics into the new context
+    for category, topics in existing.get("categories", {}).items():
+        for topic_data in topics:
+            extractor.context.add_topic(
+                category=category,
+                topic=topic_data.get("topic", ""),
+                brief=topic_data.get("brief", ""),
+                full_description=topic_data.get("full_description", ""),
+                confidence=topic_data.get("confidence", 0.5),
+                extraction_method=topic_data.get("extraction_method", "mentioned"),
+                metrics=topic_data.get("metrics", []),
+                relationships=topic_data.get("relationships", []),
+                timeline=topic_data.get("timeline", []),
+                source_quote=topic_data.get("source_quotes", [""])[0] if topic_data.get("source_quotes") else "",
+                timestamp=parse_timestamp(topic_data.get("last_seen")),
+                relationship_type=topic_data.get("relationship_type", "")
+            )
+
+    # Re-run merge for deduplication
+    extractor.context.merge_similar_topics()
+
+    return extractor
+
+
 def load_file(file_path: Path) -> tuple[Any, str]:
     if file_path.suffix == '.zip':
         with zipfile.ZipFile(file_path, 'r') as zf:
@@ -1043,6 +1207,7 @@ def main():
     parser.add_argument("input_file", help="Path to export file")
     parser.add_argument("--output", "-o", help="Output file path")
     parser.add_argument("--format", "-f", choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"], default="auto")
+    parser.add_argument("--merge", "-m", help="Existing context file to merge with (incremental extraction)")
     parser.add_argument("--stats", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
@@ -1063,7 +1228,17 @@ def main():
     print(f"Format: {fmt}")
 
     extractor = AggressiveExtractor()
-    print("Extracting (semantic dedup, time decay, topic merging, negation filtering)...")
+
+    # Handle merge with existing context file
+    if args.merge:
+        merge_path = Path(args.merge)
+        if merge_path.exists():
+            print(f"📎 Merging with existing context: {merge_path}")
+            extractor = merge_contexts(merge_path, extractor)
+        else:
+            print(f"⚠️  Merge file not found: {merge_path} (proceeding without merge)")
+
+    print("Extracting (semantic dedup, time decay, topic merging, conflict detection, typed relationships)...")
 
     if fmt == "openai":
         result = extractor.process_openai_export(data)
@@ -1101,7 +1276,15 @@ def main():
         for cat, topics in list(result["categories"].items())[:5]:
             print(f"\n  [{cat}]")
             for topic in topics[:3]:
-                print(f"    • {topic['topic']} (conf: {topic['confidence']}, mentions: {topic['mention_count']})")
+                rel_type = topic.get('relationship_type', '')
+                rel_str = f", type: {rel_type}" if rel_type else ""
+                print(f"    • {topic['topic']} (conf: {topic['confidence']}, mentions: {topic['mention_count']}{rel_str})")
+
+        # Show conflicts if any
+        if result.get("conflicts"):
+            print(f"\n⚠️  Detected {len(result['conflicts'])} conflicts:")
+            for conflict in result["conflicts"][:5]:
+                print(f"    • {conflict['positive_category']}: '{conflict['positive_topic']}' vs negation '{conflict['negative_topic']}' → {conflict['resolution']}")
     
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
     with open(output_path, 'w', encoding='utf-8') as f:

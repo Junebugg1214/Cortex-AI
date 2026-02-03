@@ -25,11 +25,13 @@ Usage:
 """
 
 import json
+import re
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any
+from collections import defaultdict
 
 
 # ============================================================================
@@ -96,7 +98,8 @@ class TopicDetail:
     source_quotes: list[str] = field(default_factory=list)
     first_seen: str = ""
     last_seen: str = ""
-    
+    relationship_type: str = ""  # partner, mentor, advisor, investor, client, competitor
+
     @classmethod
     def from_dict(cls, data: dict, category: str) -> 'TopicDetail':
         return cls(
@@ -111,7 +114,8 @@ class TopicDetail:
             timeline=data.get("timeline", []),
             source_quotes=data.get("source_quotes", []),
             first_seen=data.get("first_seen", ""),
-            last_seen=data.get("last_seen", "")
+            last_seen=data.get("last_seen", ""),
+            relationship_type=data.get("relationship_type", "")
         )
     
     def get_detail_level(self) -> str:
@@ -209,12 +213,106 @@ class NormalizedContext:
                 ctx.categories[target_cat] = topics
         
         return ctx
-    
+
+    @classmethod
+    def from_claude_memories(cls, data: list) -> 'NormalizedContext':
+        """Parse Claude memory_user_edits export format.
+
+        Claude memories format is an array of objects with "text", "confidence", "category" fields.
+        This method parses those back into our v4 schema structure.
+        """
+        ctx = cls()
+        ctx.meta = {"source": "claude_memories", "generated_at": datetime.now(timezone.utc).isoformat()}
+
+        # Pattern to extract topic from Claude memory text
+        # These patterns match the format we export TO Claude
+        patterns = {
+            "identity": r"^User is (.+)$",
+            "business_context": r"^User's business: (.+)$",
+            "professional_context": r"^User role: (.+)$",
+            "active_priorities": r"^User focus: (.+)$",
+            "technical_expertise": r"^User tech: (.+)$",
+            "domain_knowledge": r"^User domain: (.+)$",
+            "constraints": r"^Constraint: (.+)$",
+            "negations": r"^User avoids: (.+)$",
+            "user_preferences": r"^User prefers: (.+)$",
+            "values": r"^User values (.+)$",
+            "correction_history": r"^User clarified: (.+)$",
+            "relationships": r"^User relationship: (.+)$",
+            "market_context": r"^Market context: (.+)$",
+            "metrics": r"^Key metric: (.+)$",
+            "communication_preferences": r"^User prefers (.+)$",
+        }
+
+        for memory in data:
+            text = memory.get("text", "")
+            confidence = memory.get("confidence", 0.7)
+            category_hint = memory.get("category", None)
+
+            # Try to match pattern and extract topic
+            matched = False
+
+            # If we have a category hint, try that pattern first
+            if category_hint and category_hint in patterns:
+                match = re.match(patterns[category_hint], text, re.IGNORECASE)
+                if match:
+                    topic = match.group(1).strip()
+                    if category_hint not in ctx.categories:
+                        ctx.categories[category_hint] = []
+                    ctx.categories[category_hint].append(TopicDetail(
+                        topic=topic,
+                        category=category_hint,
+                        brief=text,
+                        confidence=confidence
+                    ))
+                    matched = True
+
+            # Try all patterns if category hint didn't work
+            if not matched:
+                for cat, pattern in patterns.items():
+                    match = re.match(pattern, text, re.IGNORECASE)
+                    if match:
+                        topic = match.group(1).strip()
+                        if cat not in ctx.categories:
+                            ctx.categories[cat] = []
+                        ctx.categories[cat].append(TopicDetail(
+                            topic=topic,
+                            category=cat,
+                            brief=text,
+                            confidence=confidence
+                        ))
+                        matched = True
+                        break
+
+            # Fallback to "mentions" if no pattern matched
+            if not matched:
+                # Try to extract something meaningful from "Mentioned:" prefix
+                mentioned_match = re.match(r"^Mentioned: (.+)$", text, re.IGNORECASE)
+                if mentioned_match:
+                    topic = mentioned_match.group(1).strip()
+                else:
+                    topic = text[:100]  # Use first 100 chars as topic
+
+                if "mentions" not in ctx.categories:
+                    ctx.categories["mentions"] = []
+                ctx.categories["mentions"].append(TopicDetail(
+                    topic=topic,
+                    category="mentions",
+                    brief=text,
+                    confidence=confidence
+                ))
+
+        return ctx
+
     @classmethod
     def load(cls, file_path: Path) -> 'NormalizedContext':
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
+
+        # Detect Claude memories format (array with "text" field)
+        if isinstance(data, list) and data and isinstance(data[0], dict) and "text" in data[0]:
+            return cls.from_claude_memories(data)
+
         version = data.get("schema_version", "")
         if version.startswith("4"):
             return cls.from_v4(data)
@@ -363,7 +461,11 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
             elif category == "active_priorities":
                 text = f"User focus: {topic.format_by_confidence(min_confidence)}"
             elif category == "relationships":
-                text = f"User relationship: {topic.format_by_confidence(min_confidence)}"
+                rel_type = getattr(topic, 'relationship_type', '')
+                if rel_type:
+                    text = f"User relationship ({rel_type}): {topic.format_by_confidence(min_confidence)}"
+                else:
+                    text = f"User relationship: {topic.format_by_confidence(min_confidence)}"
             elif category == "technical_expertise":
                 text = f"User tech: {topic.brief}"
             elif category == "domain_knowledge":
@@ -438,6 +540,34 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             lines.append("    <!-- Patterns where user has corrected themselves before -->")
             for topic in topics[category]:
                 lines.append(f"    - {topic.brief}")
+            lines.append(f"  </{category}>")
+            continue
+
+        # Special treatment for relationships - group by type
+        if category == "relationships":
+            lines.append(f"  <{category}>")
+
+            # Group relationships by type
+            by_type = defaultdict(list)
+            for topic in topics[category]:
+                rel_type = getattr(topic, 'relationship_type', '') or "other"
+                by_type[rel_type].append(topic)
+
+            # Output in priority order
+            type_order = ["partner", "mentor", "advisor", "investor", "client", "competitor", "other"]
+            for rel_type in type_order:
+                if rel_type in by_type:
+                    if rel_type != "other":
+                        lines.append(f"    <!-- {rel_type.title()}s -->")
+                    for topic in by_type[rel_type]:
+                        level = topic.get_detail_level()
+                        formatted = topic.format_by_confidence(min_confidence)
+                        if formatted:
+                            if level == "minimal":
+                                lines.append(f"    [{formatted}]")
+                            else:
+                                lines.append(f"    - {formatted}")
+
             lines.append(f"  </{category}>")
             continue
 
