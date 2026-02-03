@@ -483,6 +483,193 @@ class TestPIIRedaction:
         assert summary["by_type"] == {}
 
 
+class TestMigratePipeline:
+    """Tests for the unified migrate.py pipeline"""
+
+    def _project_root(self):
+        return Path(__file__).parent.parent
+
+    def _import_migrate(self):
+        """Import migrate module from project root."""
+        migrate_path = self._project_root() / "migrate.py"
+        assert migrate_path.exists(), f"migrate.py not found at {migrate_path}"
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("migrate", str(migrate_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    # 1
+    def test_platform_formats_mapping(self):
+        """All shortcuts exist and 'all' has 8 formats"""
+        mod = self._import_migrate()
+        expected_keys = {"claude", "notion", "gdocs", "system-prompt", "summary", "full", "all"}
+        assert expected_keys == set(mod.PLATFORM_FORMATS.keys())
+        assert len(mod.PLATFORM_FORMATS["all"]) == 8
+
+    # 2
+    def test_argv_routing_default_to_migrate(self):
+        """A file path as first arg routes to the migrate subcommand"""
+        mod = self._import_migrate()
+        parser = mod.build_parser()
+        # Simulate default-subcommand insertion
+        argv = ["somefile.zip", "--to", "claude"]
+        if argv[0] not in ("extract", "import", "migrate"):
+            argv = ["migrate"] + argv
+        args = parser.parse_args(argv)
+        assert args.subcommand == "migrate"
+
+    # 3
+    def test_argv_routing_extract_subcommand(self):
+        """'extract' is recognized as a subcommand"""
+        mod = self._import_migrate()
+        parser = mod.build_parser()
+        args = parser.parse_args(["extract", "somefile.zip"])
+        assert args.subcommand == "extract"
+
+    # 4
+    def test_argv_routing_import_subcommand(self):
+        """'import' is recognized as a subcommand"""
+        mod = self._import_migrate()
+        parser = mod.build_parser()
+        args = parser.parse_args(["import", "somefile.json", "--to", "claude"])
+        assert args.subcommand == "import"
+
+    # 5
+    def test_run_extraction_routes_correctly(self):
+        """_run_extraction produces valid v4 output"""
+        mod = self._import_migrate()
+        extractor = AggressiveExtractor()
+        text = "My name is Alex and I use Python."
+        result = mod._run_extraction(extractor, text, "text")
+        assert "schema_version" in result
+        assert "categories" in result
+
+    # 6
+    def test_full_pipeline_end_to_end(self):
+        """Full pipeline: temp JSON input -> extract -> import -> output files exist"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a minimal input file
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "My name is Alice and I'm a software engineer who uses Python and React."}
+                ]
+            }))
+            out_dir = Path(tmpdir) / "out"
+            rc = mod.main(["migrate", str(input_file), "--to", "all", "-o", str(out_dir)])
+            assert rc == 0
+            assert (out_dir / "context.json").exists()
+            # At least some format files should exist
+            format_files = list(out_dir.glob("*"))
+            assert len(format_files) >= 2, f"Expected output files, got {format_files}"
+
+    # 7
+    def test_pipeline_saves_intermediate_context(self):
+        """Migrate mode saves context.json in output dir"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "I work at Acme Corp as a CTO."}
+                ]
+            }))
+            out_dir = Path(tmpdir) / "out"
+            mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir)])
+            ctx_path = out_dir / "context.json"
+            assert ctx_path.exists(), "context.json should be saved"
+            data = json.loads(ctx_path.read_text())
+            assert "schema_version" in data
+
+    # 8
+    def test_pipeline_claude_shortcut(self):
+        """--to claude produces 2 format files + context.json"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "I'm a developer who uses TypeScript."}
+                ]
+            }))
+            out_dir = Path(tmpdir) / "out"
+            mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir)])
+            assert (out_dir / "context.json").exists()
+            assert (out_dir / "claude_preferences.txt").exists()
+            assert (out_dir / "claude_memories.json").exists()
+            # Should NOT have notion or gdocs files
+            assert not (out_dir / "notion_page.md").exists()
+
+    # 9
+    def test_pipeline_notion_shortcut(self):
+        """--to notion produces 2 format files + context.json"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "I'm a designer who uses Figma."}
+                ]
+            }))
+            out_dir = Path(tmpdir) / "out"
+            mod.main(["migrate", str(input_file), "--to", "notion", "-o", str(out_dir)])
+            assert (out_dir / "context.json").exists()
+            assert (out_dir / "notion_page.md").exists()
+            assert (out_dir / "notion_database.json").exists()
+            assert not (out_dir / "claude_preferences.txt").exists()
+
+    # 10
+    def test_extract_only_mode(self):
+        """Extract subcommand produces only JSON, no format files"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "I use Go for backend development."}
+                ]
+            }))
+            out_path = Path(tmpdir) / "ctx.json"
+            rc = mod.main(["extract", str(input_file), "-o", str(out_path)])
+            assert rc == 0
+            assert out_path.exists()
+            data = json.loads(out_path.read_text())
+            assert "schema_version" in data
+            # No format files alongside
+            siblings = list(Path(tmpdir).glob("*.txt")) + list(Path(tmpdir).glob("*.md")) + list(Path(tmpdir).glob("*.html"))
+            assert len(siblings) == 0
+
+    # 11
+    def test_import_only_mode(self):
+        """Import subcommand produces format files from existing context"""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # First create a context file via extraction
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(json.dumps({
+                "messages": [
+                    {"role": "user", "content": "I'm a data scientist who uses Python and R."}
+                ]
+            }))
+            ctx_path = Path(tmpdir) / "ctx.json"
+            mod.main(["extract", str(input_file), "-o", str(ctx_path)])
+
+            # Now import
+            out_dir = Path(tmpdir) / "imported"
+            rc = mod.main(["import", str(ctx_path), "--to", "summary", "-o", str(out_dir)])
+            assert rc == 0
+            assert (out_dir / "summary.md").exists()
+
+    # 12
+    def test_missing_input_file_returns_error(self):
+        """Returns 1 for nonexistent input file"""
+        mod = self._import_migrate()
+        rc = mod.main(["migrate", "/nonexistent/path/to/file.json", "--to", "claude"])
+        assert rc == 1
+
+
 class TestIntegration:
     """Integration tests combining multiple features"""
 
@@ -547,6 +734,7 @@ def run_tests():
         TestIncrementalMerge,
         TestBidirectionalSync,
         TestPIIRedaction,
+        TestMigratePipeline,
         TestIntegration,
     ]
 
