@@ -1,8 +1,17 @@
-# Chatbot Memory Skills v4.1
+# Chatbot Memory Skills v4.2
 
 Migrate your AI conversation history between platforms. Extract context from ChatGPT, Claude, Gemini, Perplexity, or any chatbot and import it into Claude, Notion, Google Docs, or any LLM.
 
-## What's New in v4.1
+## What's New in v4.2
+
+| Feature | Description |
+|---------|-------------|
+| **Typed Relationships** | Classify relationships as partner, mentor, advisor, investor, client, or competitor |
+| **Conflict Detection** | Automatically flags contradictory statements (e.g., "I use Python" vs "I avoid Python") |
+| **Incremental Merge** | `--merge` flag combines new extractions with existing context files |
+| **Claude Memory Import** | Import Claude `memory_user_edits` exports back to v4 schema (bidirectional sync) |
+
+## What's in v4.1
 
 | Feature | Description |
 |---------|-------------|
@@ -48,7 +57,7 @@ Extracts user context from conversation exports:
 
 - **Input:** ChatGPT `.zip`, Claude `.json`, Gemini, Perplexity, JSONL, API logs, plain text
 - **Output:** Universal v4 context JSON
-- **Features:** 16 extraction categories, negation filtering, semantic dedup, time decay
+- **Features:** 16 extraction categories, negation filtering, semantic dedup, time decay, typed relationships, conflict detection, incremental merge
 
 **Extraction Categories:**
 
@@ -72,7 +81,11 @@ Extracts user context from conversation exports:
 | Mentions | Catch-all for other entities |
 
 ```bash
+# Basic extraction
 python extract_memory.py conversations.json --verbose --stats
+
+# Merge with existing context
+python extract_memory.py new_export.json --merge existing_context.json -o merged.json
 ```
 
 ### chatbot-memory-importer
@@ -100,6 +113,7 @@ python import_memory.py context.json -f all -c medium -o ./output
 |--------|-----------|---------------|
 | ChatGPT Export | `.zip` with `conversations.json` | Yes |
 | Claude Export | `.json` with messages array | Yes |
+| Claude Memories | `.json` array with `text` field | Yes |
 | Gemini/AI Studio | `.json` with conversations/turns | Yes |
 | Perplexity | `.json` with threads | Yes |
 | API Logs | `.json` with requests array | Yes |
@@ -162,6 +176,79 @@ python import_memory.py context.json -f all -c medium -o ./import
 # 2. Import notion_page.md → Notion
 # 3. Open google_docs.html → Copy to Google Docs
 ```
+
+## Typed Relationships
+
+Relationships are now automatically classified by type:
+
+```
+Input: "We partner with Mayo Clinic. Dr. Smith is my mentor. Sequoia invested in us."
+
+Result:
+  relationships:
+    - Mayo Clinic (type: partner)
+    - Dr. Smith (type: mentor)
+    - Sequoia (type: investor)
+```
+
+Supported relationship types: `partner`, `mentor`, `advisor`, `investor`, `client`, `competitor`
+
+In system prompt exports, relationships are grouped by type for clarity.
+
+## Conflict Detection
+
+The extractor detects contradictory statements and flags them:
+
+```json
+{
+  "conflicts": [
+    {
+      "type": "negation_conflict",
+      "positive_category": "technical_expertise",
+      "positive_topic": "Python",
+      "negative_topic": "Python",
+      "resolution": "prefer_negation"
+    }
+  ]
+}
+```
+
+Resolution is based on timestamps - more recent statements take precedence.
+
+## Incremental Merge
+
+Combine new extractions with existing context using `--merge`:
+
+```bash
+# First extraction
+python extract_memory.py export1.json -o context.json
+
+# Later: merge new conversations without losing existing data
+python extract_memory.py export2.json --merge context.json -o context.json
+```
+
+The merge:
+- Preserves all existing topics
+- Adds new topics from the new extraction
+- Deduplicates similar topics automatically
+- Preserves relationship types and other metadata
+
+## Claude Memory Import (Bidirectional Sync)
+
+Import Claude's `memory_user_edits` export back to v4 schema:
+
+```bash
+# Export your Claude memories from Claude.ai
+# Then import them back to v4 format:
+python import_memory.py claude_memories.json -f all -o ./output
+```
+
+The importer auto-detects Claude memory format (array with `text` field) and parses entries like:
+- `"User is John Doe"` → identity
+- `"User tech: Python"` → technical_expertise
+- `"User avoids: Java"` → negations
+
+This enables round-trip migration: ChatGPT → Claude → back to universal format.
 
 ## Negation Filtering Example
 
