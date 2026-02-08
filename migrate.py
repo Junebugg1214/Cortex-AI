@@ -36,10 +36,13 @@ from import_memory import (
     export_google_docs, export_summary, export_full_json,
 )
 
-# Cortex graph imports (Phase 1)
+# Cortex graph imports (Phase 1 + Phase 2)
 sys.path.insert(0, str(_ROOT))
 from cortex.graph import CortexGraph
 from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4
+from cortex.temporal import drift_score
+from cortex.contradictions import ContradictionEngine
+from cortex.timeline import TimelineGenerator
 
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
@@ -190,6 +193,31 @@ def build_parser():
     # -- stats (Phase 1) ---------------------------------------------------
     st = sub.add_parser("stats", help="Show graph/context statistics")
     st.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+
+    # -- timeline (Phase 2) ------------------------------------------------
+    tl = sub.add_parser("timeline", help="Generate timeline from context/graph")
+    tl.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    tl.add_argument("--from", dest="from_date", help="Start date (ISO-8601)")
+    tl.add_argument("--to", dest="to_date", help="End date (ISO-8601)")
+    tl.add_argument("--format", "-f", dest="output_format",
+                    choices=["md", "html"], default="md",
+                    help="Output format (default: md)")
+
+    # -- contradictions (Phase 2) ------------------------------------------
+    ct = sub.add_parser("contradictions", help="Detect contradictions in context/graph")
+    ct.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    ct.add_argument("--severity", type=float, default=0.0,
+                    help="Minimum severity threshold (0.0-1.0)")
+    ct.add_argument("--type", dest="contradiction_type",
+                    choices=["negation_conflict", "temporal_flip",
+                             "source_conflict", "tag_conflict"],
+                    help="Filter by contradiction type")
+
+    # -- drift (Phase 2) ---------------------------------------------------
+    dr = sub.add_parser("drift", help="Compute identity drift between two graphs")
+    dr.add_argument("input_file", help="Path to first context JSON (v4 or v5)")
+    dr.add_argument("--compare", required=True,
+                    help="Path to second context JSON to compare against")
 
     return parser
 
@@ -436,6 +464,93 @@ def run_query(args):
     return 1
 
 
+def _load_graph(input_path: Path) -> CortexGraph:
+    """Load a v4 or v5 JSON file and return a CortexGraph."""
+    with open(input_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    version = data.get("schema_version", "")
+    if version.startswith("5"):
+        return CortexGraph.from_v5_json(data)
+    return upgrade_v4_to_v5(data)
+
+
+def run_timeline(args):
+    """Generate a timeline from a context/graph file."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    graph = _load_graph(input_path)
+    gen = TimelineGenerator()
+    events = gen.generate(graph, from_date=args.from_date, to_date=args.to_date)
+
+    if args.output_format == "html":
+        print(gen.to_html(events))
+    else:
+        print(gen.to_markdown(events))
+    return 0
+
+
+def run_contradictions(args):
+    """Detect contradictions in a context/graph file."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    graph = _load_graph(input_path)
+    engine = ContradictionEngine()
+    contradictions = engine.detect_all(graph, min_severity=args.severity)
+
+    if args.contradiction_type:
+        contradictions = [c for c in contradictions if c.type == args.contradiction_type]
+
+    if not contradictions:
+        print("No contradictions detected.")
+        return 0
+
+    print(f"Found {len(contradictions)} contradiction(s):\n")
+    for c in contradictions:
+        print(f"  [{c.type}] severity={c.severity:.2f}")
+        print(f"    {c.description}")
+        print(f"    Resolution: {c.resolution}")
+        print(f"    Nodes: {', '.join(c.node_ids)}")
+        print()
+    return 0
+
+
+def run_drift(args):
+    """Compute identity drift between two graph files."""
+    input_path = Path(args.input_file)
+    compare_path = Path(args.compare)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    if not compare_path.exists():
+        print(f"File not found: {compare_path}")
+        return 1
+
+    graph_a = _load_graph(input_path)
+    graph_b = _load_graph(compare_path)
+    result = drift_score(graph_a, graph_b)
+
+    if not result["sufficient_data"]:
+        print("Insufficient data for drift analysis.")
+        print(f"  Graph A: {result['details']['node_count_a']} nodes")
+        print(f"  Graph B: {result['details']['node_count_b']} nodes")
+        print("  Need at least 3 nodes in each graph.")
+        return 0
+
+    print(f"Identity Drift Score: {result['score']:.4f}")
+    print(f"  Label drift:      {result['details']['label_drift']:.4f}")
+    print(f"  Tag drift:        {result['details']['tag_drift']:.4f}")
+    print(f"  Confidence drift: {result['details']['confidence_drift']:.4f}")
+    print(f"  Graph A: {result['details']['node_count_a']} nodes")
+    print(f"  Graph B: {result['details']['node_count_b']} nodes")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -473,7 +588,11 @@ def main(argv=None):
 
     # Default-subcommand routing: if the first arg is not a known subcommand,
     # treat it as a file path and route to the "migrate" subcommand.
-    known_subcommands = ("extract", "import", "migrate", "query", "stats", "-h", "--help")
+    known_subcommands = (
+        "extract", "import", "migrate", "query", "stats",
+        "timeline", "contradictions", "drift",
+        "-h", "--help",
+    )
     if argv and argv[0] not in known_subcommands:
         argv = ["migrate"] + list(argv)
 
@@ -492,6 +611,12 @@ def main(argv=None):
         return run_query(args)
     elif args.subcommand == "stats":
         return run_stats(args)
+    elif args.subcommand == "timeline":
+        return run_timeline(args)
+    elif args.subcommand == "contradictions":
+        return run_contradictions(args)
+    elif args.subcommand == "drift":
+        return run_drift(args)
     else:
         return run_migrate(args)
 
