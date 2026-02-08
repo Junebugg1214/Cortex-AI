@@ -625,6 +625,15 @@ class ExtractionContext:
         low = sum(1 for topics in self.topics.values() for t in topics.values() if t.confidence < 0.6)
         return {"total": total, "by_category": by_category, "by_confidence": {"high": high, "medium": med, "low": low}}
 
+    def to_graph(self):
+        """Convert extraction results to a CortexGraph (v5).
+
+        Builds a v4 dict via export(), then upgrades via compat layer.
+        This avoids duplicating conversion logic.
+        """
+        from cortex.compat import upgrade_v4_to_v5
+        return upgrade_v4_to_v5(self.export())
+
 
 # ============================================================================
 # EXTRACTOR

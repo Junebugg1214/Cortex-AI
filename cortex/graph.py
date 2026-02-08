@@ -1,0 +1,465 @@
+"""
+Cortex Graph Model — Phase 1 (v5.0)
+
+Category-agnostic Node/Edge graph with backward-compatible v4 export.
+Nodes are entities with tags (not category-scoped items).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Category ordering (used for v4 downgrade primary-tag selection)
+# ---------------------------------------------------------------------------
+
+CATEGORY_ORDER = [
+    "identity", "professional_context", "business_context", "active_priorities",
+    "relationships", "technical_expertise", "domain_knowledge", "market_context",
+    "metrics", "constraints", "values", "negations", "user_preferences",
+    "communication_preferences", "correction_history", "history", "mentions",
+]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic ID helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_label(label: str) -> str:
+    """Lowercase, strip, collapse whitespace."""
+    return " ".join(label.lower().strip().split())
+
+
+def make_node_id(label: str) -> str:
+    """Deterministic node ID: first 12 hex chars of SHA-256 of normalized label."""
+    normalized = _normalize_label(label)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+
+
+def make_node_id_with_tag(label: str, tag: str) -> str:
+    """Collision-resistant node ID: append tag to the hash input."""
+    normalized = _normalize_label(label)
+    data = f"{normalized}:{tag}"
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+
+
+def make_edge_id(source_id: str, target_id: str, relation: str) -> str:
+    """Deterministic edge ID from (source, target, relation)."""
+    data = f"{source_id}:{target_id}:{relation}"
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# Dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Node:
+    id: str
+    label: str
+    tags: list[str] = field(default_factory=list)
+    confidence: float = 0.5
+    properties: dict = field(default_factory=dict)
+    brief: str = ""
+    full_description: str = ""
+    mention_count: int = 1
+    extraction_method: str = "mentioned"
+    metrics: list[str] = field(default_factory=list)
+    timeline: list[str] = field(default_factory=list)
+    source_quotes: list[str] = field(default_factory=list)
+    first_seen: str = ""
+    last_seen: str = ""
+    relationship_type: str = ""
+
+    def to_dict(self) -> dict:
+        d: dict[str, Any] = {
+            "id": self.id,
+            "label": self.label,
+            "tags": list(self.tags),
+            "confidence": round(self.confidence, 2),
+            "properties": dict(self.properties),
+            "brief": self.brief,
+            "full_description": self.full_description,
+            "mention_count": self.mention_count,
+            "extraction_method": self.extraction_method,
+            "metrics": list(self.metrics),
+            "timeline": list(self.timeline),
+            "source_quotes": list(self.source_quotes),
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+            "relationship_type": self.relationship_type,
+        }
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Node:
+        return cls(
+            id=d["id"],
+            label=d["label"],
+            tags=d.get("tags", []),
+            confidence=d.get("confidence", 0.5),
+            properties=d.get("properties", {}),
+            brief=d.get("brief", ""),
+            full_description=d.get("full_description", ""),
+            mention_count=d.get("mention_count", 1),
+            extraction_method=d.get("extraction_method", "mentioned"),
+            metrics=d.get("metrics", []),
+            timeline=d.get("timeline", []),
+            source_quotes=d.get("source_quotes", []),
+            first_seen=d.get("first_seen", ""),
+            last_seen=d.get("last_seen", ""),
+            relationship_type=d.get("relationship_type", ""),
+        )
+
+
+@dataclass
+class Edge:
+    id: str
+    source_id: str
+    target_id: str
+    relation: str
+    confidence: float = 0.5
+    properties: dict = field(default_factory=dict)
+    first_seen: str = ""
+    last_seen: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "relation": self.relation,
+            "confidence": round(self.confidence, 2),
+            "properties": dict(self.properties),
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Edge:
+        return cls(
+            id=d["id"],
+            source_id=d["source_id"],
+            target_id=d["target_id"],
+            relation=d["relation"],
+            confidence=d.get("confidence", 0.5),
+            properties=d.get("properties", {}),
+            first_seen=d.get("first_seen", ""),
+            last_seen=d.get("last_seen", ""),
+        )
+
+
+@dataclass
+class CortexGraph:
+    nodes: dict[str, Node] = field(default_factory=dict)
+    edges: dict[str, Edge] = field(default_factory=dict)
+    schema_version: str = "5.0"
+    meta: dict = field(default_factory=dict)
+
+    # ── CRUD ────────────────────────────────────────────────────────────
+
+    def add_node(self, node: Node) -> str:
+        self.nodes[node.id] = node
+        return node.id
+
+    def add_edge(self, edge: Edge) -> str:
+        self.edges[edge.id] = edge
+        return edge.id
+
+    def get_node(self, node_id: str) -> Node | None:
+        return self.nodes.get(node_id)
+
+    def get_edge(self, edge_id: str) -> Edge | None:
+        return self.edges.get(edge_id)
+
+    def remove_node(self, node_id: str) -> bool:
+        if node_id not in self.nodes:
+            return False
+        del self.nodes[node_id]
+        # Remove connected edges
+        to_remove = [
+            eid for eid, e in self.edges.items()
+            if e.source_id == node_id or e.target_id == node_id
+        ]
+        for eid in to_remove:
+            del self.edges[eid]
+        return True
+
+    def remove_edge(self, edge_id: str) -> bool:
+        if edge_id not in self.edges:
+            return False
+        del self.edges[edge_id]
+        return True
+
+    # ── Query ───────────────────────────────────────────────────────────
+
+    def find_nodes(
+        self,
+        label: str | None = None,
+        tag: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> list[Node]:
+        results = []
+        for node in self.nodes.values():
+            if node.confidence < min_confidence:
+                continue
+            if label is not None and _normalize_label(node.label) != _normalize_label(label):
+                continue
+            if tag is not None and tag not in node.tags:
+                continue
+            results.append(node)
+        return results
+
+    def get_neighbors(
+        self, node_id: str, relation: str | None = None
+    ) -> list[tuple[Edge, Node]]:
+        results = []
+        for edge in self.edges.values():
+            if edge.source_id == node_id or edge.target_id == node_id:
+                if relation is not None and edge.relation != relation:
+                    continue
+                neighbor_id = (
+                    edge.target_id if edge.source_id == node_id else edge.source_id
+                )
+                neighbor = self.nodes.get(neighbor_id)
+                if neighbor:
+                    results.append((edge, neighbor))
+        return results
+
+    def get_edges_for(self, node_id: str) -> list[Edge]:
+        return [
+            e for e in self.edges.values()
+            if e.source_id == node_id or e.target_id == node_id
+        ]
+
+    # ── Merge ───────────────────────────────────────────────────────────
+
+    def merge_nodes(self, node_id_a: str, node_id_b: str) -> Node:
+        """Merge node B into node A. Re-wire edges. Remove B."""
+        a = self.nodes[node_id_a]
+        b = self.nodes[node_id_b]
+
+        # Merge fields
+        a.confidence = max(a.confidence, b.confidence)
+        a.mention_count += b.mention_count
+        a.tags = list(dict.fromkeys(a.tags + b.tags))  # deduplicated, order preserved
+        if len(b.brief) > len(a.brief):
+            a.brief = b.brief
+        if len(b.full_description) > len(a.full_description):
+            a.full_description = b.full_description
+        a.metrics = list(dict.fromkeys(a.metrics + b.metrics))
+        a.timeline = list(dict.fromkeys(a.timeline + b.timeline))
+        a.source_quotes = list(dict.fromkeys(a.source_quotes + b.source_quotes))[:5]
+        if b.first_seen and (not a.first_seen or b.first_seen < a.first_seen):
+            a.first_seen = b.first_seen
+        if b.last_seen and (not a.last_seen or b.last_seen > a.last_seen):
+            a.last_seen = b.last_seen
+        # Merge properties
+        for k, v in b.properties.items():
+            if k not in a.properties:
+                a.properties[k] = v
+
+        # Re-wire edges from B to A
+        edges_to_remove = []
+        edges_to_add = []
+        for eid, edge in self.edges.items():
+            if edge.source_id == node_id_b or edge.target_id == node_id_b:
+                edges_to_remove.append(eid)
+                new_src = node_id_a if edge.source_id == node_id_b else edge.source_id
+                new_tgt = node_id_a if edge.target_id == node_id_b else edge.target_id
+                # Skip self-loops
+                if new_src == new_tgt:
+                    continue
+                new_eid = make_edge_id(new_src, new_tgt, edge.relation)
+                # Skip if an equivalent edge already exists
+                if new_eid in self.edges:
+                    continue
+                new_edge = Edge(
+                    id=new_eid,
+                    source_id=new_src,
+                    target_id=new_tgt,
+                    relation=edge.relation,
+                    confidence=edge.confidence,
+                    properties=dict(edge.properties),
+                    first_seen=edge.first_seen,
+                    last_seen=edge.last_seen,
+                )
+                edges_to_add.append(new_edge)
+
+        for eid in edges_to_remove:
+            self.edges.pop(eid, None)
+        for e in edges_to_add:
+            self.edges[e.id] = e
+
+        # Remove node B
+        del self.nodes[node_id_b]
+        return a
+
+    # ── Export ──────────────────────────────────────────────────────────
+
+    def to_v4_categories(self) -> dict:
+        """Compute v4-compatible flat category dict from the graph."""
+        categories: dict[str, list[dict]] = {}
+        for node in self.nodes.values():
+            primary_tag = self._primary_tag(node)
+            topic_dict = {
+                "topic": node.label,
+                "brief": node.brief or node.label,
+                "full_description": node.full_description,
+                "confidence": round(node.confidence, 2),
+                "mention_count": node.mention_count,
+                "extraction_method": node.extraction_method,
+                "metrics": node.metrics[:10],
+                "relationships": self._node_relationship_labels(node.id),
+                "timeline": node.timeline[:5],
+                "source_quotes": node.source_quotes[:3],
+                "first_seen": node.first_seen or None,
+                "last_seen": node.last_seen or None,
+                "_node_id": node.id,
+            }
+            if node.relationship_type:
+                topic_dict["relationship_type"] = node.relationship_type
+            categories.setdefault(primary_tag, []).append(topic_dict)
+
+        # Sort each category by (confidence, mention_count) descending
+        for cat in categories:
+            categories[cat].sort(
+                key=lambda t: (t["confidence"], t["mention_count"]), reverse=True
+            )
+        return categories
+
+    def _primary_tag(self, node: Node) -> str:
+        """First tag in CATEGORY_ORDER, or first tag, or 'mentions'."""
+        for cat in CATEGORY_ORDER:
+            if cat in node.tags:
+                return cat
+        return node.tags[0] if node.tags else "mentions"
+
+    def _node_relationship_labels(self, node_id: str) -> list[str]:
+        """Get labels of nodes connected to this node (for v4 compat)."""
+        labels = []
+        for edge in self.edges.values():
+            if edge.source_id == node_id:
+                target = self.nodes.get(edge.target_id)
+                if target:
+                    labels.append(target.label)
+            elif edge.target_id == node_id:
+                source = self.nodes.get(edge.source_id)
+                if source:
+                    labels.append(source.label)
+        return labels[:10]
+
+    def to_v5_json(self) -> dict:
+        """Full v5 schema JSON dict."""
+        return {
+            "schema_version": self.schema_version,
+            "meta": {
+                **self.meta,
+                "node_count": len(self.nodes),
+                "edge_count": len(self.edges),
+            },
+            "graph": {
+                "nodes": {
+                    nid: node.to_dict() for nid, node in self.nodes.items()
+                },
+                "edges": {
+                    eid: edge.to_dict() for eid, edge in self.edges.items()
+                },
+            },
+            "categories": self.to_v4_categories(),
+        }
+
+    def export_v4(self) -> dict:
+        """Complete v4-compatible JSON (no graph block)."""
+        return {
+            "schema_version": "4.0",
+            "meta": {
+                **self.meta,
+                "generated_at": self.meta.get(
+                    "generated_at",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+                "method": "aggressive_extraction_v4",
+                "features": [
+                    "semantic_dedup", "time_decay", "topic_merging",
+                    "conflict_detection", "typed_relationships",
+                ],
+            },
+            "categories": self.to_v4_categories(),
+        }
+
+    def export_v5(self) -> dict:
+        """Complete v5 JSON with graph + backward-compat categories."""
+        generated_at = self.meta.get(
+            "generated_at",
+            datetime.now(timezone.utc).isoformat(),
+        )
+        return {
+            "schema_version": "5.0",
+            "meta": {
+                **self.meta,
+                "generated_at": generated_at,
+                "method": "aggressive_extraction_v5",
+                "features": [
+                    "graph_model", "multi_tag_nodes", "semantic_dedup",
+                    "time_decay", "typed_relationships",
+                ],
+                "node_count": len(self.nodes),
+                "edge_count": len(self.edges),
+            },
+            "graph": {
+                "nodes": {
+                    nid: node.to_dict() for nid, node in self.nodes.items()
+                },
+                "edges": {
+                    eid: edge.to_dict() for eid, edge in self.edges.items()
+                },
+            },
+            "categories": self.to_v4_categories(),
+        }
+
+    # ── Stats ──────────────────────────────────────────────────────────
+
+    def stats(self) -> dict:
+        tag_dist: dict[str, int] = {}
+        for node in self.nodes.values():
+            for tag in node.tags:
+                tag_dist[tag] = tag_dist.get(tag, 0) + 1
+
+        degrees: list[int] = []
+        for nid in self.nodes:
+            deg = sum(
+                1 for e in self.edges.values()
+                if e.source_id == nid or e.target_id == nid
+            )
+            degrees.append(deg)
+
+        avg_degree = sum(degrees) / len(degrees) if degrees else 0.0
+
+        return {
+            "node_count": len(self.nodes),
+            "edge_count": len(self.edges),
+            "avg_degree": round(avg_degree, 2),
+            "tag_distribution": tag_dist,
+        }
+
+    # ── Deserialization ────────────────────────────────────────────────
+
+    @classmethod
+    def from_v5_json(cls, data: dict) -> CortexGraph:
+        """Load a CortexGraph from a v5 JSON dict."""
+        graph = cls(
+            schema_version=data.get("schema_version", "5.0"),
+            meta=data.get("meta", {}),
+        )
+        graph_data = data.get("graph", {})
+        for nid, nd in graph_data.get("nodes", {}).items():
+            graph.nodes[nid] = Node.from_dict(nd)
+        for eid, ed in graph_data.get("edges", {}).items():
+            graph.edges[eid] = Edge.from_dict(ed)
+        return graph

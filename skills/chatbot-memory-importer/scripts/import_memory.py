@@ -305,6 +305,21 @@ class NormalizedContext:
         return ctx
 
     @classmethod
+    def from_v5(cls, data: dict) -> 'NormalizedContext':
+        """Load from v5 schema by reading the backward-compat categories block.
+
+        v5 JSON always includes a ``categories`` block computed from the graph,
+        so we can reuse from_v4 for the topic data.  The graph payload is
+        preserved in meta for callers that need it.
+        """
+        ctx = cls()
+        ctx.meta = data.get("meta", {})
+        ctx.meta["_graph"] = data.get("graph", {})
+        for category, topics in data.get("categories", {}).items():
+            ctx.categories[category] = [TopicDetail.from_dict(t, category) for t in topics]
+        return ctx
+
+    @classmethod
     def load(cls, file_path: Path) -> 'NormalizedContext':
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -314,6 +329,8 @@ class NormalizedContext:
             return cls.from_claude_memories(data)
 
         version = data.get("schema_version", "")
+        if version.startswith("5"):
+            return cls.from_v5(data)
         if version.startswith("4"):
             return cls.from_v4(data)
         elif version.startswith("3"):

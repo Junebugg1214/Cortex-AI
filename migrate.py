@@ -36,6 +36,11 @@ from import_memory import (
     export_google_docs, export_summary, export_full_json,
 )
 
+# Cortex graph imports (Phase 1)
+sys.path.insert(0, str(_ROOT))
+from cortex.graph import CortexGraph
+from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4
+
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
 # ---------------------------------------------------------------------------
@@ -147,6 +152,8 @@ def build_parser():
     mig.add_argument("--dry-run", action="store_true", help="Preview without writing")
     mig.add_argument("--verbose", "-v", action="store_true")
     mig.add_argument("--stats", action="store_true", help="Show category stats")
+    mig.add_argument("--schema", choices=["v4", "v5"], default="v4",
+                     help="Output schema version (default: v4)")
 
     # -- extract ------------------------------------------------------------
     ext = sub.add_parser("extract", help="Extract context from export file")
@@ -173,6 +180,16 @@ def build_parser():
                      choices=["high", "medium", "low", "all"], default="medium")
     imp.add_argument("--dry-run", action="store_true")
     imp.add_argument("--verbose", "-v", action="store_true")
+
+    # -- query (Phase 1) ---------------------------------------------------
+    qry = sub.add_parser("query", help="Query a context/graph file")
+    qry.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    qry.add_argument("--node", help="Look up a node by label")
+    qry.add_argument("--neighbors", help="Get neighbors of a node by label")
+
+    # -- stats (Phase 1) ---------------------------------------------------
+    st = sub.add_parser("stats", help="Show graph/context statistics")
+    st.add_argument("input_file", help="Path to context JSON (v4 or v5)")
 
     return parser
 
@@ -324,11 +341,23 @@ def run_migrate(args):
     # --- Save intermediate context.json ---
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    ctx_path = output_dir / "context.json"
-    with open(ctx_path, "w", encoding="utf-8") as f:
-        json.dump(v4_data, f, indent=2)
-    if args.verbose:
-        print(f"   saved intermediate context: {ctx_path}")
+
+    if args.schema == "v5":
+        graph = upgrade_v4_to_v5(v4_data)
+        v5_data = graph.export_v5()
+        ctx_path = output_dir / "context.json"
+        with open(ctx_path, "w", encoding="utf-8") as f:
+            json.dump(v5_data, f, indent=2)
+        if args.verbose:
+            gs = graph.stats()
+            print(f"   v5 graph: {gs['node_count']} nodes, {gs['edge_count']} edges")
+            print(f"   saved v5 context: {ctx_path}")
+    else:
+        ctx_path = output_dir / "context.json"
+        with open(ctx_path, "w", encoding="utf-8") as f:
+            json.dump(v4_data, f, indent=2)
+        if args.verbose:
+            print(f"   saved intermediate context: {ctx_path}")
 
     # --- Import phase (in-memory handoff) ---
     ctx = NormalizedContext.from_v4(v4_data)
@@ -355,6 +384,85 @@ def run_migrate(args):
     return 0
 
 
+def run_query(args):
+    """Query nodes/neighbors in a context file."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    with open(input_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Load or convert to graph
+    version = data.get("schema_version", "")
+    if version.startswith("5"):
+        graph = CortexGraph.from_v5_json(data)
+    else:
+        graph = upgrade_v4_to_v5(data)
+
+    if args.node:
+        nodes = graph.find_nodes(label=args.node)
+        if not nodes:
+            print(f"No node found with label '{args.node}'")
+            return 0
+        for node in nodes:
+            print(f"Node: {node.label} (id={node.id})")
+            print(f"  Tags: {', '.join(node.tags)}")
+            print(f"  Confidence: {node.confidence:.2f}")
+            print(f"  Mentions: {node.mention_count}")
+            if node.brief:
+                print(f"  Brief: {node.brief}")
+            if node.full_description:
+                print(f"  Description: {node.full_description}")
+        return 0
+
+    if args.neighbors:
+        nodes = graph.find_nodes(label=args.neighbors)
+        if not nodes:
+            print(f"No node found with label '{args.neighbors}'")
+            return 0
+        node = nodes[0]
+        neighbors = graph.get_neighbors(node.id)
+        if not neighbors:
+            print(f"No neighbors for '{node.label}'")
+            return 0
+        print(f"Neighbors of '{node.label}':")
+        for edge, neighbor in neighbors:
+            print(f"  --[{edge.relation}]--> {neighbor.label} (conf={neighbor.confidence:.2f})")
+        return 0
+
+    print("Specify --node <label> or --neighbors <label>")
+    return 1
+
+
+def run_stats(args):
+    """Show statistics for a context file."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    with open(input_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    version = data.get("schema_version", "")
+    if version.startswith("5"):
+        graph = CortexGraph.from_v5_json(data)
+    else:
+        graph = upgrade_v4_to_v5(data)
+
+    st = graph.stats()
+    print(f"Nodes: {st['node_count']}")
+    print(f"Edges: {st['edge_count']}")
+    print(f"Avg degree: {st['avg_degree']}")
+    if st["tag_distribution"]:
+        print("Tag distribution:")
+        for tag, count in sorted(st["tag_distribution"].items(), key=lambda x: -x[1]):
+            print(f"  {tag}: {count}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -365,7 +473,8 @@ def main(argv=None):
 
     # Default-subcommand routing: if the first arg is not a known subcommand,
     # treat it as a file path and route to the "migrate" subcommand.
-    if argv and argv[0] not in ("extract", "import", "migrate", "-h", "--help"):
+    known_subcommands = ("extract", "import", "migrate", "query", "stats", "-h", "--help")
+    if argv and argv[0] not in known_subcommands:
         argv = ["migrate"] + list(argv)
 
     parser = build_parser()
@@ -379,6 +488,10 @@ def main(argv=None):
         return run_extract(args)
     elif args.subcommand == "import":
         return run_import(args)
+    elif args.subcommand == "query":
+        return run_query(args)
+    elif args.subcommand == "stats":
+        return run_stats(args)
     else:
         return run_migrate(args)
 
