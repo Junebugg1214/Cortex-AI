@@ -1,12 +1,14 @@
 """
-Cortex Graph Model — Phase 1 (v5.0)
+Cortex Graph Model — Phase 2 (v5.1)
 
 Category-agnostic Node/Edge graph with backward-compatible v4 export.
 Nodes are entities with tags (not category-scoped items).
+Nodes carry temporal snapshots for history tracking.
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -75,6 +77,7 @@ class Node:
     first_seen: str = ""
     last_seen: str = ""
     relationship_type: str = ""
+    snapshots: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
@@ -93,6 +96,7 @@ class Node:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
             "relationship_type": self.relationship_type,
+            "snapshots": [dict(s) for s in self.snapshots],
         }
         return d
 
@@ -114,6 +118,7 @@ class Node:
             first_seen=d.get("first_seen", ""),
             last_seen=d.get("last_seen", ""),
             relationship_type=d.get("relationship_type", ""),
+            snapshots=list(d.get("snapshots", [])),
         )
 
 
@@ -195,6 +200,65 @@ class CortexGraph:
             return False
         del self.edges[edge_id]
         return True
+
+    # ── Temporal ─────────────────────────────────────────────────────────
+
+    def create_snapshot(self, source: str, timestamp: str | None = None) -> None:
+        """Append a snapshot dict to every node in the graph.
+
+        Uses cortex.temporal.create_snapshot_dict for the actual snapshot
+        creation, keeping graph.py lightweight.
+        """
+        from cortex.temporal import create_snapshot_dict
+        for node in self.nodes.values():
+            snap = create_snapshot_dict(node, source, timestamp)
+            node.snapshots.append(snap)
+
+    def graph_at(self, timestamp: str) -> CortexGraph:
+        """Return a filtered copy of the graph reflecting state at *timestamp*.
+
+        For each node, finds the latest snapshot at or before *timestamp*.
+        If a node has no snapshots at or before the timestamp, it is included
+        only if its first_seen is at or before the timestamp (or first_seen is empty).
+        Snapshot state (confidence, tags) is applied to the returned copy.
+        """
+        result = CortexGraph(
+            schema_version=self.schema_version,
+            meta=dict(self.meta),
+        )
+
+        for nid, node in self.nodes.items():
+            # Check if node existed at this time
+            if node.first_seen and node.first_seen > timestamp:
+                continue
+
+            node_copy = copy.deepcopy(node)
+
+            # Find latest snapshot at or before timestamp
+            applicable = [
+                s for s in node.snapshots
+                if s.get("timestamp", "") <= timestamp
+            ]
+            if applicable:
+                applicable.sort(key=lambda s: s.get("timestamp", ""))
+                latest = applicable[-1]
+                node_copy.confidence = latest.get("confidence", node.confidence)
+                node_copy.tags = list(latest.get("tags", node.tags))
+
+            # Only include snapshots up to the timestamp
+            node_copy.snapshots = [
+                s for s in node_copy.snapshots
+                if s.get("timestamp", "") <= timestamp
+            ]
+
+            result.nodes[nid] = node_copy
+
+        # Include edges where both endpoints exist in the result
+        for eid, edge in self.edges.items():
+            if edge.source_id in result.nodes and edge.target_id in result.nodes:
+                result.edges[eid] = copy.deepcopy(edge)
+
+        return result
 
     # ── Query ───────────────────────────────────────────────────────────
 
@@ -400,7 +464,7 @@ class CortexGraph:
             datetime.now(timezone.utc).isoformat(),
         )
         return {
-            "schema_version": "5.0",
+            "schema_version": "5.1",
             "meta": {
                 **self.meta,
                 "generated_at": generated_at,
