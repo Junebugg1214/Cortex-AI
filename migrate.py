@@ -379,6 +379,27 @@ def build_parser():
     ce.add_argument("--max-chars", type=int, default=1500,
                     help="Max characters (default: 1500)")
 
+    # -- context-write (cross-platform context files) -------------------------
+    cw = sub.add_parser("context-write",
+                        help="Write identity context to AI coding tool config files")
+    cw.add_argument("input_file", help="Path to Cortex graph JSON")
+    cw.add_argument("--platforms", "-p", nargs="+", default=["claude-code"],
+                    help="Target platforms: claude-code, claude-code-project, cursor, "
+                         "copilot, windsurf, gemini-cli, or 'all' (default: claude-code)")
+    cw.add_argument("--project", "-d",
+                    help="Project directory for per-project files (default: cwd)")
+    cw.add_argument("--policy", default=None,
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Override disclosure policy for all platforms")
+    cw.add_argument("--max-chars", type=int, default=1500,
+                    help="Max characters per context (default: 1500)")
+    cw.add_argument("--dry-run", action="store_true",
+                    help="Preview without writing files")
+    cw.add_argument("--watch", action="store_true",
+                    help="Watch graph file and auto-refresh on change")
+    cw.add_argument("--interval", type=int, default=30,
+                    help="Watch poll interval in seconds (default: 30)")
+
     return parser
 
 
@@ -1415,6 +1436,57 @@ def run_context_export(args):
     return 0
 
 
+def run_context_write(args):
+    """Write identity context to AI coding tool config files."""
+    from cortex.context import write_context, watch_and_refresh, CONTEXT_TARGETS
+
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    # Validate platform names
+    platforms = args.platforms
+    if "all" not in platforms:
+        for p in platforms:
+            if p not in CONTEXT_TARGETS:
+                print(f"Unknown platform: {p}")
+                print(f"Available: {', '.join(CONTEXT_TARGETS.keys())}, all")
+                return 1
+
+    if args.watch:
+        watch_and_refresh(
+            graph_path=str(input_path),
+            platforms=platforms,
+            project_dir=args.project,
+            policy=args.policy,
+            max_chars=args.max_chars,
+            interval=args.interval,
+        )
+        return 0
+
+    results = write_context(
+        graph_path=str(input_path),
+        platforms=platforms,
+        project_dir=args.project,
+        policy=args.policy,
+        max_chars=args.max_chars,
+        dry_run=args.dry_run,
+    )
+
+    for name, fpath, status in results:
+        if status == "skipped":
+            print(f"  {name}: skipped (no context or unknown platform)")
+        elif status == "error":
+            print(f"  {name}: error writing {fpath}")
+        elif status == "dry-run":
+            print(f"  {name}: {fpath} (dry-run)")
+        else:
+            print(f"  {name}: {status} {fpath}")
+
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -1466,7 +1538,7 @@ def main(argv=None):
         "identity", "commit", "log", "sync", "verify",
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
-        "extract-coding", "context-hook", "context-export",
+        "extract-coding", "context-hook", "context-export", "context-write",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1521,6 +1593,8 @@ def main(argv=None):
         return run_context_hook(args)
     elif args.subcommand == "context-export":
         return run_context_export(args)
+    elif args.subcommand == "context-write":
+        return run_context_write(args)
     else:
         return run_migrate(args)
 
