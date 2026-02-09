@@ -336,6 +336,24 @@ def build_parser():
     ss.add_argument("--once", action="store_true",
                     help="Run all syncs once and exit")
 
+    # -- extract-coding (Phase 7) ------------------------------------------
+    ec = sub.add_parser("extract-coding",
+                        help="Extract identity from coding sessions")
+    ec.add_argument("input_file", nargs="?",
+                    help="Path to Claude Code session JSONL (omit for --discover)")
+    ec.add_argument("--discover", action="store_true",
+                    help="Auto-discover Claude Code sessions from ~/.claude/")
+    ec.add_argument("--project", "-p",
+                    help="Filter discovered sessions by project name substring")
+    ec.add_argument("--limit", "-n", type=int, default=10,
+                    help="Max sessions to process (default: 10)")
+    ec.add_argument("--output", "-o", help="Output JSON path")
+    ec.add_argument("--merge", "-m",
+                    help="Existing context file to merge results into")
+    ec.add_argument("--verbose", "-v", action="store_true")
+    ec.add_argument("--stats", action="store_true",
+                    help="Print session statistics")
+
     return parser
 
 
@@ -1186,6 +1204,89 @@ def run_sync_schedule(args):
     return 0
 
 
+def run_extract_coding(args):
+    """Extract identity signals from coding tool sessions."""
+    from cortex.coding import (
+        discover_claude_code_sessions, load_claude_code_session,
+        parse_claude_code_session, aggregate_sessions, session_to_context,
+    )
+
+    # Collect session files
+    session_paths = []
+    if args.discover:
+        session_paths = discover_claude_code_sessions(
+            project_filter=args.project,
+            limit=args.limit,
+        )
+        if not session_paths:
+            print("No Claude Code sessions found.")
+            return 1
+        if args.verbose:
+            print(f"Discovered {len(session_paths)} session(s)")
+    elif args.input_file:
+        p = Path(args.input_file)
+        if not p.exists():
+            print(f"File not found: {p}")
+            return 1
+        session_paths = [p]
+    else:
+        print("Provide an input file or use --discover")
+        return 1
+
+    # Parse all sessions
+    sessions = []
+    for sp in session_paths:
+        if args.verbose:
+            print(f"  Parsing: {sp.name}")
+        records = load_claude_code_session(sp)
+        session = parse_claude_code_session(records)
+        sessions.append(session)
+
+    # Aggregate
+    if len(sessions) > 1:
+        combined = aggregate_sessions(sessions)
+    else:
+        combined = sessions[0]
+
+    # Stats
+    if args.stats or args.verbose:
+        print(f"\nCoding Session Summary:")
+        print(f"  Sessions:     {len(sessions)}")
+        print(f"  Files touched: {len(combined.files_touched)}")
+        print(f"  Technologies: {', '.join(t for t, _ in combined.technologies.most_common(10))}")
+        print(f"  Tools (bash): {', '.join(t for t, _ in combined.bash_tools.most_common(10))}")
+        print(f"  User prompts: {len(combined.user_prompts)}")
+        print(f"  Plan mode:    {'yes' if combined.plan_mode_used else 'no'}")
+        print(f"  Test files:   {combined.test_files_written}")
+        print(f"  Branches:     {', '.join(sorted(combined.branches)) or 'none'}")
+
+    # Convert to v4 context
+    ctx_data = session_to_context(combined)
+
+    # Merge with existing context if requested
+    if args.merge:
+        merge_path = Path(args.merge)
+        if merge_path.exists():
+            with open(merge_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            ctx_data = merge_contexts(existing, ctx_data)
+            if args.verbose:
+                print(f"\nMerged with {merge_path}")
+
+    # Write output
+    output_path = Path(args.output) if args.output else Path("coding_context.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(ctx_data, f, indent=2, default=str)
+    print(f"\nOutput: {output_path}")
+
+    cat_counts = {k: len(v) for k, v in ctx_data.get("categories", {}).items() if v}
+    if cat_counts:
+        print(f"Extracted: {cat_counts}")
+
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -1237,6 +1338,7 @@ def main(argv=None):
         "identity", "commit", "log", "sync", "verify",
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
+        "extract-coding",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1285,6 +1387,8 @@ def main(argv=None):
         return run_watch(args)
     elif args.subcommand == "sync-schedule":
         return run_sync_schedule(args)
+    elif args.subcommand == "extract-coding":
+        return run_extract_coding(args)
     else:
         return run_migrate(args)
 
