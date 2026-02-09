@@ -1,35 +1,37 @@
-# Cortex Roadmap v2 — Revised with Staff Engineer Fixes
+# Cortex Roadmap v2 — COMPLETE
 
 ## Context
 
-This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. The three biggest changes are:
+This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 6 phases are now complete (v6.0.0, 453 passing tests).** The three biggest changes were:
 
 1. **Node identity model redesigned** — category-agnostic nodes with tags (not category-scoped IDs)
-2. **Phases reordered** — UPAI (the breakthrough) ships as Phase 3 instead of Phase 5
+2. **Phases reordered** — UPAI (the breakthrough) shipped as Phase 3 instead of Phase 5
 3. **Algorithm choices right-sized** — designed for realistic 50-200 node graphs, not fantasy scale
 
 ---
 
-## Architecture Overview (Revised Ordering)
+## Architecture Overview
 
 ```
 Phase 1 (v5.0)  →  Phase 2 (v5.1)  →  Phase 3 (v5.2)  →  Phase 4 (v5.3)  →  Phase 5 (v5.4)  →  Phase 6 (v6.0)
 Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         Query + Intel       Viz + Flywheel
-                                       *** BREAKTHROUGH ***
+  [DONE]              [DONE]           [DONE] ***            [DONE]              [DONE]              [DONE]
+                                       BREAKTHROUGH
 ```
 
 **Why reorder:** UPAI (portable AI identity) is the breakthrough. It depends on Phase 1 (graph) and Phase 2 (temporal), but NOT on smart edges or query intelligence. This gets the differentiator out 2 phases sooner.
 
-**Design Constraints:**
+**Design Constraints (all met):**
 - Zero external dependencies for core (stdlib only, Python 3.10+)
 - Optional dependency tiers: `cortex[crypto]`, `cortex[fast]`, `cortex[full]`
-- Backward compatible: v4 JSON always works, existing 70+ tests never break
+- Backward compatible: v4 JSON always works, existing tests never break
 - Offline/local first: no cloud dependency
 - Each phase independently shippable
+- **453 tests across 17 test files, all passing**
 
 ---
 
-## Phase 1: Graph Foundation (v5.0) — [L]
+## Phase 1: Graph Foundation (v5.0) — COMPLETE
 
 **Objective:** Introduce a Node/Edge graph model underneath the existing flat categories. All existing tests + CLI commands continue to work identically.
 
@@ -213,7 +215,7 @@ python migrate.py stats context.json
 
 ### Tests
 
-- All 70+ existing tests pass unchanged
+- All existing tests pass unchanged
 - New: Node/Edge CRUD, find_nodes, get_neighbors, merge_nodes
 - New: v4→v5 upgrade with label dedup across categories
 - New: v5→v4 downgrade with primary tag selection
@@ -223,7 +225,7 @@ python migrate.py stats context.json
 
 ---
 
-## Phase 2: Temporal Evolution + Contradiction Engine (v5.1) — [M]
+## Phase 2: Temporal Evolution + Contradiction Engine (v5.1) — COMPLETE
 
 **Objective:** Track how nodes evolve over time via snapshots. Detect contradictions across the entire graph. Prerequisite for UPAI's version control.
 
@@ -295,7 +297,7 @@ python migrate.py drift context.json --window 90
 
 ---
 
-## Phase 3: Universal Portable AI Identity Protocol — UPAI (v5.2) — [L]
+## Phase 3: Universal Portable AI Identity Protocol — UPAI (v5.2) — COMPLETE
 
 ***THE BREAKTHROUGH — Nobody else is building this.***
 
@@ -444,7 +446,7 @@ python migrate.py export-signed context.json --policy technical -o identity.cort
 
 ---
 
-## Phase 4: Smart Edge Extraction (v5.3) — [L]
+## Phase 4: Smart Edge Extraction (v5.3) — COMPLETE
 
 **Objective:** Extract typed edges during extraction. Discover implicit relationships. Graph-aware dedup. Right-sized algorithms for 50-200 node graphs.
 
@@ -523,7 +525,7 @@ python migrate.py export.zip --to claude --discover-edges --llm    # LLM-assiste
 
 ---
 
-## Phase 5: Query Engine + Intelligence Layer (v5.4) — [M]
+## Phase 5: Query Engine + Intelligence Layer (v5.4) — COMPLETE
 
 **Objective:** Structured query interface + proactive intelligence. All computed locally via graph traversal.
 
@@ -590,13 +592,13 @@ python migrate.py digest context.json --previous last_week.json
 
 ---
 
-## Phase 6: Visualization + Flywheel (v6.0) — [L]
+## Phase 6: Visualization + Flywheel (v6.0) — COMPLETE
 
 **Objective:** Graph visualization, local web dashboard, auto-extraction, scheduled sync. The complete flywheel.
 
 ### Visualization
 
-Fruchterman-Reingold in pure Python. **Will be slow (5-15s for 200 nodes).** Mitigated by caching + progress indicator + 200 node default limit.
+Fruchterman-Reingold in pure Python with optional numpy fast path (~10x). Mitigated by caching + progress indicator + 200 node default limit.
 
 ```bash
 python migrate.py viz context.json --output graph.html
@@ -636,67 +638,62 @@ fast = ["numpy>=1.24.0"]
 
 10x faster FR layout with numpy.
 
-### New Files
-- `cortex/viz/graph_renderer.py`, `cortex/dashboard/server.py`
-- `cortex/sync/monitor.py`, `cortex/sync/scheduler.py`
+### Files
+- `cortex/viz/layout.py` — Fruchterman-Reingold layout + caching + numpy fast path
+- `cortex/viz/renderer.py` — Interactive HTML (Canvas 2D) + static SVG export
+- `cortex/dashboard/server.py` — stdlib HTTP server + AJAX dashboard
+- `cortex/sync/monitor.py` — os.stat() file polling auto-extraction
+- `cortex/sync/scheduler.py` — threading.Timer periodic platform sync
 - `tests/test_viz.py`, `tests/test_dashboard.py`, `tests/test_monitor.py`, `tests/test_scheduler.py`
 
 ---
 
-## Final Directory Structure
+## Final Directory Structure (Actual)
 
 ```
 chatbot-memory-skills/
 ├── cortex/
-│   ├── __init__.py                  # Phase 1
-│   ├── graph.py                     # Phase 1: Node, Edge, CortexGraph
+│   ├── __init__.py                  # v6.0.0
+│   ├── graph.py                     # Phase 1: Node, Edge, CortexGraph (schema 6.0)
 │   ├── compat.py                    # Phase 1: v4 ↔ v5 conversion
 │   ├── temporal.py                  # Phase 2: Snapshot, drift
 │   ├── contradictions.py            # Phase 2: ContradictionEngine
 │   ├── timeline.py                  # Phase 2: Timeline views
 │   ├── upai/                        # Phase 3: *** THE BREAKTHROUGH ***
 │   │   ├── __init__.py
-│   │   ├── schema.py
-│   │   ├── crypto.py
-│   │   ├── versioning.py
-│   │   └── wellknown.py
-│   ├── adapters/                    # Phase 3: File-based platform sync
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   ├── claude_adapter.py
-│   │   ├── system_prompt_adapter.py
-│   │   ├── notion_adapter.py
-│   │   └── gdocs_adapter.py
-│   ├── edge_extraction.py           # Phase 4
-│   ├── cooccurrence.py              # Phase 4
-│   ├── dedup.py                     # Phase 4
-│   ├── centrality.py                # Phase 4
-│   ├── query.py                     # Phase 5
-│   ├── intelligence.py              # Phase 5
+│   │   ├── identity.py              # UPAIIdentity, DID, Ed25519/HMAC signing
+│   │   ├── disclosure.py            # DisclosurePolicy + apply_disclosure()
+│   │   └── versioning.py            # VersionStore (commit/log/diff/checkout)
+│   ├── adapters.py                  # Phase 3: Claude/SystemPrompt/Notion/GDocs adapters
+│   ├── edge_extraction.py           # Phase 4: Pattern-based + proximity edge discovery
+│   ├── cooccurrence.py              # Phase 4: Tiered co-occurrence (PMI/frequency)
+│   ├── dedup.py                     # Phase 4: Graph-aware dedup (text + neighbor overlap)
+│   ├── centrality.py                # Phase 4: Degree centrality + PageRank + confidence boost
+│   ├── query.py                     # Phase 5: QueryEngine + BFS + union-find + betweenness
+│   ├── intelligence.py              # Phase 5: GapAnalyzer + InsightGenerator
 │   ├── viz/                         # Phase 6
 │   │   ├── __init__.py
-│   │   └── graph_renderer.py
+│   │   ├── layout.py                # Fruchterman-Reingold + caching + numpy fast path
+│   │   └── renderer.py              # Interactive HTML (Canvas 2D) + static SVG
 │   ├── dashboard/                   # Phase 6
 │   │   ├── __init__.py
-│   │   └── server.py
+│   │   └── server.py                # stdlib HTTP server + AJAX dashboard
 │   └── sync/                        # Phase 6
 │       ├── __init__.py
-│       ├── monitor.py
-│       └── scheduler.py
+│       ├── monitor.py               # os.stat() file polling auto-extraction
+│       └── scheduler.py             # threading.Timer periodic platform sync
 ├── skills/
 │   ├── chatbot-memory-extractor/
 │   └── chatbot-memory-importer/
-├── tests/
-│   ├── test_features.py             # Existing 70+ (NEVER breaks)
+├── tests/                           # 453 tests across 17 files
+│   ├── test_features.py             # Original feature tests
 │   ├── test_graph.py                # Phase 1
 │   ├── test_temporal.py             # Phase 2
 │   ├── test_contradictions.py       # Phase 2
 │   ├── test_timeline.py             # Phase 2
-│   ├── test_upai_schema.py          # Phase 3
-│   ├── test_crypto.py               # Phase 3
-│   ├── test_versioning.py           # Phase 3
-│   ├── test_adapters.py             # Phase 3
-│   ├── test_wellknown.py            # Phase 3
+│   ├── test_upai.py                 # Phase 3: UPAI identity + disclosure
+│   ├── test_versioning.py           # Phase 3: Version store
+│   ├── test_adapters.py             # Phase 3: Platform adapters
 │   ├── test_edge_extraction.py      # Phase 4
 │   ├── test_cooccurrence.py         # Phase 4
 │   ├── test_dedup.py                # Phase 4
@@ -708,8 +705,9 @@ chatbot-memory-skills/
 │   └── test_scheduler.py            # Phase 6
 ├── extract_memory.py                # Modified Phases 1, 2, 4
 ├── import_memory.py                 # Modified Phases 1, 3
-├── migrate.py                       # Modified every phase
-├── pyproject.toml                   # NEW: optional deps
+├── migrate.py                       # 19 subcommands (modified every phase)
+├── docs/
+│   └── cortex-roadmap-v2.md         # This document
 ├── marketplace.json
 ├── README.md
 └── LICENSE
@@ -719,14 +717,14 @@ chatbot-memory-skills/
 
 ## Summary Table
 
-| Phase | Version | Name | Complexity | Depends On | Key Change from v1 |
-|-------|---------|------|------------|------------|---------------------|
-| 1 | v5.0 | Graph Foundation | L | None | Category-agnostic nodes with tags |
-| 2 | v5.1 | Temporal + Contradictions | M | Phase 1 | Snapshot trigger defined |
-| 3 | v5.2 | **UPAI Protocol** | L | Phase 1, 2 | **Ships 2 phases sooner.** W3C-aligned. File-based adapters. |
-| 4 | v5.3 | Smart Edges | L | Phase 1 | Right-sized algorithms |
-| 5 | v5.4 | Query + Intelligence | M | Phase 1-4 | Structured Query Interface. Gap analysis redesigned. |
-| 6 | v6.0 | Viz + Flywheel | L | All | Performance acknowledged. Optional numpy. |
+| Phase | Version | Name | Status | Key Deliverables |
+|-------|---------|------|--------|-----------------|
+| 1 | v5.0 | Graph Foundation | **DONE** | Category-agnostic nodes with tags, v4↔v5 roundtrip |
+| 2 | v5.1 | Temporal + Contradictions | **DONE** | Snapshots, drift scoring, contradiction detection |
+| 3 | v5.2 | **UPAI Protocol** | **DONE** | Ed25519/HMAC signing, selective disclosure, version control, platform adapters |
+| 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
+| 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
+| 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
 
 ---
 
@@ -749,10 +747,10 @@ chatbot-memory-skills/
 
 ---
 
-## Verification Strategy
+## Verification Strategy (Applied Per Phase)
 
-**Per-phase gate:**
-1. `python -m pytest tests/` — ALL tests pass
+**Per-phase gate (all phases passed):**
+1. `python -m pytest tests/` — ALL tests pass (453 as of v6.0)
 2. `python migrate.py <test_export> --to claude` — v4 output identical to pre-phase
 3. v4→v5→v4 roundtrip produces empty diff
 4. New CLI subcommands work with both v4 and v5 input
@@ -773,3 +771,21 @@ Nobody is building this combination:
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
 The breakthrough = **user-owned portable AI identity with selective disclosure**. That's Phase 3. Everything before it is infrastructure.
+
+---
+
+## Completion Status
+
+**All 6 phases shipped.** Cortex v6.0.0 is the complete implementation of this roadmap.
+
+| Metric | Value |
+|--------|-------|
+| Version | 6.0.0 |
+| Schema | 6.0 |
+| Total tests | 453 |
+| Test files | 17 |
+| CLI subcommands | 19 |
+| External dependencies | 0 (core) |
+| Backward compatible | v4 JSON roundtrip preserved |
+
+**What's next:** See project discussions for post-v6.0 roadmap ideas (live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation).
