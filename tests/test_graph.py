@@ -515,10 +515,12 @@ class TestExportFormats:
     def test_export_v5(self):
         g = self._sample_graph()
         v5 = g.export_v5()
-        assert v5["schema_version"] == "5.2"
+        assert v5["schema_version"] == "5.3"
         assert v5["meta"]["node_count"] == 2
         assert v5["meta"]["edge_count"] == 1
         assert "graph_model" in v5["meta"]["features"]
+        assert "smart_edges" in v5["meta"]["features"]
+        assert "centrality" in v5["meta"]["features"]
 
     def test_v4_categories_include_relationship_labels(self):
         g = self._sample_graph()
@@ -552,6 +554,9 @@ class TestStats:
         assert st["avg_degree"] == 1.0
         assert st["tag_distribution"]["t1"] == 2
         assert st["tag_distribution"]["t2"] == 1
+        assert st["relation_distribution"]["r"] == 1
+        assert st["isolated_nodes"] == 0
+        assert len(st["top_central_nodes"]) == 2
 
     def test_empty_graph_stats(self):
         g = CortexGraph()
@@ -559,6 +564,28 @@ class TestStats:
         assert st["node_count"] == 0
         assert st["edge_count"] == 0
         assert st["avg_degree"] == 0.0
+        assert st["relation_distribution"] == {}
+        assert st["isolated_nodes"] == 0
+        assert st["top_central_nodes"] == []
+
+    def test_stats_with_isolated_nodes(self):
+        g = CortexGraph()
+        g.add_node(Node(id="a", label="A", tags=["t1"]))
+        g.add_node(Node(id="b", label="B", tags=["t1"]))
+        g.add_node(Node(id="c", label="C", tags=["t2"]))
+        g.add_edge(Edge(id="e1", source_id="a", target_id="b", relation="r"))
+        st = g.stats()
+        assert st["isolated_nodes"] == 1
+        assert st["top_central_nodes"][0] in ("A", "B")
+
+    def test_centrality_convenience_methods(self):
+        g = CortexGraph()
+        g.add_node(Node(id="a", label="A", tags=["t1"]))
+        g.add_node(Node(id="b", label="B", tags=["t1"]))
+        g.add_edge(Edge(id="e1", source_id="a", target_id="b", relation="r"))
+        scores = g.compute_centrality()
+        assert scores["a"] == 1.0
+        assert scores["b"] == 1.0
 
 
 # ============================================================================
@@ -764,7 +791,7 @@ class TestMigrateSubcommands:
             ctx_path = out_dir / "context.json"
             assert ctx_path.exists()
             data = json.loads(ctx_path.read_text())
-            assert data["schema_version"] == "5.2"
+            assert data["schema_version"] == "5.3"
             assert "graph" in data
             assert "categories" in data
 
