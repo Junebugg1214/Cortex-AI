@@ -478,7 +478,7 @@ class CortexGraph:
             datetime.now(timezone.utc).isoformat(),
         )
         return {
-            "schema_version": "5.4",
+            "schema_version": "6.0",
             "meta": {
                 **self.meta,
                 "generated_at": generated_at,
@@ -488,6 +488,7 @@ class CortexGraph:
                     "time_decay", "typed_relationships",
                     "smart_edges", "centrality",
                     "query_engine", "intelligence",
+                    "visualization", "dashboard",
                 ],
                 "node_count": len(self.nodes),
                 "edge_count": len(self.edges),

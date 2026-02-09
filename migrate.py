@@ -296,6 +296,46 @@ def build_parser():
     dg.add_argument("--previous", required=True,
                     help="Path to previous context JSON to compare against")
 
+    # -- viz (Phase 6) -----------------------------------------------------
+    vz = sub.add_parser("viz", help="Render graph visualization")
+    vz.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    vz.add_argument("--output", "-o", default="graph.html",
+                    help="Output file path (default: graph.html)")
+    vz.add_argument("--format", "-f", dest="viz_format",
+                    choices=["html", "svg"], default="html",
+                    help="Output format (default: html)")
+    vz.add_argument("--max-nodes", type=int, default=200,
+                    help="Max nodes to render (default: 200)")
+    vz.add_argument("--width", type=int, default=960, help="Width in pixels")
+    vz.add_argument("--height", type=int, default=720, help="Height in pixels")
+    vz.add_argument("--iterations", type=int, default=50,
+                    help="Layout iterations (default: 50)")
+    vz.add_argument("--no-open", action="store_true",
+                    help="Don't open in browser after rendering")
+
+    # -- dashboard (Phase 6) -----------------------------------------------
+    db = sub.add_parser("dashboard", help="Launch local dashboard")
+    db.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    db.add_argument("--port", "-p", type=int, default=8420,
+                    help="Server port (default: 8420)")
+    db.add_argument("--no-open", action="store_true",
+                    help="Don't open browser automatically")
+
+    # -- watch (Phase 6) ---------------------------------------------------
+    wa = sub.add_parser("watch", help="Monitor directory for new exports")
+    wa.add_argument("watch_dir", help="Directory to monitor for export files")
+    wa.add_argument("--graph", "-g", required=True,
+                    help="Path to context.json to update")
+    wa.add_argument("--interval", type=int, default=30,
+                    help="Poll interval in seconds (default: 30)")
+
+    # -- sync-schedule (Phase 6) -------------------------------------------
+    ss = sub.add_parser("sync-schedule", help="Run periodic platform sync")
+    ss.add_argument("--config", "-c", required=True,
+                    help="Path to sync config JSON")
+    ss.add_argument("--once", action="store_true",
+                    help="Run all syncs once and exit")
+
     return parser
 
 
@@ -1016,6 +1056,136 @@ def run_digest(args):
     return 0
 
 
+def run_viz(args):
+    """Render graph visualization as HTML or SVG."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    from cortex.viz.layout import fruchterman_reingold
+    from cortex.viz.renderer import render_html, render_svg
+
+    graph = _load_graph(input_path)
+
+    def progress(current, total):
+        print(f"\rLayout: {current}/{total}", end="", flush=True)
+
+    layout = fruchterman_reingold(
+        graph,
+        iterations=args.iterations,
+        max_nodes=args.max_nodes,
+        progress=progress,
+    )
+    print()  # newline after progress
+
+    output = Path(args.output)
+    if args.viz_format == "svg":
+        content = render_svg(graph, layout, width=args.width, height=args.height)
+    else:
+        content = render_html(graph, layout, width=args.width, height=args.height)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content)
+    print(f"Visualization saved to: {output}")
+
+    if args.viz_format == "html" and not args.no_open:
+        import webbrowser
+        webbrowser.open(str(output.resolve()))
+    return 0
+
+
+def run_dashboard(args):
+    """Launch local dashboard server."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    from cortex.dashboard.server import start_dashboard
+
+    graph = _load_graph(input_path)
+    print(f"Starting Cortex Dashboard on port {args.port}...")
+    print("Press Ctrl+C to stop.")
+    try:
+        start_dashboard(graph, port=args.port, open_browser=not args.no_open)
+    except KeyboardInterrupt:
+        print("\nDashboard stopped.")
+    return 0
+
+
+def run_watch(args):
+    """Monitor a directory for new export files."""
+    import time as _time
+
+    from cortex.sync.monitor import ExportMonitor
+
+    watch_dir = Path(args.watch_dir)
+    graph_path = Path(args.graph)
+
+    if not watch_dir.is_dir():
+        print(f"Not a directory: {watch_dir}")
+        return 1
+
+    def on_extract(path, graph):
+        print(f"  Extracted from: {path.name} ({len(graph.nodes)} nodes)")
+
+    monitor = ExportMonitor(
+        watch_dir=watch_dir,
+        graph_path=graph_path,
+        interval=args.interval,
+        on_extract=on_extract,
+    )
+
+    print(f"Watching {watch_dir} (interval: {args.interval}s)")
+    print(f"Updating: {graph_path}")
+    print("Press Ctrl+C to stop.")
+
+    monitor.start()
+    try:
+        while True:
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        monitor.stop()
+        print("\nMonitor stopped.")
+    return 0
+
+
+def run_sync_schedule(args):
+    """Run periodic platform sync from config."""
+    from cortex.sync.scheduler import SyncConfig, SyncScheduler
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"Config not found: {config_path}")
+        return 1
+
+    config = SyncConfig.from_file(config_path)
+    scheduler = SyncScheduler(config)
+
+    if args.once:
+        print(f"Running {len(config.schedules)} sync(s)...")
+        results = scheduler.run_once()
+        for platform, paths in results.items():
+            if paths:
+                print(f"  {platform}: {', '.join(str(p) for p in paths)}")
+            else:
+                print(f"  {platform}: no output (check config)")
+        return 0
+
+    import time as _time
+    print(f"Starting scheduled sync ({len(config.schedules)} schedules)...")
+    print("Press Ctrl+C to stop.")
+    scheduler.start()
+    try:
+        while True:
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        scheduler.stop()
+        print("\nScheduler stopped.")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -1066,6 +1236,7 @@ def main(argv=None):
         "timeline", "contradictions", "drift",
         "identity", "commit", "log", "sync", "verify",
         "gaps", "digest",
+        "viz", "dashboard", "watch", "sync-schedule",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1106,6 +1277,14 @@ def main(argv=None):
         return run_gaps(args)
     elif args.subcommand == "digest":
         return run_digest(args)
+    elif args.subcommand == "viz":
+        return run_viz(args)
+    elif args.subcommand == "dashboard":
+        return run_dashboard(args)
+    elif args.subcommand == "watch":
+        return run_watch(args)
+    elif args.subcommand == "sync-schedule":
+        return run_sync_schedule(args)
     else:
         return run_migrate(args)
 

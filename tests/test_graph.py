@@ -515,7 +515,7 @@ class TestExportFormats:
     def test_export_v5(self):
         g = self._sample_graph()
         v5 = g.export_v5()
-        assert v5["schema_version"] == "5.4"
+        assert v5["schema_version"] == "6.0"
         assert v5["meta"]["node_count"] == 2
         assert v5["meta"]["edge_count"] == 1
         assert "graph_model" in v5["meta"]["features"]
@@ -523,6 +523,8 @@ class TestExportFormats:
         assert "centrality" in v5["meta"]["features"]
         assert "query_engine" in v5["meta"]["features"]
         assert "intelligence" in v5["meta"]["features"]
+        assert "visualization" in v5["meta"]["features"]
+        assert "dashboard" in v5["meta"]["features"]
 
     def test_v4_categories_include_relationship_labels(self):
         g = self._sample_graph()
@@ -793,7 +795,7 @@ class TestMigrateSubcommands:
             ctx_path = out_dir / "context.json"
             assert ctx_path.exists()
             data = json.loads(ctx_path.read_text())
-            assert data["schema_version"] == "5.4"
+            assert data["schema_version"] == "6.0"
             assert "graph" in data
             assert "categories" in data
 
