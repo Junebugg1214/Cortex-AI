@@ -1,91 +1,213 @@
-# Chatbot Memory Skills v4.2
+# Cortex — Your Portable AI Identity
 
-Migrate your AI conversation history between platforms. Extract context from ChatGPT, Claude, Gemini, Perplexity, or any chatbot and import it into Claude, Notion, Google Docs, or any LLM.
+**Own your AI memory. Take it everywhere.**
 
-## Quick Migrate
+Cortex extracts your context from every AI platform you use — ChatGPT, Claude, Gemini, Perplexity — merges it into a single knowledge graph, and lets you selectively push it back to any platform. Cryptographically signed. Version controlled. Zero external dependencies.
 
 ```bash
-# One command: extract + import
+# Extract from ChatGPT, export to Claude
 python migrate.py chatgpt-export.zip --to claude -o ./output
 
-# Export to all platforms
-python migrate.py chatgpt-export.zip --to all
+# Visualize your knowledge graph
+python migrate.py viz context.json --output graph.html
 
-# With PII redaction
-python migrate.py chatgpt-export.zip --to claude --redact
-
-# Extract only
-python migrate.py extract chatgpt-export.zip -o context.json
-
-# Import only
-python migrate.py import context.json --to notion -o ./output
+# Launch the dashboard
+python migrate.py dashboard context.json
 ```
 
-## What's New in v4.3
+> **Nobody else builds user-owned portable AI identity.** Mem0, Letta, and built-in AI memories are agent memory — owned by the platform. Cortex is *your* memory, under *your* control.
 
-| Feature | Description |
-|---------|-------------|
-| **PII Redaction** | `--redact` flag replaces emails, phones, SSNs, credit cards, API keys, IPs, and addresses with typed placeholders before extraction |
-| **Custom Redaction Patterns** | `--redact-patterns <file.json>` adds custom regex patterns alongside built-ins |
+---
 
-## What's in v4.2
+## How It Works
 
-| Feature | Description |
-|---------|-------------|
-| **Typed Relationships** | Classify relationships as partner, mentor, advisor, investor, client, or competitor |
-| **Conflict Detection** | Automatically flags contradictory statements (e.g., "I use Python" vs "I avoid Python") |
-| **Incremental Merge** | `--merge` flag combines new extractions with existing context files |
-| **Claude Memory Import** | Import Claude `memory_user_edits` exports back to v4 schema (bidirectional sync) |
+```
+Chat Exports (ChatGPT, Claude, Gemini, Perplexity, API logs)
+        |
+   extract_memory.py          Parse exports, extract entities
+        |
+   CortexGraph                Nodes (entities) + Edges (relationships)
+        |
+   UPAI Protocol              Sign, version, control disclosure
+        |
+   Platform Adapters          Push selective views to Claude, Notion, etc.
+        |
+   Flywheel                   Auto-extract, auto-sync, dashboard
+```
 
-## What's in v4.1
+**Nodes are entities, not category items.** "Python" is ONE node with tags `[technical_expertise, domain_knowledge]` — not duplicated across categories. Edges capture typed relationships: `Python --applied_in--> Healthcare`.
 
-| Feature | Description |
-|---------|-------------|
-| **Negation Detection** | "I don't use Python" filters Python from technical skills |
-| **Cross-Category Filtering** | Negated and corrected items removed from positive categories |
-| **Preferences Category** | Captures "I prefer X", "I always use Y" patterns |
-| **Constraints Category** | Extracts budget, timeline, team size, regulatory requirements |
-| **Correction History** | Tracks "I meant X not Y" patterns for context |
-| **Gemini Support** | Import from Google AI Studio / Gemini exports |
-| **Perplexity Support** | Import from Perplexity conversation exports |
-| **JSONL & API Logs** | Import from OpenAI/Anthropic API conversation logs |
-
-## What's in v4.0
-
-| Feature | Description |
-|---------|-------------|
-| **Semantic Deduplication** | Fuzzy matching merges "BurnaAI" and "Burna AI" automatically |
-| **Better Name Handling** | Properly captures "Saint-Jour", "O'Brien", "Mary-Jane" |
-| **Time Decay** | Recent mentions boost confidence more than old ones |
-| **Topic Merging** | Combines related topics within categories |
-| **Notion Export** | Markdown pages + database JSON ready for import |
-| **Google Docs Export** | Styled HTML that pastes directly into Google Docs |
+---
 
 ## Quick Start
 
 ```bash
-# 1. Download your ChatGPT export (Settings → Data controls → Export)
+git clone https://github.com/Junebugg1214/chatbot-memory-skills.git
+cd chatbot-memory-skills
 
-# 2. Extract context
-python skills/chatbot-memory-extractor/scripts/extract_memory.py \
-  ~/Downloads/chatgpt-export.zip -o context.json
+# Extract context from a chat export
+python migrate.py chatgpt-export.zip --to claude -o ./output
 
-# 3. Export to all formats
-python skills/chatbot-memory-importer/scripts/import_memory.py \
-  context.json -f all -c medium -o ./output
+# Or extract to universal JSON first
+python migrate.py extract chatgpt-export.zip -o context.json
+
+# Then export to any platform
+python migrate.py import context.json --to all -o ./output
 ```
 
-## Skills Included
+### Requirements
 
-### chatbot-memory-extractor
+- Python 3.10+
+- No external packages (stdlib only)
+- Optional: `PyNaCl` for Ed25519 signatures (`pip install pynacl`)
+- Optional: `numpy` for 10x faster graph layout (`pip install numpy`)
 
-Extracts user context from conversation exports:
+---
 
-- **Input:** ChatGPT `.zip`, Claude `.json`, Gemini, Perplexity, JSONL, API logs, plain text
-- **Output:** Universal v4 context JSON
-- **Features:** 16 extraction categories, negation filtering, semantic dedup, time decay, typed relationships, conflict detection, incremental merge
+## The Six Layers
 
-**Extraction Categories:**
+### 1. Graph Foundation
+
+Everything is nodes and edges. Nodes have tags (not fixed categories), confidence scores, temporal metadata, and extensible properties. The graph is backward compatible — v4 flat-category JSON converts losslessly.
+
+```bash
+python migrate.py query context.json --node "Python"
+python migrate.py query context.json --neighbors "Python"
+python migrate.py stats context.json
+```
+
+### 2. Temporal Engine
+
+Every extraction snapshots each node's state. Cortex tracks how your identity evolves, detects contradictions ("said X in January, not-X in March"), and computes drift scores across time windows.
+
+```bash
+python migrate.py timeline context.json --format html
+python migrate.py contradictions context.json --severity 0.5
+python migrate.py drift context.json --window 90
+```
+
+### 3. UPAI Protocol (Universal Portable AI Identity)
+
+The breakthrough layer. Three capabilities:
+
+- **Cryptographic signing** — SHA-256 integrity (always). Ed25519 signatures (with `pynacl`). Proves the graph is yours and untampered.
+- **Selective disclosure** — Policies control what each platform sees. "Professional" shows job/skills. "Technical" shows your tech stack. "Minimal" shows almost nothing.
+- **Version control** — Git-like commits for your identity. Log, diff, checkout, rollback.
+
+```bash
+# Initialize identity
+python migrate.py identity init --name "Your Name"
+
+# Commit a version
+python migrate.py identity commit context.json -m "Added June ChatGPT export"
+
+# View history
+python migrate.py identity log
+
+# Compare versions
+python migrate.py identity diff v1 v2
+
+# Push to Claude with professional disclosure policy
+python migrate.py sync claude --push --policy professional -o ./output
+```
+
+**Built-in disclosure policies:**
+
+| Policy | What's Shared | Min Confidence |
+|--------|---------------|----------------|
+| `full` | Everything | 0.0 |
+| `professional` | Identity, work, skills, priorities | 0.6 |
+| `technical` | Tech stack, domain knowledge, priorities | 0.5 |
+| `minimal` | Identity, communication preferences only | 0.8 |
+
+### 4. Smart Edges
+
+Automatic relationship discovery:
+
+- **Pattern rules** — `technical_expertise` + `active_priorities` = `used_in` edge
+- **Co-occurrence** — entities appearing together in messages get linked (PMI for large datasets, frequency thresholds for small)
+- **Centrality** — identifies your most important nodes (degree centrality, PageRank for 200+ nodes)
+- **Graph-aware dedup** — merges near-duplicates using 70% text similarity + 30% neighbor overlap
+
+### 5. Query + Intelligence
+
+Structured queries and proactive analysis:
+
+```bash
+# Find by category, confidence, relationships
+python migrate.py query context.json --category technical_expertise
+python migrate.py query context.json --strongest 10
+python migrate.py query context.json --isolated
+
+# Shortest path between two nodes
+python migrate.py query context.json --path "Python" "Mayo Clinic"
+
+# Connected components
+python migrate.py query context.json --components
+
+# Gap analysis — what's missing from your graph?
+python migrate.py gaps context.json
+
+# Weekly digest — what changed?
+python migrate.py digest context.json --previous last_week.json
+```
+
+### 6. Visualization + Flywheel
+
+See your graph, keep it alive:
+
+```bash
+# Interactive HTML visualization (zoom, pan, hover, click)
+python migrate.py viz context.json --output graph.html
+
+# Static SVG for documents
+python migrate.py viz context.json --output graph.svg --format svg
+
+# Live dashboard with stats, gaps, components
+python migrate.py dashboard context.json --port 8420
+
+# Auto-extract new exports dropped into a folder
+python migrate.py watch ~/exports/ --graph context.json
+
+# Scheduled sync to platforms
+python migrate.py sync-schedule --config sync_config.json
+```
+
+---
+
+## Supported Platforms
+
+### Input (Extract From)
+
+| Platform | File Type | Auto-Detected |
+|----------|-----------|---------------|
+| ChatGPT | `.zip` with `conversations.json` | Yes |
+| Claude | `.json` with messages array | Yes |
+| Claude Memories | `.json` array with `text` field | Yes |
+| Gemini / AI Studio | `.json` with conversations/turns | Yes |
+| Perplexity | `.json` with threads | Yes |
+| API Logs | `.json` with requests array | Yes |
+| JSONL | `.jsonl` (one message per line) | Yes |
+| Plain Text | `.txt`, `.md` | Yes |
+
+### Output (Export To)
+
+| Format | Output | Use Case |
+|--------|--------|----------|
+| Claude Preferences | `claude_preferences.txt` | Settings > Profile |
+| Claude Memories | `claude_memories.json` | memory_user_edits |
+| System Prompt | `system_prompt.txt` | Any LLM API |
+| Notion Page | `notion_page.md` | Notion import |
+| Notion Database | `notion_database.json` | Notion DB rows |
+| Google Docs | `google_docs.html` | Google Docs paste |
+| Summary | `summary.md` | Human overview |
+| Full JSON | `full_export.json` | Lossless backup |
+
+---
+
+## Extraction Categories
+
+Cortex extracts entities into 17 tag categories:
 
 | Category | Examples |
 |----------|----------|
@@ -96,261 +218,185 @@ Extracts user context from conversation exports:
 | Relationships | Partners, clients, collaborators |
 | Technical Expertise | Languages, frameworks, tools |
 | Domain Knowledge | Healthcare, finance, AI/ML |
-| Market Context | Competitors, industry |
+| Market Context | Competitors, industry trends |
 | Metrics | Revenue, users, timelines |
-| **Constraints** | Budget, timeline, team size |
+| Constraints | Budget, timeline, team size |
 | Values | Principles, beliefs |
-| **Negations** | What user explicitly avoids |
-| **User Preferences** | Style and tool preferences |
+| Negations | What you explicitly avoid |
+| User Preferences | Style and tool preferences |
 | Communication Preferences | Response style preferences |
-| **Correction History** | Self-corrections and clarifications |
+| Correction History | Self-corrections |
 | Mentions | Catch-all for other entities |
 
-```bash
-# Basic extraction
-python extract_memory.py conversations.json --verbose --stats
+---
 
-# Merge with existing context
-python extract_memory.py new_export.json --merge existing_context.json -o merged.json
-```
+## Key Features
 
-### chatbot-memory-importer
+### PII Redaction
 
-Converts context to platform-specific formats:
-
-| Format | Output File | Use Case |
-|--------|-------------|----------|
-| Claude Preferences | `claude_preferences.txt` | Settings > Profile |
-| Claude Memories | `claude_memories.json` | memory_user_edits |
-| System Prompt | `system_prompt.txt` | Any LLM API |
-| Notion Page | `notion_page.md` | Notion import |
-| Notion Database | `notion_database.json` | Notion DB rows |
-| Google Docs | `google_docs.html` | Google Docs |
-| Summary | `summary.md` | Human overview |
-| Full JSON | `full_export.json` | Lossless backup |
+Strip sensitive data before extraction:
 
 ```bash
-python import_memory.py context.json -f all -c medium -o ./output
+python migrate.py chatgpt-export.zip --to claude --redact
+
+# With custom patterns
+python migrate.py chatgpt-export.zip --to claude --redact --redact-patterns custom.json
 ```
 
-## Supported Input Formats
+Redacts: emails, phones, SSNs, credit cards, API keys, IP addresses, street addresses.
 
-| Format | File Type | Auto-Detected |
-|--------|-----------|---------------|
-| ChatGPT Export | `.zip` with `conversations.json` | Yes |
-| Claude Export | `.json` with messages array | Yes |
-| Claude Memories | `.json` array with `text` field | Yes |
-| Gemini/AI Studio | `.json` with conversations/turns | Yes |
-| Perplexity | `.json` with threads | Yes |
-| API Logs | `.json` with requests array | Yes |
-| JSONL | `.jsonl` (one message per line) | Yes |
-| Plain Text | `.txt`, `.md` | Yes |
-| Generic JSON | `.json` with messages | Yes |
+### Incremental Merge
 
-## Confidence Levels
-
-| Flag | Threshold | Behavior |
-|------|-----------|----------|
-| `-c high` | ≥0.8 | Only high-confidence topics |
-| `-c medium` | ≥0.6 | High + medium confidence |
-| `-c low` | ≥0.4 | Include low confidence |
-| `-c all` | ≥0.0 | Everything |
-
-## Installation
-
-### As Claude Skills
-
-1. Download this repo
-2. In Claude.ai, go to **Settings > Skills**
-3. Add each skill folder
-
-### As Claude Code Plugin
+Combine new exports without losing existing data:
 
 ```bash
-/plugin marketplace add Junebugg1214/chatbot-memory-skills
-/plugin install chatbot-memory-extractor
-/plugin install chatbot-memory-importer
+python migrate.py extract export1.json -o context.json
+python migrate.py extract export2.json --merge context.json -o context.json
 ```
 
-### Standalone
+### Conflict Detection
+
+Automatically flags contradictions:
+
+```
+Input: "I use Python daily" + "I don't use Python anymore"
+Result: negation_conflict detected, resolution: prefer_negation (more recent)
+```
+
+### Typed Relationships
+
+```
+Input: "We partner with Mayo Clinic. Dr. Smith is my mentor."
+Result: Mayo Clinic (partner), Dr. Smith (mentor)
+```
+
+Supported types: `partner`, `mentor`, `advisor`, `investor`, `client`, `competitor`
+
+---
+
+## Architecture
+
+```
+chatbot-memory-skills/
+├── cortex/
+│   ├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
+│   ├── compat.py               # v4 <-> v5 conversion
+│   ├── temporal.py             # Snapshots, drift scoring
+│   ├── contradictions.py       # Contradiction detection
+│   ├── timeline.py             # Timeline views
+│   ├── upai/
+│   │   ├── identity.py         # UPAI identity, DID, Ed25519/HMAC signing
+│   │   ├── disclosure.py       # Selective disclosure policies
+│   │   └── versioning.py       # Git-like version control
+│   ├── adapters.py             # Claude/SystemPrompt/Notion/GDocs adapters
+│   ├── edge_extraction.py      # Pattern-based + proximity edge discovery
+│   ├── cooccurrence.py         # PMI / frequency co-occurrence
+│   ├── dedup.py                # Graph-aware deduplication
+│   ├── centrality.py           # Degree centrality + PageRank
+│   ├── query.py                # QueryEngine + graph algorithms
+│   ├── intelligence.py         # Gap analysis + weekly digest
+│   ├── viz/
+│   │   ├── layout.py           # Fruchterman-Reingold layout
+│   │   └── renderer.py         # HTML (interactive) + SVG (static)
+│   ├── dashboard/
+│   │   └── server.py           # Local web dashboard
+│   └── sync/
+│       ├── monitor.py          # File watcher auto-extraction
+│       └── scheduler.py        # Periodic platform sync
+├── extract_memory.py           # Extraction engine
+├── import_memory.py            # Import/export engine
+├── migrate.py                  # CLI (19 subcommands)
+└── tests/                      # 453 tests across 17 files
+```
+
+---
+
+## CLI Reference
+
+### Extract & Import
 
 ```bash
-git clone https://github.com/Junebugg1214/chatbot-memory-skills.git
-cd chatbot-memory-skills
-
-# Extract
-python skills/chatbot-memory-extractor/scripts/extract_memory.py input.json -o context.json
-
-# Import
-python skills/chatbot-memory-importer/scripts/import_memory.py context.json -f all -o ./output
+python migrate.py <export> --to <platform> -o ./output    # One-step migrate
+python migrate.py extract <export> -o context.json         # Extract only
+python migrate.py import context.json --to <platform>      # Import only
+python migrate.py merge old.json new.json -o merged.json   # Merge contexts
 ```
 
-## Example Workflow: ChatGPT → Claude + Notion
+### Query & Intelligence
 
 ```bash
-# Extract from ChatGPT
-python extract_memory.py ~/Downloads/chatgpt-export.zip -o context.json
-
-# Preview
-python import_memory.py context.json --dry-run -c medium
-
-# Export all formats
-python import_memory.py context.json -f all -c medium -o ./import
-
-# Apply:
-# 1. Copy claude_preferences.txt → Claude Settings > Profile
-# 2. Import notion_page.md → Notion
-# 3. Open google_docs.html → Copy to Google Docs
+python migrate.py query <graph> --node <label>             # Find node
+python migrate.py query <graph> --neighbors <label>        # Find neighbors
+python migrate.py query <graph> --category <tag>           # Filter by tag
+python migrate.py query <graph> --path <from> <to>         # Shortest path
+python migrate.py query <graph> --strongest <n>            # Top N nodes
+python migrate.py query <graph> --weakest <n>              # Bottom N nodes
+python migrate.py query <graph> --isolated                 # Unconnected nodes
+python migrate.py query <graph> --components               # Connected clusters
+python migrate.py gaps <graph>                             # Gap analysis
+python migrate.py digest <graph> --previous <old>          # Weekly digest
+python migrate.py stats <graph>                            # Graph statistics
 ```
 
-## Typed Relationships
-
-Relationships are now automatically classified by type:
-
-```
-Input: "We partner with Mayo Clinic. Dr. Smith is my mentor. Sequoia invested in us."
-
-Result:
-  relationships:
-    - Mayo Clinic (type: partner)
-    - Dr. Smith (type: mentor)
-    - Sequoia (type: investor)
-```
-
-Supported relationship types: `partner`, `mentor`, `advisor`, `investor`, `client`, `competitor`
-
-In system prompt exports, relationships are grouped by type for clarity.
-
-## Conflict Detection
-
-The extractor detects contradictory statements and flags them:
-
-```json
-{
-  "conflicts": [
-    {
-      "type": "negation_conflict",
-      "positive_category": "technical_expertise",
-      "positive_topic": "Python",
-      "negative_topic": "Python",
-      "resolution": "prefer_negation"
-    }
-  ]
-}
-```
-
-Resolution is based on timestamps - more recent statements take precedence.
-
-## Incremental Merge
-
-Combine new extractions with existing context using `--merge`:
+### Identity & Sync
 
 ```bash
-# First extraction
-python extract_memory.py export1.json -o context.json
-
-# Later: merge new conversations without losing existing data
-python extract_memory.py export2.json --merge context.json -o context.json
+python migrate.py identity init --name <name>              # Create identity
+python migrate.py identity commit <graph> -m <message>     # Version commit
+python migrate.py identity log                             # Version history
+python migrate.py identity diff <v1> <v2>                  # Compare versions
+python migrate.py sync <platform> --push --policy <name>   # Push to platform
+python migrate.py sync <platform> --pull <file>            # Pull from platform
 ```
 
-The merge:
-- Preserves all existing topics
-- Adds new topics from the new extraction
-- Deduplicates similar topics automatically
-- Preserves relationship types and other metadata
-
-## PII Redaction
-
-Strip sensitive data before extraction with `--redact`:
+### Visualization & Flywheel
 
 ```bash
-# Enable PII redaction — replaces PII with placeholders like [EMAIL], [PHONE]
-python extract_memory.py conversations.json --redact -o context.json --verbose
-
-# Add custom patterns alongside built-ins
-echo '{"EMPLOYEE_ID": "\\bEMP-\\d{6}\\b", "INTERNAL_CODE": "\\bINT-[A-Z]{3}-\\d{4}\\b"}' > custom.json
-python extract_memory.py conversations.json --redact --redact-patterns custom.json -o context.json
+python migrate.py viz <graph> --output graph.html          # Interactive HTML
+python migrate.py viz <graph> --output graph.svg --format svg  # Static SVG
+python migrate.py dashboard <graph> --port 8420            # Web dashboard
+python migrate.py watch <dir> --graph <graph>              # Auto-extract
+python migrate.py sync-schedule --config <config.json>     # Scheduled sync
 ```
 
-**What gets redacted:**
-
-| Type | Example | Placeholder |
-|------|---------|-------------|
-| Email | `john@example.com` | `[EMAIL]` |
-| Phone | `(555) 123-4567` | `[PHONE]` |
-| SSN | `123-45-6789` | `[SSN]` |
-| Credit Card | `4111111111111111` | `[CREDIT_CARD]` |
-| API Key | `sk-abc123...` | `[API_KEY]` |
-| IP Address | `192.168.1.100` | `[IP_ADDRESS]` |
-| Street Address | `123 Main St` | `[STREET_ADDRESS]` |
-
-**Not redacted:** Names, company names, technical terms, domain knowledge, general numbers/metrics.
-
-**Custom patterns file format** (`--redact-patterns`):
-
-```json
-{
-    "EMPLOYEE_ID": "\\bEMP-\\d{6}\\b",
-    "INTERNAL_CODE": "\\bINT-[A-Z]{3}-\\d{4}\\b"
-}
-```
-
-The redaction summary is included in the output JSON when `--redact` is enabled:
-
-```json
-{
-  "redaction_summary": {
-    "redaction_applied": true,
-    "total_redactions": 5,
-    "by_type": {"EMAIL": 2, "PHONE": 1, "IP_ADDRESS": 2}
-  }
-}
-```
-
-## Claude Memory Import (Bidirectional Sync)
-
-Import Claude's `memory_user_edits` export back to v4 schema:
+### Temporal Analysis
 
 ```bash
-# Export your Claude memories from Claude.ai
-# Then import them back to v4 format:
-python import_memory.py claude_memories.json -f all -o ./output
+python migrate.py timeline <graph> --format html           # Timeline view
+python migrate.py contradictions <graph> --severity 0.5    # Find conflicts
+python migrate.py drift <graph> --window 90                # Identity drift
 ```
 
-The importer auto-detects Claude memory format (array with `text` field) and parses entries like:
-- `"User is John Doe"` → identity
-- `"User tech: Python"` → technical_expertise
-- `"User avoids: Java"` → negations
+---
 
-This enables round-trip migration: ChatGPT → Claude → back to universal format.
+## Competitive Landscape
 
-## Negation Filtering Example
+| Capability | Cortex | Mem0 | Letta | ChatGPT Memory | Claude Memory |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Knowledge Graph | Yes | Partial | No | No | No |
+| **Portability (UPAI)** | **Yes** | No | No | No | No |
+| **User-Owned** | **Yes** | No | No | No | No |
+| **Temporal Tracking** | **Yes** | No | No | No | No |
+| Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
-The extractor intelligently handles contradictions:
+---
 
-```
-Input: "I don't use Python anymore, I prefer TypeScript"
+## Version History
 
-Result:
-  negations: ["Python anymore"]
-  technical_expertise: ["TypeScript"]  # Python filtered out
-  user_preferences: ["TypeScript"]
-```
+| Version | Milestone |
+|---------|-----------|
+| v6.0 | Visualization, dashboard, file monitor, sync scheduler |
+| v5.4 | Query engine, gap analysis, weekly digest |
+| v5.3 | Smart edge extraction, co-occurrence, centrality, dedup |
+| v5.2 | **UPAI Protocol** — cryptographic signing, selective disclosure, version control |
+| v5.1 | Temporal snapshots, contradiction engine, drift scoring |
+| v5.0 | Graph foundation — category-agnostic nodes, edges, v4 roundtrip |
+| v4.3 | PII redaction |
+| v4.2 | Typed relationships, conflict detection, incremental merge |
+| v4.1 | Negation detection, preferences/constraints, Gemini/Perplexity support |
+| v4.0 | Semantic dedup, time decay, Notion/Google Docs export |
 
-```
-Input: "Actually, I meant React not Angular"
-
-Result:
-  correction_history: ["Corrected 'Angular' to 'React'"]
-  technical_expertise: ["React"]  # Angular filtered out
-```
-
-This prevents contradictory information from appearing in your exported context.
-
-## Requirements
-
-- Python 3.9+
-- No external packages (stdlib only)
+---
 
 ## License
 
