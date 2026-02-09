@@ -161,6 +161,10 @@ def build_parser():
     mig.add_argument("--stats", action="store_true", help="Show category stats")
     mig.add_argument("--schema", choices=["v4", "v5"], default="v4",
                      help="Output schema version (default: v4)")
+    mig.add_argument("--discover-edges", action="store_true",
+                     help="Run smart edge extraction (pattern + co-occurrence)")
+    mig.add_argument("--llm", action="store_true",
+                     help="LLM-assisted edge extraction (future, stub)")
 
     # -- extract ------------------------------------------------------------
     ext = sub.add_parser("extract", help="Extract context from export file")
@@ -417,6 +421,44 @@ def run_migrate(args):
 
     if args.schema == "v5":
         graph = upgrade_v4_to_v5(v4_data)
+
+        # --- Smart edge discovery (Phase 4, opt-in) ---
+        if getattr(args, "discover_edges", False):
+            from cortex.edge_extraction import discover_all_edges
+            from cortex.cooccurrence import discover_edges as discover_cooccurrence
+            from cortex.centrality import compute_centrality, apply_centrality_boost
+            from cortex.dedup import deduplicate
+
+            messages = getattr(extractor, "all_user_text", None)
+
+            # 1. Pattern-based + proximity edge extraction
+            new_edges = discover_all_edges(graph, messages=messages)
+            for edge in new_edges:
+                graph.add_edge(edge)
+
+            # 2. Co-occurrence edges (if messages available)
+            cooc_count = 0
+            if messages and len(messages) >= 3:
+                cooc_edges = discover_cooccurrence(messages, graph)
+                for edge in cooc_edges:
+                    graph.add_edge(edge)
+                cooc_count = len(cooc_edges)
+
+            # 3. Graph-aware dedup
+            merged = deduplicate(graph)
+
+            # 4. Centrality boost
+            scores = compute_centrality(graph)
+            apply_centrality_boost(graph, scores)
+
+            if args.verbose:
+                print(f"   Smart edges: +{len(new_edges)} pattern"
+                      f", +{cooc_count} co-occurrence"
+                      f", {len(merged)} merges, centrality applied")
+
+            if getattr(args, "llm", False):
+                print("   --llm: LLM-assisted extraction not yet implemented (stub)")
+
         v5_data = graph.export_v5()
         ctx_path = output_dir / "context.json"
         with open(ctx_path, "w", encoding="utf-8") as f:
@@ -770,10 +812,18 @@ def run_stats(args):
     print(f"Nodes: {st['node_count']}")
     print(f"Edges: {st['edge_count']}")
     print(f"Avg degree: {st['avg_degree']}")
+    if st.get("isolated_nodes", 0) > 0:
+        print(f"Isolated nodes (0 edges): {st['isolated_nodes']}")
     if st["tag_distribution"]:
         print("Tag distribution:")
         for tag, count in sorted(st["tag_distribution"].items(), key=lambda x: -x[1]):
             print(f"  {tag}: {count}")
+    if st.get("relation_distribution"):
+        print("Relation distribution:")
+        for rel, count in sorted(st["relation_distribution"].items(), key=lambda x: -x[1]):
+            print(f"  {rel}: {count}")
+    if st.get("top_central_nodes"):
+        print(f"Top central nodes: {', '.join(st['top_central_nodes'])}")
     return 0
 
 

@@ -364,6 +364,20 @@ class CortexGraph:
         del self.nodes[node_id_b]
         return a
 
+    # ── Centrality ────────────────────────────────────────────────────
+
+    def compute_centrality(self) -> dict[str, float]:
+        """Compute centrality scores for all nodes."""
+        from cortex.centrality import compute_centrality
+        return compute_centrality(self)
+
+    def apply_centrality_boost(self) -> dict[str, float]:
+        """Compute centrality and boost top-decile node confidence."""
+        from cortex.centrality import compute_centrality, apply_centrality_boost
+        scores = compute_centrality(self)
+        apply_centrality_boost(self, scores)
+        return scores
+
     # ── Export ──────────────────────────────────────────────────────────
 
     def to_v4_categories(self) -> dict:
@@ -464,7 +478,7 @@ class CortexGraph:
             datetime.now(timezone.utc).isoformat(),
         )
         return {
-            "schema_version": "5.2",
+            "schema_version": "5.3",
             "meta": {
                 **self.meta,
                 "generated_at": generated_at,
@@ -472,6 +486,7 @@ class CortexGraph:
                 "features": [
                     "graph_model", "multi_tag_nodes", "semantic_dedup",
                     "time_decay", "typed_relationships",
+                    "smart_edges", "centrality",
                 ],
                 "node_count": len(self.nodes),
                 "edge_count": len(self.edges),
@@ -495,21 +510,36 @@ class CortexGraph:
             for tag in node.tags:
                 tag_dist[tag] = tag_dist.get(tag, 0) + 1
 
-        degrees: list[int] = []
-        for nid in self.nodes:
-            deg = sum(
-                1 for e in self.edges.values()
-                if e.source_id == nid or e.target_id == nid
-            )
-            degrees.append(deg)
+        degree_map: dict[str, int] = {nid: 0 for nid in self.nodes}
+        rel_dist: dict[str, int] = {}
+        for e in self.edges.values():
+            if e.source_id in degree_map:
+                degree_map[e.source_id] += 1
+            if e.target_id in degree_map:
+                degree_map[e.target_id] += 1
+            rel_dist[e.relation] = rel_dist.get(e.relation, 0) + 1
 
+        degrees = list(degree_map.values())
         avg_degree = sum(degrees) / len(degrees) if degrees else 0.0
+        isolated = sum(1 for d in degrees if d == 0)
+
+        # Top-5 by degree
+        top_central = sorted(
+            degree_map.items(), key=lambda x: x[1], reverse=True,
+        )[:5]
+        top_labels = [
+            self.nodes[nid].label for nid, _ in top_central
+            if nid in self.nodes
+        ]
 
         return {
             "node_count": len(self.nodes),
             "edge_count": len(self.edges),
             "avg_degree": round(avg_degree, 2),
             "tag_distribution": tag_dist,
+            "relation_distribution": rel_dist,
+            "isolated_nodes": isolated,
+            "top_central_nodes": top_labels,
         }
 
     # ── Deserialization ────────────────────────────────────────────────
