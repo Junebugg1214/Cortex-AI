@@ -356,6 +356,29 @@ def build_parser():
     ec.add_argument("--enrich", action="store_true",
                     help="Read project files (README, manifests) to enrich extraction")
 
+    # -- context-hook (auto-inject) -------------------------------------------
+    ch = sub.add_parser("context-hook",
+                        help="Install/manage Cortex context hook for Claude Code")
+    ch.add_argument("action", choices=["install", "uninstall", "test", "status"],
+                    help="Hook action to perform")
+    ch.add_argument("graph_file", nargs="?",
+                    help="Path to Cortex graph JSON (required for install)")
+    ch.add_argument("--policy", default="technical",
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Disclosure policy (default: technical)")
+    ch.add_argument("--max-chars", type=int, default=1500,
+                    help="Max characters for injected context (default: 1500)")
+
+    # -- context-export (one-shot compact export) ------------------------------
+    ce = sub.add_parser("context-export",
+                        help="Export compact context markdown to stdout")
+    ce.add_argument("input_file", help="Path to Cortex graph JSON")
+    ce.add_argument("--policy", default="technical",
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Disclosure policy (default: technical)")
+    ce.add_argument("--max-chars", type=int, default=1500,
+                    help="Max characters (default: 1500)")
+
     return parser
 
 
@@ -1303,6 +1326,95 @@ def run_extract_coding(args):
     return 0
 
 
+def run_context_hook(args):
+    """Install/manage Cortex context hook for Claude Code."""
+    from cortex.hooks import (
+        install_hook, uninstall_hook, hook_status,
+        generate_compact_context, HookConfig, load_hook_config,
+    )
+
+    if args.action == "install":
+        if not args.graph_file:
+            print("Error: graph_file required for install")
+            print("Usage: python migrate.py context-hook install <graph.json>")
+            return 1
+        graph_path = Path(args.graph_file)
+        if not graph_path.exists():
+            print(f"File not found: {graph_path}")
+            return 1
+        cfg_path, settings_path = install_hook(
+            graph_path=str(graph_path),
+            policy=args.policy,
+            max_chars=args.max_chars,
+        )
+        print(f"Cortex hook installed:")
+        print(f"  Config:   {cfg_path}")
+        print(f"  Settings: {settings_path}")
+        print(f"  Policy:   {args.policy}")
+        print(f"\nRestart Claude Code for the hook to take effect.")
+        return 0
+
+    elif args.action == "uninstall":
+        removed = uninstall_hook()
+        if removed:
+            print("Cortex hook uninstalled.")
+            print("Restart Claude Code to apply changes.")
+        else:
+            print("No Cortex hook found to remove.")
+        return 0
+
+    elif args.action == "test":
+        config = load_hook_config()
+        if not config.graph_path:
+            print("No hook config found. Install first:")
+            print("  python migrate.py context-hook install <graph.json>")
+            return 1
+        context = generate_compact_context(config)
+        if context:
+            print("Context that would be injected:\n")
+            print(context)
+            print(f"\n({len(context)} chars)")
+        else:
+            print("No context generated (graph may be empty or missing).")
+        return 0
+
+    elif args.action == "status":
+        status = hook_status()
+        print(f"Installed: {'Yes' if status['installed'] else 'No'}")
+        print(f"Config:    {status['config_path']}")
+        print(f"Settings:  {status['settings_path']}")
+        if status['config']['graph_path']:
+            print(f"Graph:     {status['config']['graph_path']}")
+            print(f"Policy:    {status['config']['policy']}")
+            print(f"Max chars: {status['config']['max_chars']}")
+        return 0
+
+    return 1
+
+
+def run_context_export(args):
+    """Export compact context markdown to stdout."""
+    from cortex.hooks import generate_compact_context, HookConfig
+
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}", file=sys.stderr)
+        return 1
+
+    config = HookConfig(
+        graph_path=str(input_path),
+        policy=args.policy,
+        max_chars=args.max_chars,
+    )
+    context = generate_compact_context(config)
+    if context:
+        print(context)
+    else:
+        print("No context generated (graph may be empty).", file=sys.stderr)
+        return 1
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -1354,7 +1466,7 @@ def main(argv=None):
         "identity", "commit", "log", "sync", "verify",
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
-        "extract-coding",
+        "extract-coding", "context-hook", "context-export",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1405,6 +1517,10 @@ def main(argv=None):
         return run_sync_schedule(args)
     elif args.subcommand == "extract-coding":
         return run_extract_coding(args)
+    elif args.subcommand == "context-hook":
+        return run_context_hook(args)
+    elif args.subcommand == "context-export":
+        return run_context_export(args)
     else:
         return run_migrate(args)
 

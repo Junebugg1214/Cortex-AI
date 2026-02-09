@@ -819,16 +819,31 @@ chatbot-memory-skills/
 
 Nobody is building this combination:
 
-| Capability | Cortex | Mem0 | Letta | ChatGPT Memory | Claude Memory |
-|---|:-:|:-:|:-:|:-:|:-:|
-| Knowledge Graph | Yes | Partial | No | No | No |
-| **Portability (UPAI)** | **Yes** | No | No | No | No |
-| **User-Owned** | **Yes** | No | No | No | No |
-| **Temporal Tracking** | **Yes** | No | No | No | No |
-| **Coding Tool Extraction** | **Yes** | No | No | No | No |
-| Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
+| Capability | Cortex | Mem0 | Letta | ChatGPT Memory | Claude Memory | OneContext |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| Knowledge Graph | Yes | Partial | No | No | No | No |
+| **Portability (UPAI)** | **Yes** | No | No | No | No | No |
+| **User-Owned** | **Yes** | No | No | No | No | No |
+| **Temporal Tracking** | **Yes** | No | No | No | No | No |
+| **Coding Tool Extraction** | **Yes** | No | No | No | No | Partial |
+| Cross-Session Context | Yes | Yes | Yes | Yes | Yes | **Yes** |
+| Team/Multi-User Sync | No | No | No | No | No | **Yes** |
+| Zero-Dep / Local-First | Yes | No | No | N/A | N/A | No |
 
 The breakthrough = **user-owned portable AI identity with selective disclosure**. That's Phase 3. Everything before it is infrastructure. Phase 7 extends extraction beyond chatbots into coding tools.
+
+### OneContext (Feb 2026)
+
+Closest new entrant. Built by Junde Wu (Oxford PhD). "Agent Self-Managed Context Layer" — records coding agent trajectories and syncs context across sessions, devices, and team members via Slack. GitHub: [TheAgentContextLab/OneContext](https://github.com/TheAgentContextLab/OneContext).
+
+**Key differences from Cortex:**
+- **Scope:** Coding agents only (Claude Code, Codex) vs all AI platforms + coding tools
+- **Data model:** Opaque agent trajectories vs structured knowledge graph (nodes, edges, confidence, tags)
+- **Ownership:** No cryptographic signing vs UPAI protocol (Ed25519, selective disclosure, version control)
+- **Architecture:** Cloud-based sync vs offline/local-first, zero-dep
+- **Intelligence:** Context replay vs query engine, gap analysis, temporal drift, contradiction detection
+
+**Complementary, not competitive.** OneContext solves agent-side context sync. Cortex solves user-side identity ownership. Potential integration: Cortex could consume OneContext trajectories as an input source, or OneContext could load Cortex-exported context into new agent sessions.
 
 ---
 
