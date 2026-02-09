@@ -1,3 +1,3 @@
 """Cortex — Knowledge graph engine for chatbot-memory-skills."""
 
-__version__ = "5.4.0"
+__version__ = "6.0.0"
