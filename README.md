@@ -189,6 +189,9 @@ python migrate.py extract-coding --discover --project chatbot-memory
 # Merge coding extraction with chatbot extraction
 python migrate.py extract-coding --discover --merge context.json -o context.json
 
+# Enrich with project files (README, manifests, license)
+python migrate.py extract-coding --discover --enrich --stats
+
 # Extract from a specific session file
 python migrate.py extract-coding ~/.claude/projects/*/session.jsonl
 ```
@@ -202,6 +205,8 @@ python migrate.py extract-coding ~/.claude/projects/*/session.jsonl
 | CLI tools | Bash commands | Running `pytest` -> Pytest |
 | Projects | Working directory | `/home/user/myapp` -> myapp |
 | Patterns | Tool sequence | Uses plan mode before coding |
+
+**Project enrichment** (`--enrich`): Reads README, package manifests (package.json, pyproject.toml, Cargo.toml), and LICENSE files from project directories to extract project descriptions, metadata, and domain knowledge. Detects CI/CD and Docker presence.
 
 Currently supports **Claude Code** (JSONL transcripts). Cursor and Copilot parsers planned.
 
@@ -328,7 +333,7 @@ chatbot-memory-skills/
 │   ├── centrality.py           # Degree centrality + PageRank
 │   ├── query.py                # QueryEngine + graph algorithms
 │   ├── intelligence.py         # Gap analysis + weekly digest
-│   ├── coding.py               # Coding session behavioral extraction
+│   ├── coding.py               # Coding session behavioral extraction + project enrichment
 │   ├── viz/
 │   │   ├── layout.py           # Fruchterman-Reingold layout
 │   │   └── renderer.py         # HTML (interactive) + SVG (static)
@@ -340,7 +345,7 @@ chatbot-memory-skills/
 ├── extract_memory.py           # Extraction engine
 ├── import_memory.py            # Import/export engine
 ├── migrate.py                  # CLI (20 subcommands)
-└── tests/                      # 493 tests across 18 files
+└── tests/                      # 527 tests across 18 files
 ```
 
 ---
@@ -401,6 +406,7 @@ python migrate.py extract-coding --discover                # Auto-find sessions
 python migrate.py extract-coding --discover -p <project>   # Filter by project
 python migrate.py extract-coding --discover -m <context>   # Merge with existing
 python migrate.py extract-coding --discover --stats        # Show session stats
+python migrate.py extract-coding --discover --enrich       # Enrich with project files
 ```
 
 ### Temporal Analysis
@@ -430,7 +436,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
-| v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions |
+| v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |
 | v6.0 | Visualization, dashboard, file monitor, sync scheduler |
 | v5.4 | Query engine, gap analysis, weekly digest |
 | v5.3 | Smart edge extraction, co-occurrence, centrality, dedup |

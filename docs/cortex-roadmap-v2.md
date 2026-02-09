@@ -2,7 +2,7 @@
 
 ## Context
 
-This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.1.0, 493 passing tests).** The three biggest changes were:
+This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.1.0, 527 passing tests).** The three biggest changes were:
 
 1. **Node identity model redesigned** — category-agnostic nodes with tags (not category-scoped IDs)
 2. **Phases reordered** — UPAI (the breakthrough) shipped as Phase 3 instead of Phase 5
@@ -27,7 +27,7 @@ Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         
 - Backward compatible: v4 JSON always works, existing tests never break
 - Offline/local first: no cloud dependency
 - Each phase independently shippable
-- **493 tests across 18 test files, all passing**
+- **527 tests across 18 test files, all passing**
 
 ---
 
@@ -666,21 +666,39 @@ Chatbot extraction finds **declarative** signals: "I use Python", "My name is Ma
 | Coding patterns | Plan mode, test-first, iteration style | `user_preferences` |
 | Config files | package.json, pyproject.toml, Dockerfile | `technical_expertise` |
 
+### Project Enrichment (`--enrich`)
+
+Opt-in flag reads project files from disk to enrich extraction with project descriptions, metadata, and domain knowledge:
+
+| Source | What's Extracted |
+|--------|-----------------|
+| README.md/.rst/.txt | First meaningful paragraph as project description |
+| package.json | name, description, license, keywords, language |
+| pyproject.toml | name, description, license |
+| Cargo.toml | name, description, license |
+| setup.cfg | name, description, license |
+| LICENSE | License type (MIT, Apache-2.0, GPL, BSD, ISC) |
+| .github/workflows/ | CI/CD presence |
+| Dockerfile/docker-compose | Docker presence |
+
+Enriched projects produce richer `active_priorities` nodes (with description in brief, metadata in full_description) and new `domain_knowledge` nodes for project purpose.
+
 ### CLI
 
 ```bash
 python migrate.py extract-coding session.jsonl -o context.json
 python migrate.py extract-coding --discover --project chatbot-memory
 python migrate.py extract-coding --discover --merge context.json -o context.json
+python migrate.py extract-coding --discover --enrich --stats
 ```
 
 ### Files
-- `cortex/coding.py` — CodingSession parser, tech/tool/pattern extractors, session-to-v4 converter, multi-session aggregation, auto-discovery
-- `tests/test_coding.py` — 40 tests covering detection, parsing, extraction, aggregation, integration
+- `cortex/coding.py` — CodingSession parser, ProjectMetadata, enrich_project(), tech/tool/pattern extractors, session-to-v4 converter, multi-session aggregation, auto-discovery
+- `tests/test_coding.py` — 74 tests covering detection, parsing, extraction, aggregation, enrichment, integration
 
 ### Modified
 - `extract_memory.py` — Claude Code JSONL auto-detection in `load_file()`
-- `migrate.py` — `extract-coding` subcommand (20th subcommand)
+- `migrate.py` — `extract-coding` subcommand with `--enrich` flag (20th subcommand)
 
 ---
 
@@ -722,7 +740,7 @@ chatbot-memory-skills/
 ├── skills/
 │   ├── chatbot-memory-extractor/
 │   └── chatbot-memory-importer/
-├── tests/                           # 493 tests across 18 files
+├── tests/                           # 527 tests across 18 files
 │   ├── test_features.py             # Original feature tests
 │   ├── test_graph.py                # Phase 1
 │   ├── test_temporal.py             # Phase 2
@@ -763,7 +781,7 @@ chatbot-memory-skills/
 | 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
 | 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
 | 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
-| 7 | v6.1 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path |
+| 7 | v6.1 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path, project enrichment |
 
 ---
 
@@ -789,7 +807,7 @@ chatbot-memory-skills/
 ## Verification Strategy (Applied Per Phase)
 
 **Per-phase gate (all phases passed):**
-1. `python -m pytest tests/` — ALL tests pass (493 as of v6.1)
+1. `python -m pytest tests/` — ALL tests pass (527 as of v6.1)
 2. `python migrate.py <test_export> --to claude` — v4 output identical to pre-phase
 3. v4→v5→v4 roundtrip produces empty diff
 4. New CLI subcommands work with both v4 and v5 input
@@ -822,7 +840,7 @@ The breakthrough = **user-owned portable AI identity with selective disclosure**
 |--------|-------|
 | Version | 6.1.0 |
 | Schema | 6.0 |
-| Total tests | 493 |
+| Total tests | 527 |
 | Test files | 18 |
 | CLI subcommands | 20 |
 | External dependencies | 0 (core) |
