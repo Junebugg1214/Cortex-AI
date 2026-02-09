@@ -9,6 +9,8 @@ system message.
 from __future__ import annotations
 
 import json
+import shlex
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -260,11 +262,12 @@ def install_hook(
     session_start = hooks.setdefault("SessionStart", [])
 
     # Build the hook command
-    command = f"python3 {hook_script}"
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook_script))}"
 
-    # Check if already installed (avoid duplicates)
+    # Check if already installed (avoid duplicates — match by script name
+    # to handle different quoting styles or python executables)
     already = any(
-        any(h.get("command") == command for h in entry.get("hooks", []))
+        any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", []))
         for entry in session_start
     )
 
@@ -298,8 +301,6 @@ def uninstall_hook(
     Returns True if anything was removed.
     """
     removed = False
-    hook_script = Path(__file__).resolve().parent.parent / "cortex-hook.py"
-    command = f"python3 {hook_script}"
 
     # Remove config
     cfg_path = config_path or DEFAULT_CONFIG_PATH
@@ -315,12 +316,13 @@ def uninstall_hook(
             hooks = data.get("hooks", {})
             session_start = hooks.get("SessionStart", [])
 
-            # Filter out cortex hook entries
+            # Filter out cortex hook entries (match by cortex-hook.py in command,
+            # not exact string, to handle quoting/executable differences)
             new_entries = []
             for entry in session_start:
                 new_hooks = [
                     h for h in entry.get("hooks", [])
-                    if h.get("command") != command
+                    if "cortex-hook.py" not in h.get("command", "")
                 ]
                 if new_hooks:
                     entry["hooks"] = new_hooks
@@ -358,8 +360,6 @@ def hook_status(
     """
     cfg_path = config_path or DEFAULT_CONFIG_PATH
     settings = settings_path or (Path.home() / ".claude" / "settings.json")
-    hook_script = Path(__file__).resolve().parent.parent / "cortex-hook.py"
-    command = f"python3 {hook_script}"
 
     config = load_hook_config(cfg_path)
     installed = False
@@ -369,12 +369,13 @@ def hook_status(
             data = json.loads(settings.read_text(encoding="utf-8"))
             session_start = data.get("hooks", {}).get("SessionStart", [])
             installed = any(
-                any(h.get("command") == command for h in entry.get("hooks", []))
+                any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", []))
                 for entry in session_start
             )
         except (json.JSONDecodeError, OSError):
             pass
 
+    hook_script = Path(__file__).resolve().parent.parent / "cortex-hook.py"
     return {
         "installed": installed,
         "config": asdict(config),

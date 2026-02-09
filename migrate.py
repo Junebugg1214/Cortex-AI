@@ -989,7 +989,11 @@ def run_verify(args):
         print(f"File not found: {input_path}")
         return 1
 
-    data = json.loads(input_path.read_text())
+    try:
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        print(f"Invalid JSON in {input_path}: {e}")
+        return 1
 
     if not isinstance(data, dict) or "upai_identity" not in data:
         print("Not a UPAI-signed file (no upai_identity block).")
