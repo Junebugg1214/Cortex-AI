@@ -1204,6 +1204,17 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                         messages.append(json.loads(line))
                     except json.JSONDecodeError:
                         continue
+        # Check if this is Claude Code session JSONL
+        if messages and len(messages) >= 2:
+            first_real = next(
+                (r for r in messages
+                 if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
+                None,
+            )
+            if (first_real is not None
+                    and "sessionId" in first_real
+                    and "cwd" in first_real):
+                return messages, "claude_code"
         return messages, "jsonl"
 
     if file_path.suffix == '.json':
