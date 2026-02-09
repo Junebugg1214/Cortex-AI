@@ -43,6 +43,10 @@ from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4
 from cortex.temporal import drift_score
 from cortex.contradictions import ContradictionEngine
 from cortex.timeline import TimelineGenerator
+from cortex.upai.identity import UPAIIdentity
+from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.upai.versioning import VersionStore
+from cortex.adapters import ADAPTERS
 
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
@@ -218,6 +222,47 @@ def build_parser():
     dr.add_argument("input_file", help="Path to first context JSON (v4 or v5)")
     dr.add_argument("--compare", required=True,
                     help="Path to second context JSON to compare against")
+
+    # -- identity (Phase 3) ------------------------------------------------
+    ident = sub.add_parser("identity", help="Init/show UPAI identity")
+    ident.add_argument("--init", action="store_true", help="Generate new identity")
+    ident.add_argument("--name", help="Human-readable name for identity")
+    ident.add_argument("--show", action="store_true", help="Show current identity")
+    ident.add_argument("--store-dir", default=".cortex",
+                       help="Identity store directory (default: .cortex)")
+
+    # -- commit (Phase 3) --------------------------------------------------
+    cm = sub.add_parser("commit", help="Version a graph snapshot")
+    cm.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    cm.add_argument("-m", "--message", required=True, help="Commit message")
+    cm.add_argument("--source", default="manual",
+                    help="Source label (extraction, merge, manual)")
+    cm.add_argument("--store-dir", default=".cortex",
+                    help="Version store directory (default: .cortex)")
+
+    # -- log (Phase 3) -----------------------------------------------------
+    lg = sub.add_parser("log", help="Show version history")
+    lg.add_argument("--limit", type=int, default=10, help="Max entries to show")
+    lg.add_argument("--store-dir", default=".cortex",
+                    help="Version store directory (default: .cortex)")
+
+    # -- sync (Phase 3) ----------------------------------------------------
+    sy = sub.add_parser("sync", help="Disclosure-filtered export via platform adapters")
+    sy.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    sy.add_argument("--to", "-t", required=True,
+                    choices=list(ADAPTERS.keys()),
+                    help="Target platform adapter")
+    sy.add_argument("--policy", "-p", default="full",
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Disclosure policy (default: full)")
+    sy.add_argument("--output", "-o", default="./output",
+                    help="Output directory")
+    sy.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
+
+    # -- verify (Phase 3) --------------------------------------------------
+    vr = sub.add_parser("verify", help="Verify a signed export")
+    vr.add_argument("input_file", help="Path to signed export file")
 
     return parser
 
@@ -551,6 +596,160 @@ def run_drift(args):
     return 0
 
 
+def run_identity(args):
+    """Init or show UPAI identity."""
+    store_dir = Path(args.store_dir)
+
+    if args.init:
+        name = args.name or "Anonymous"
+        identity = UPAIIdentity.generate(name)
+        identity.save(store_dir)
+        print(f"Identity created: {identity.did}")
+        print(f"  Name: {identity.name}")
+        print(f"  Created: {identity.created_at}")
+        print(f"  Stored in: {store_dir}")
+        return 0
+
+    if args.show:
+        id_path = store_dir / "identity.json"
+        if not id_path.exists():
+            print(f"No identity found in {store_dir}. Use --init to create one.")
+            return 1
+        identity = UPAIIdentity.load(store_dir)
+        print(f"DID: {identity.did}")
+        print(f"Name: {identity.name}")
+        print(f"Created: {identity.created_at}")
+        print(f"Public Key: {identity.public_key_b64[:32]}...")
+        return 0
+
+    print("Specify --init or --show")
+    return 1
+
+
+def run_commit(args):
+    """Version a graph snapshot."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    graph = _load_graph(input_path)
+    store_dir = Path(args.store_dir)
+
+    # Load identity if available
+    identity = None
+    id_path = store_dir / "identity.json"
+    if id_path.exists():
+        identity = UPAIIdentity.load(store_dir)
+
+    store = VersionStore(store_dir)
+    version = store.commit(graph, args.message, source=args.source, identity=identity)
+
+    print(f"Committed: {version.version_id}")
+    print(f"  Message: {version.message}")
+    print(f"  Source: {version.source}")
+    print(f"  Nodes: {version.node_count}, Edges: {version.edge_count}")
+    if version.parent_id:
+        print(f"  Parent: {version.parent_id}")
+    if version.signature:
+        print(f"  Signed: yes")
+    return 0
+
+
+def run_log(args):
+    """Show version history."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    versions = store.log(limit=args.limit)
+
+    if not versions:
+        print("No version history found.")
+        return 0
+
+    for v in versions:
+        print(f"  {v.version_id}  {v.timestamp}  [{v.source}]")
+        print(f"    {v.message}")
+        print(f"    nodes={v.node_count} edges={v.edge_count}", end="")
+        if v.signature:
+            print("  signed", end="")
+        print()
+    return 0
+
+
+def run_sync(args):
+    """Disclosure-filtered export via platform adapters."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    graph = _load_graph(input_path)
+    adapter = ADAPTERS[args.to]
+    policy = BUILTIN_POLICIES[args.policy]
+    output_dir = Path(args.output)
+
+    # Load identity if available
+    identity = None
+    store_dir = Path(args.store_dir)
+    id_path = store_dir / "identity.json"
+    if id_path.exists():
+        identity = UPAIIdentity.load(store_dir)
+
+    paths = adapter.push(graph, policy, identity=identity, output_dir=output_dir)
+
+    print(f"Synced to {args.to} with policy '{args.policy}':")
+    for p in paths:
+        print(f"  {p}")
+    return 0
+
+
+def run_verify(args):
+    """Verify a signed export file."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    data = json.loads(input_path.read_text())
+
+    if not isinstance(data, dict) or "upai_identity" not in data:
+        print("Not a UPAI-signed file (no upai_identity block).")
+        return 1
+
+    # Check integrity hash
+    payload = json.dumps(data["data"], sort_keys=True, ensure_ascii=False).encode("utf-8")
+    import hashlib
+    computed_hash = hashlib.sha256(payload).hexdigest()
+    stored_hash = data.get("integrity_hash", "")
+
+    if computed_hash == stored_hash:
+        print("Integrity: PASS (SHA-256 matches)")
+    else:
+        print("Integrity: FAIL (SHA-256 mismatch)")
+        return 1
+
+    # Attempt signature verification
+    pub_key = data["upai_identity"].get("public_key_b64", "")
+    sig = data.get("signature", "")
+    did = data["upai_identity"].get("did", "")
+
+    if did.startswith("did:upai:ed25519:") and sig:
+        result = UPAIIdentity.verify(payload, sig, pub_key)
+        if result:
+            print("Signature: PASS (Ed25519 verified)")
+        else:
+            print("Signature: FAIL (Ed25519 verification failed)")
+            return 1
+    elif sig:
+        print("Signature: HMAC (requires local secret for verification)")
+    else:
+        print("Signature: none")
+
+    print(f"Identity: {did}")
+    print(f"Name: {data['upai_identity'].get('name', 'unknown')}")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -591,6 +790,7 @@ def main(argv=None):
     known_subcommands = (
         "extract", "import", "migrate", "query", "stats",
         "timeline", "contradictions", "drift",
+        "identity", "commit", "log", "sync", "verify",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -617,6 +817,16 @@ def main(argv=None):
         return run_contradictions(args)
     elif args.subcommand == "drift":
         return run_drift(args)
+    elif args.subcommand == "identity":
+        return run_identity(args)
+    elif args.subcommand == "commit":
+        return run_commit(args)
+    elif args.subcommand == "log":
+        return run_log(args)
+    elif args.subcommand == "sync":
+        return run_sync(args)
+    elif args.subcommand == "verify":
+        return run_verify(args)
     else:
         return run_migrate(args)
 
