@@ -12,6 +12,7 @@ Covers:
 - Integration (coding -> graph roundtrip)
 """
 
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,15 +26,22 @@ from cortex.coding import (
     CONFIG_FILE_PATTERNS,
     EXTENSION_MAP,
     CodingSession,
+    ProjectMetadata,
     aggregate_sessions,
+    enrich_project,
+    enrich_session,
     is_claude_code_jsonl,
     load_claude_code_session,
     parse_claude_code_session,
     session_to_context,
+    _detect_license,
+    _extract_readme_summary,
     _frequency_confidence,
     _is_test_file,
     _parse_bash_command,
+    _parse_readme_first_paragraph,
     _parse_ts,
+    _toml_value,
     _track_file,
 )
 
@@ -504,6 +512,335 @@ class TestIntegration:
         ctx = session_to_context(session)
         assert ctx["schema_version"] == "4.0"
         assert "categories" in ctx
+
+
+# ============================================================================
+# README Parsing
+# ============================================================================
+
+class TestReadmeParsing:
+
+    def test_standard_readme(self):
+        text = "# My Project\n\nThis is a tool for doing X.\nIt supports Y and Z.\n"
+        result = _parse_readme_first_paragraph(text)
+        assert "tool for doing X" in result
+        assert "supports Y and Z" in result
+
+    def test_skips_badges(self):
+        text = (
+            "# MyApp\n\n"
+            "[![Build](https://img.shields.io/badge)]\n"
+            "![Logo](logo.png)\n\n"
+            "A real-time data processor.\n"
+        )
+        result = _parse_readme_first_paragraph(text)
+        assert "real-time data processor" in result
+
+    def test_empty_readme(self):
+        assert _parse_readme_first_paragraph("") == ""
+
+    def test_headings_only(self):
+        text = "# Title\n\n## Section 1\n\n## Section 2\n"
+        assert _parse_readme_first_paragraph(text) == ""
+
+    def test_long_paragraph_truncated(self):
+        text = "# Title\n\n" + "word " * 200 + "\n"
+        result = _parse_readme_first_paragraph(text)
+        assert len(result) <= 504  # 500 + "..."
+        assert result.endswith("...")
+
+    def test_skips_code_fences(self):
+        text = "# Title\n\n```bash\npip install foo\n```\n\nActual description here.\n"
+        result = _parse_readme_first_paragraph(text)
+        assert "Actual description" in result
+
+
+# ============================================================================
+# Manifest Extraction
+# ============================================================================
+
+class TestManifestExtraction:
+
+    def test_package_json(self, tmp_path):
+        pkg = tmp_path / "package.json"
+        pkg.write_text(json.dumps({
+            "name": "my-app",
+            "description": "A web app for task management",
+            "license": "MIT",
+            "keywords": ["tasks", "productivity"],
+        }))
+        meta = enrich_project(str(tmp_path))
+        assert meta.name == "my-app"
+        assert meta.description == "A web app for task management"
+        assert meta.license == "MIT"
+        assert meta.keywords == ["tasks", "productivity"]
+        assert meta.manifest_file == "package.json"
+        assert "JavaScript" in meta.languages
+
+    def test_package_json_with_typescript(self, tmp_path):
+        pkg = tmp_path / "package.json"
+        pkg.write_text(json.dumps({
+            "name": "ts-app",
+            "description": "A TypeScript app",
+            "devDependencies": {"typescript": "^5.0.0"},
+        }))
+        meta = enrich_project(str(tmp_path))
+        assert "TypeScript" in meta.languages
+
+    def test_pyproject_toml(self, tmp_path):
+        toml = tmp_path / "pyproject.toml"
+        toml.write_text(
+            '[project]\nname = "cortex"\n'
+            'description = "Portable AI identity"\n'
+            'license = "MIT"\n'
+        )
+        meta = enrich_project(str(tmp_path))
+        assert meta.name == "cortex"
+        assert meta.description == "Portable AI identity"
+        assert meta.license == "MIT"
+        assert meta.manifest_file == "pyproject.toml"
+        assert "Python" in meta.languages
+
+    def test_cargo_toml(self, tmp_path):
+        cargo = tmp_path / "Cargo.toml"
+        cargo.write_text(
+            '[package]\nname = "mylib"\n'
+            'description = "A Rust library"\n'
+            'license = "Apache-2.0"\n'
+        )
+        meta = enrich_project(str(tmp_path))
+        assert meta.name == "mylib"
+        assert meta.description == "A Rust library"
+        assert meta.manifest_file == "Cargo.toml"
+        assert "Rust" in meta.languages
+
+    def test_setup_cfg(self, tmp_path):
+        cfg = tmp_path / "setup.cfg"
+        cfg.write_text(
+            "[metadata]\nname = mypackage\n"
+            "description = A Python package\n"
+            "license = BSD-3-Clause\n"
+        )
+        meta = enrich_project(str(tmp_path))
+        assert meta.name == "mypackage"
+        assert meta.description == "A Python package"
+        assert "Python" in meta.languages
+
+
+# ============================================================================
+# TOML Value Extraction
+# ============================================================================
+
+class TestTomlValue:
+
+    def test_double_quoted(self):
+        assert _toml_value('name = "hello"', "name") == "hello"
+
+    def test_single_quoted(self):
+        assert _toml_value("name = 'hello'", "name") == "hello"
+
+    def test_missing_key(self):
+        assert _toml_value('name = "hello"', "version") == ""
+
+    def test_whitespace_around_equals(self):
+        assert _toml_value('  name  =  "hello"  ', "name") == "hello"
+
+
+# ============================================================================
+# License Detection
+# ============================================================================
+
+class TestLicenseDetection:
+
+    def test_mit_license(self, tmp_path):
+        lic = tmp_path / "LICENSE"
+        lic.write_text("MIT License\n\nCopyright (c) 2026\n")
+        assert _detect_license(tmp_path) == "MIT"
+
+    def test_apache_license(self, tmp_path):
+        lic = tmp_path / "LICENSE"
+        lic.write_text("Apache License Version 2.0\n\nTerms...\n")
+        assert _detect_license(tmp_path) == "Apache-2.0"
+
+    def test_no_license_file(self, tmp_path):
+        assert _detect_license(tmp_path) == ""
+
+
+# ============================================================================
+# Enrich Project (Full Integration)
+# ============================================================================
+
+class TestEnrichProject:
+
+    def test_full_project(self, tmp_path):
+        (tmp_path / "README.md").write_text(
+            "# MyApp\n\n**Own your data.** A privacy-first tool.\n"
+        )
+        (tmp_path / "package.json").write_text(json.dumps({
+            "name": "myapp",
+            "description": "A privacy-first tool",
+            "license": "MIT",
+        }))
+        (tmp_path / "LICENSE").write_text("MIT License\n")
+        meta = enrich_project(str(tmp_path))
+        assert meta.enriched is True
+        assert meta.name == "myapp"
+        assert meta.description == "A privacy-first tool"
+        assert "privacy-first" in meta.readme_summary
+        assert meta.license == "MIT"
+
+    def test_readme_only(self, tmp_path):
+        (tmp_path / "README.md").write_text(
+            "# Tool\n\nA command-line tool for converting data formats.\n"
+        )
+        meta = enrich_project(str(tmp_path))
+        assert meta.enriched is True
+        assert "converting data formats" in meta.description
+
+    def test_manifest_only(self, tmp_path):
+        (tmp_path / "package.json").write_text(json.dumps({
+            "name": "api-server",
+            "description": "REST API server",
+        }))
+        meta = enrich_project(str(tmp_path))
+        assert meta.enriched is True
+        assert meta.description == "REST API server"
+        assert meta.readme_summary == ""
+
+    def test_nonexistent_directory(self):
+        meta = enrich_project("/nonexistent/path/12345")
+        assert meta.enriched is False
+        assert meta.name == ""
+
+    def test_ci_detection(self, tmp_path):
+        (tmp_path / ".github" / "workflows").mkdir(parents=True)
+        (tmp_path / ".github" / "workflows" / "ci.yml").write_text("on: push\n")
+        meta = enrich_project(str(tmp_path))
+        assert meta.has_ci is True
+
+    def test_docker_detection(self, tmp_path):
+        (tmp_path / "Dockerfile").write_text("FROM python:3.12\n")
+        meta = enrich_project(str(tmp_path))
+        assert meta.has_docker is True
+
+    def test_docker_compose_detection(self, tmp_path):
+        (tmp_path / "docker-compose.yml").write_text("version: '3'\n")
+        meta = enrich_project(str(tmp_path))
+        assert meta.has_docker is True
+
+    def test_empty_project(self, tmp_path):
+        meta = enrich_project(str(tmp_path))
+        assert meta.enriched is False
+        assert meta.name == tmp_path.name
+
+
+# ============================================================================
+# Enriched Session to Context
+# ============================================================================
+
+class TestEnrichedSessionToContext:
+
+    def test_enriched_active_priorities(self):
+        session = CodingSession(tool="claude_code", project_path="/home/user/myapp")
+        session.project_meta = ProjectMetadata(
+            name="myapp",
+            description="A privacy-first data tool",
+            readme_summary="A privacy-first data tool for converting formats.",
+            license="MIT",
+            languages=["Python"],
+            manifest_file="pyproject.toml",
+            enriched=True,
+        )
+        ctx = session_to_context(session)
+        priorities = ctx["categories"].get("active_priorities", [])
+        assert len(priorities) == 1
+        p = priorities[0]
+        assert "privacy-first" in p["brief"]
+        assert p["confidence"] == 0.90
+        assert "MIT" in p["full_description"]
+        assert "Python" in p["full_description"]
+
+    def test_domain_knowledge_added(self):
+        session = CodingSession(tool="claude_code", project_path="/home/user/myapp")
+        session.project_meta = ProjectMetadata(
+            name="myapp",
+            description="A privacy-first data tool for converting formats",
+            enriched=True,
+        )
+        ctx = session_to_context(session)
+        dk = ctx["categories"].get("domain_knowledge", [])
+        assert len(dk) == 1
+        assert dk[0]["topic"] == "myapp purpose"
+        assert "privacy-first" in dk[0]["brief"]
+
+    def test_unenriched_backward_compat(self):
+        """Without enrichment, behavior is identical to original."""
+        records = [_user_record("Go", cwd="/home/user/myproject")]
+        session = parse_claude_code_session(records)
+        ctx = session_to_context(session)
+        priorities = ctx["categories"].get("active_priorities", [])
+        assert len(priorities) == 1
+        assert priorities[0]["topic"] == "myproject"
+        assert priorities[0]["confidence"] == 0.85
+        assert "domain_knowledge" not in ctx["categories"]
+
+    def test_short_description_no_domain_knowledge(self):
+        """Description <= 20 chars should not add domain_knowledge."""
+        session = CodingSession(tool="claude_code", project_path="/home/user/x")
+        session.project_meta = ProjectMetadata(
+            name="x", description="A tool", enriched=True,
+        )
+        ctx = session_to_context(session)
+        assert "domain_knowledge" not in ctx["categories"]
+
+
+# ============================================================================
+# Aggregation with Project Metadata
+# ============================================================================
+
+class TestAggregationWithMeta:
+
+    def test_keeps_enriched_metadata(self):
+        s1 = CodingSession(tool="claude_code", project_path="/app")
+        s1.project_meta = ProjectMetadata(enriched=False)
+        s2 = CodingSession(tool="claude_code")
+        s2.project_meta = ProjectMetadata(
+            name="myapp", description="A great app", enriched=True,
+        )
+        agg = aggregate_sessions([s1, s2])
+        assert agg.project_meta.enriched is True
+        assert agg.project_meta.description == "A great app"
+
+    def test_keeps_richer_metadata(self):
+        s1 = CodingSession(tool="claude_code")
+        s1.project_meta = ProjectMetadata(
+            name="app", description="Short", enriched=True,
+        )
+        s2 = CodingSession(tool="claude_code")
+        s2.project_meta = ProjectMetadata(
+            name="app", description="A much longer and richer description", enriched=True,
+        )
+        agg = aggregate_sessions([s1, s2])
+        assert agg.project_meta.description == "A much longer and richer description"
+
+
+# ============================================================================
+# Enrich Session Convenience Function
+# ============================================================================
+
+class TestEnrichSession:
+
+    def test_enrich_session_modifies_in_place(self, tmp_path):
+        (tmp_path / "README.md").write_text("# Hello\n\nA great project.\n")
+        session = CodingSession(tool="claude_code", project_path=str(tmp_path))
+        enrich_session(session)
+        assert session.project_meta.enriched is True
+        assert "great project" in session.project_meta.readme_summary
+
+    def test_enrich_session_no_project_path(self):
+        session = CodingSession(tool="claude_code")
+        enrich_session(session)
+        assert session.project_meta.enriched is False
 
 
 # ============================================================================

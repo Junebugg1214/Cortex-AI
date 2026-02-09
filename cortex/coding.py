@@ -102,6 +102,26 @@ _CC_RECORD_TYPES = frozenset({
 
 
 # ---------------------------------------------------------------------------
+# ProjectMetadata dataclass
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ProjectMetadata:
+    """Metadata extracted from project files on disk."""
+
+    name: str = ""               # From manifest or dir name
+    description: str = ""        # From README or manifest description field
+    readme_summary: str = ""     # First paragraph of README (up to 500 chars)
+    license: str = ""            # License identifier (MIT, Apache-2.0, etc.)
+    keywords: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=list)
+    manifest_file: str = ""      # Which manifest found (package.json, etc.)
+    has_ci: bool = False
+    has_docker: bool = False
+    enriched: bool = False       # True if enrichment found useful data
+
+
+# ---------------------------------------------------------------------------
 # CodingSession dataclass
 # ---------------------------------------------------------------------------
 
@@ -137,6 +157,9 @@ class CodingSession:
     total_reads: int = 0
     total_writes: int = 0
     error_count: int = 0
+
+    # Project enrichment (populated by enrich_session())
+    project_meta: ProjectMetadata = field(default_factory=ProjectMetadata)
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +338,246 @@ def _parse_ts(ts_str: str | None) -> datetime | None:
 
 
 # ---------------------------------------------------------------------------
+# Project enrichment (reads project files from disk)
+# ---------------------------------------------------------------------------
+
+_README_NAMES = ["README.md", "README.rst", "README.txt", "README"]
+
+_LICENSE_PATTERNS: dict[str, str] = {
+    "MIT": r"\bMIT\b",
+    "Apache-2.0": r"Apache\s+License.*2\.0",
+    "GPL-3.0": r"GNU\s+General\s+Public\s+License.*[Vv].*3",
+    "GPL-2.0": r"GNU\s+General\s+Public\s+License.*[Vv].*2",
+    "BSD-3-Clause": r"BSD\s+3-[Cc]lause",
+    "BSD-2-Clause": r"BSD\s+2-[Cc]lause",
+    "ISC": r"\bISC\b",
+    "Unlicense": r"\bUnlicense\b",
+}
+
+
+def enrich_project(project_path: str) -> ProjectMetadata:
+    """Read project files from disk to extract metadata.
+
+    Reads README, package manifests, and checks for CI/Docker.
+    Returns ProjectMetadata with whatever could be found.
+    Gracefully handles missing files, permission errors, etc.
+    """
+    meta = ProjectMetadata()
+    root = Path(project_path)
+
+    if not root.is_dir():
+        return meta
+
+    meta.name = root.name
+
+    # 1. README extraction
+    meta.readme_summary = _extract_readme_summary(root)
+
+    # 2. Manifest extraction (package.json, pyproject.toml, Cargo.toml, setup.cfg)
+    _extract_manifest_metadata(root, meta)
+
+    # 3. If no description from manifest, use README summary
+    if not meta.description and meta.readme_summary:
+        meta.description = meta.readme_summary
+
+    # 4. Lightweight signals
+    meta.has_ci = (root / ".github" / "workflows").is_dir()
+    meta.has_docker = (
+        (root / "Dockerfile").exists()
+        or (root / "docker-compose.yml").exists()
+        or (root / "docker-compose.yaml").exists()
+    )
+
+    # 5. License detection
+    if not meta.license:
+        meta.license = _detect_license(root)
+
+    meta.enriched = bool(meta.description or meta.readme_summary)
+    return meta
+
+
+def enrich_session(session: CodingSession) -> None:
+    """Enrich a CodingSession with project file metadata (I/O operation).
+
+    Reads files from session.project_path if it exists on disk.
+    Modifies session.project_meta in place.
+    """
+    if session.project_path:
+        session.project_meta = enrich_project(session.project_path)
+
+
+def _extract_readme_summary(root: Path) -> str:
+    """Extract the first meaningful paragraph from a README file."""
+    for name in _README_NAMES:
+        readme_path = root / name
+        if readme_path.exists():
+            try:
+                text = readme_path.read_text(encoding="utf-8", errors="replace")
+                return _parse_readme_first_paragraph(text)
+            except (OSError, PermissionError):
+                continue
+    return ""
+
+
+def _parse_readme_first_paragraph(text: str) -> str:
+    """Parse README text and extract the first meaningful paragraph.
+
+    Skips headings (#), badges ([![), images (![), horizontal rules (---/===),
+    code fences (```), and blank lines. Returns first contiguous text block,
+    up to 500 chars truncated at word boundary.
+    """
+    lines = text.split("\n")
+    paragraph_lines: list[str] = []
+    in_paragraph = False
+    in_code_fence = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Toggle code fence state
+        if stripped.startswith("```"):
+            in_code_fence = not in_code_fence
+            if in_paragraph:
+                break
+            continue
+
+        # Skip everything inside code fences
+        if in_code_fence:
+            continue
+
+        # Skip empty lines
+        if not stripped:
+            if in_paragraph:
+                break  # End of paragraph
+            continue
+
+        # Skip headings, badges, images, rules
+        if (
+            stripped.startswith("#")
+            or stripped.startswith("![")
+            or stripped.startswith("[![")
+            or stripped.startswith("---")
+            or stripped.startswith("===")
+        ):
+            if in_paragraph:
+                break
+            continue
+
+        # Content line
+        in_paragraph = True
+        paragraph_lines.append(stripped)
+
+    result = " ".join(paragraph_lines)
+    if len(result) > 500:
+        result = result[:500].rsplit(" ", 1)[0] + "..."
+    return result
+
+
+def _extract_manifest_metadata(root: Path, meta: ProjectMetadata) -> None:
+    """Extract metadata from project manifest files."""
+    # package.json
+    pkg_json = root / "package.json"
+    if pkg_json.exists():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                meta.manifest_file = "package.json"
+                meta.description = data.get("description", "")
+                if data.get("name"):
+                    meta.name = data["name"]
+                meta.license = data.get("license", "")
+                kw = data.get("keywords", [])
+                if isinstance(kw, list):
+                    meta.keywords = [str(k) for k in kw]
+                if "typescript" in str(data.get("devDependencies", {})).lower():
+                    meta.languages.append("TypeScript")
+                else:
+                    meta.languages.append("JavaScript")
+                return
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # pyproject.toml
+    pyproject = root / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+            meta.manifest_file = "pyproject.toml"
+            meta.description = _toml_value(text, "description")
+            name = _toml_value(text, "name")
+            if name:
+                meta.name = name
+            meta.license = _toml_value(text, "license")
+            if "Python" not in meta.languages:
+                meta.languages.append("Python")
+            return
+        except OSError:
+            pass
+
+    # Cargo.toml
+    cargo = root / "Cargo.toml"
+    if cargo.exists():
+        try:
+            text = cargo.read_text(encoding="utf-8")
+            meta.manifest_file = "Cargo.toml"
+            meta.description = _toml_value(text, "description")
+            name = _toml_value(text, "name")
+            if name:
+                meta.name = name
+            meta.license = _toml_value(text, "license")
+            if "Rust" not in meta.languages:
+                meta.languages.append("Rust")
+            return
+        except OSError:
+            pass
+
+    # setup.cfg
+    setup_cfg = root / "setup.cfg"
+    if setup_cfg.exists():
+        try:
+            import configparser
+            cfg = configparser.ConfigParser()
+            cfg.read(str(setup_cfg), encoding="utf-8")
+            if cfg.has_option("metadata", "description"):
+                meta.manifest_file = "setup.cfg"
+                meta.description = cfg.get("metadata", "description")
+                name = cfg.get("metadata", "name", fallback="")
+                if name:
+                    meta.name = name
+                meta.license = cfg.get("metadata", "license", fallback="")
+            if "Python" not in meta.languages:
+                meta.languages.append("Python")
+        except (OSError, Exception):
+            pass
+
+
+def _toml_value(text: str, key: str) -> str:
+    """Extract a simple key = \"value\" from TOML text.
+
+    Handles: key = \"value\" or key = 'value'.
+    Does NOT handle multiline strings or inline tables.
+    """
+    pattern = rf'^\s*{re.escape(key)}\s*=\s*["\'](.+?)["\']'
+    m = re.search(pattern, text, re.MULTILINE)
+    return m.group(1) if m else ""
+
+
+def _detect_license(root: Path) -> str:
+    """Detect license type from LICENSE file."""
+    for name in ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE"):
+        path = root / name
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")[:1000]
+                for license_id, pattern in _LICENSE_PATTERNS.items():
+                    if re.search(pattern, text):
+                        return license_id
+            except OSError:
+                continue
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # CodingSession -> v4-compatible dict
 # ---------------------------------------------------------------------------
 
@@ -347,17 +610,55 @@ def session_to_context(session: CodingSession) -> dict:
             last_seen=last,
         ))
 
-    # --- Active priorities (from project path) ---
+    # --- Active priorities (from project path, enriched if available) ---
     if session.project_path:
-        project_name = Path(session.project_path).name
+        pm = session.project_meta
+        project_name = pm.name if pm.enriched else Path(session.project_path).name
+
+        if pm.description:
+            brief = f"Active project: {project_name} — {pm.description}"[:200]
+        else:
+            brief = f"Active project: {project_name}"
+
+        desc_parts = [f"Working directory: {session.project_path}"]
+        if pm.readme_summary and pm.readme_summary != pm.description:
+            desc_parts.append(f"README: {pm.readme_summary}")
+        if pm.license:
+            desc_parts.append(f"License: {pm.license}")
+        if pm.languages:
+            desc_parts.append(f"Languages: {', '.join(pm.languages)}")
+        if pm.manifest_file:
+            desc_parts.append(f"Manifest: {pm.manifest_file}")
+
+        metrics: list[str] = []
+        if pm.has_ci:
+            metrics.append("CI/CD configured")
+        if pm.has_docker:
+            metrics.append("Docker configured")
+        if pm.keywords:
+            metrics.append(f"Keywords: {', '.join(pm.keywords[:10])}")
+
         categories["active_priorities"].append(_make_topic(
             topic=project_name,
-            brief=f"Active project: {project_name}",
-            full_description=f"Working directory: {session.project_path}",
-            confidence=0.85,
+            brief=brief,
+            full_description=" | ".join(desc_parts),
+            confidence=0.90 if pm.enriched else 0.85,
+            metrics=metrics,
             first_seen=first,
             last_seen=last,
         ))
+
+        # Add domain_knowledge entry if we have a substantive description
+        if pm.description and len(pm.description) > 20:
+            categories.setdefault("domain_knowledge", [])
+            categories["domain_knowledge"].append(_make_topic(
+                topic=f"{project_name} purpose",
+                brief=pm.description[:200],
+                full_description=pm.readme_summary or pm.description,
+                confidence=0.80,
+                first_seen=first,
+                last_seen=last,
+            ))
 
     # --- User preferences (from coding patterns) ---
     if session.plan_mode_used:
@@ -491,6 +792,16 @@ def aggregate_sessions(sessions: list[CodingSession]) -> CodingSession:
                 agg.end_time = s.end_time
         if s.project_path and not agg.project_path:
             agg.project_path = s.project_path
+
+        # Keep richest project metadata
+        if s.project_meta.enriched and not agg.project_meta.enriched:
+            agg.project_meta = s.project_meta
+        elif (
+            s.project_meta.enriched
+            and agg.project_meta.enriched
+            and len(s.project_meta.description) > len(agg.project_meta.description)
+        ):
+            agg.project_meta = s.project_meta
 
     return agg
 
