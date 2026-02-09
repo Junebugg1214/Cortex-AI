@@ -66,7 +66,7 @@ python migrate.py import context.json --to all -o ./output
 
 ---
 
-## The Seven Layers
+## The Eight Layers
 
 ### 1. Graph Foundation
 
@@ -210,6 +210,23 @@ python migrate.py extract-coding ~/.claude/projects/*/session.jsonl
 
 Currently supports **Claude Code** (JSONL transcripts). Cursor and Copilot parsers planned.
 
+### 8. Auto-Inject Context
+
+Every new Claude Code session automatically gets your Cortex identity injected. Install once, context flows forever:
+
+```bash
+# Install the hook (one-time setup)
+python migrate.py context-hook install context.json
+
+# Preview what gets injected
+python migrate.py context-hook test
+
+# Export compact context manually
+python migrate.py context-export context.json --policy technical
+```
+
+The hook loads your graph, applies disclosure filtering, and injects a compact markdown summary (~300-800 chars) as a system message. Your AI always knows your tech stack, projects, and preferences.
+
 ---
 
 ## Supported Platforms
@@ -334,6 +351,7 @@ chatbot-memory-skills/
 │   ├── query.py                # QueryEngine + graph algorithms
 │   ├── intelligence.py         # Gap analysis + weekly digest
 │   ├── coding.py               # Coding session behavioral extraction + project enrichment
+│   ├── hooks.py                # Auto-inject context into Claude Code sessions
 │   ├── viz/
 │   │   ├── layout.py           # Fruchterman-Reingold layout
 │   │   └── renderer.py         # HTML (interactive) + SVG (static)
@@ -342,10 +360,11 @@ chatbot-memory-skills/
 │   └── sync/
 │       ├── monitor.py          # File watcher auto-extraction
 │       └── scheduler.py        # Periodic platform sync
+├── cortex-hook.py              # Standalone hook entry point for Claude Code
 ├── extract_memory.py           # Extraction engine
 ├── import_memory.py            # Import/export engine
-├── migrate.py                  # CLI (20 subcommands)
-└── tests/                      # 527 tests across 18 files
+├── migrate.py                  # CLI (22 subcommands)
+└── tests/                      # 562 tests across 19 files
 ```
 
 ---
@@ -409,6 +428,16 @@ python migrate.py extract-coding --discover --stats        # Show session stats
 python migrate.py extract-coding --discover --enrich       # Enrich with project files
 ```
 
+### Context Hook (Auto-Inject)
+
+```bash
+python migrate.py context-hook install <graph> --policy technical  # Install hook
+python migrate.py context-hook uninstall                   # Remove hook
+python migrate.py context-hook test                        # Preview injection
+python migrate.py context-hook status                      # Check status
+python migrate.py context-export <graph> --policy technical  # One-shot export
+```
+
 ### Temporal Analysis
 
 ```bash
@@ -428,6 +457,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 | **User-Owned** | **Yes** | No | No | No | No |
 | **Temporal Tracking** | **Yes** | No | No | No | No |
 | **Coding Tool Extraction** | **Yes** | No | No | No | No |
+| **Auto-Inject Context** | **Yes** | No | No | No | No |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
 ---
@@ -436,6 +466,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
+| v6.2 | **Auto-inject context** — SessionStart hook for Claude Code, compact context generation, install/uninstall CLI |
 | v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |
 | v6.0 | Visualization, dashboard, file monitor, sync scheduler |
 | v5.4 | Query engine, gap analysis, weekly digest |
