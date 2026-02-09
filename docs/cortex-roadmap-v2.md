@@ -2,7 +2,7 @@
 
 ## Context
 
-This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.2.0, 562 passing tests).** The three biggest changes were:
+This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.3.0, 592 passing tests).** The three biggest changes were:
 
 1. **Node identity model redesigned** — category-agnostic nodes with tags (not category-scoped IDs)
 2. **Phases reordered** — UPAI (the breakthrough) shipped as Phase 3 instead of Phase 5
@@ -27,7 +27,7 @@ Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         
 - Backward compatible: v4 JSON always works, existing tests never break
 - Offline/local first: no cloud dependency
 - Each phase independently shippable
-- **562 tests across 19 test files, all passing**
+- **592 tests across 20 test files, all passing**
 
 ---
 
@@ -739,7 +739,51 @@ python migrate.py context-export context.json
 - `cortex/hooks.py` — HookConfig, generate_compact_context(), install/uninstall/status, handle_session_start()
 - `cortex-hook.py` — Standalone hook entry point for Claude Code
 - `tests/test_hooks.py` — 35 tests covering config, graph loading, formatting, session handling, install/uninstall
-- `migrate.py` — `context-hook` and `context-export` subcommands (22 total)
+- `migrate.py` — `context-hook` and `context-export` subcommands
+
+### Cross-Platform Context Writer (v6.3)
+
+Persistent context files across all major AI coding tools. One command writes your Cortex identity to every platform's config file using non-destructive section markers that preserve user content.
+
+**Supported platforms:**
+
+| Platform | Config File | Scope | Format |
+|----------|------------|-------|--------|
+| `claude-code` | `~/.claude/MEMORY.md` | Global | Markdown with markers |
+| `claude-code-project` | `{project}/.claude/MEMORY.md` | Project | Markdown with markers |
+| `cursor` | `{project}/.cursor/rules/cortex.mdc` | Project | .mdc with YAML frontmatter |
+| `copilot` | `{project}/.github/copilot-instructions.md` | Project | Markdown with markers |
+| `windsurf` | `{project}/.windsurfrules` | Project | Markdown with markers |
+| `gemini-cli` | `{project}/GEMINI.md` | Project | Markdown with markers |
+
+**Non-destructive write strategy:** All writes use `<!-- CORTEX:START -->` / `<!-- CORTEX:END -->` section markers:
+- File has markers → replace content between them (update in-place)
+- File exists, no markers → append marked section at end
+- File doesn't exist → create with marked section only
+
+User's hand-written rules are never overwritten.
+
+```bash
+# Write to all coding tools for a project
+python migrate.py context-write graph.json --platforms all --project ~/myproject
+
+# Write to specific platforms
+python migrate.py context-write graph.json --platforms cursor copilot
+
+# Preview without writing
+python migrate.py context-write graph.json --platforms all --dry-run
+
+# Auto-refresh when graph updates
+python migrate.py context-write graph.json --platforms all --watch --interval 30
+
+# Override disclosure policy
+python migrate.py context-write graph.json --platforms all --policy professional
+```
+
+#### Files
+- `cortex/context.py` — PlatformTarget registry, CONTEXT_TARGETS, write_context(), _write_non_destructive(), watch_and_refresh()
+- `tests/test_context.py` — 30 tests covering non-destructive writes, platform formatting, path resolution, idempotency, CLI integration
+- `migrate.py` — `context-write` subcommand (23 total)
 
 ---
 
@@ -768,6 +812,7 @@ chatbot-memory-skills/
 │   ├── intelligence.py              # Phase 5: GapAnalyzer + InsightGenerator
 │   ├── coding.py                    # Phase 7: Coding session behavioral extraction
 │   ├── hooks.py                     # Phase 7: Auto-inject context into Claude Code sessions
+│   ├── context.py                   # Phase 7: Cross-platform context writer (6 platforms)
 │   ├── viz/                         # Phase 6
 │   │   ├── __init__.py
 │   │   ├── layout.py                # Fruchterman-Reingold + caching + numpy fast path
@@ -783,7 +828,7 @@ chatbot-memory-skills/
 │   ├── chatbot-memory-extractor/
 │   └── chatbot-memory-importer/
 ├── cortex-hook.py                   # Standalone hook entry point for Claude Code
-├── tests/                           # 562 tests across 19 files
+├── tests/                           # 592 tests across 20 files
 │   ├── test_features.py             # Original feature tests
 │   ├── test_graph.py                # Phase 1
 │   ├── test_temporal.py             # Phase 2
@@ -802,10 +847,11 @@ chatbot-memory-skills/
 │   ├── test_monitor.py              # Phase 6
 │   ├── test_scheduler.py            # Phase 6
 │   ├── test_coding.py              # Phase 7
-│   └── test_hooks.py              # Phase 7: Auto-inject hook
+│   ├── test_hooks.py              # Phase 7: Auto-inject hook
+│   └── test_context.py            # Phase 7: Cross-platform context writer
 ├── extract_memory.py                # Modified Phases 1, 2, 4, 7
 ├── import_memory.py                 # Modified Phases 1, 3
-├── migrate.py                       # 22 subcommands (modified every phase)
+├── migrate.py                       # 23 subcommands (modified every phase)
 ├── docs/
 │   └── cortex-roadmap-v2.md         # This document
 ├── marketplace.json
@@ -825,7 +871,7 @@ chatbot-memory-skills/
 | 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
 | 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
 | 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
-| 7 | v6.2 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path, project enrichment, auto-inject context hook |
+| 7 | v6.3 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path, project enrichment, auto-inject context hook, cross-platform context writer (6 platforms) |
 
 ---
 
@@ -851,7 +897,7 @@ chatbot-memory-skills/
 ## Verification Strategy (Applied Per Phase)
 
 **Per-phase gate (all phases passed):**
-1. `python -m pytest tests/` — ALL tests pass (562 as of v6.2)
+1. `python -m pytest tests/` — ALL tests pass (592 as of v6.3)
 2. `python migrate.py <test_export> --to claude` — v4 output identical to pre-phase
 3. v4→v5→v4 roundtrip produces empty diff
 4. New CLI subcommands work with both v4 and v5 input
@@ -871,6 +917,7 @@ Nobody is building this combination:
 | **Temporal Tracking** | **Yes** | No | No | No | No | No |
 | **Coding Tool Extraction** | **Yes** | No | No | No | No | Partial |
 | **Auto-Inject Context** | **Yes** | No | No | No | No | Yes |
+| **Cross-Platform Context** | **Yes (6)** | No | No | No | No | No |
 | Cross-Session Context | Yes | Yes | Yes | Yes | Yes | **Yes** |
 | Team/Multi-User Sync | No | No | No | No | No | **Yes** |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A | No |
@@ -894,16 +941,17 @@ Closest new entrant. Built by Junde Wu (Oxford PhD). "Agent Self-Managed Context
 
 ## Completion Status
 
-**All 7 phases shipped.** Cortex v6.2.0 is the complete implementation of this roadmap.
+**All 7 phases shipped.** Cortex v6.3.0 is the complete implementation of this roadmap.
 
 | Metric | Value |
 |--------|-------|
-| Version | 6.2.0 |
+| Version | 6.3.0 |
 | Schema | 6.0 |
-| Total tests | 562 |
-| Test files | 19 |
-| CLI subcommands | 22 |
+| Total tests | 592 |
+| Test files | 20 |
+| CLI subcommands | 23 |
 | External dependencies | 0 (core) |
 | Backward compatible | v4 JSON roundtrip preserved |
+| Cross-platform targets | 6 (Claude Code, Cursor, Copilot, Windsurf, Gemini CLI) |
 
 **What's next:** See project discussions for future roadmap ideas (Cursor/Copilot parsers, live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation, continuous extraction).

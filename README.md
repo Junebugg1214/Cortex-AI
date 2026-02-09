@@ -66,7 +66,7 @@ python migrate.py import context.json --to all -o ./output
 
 ---
 
-## The Eight Layers
+## The Nine Layers
 
 ### 1. Graph Foundation
 
@@ -227,6 +227,37 @@ python migrate.py context-export context.json --policy technical
 
 The hook loads your graph, applies disclosure filtering, and injects a compact markdown summary (~300-800 chars) as a system message. Your AI always knows your tech stack, projects, and preferences.
 
+### 9. Cross-Platform Context Writer
+
+Write persistent Cortex identity to **every AI coding tool** with non-destructive section markers that preserve your existing rules:
+
+```bash
+# Write to all 6 platforms at once
+python migrate.py context-write graph.json --platforms all --project ~/myproject
+
+# Write to specific platforms
+python migrate.py context-write graph.json --platforms cursor copilot windsurf
+
+# Preview without writing
+python migrate.py context-write graph.json --platforms all --dry-run
+
+# Auto-refresh when your graph updates
+python migrate.py context-write graph.json --platforms all --watch
+```
+
+**Supported platforms:**
+
+| Platform | Config File | Scope |
+|----------|------------|-------|
+| Claude Code | `~/.claude/MEMORY.md` | Global |
+| Claude Code (project) | `{project}/.claude/MEMORY.md` | Project |
+| Cursor | `{project}/.cursor/rules/cortex.mdc` | Project |
+| GitHub Copilot | `{project}/.github/copilot-instructions.md` | Project |
+| Windsurf | `{project}/.windsurfrules` | Project |
+| Gemini CLI | `{project}/GEMINI.md` | Project |
+
+Uses `<!-- CORTEX:START -->` / `<!-- CORTEX:END -->` markers — your hand-written rules are never overwritten.
+
 ---
 
 ## Supported Platforms
@@ -352,6 +383,7 @@ chatbot-memory-skills/
 │   ├── intelligence.py         # Gap analysis + weekly digest
 │   ├── coding.py               # Coding session behavioral extraction + project enrichment
 │   ├── hooks.py                # Auto-inject context into Claude Code sessions
+│   ├── context.py              # Cross-platform context writer (6 platforms)
 │   ├── viz/
 │   │   ├── layout.py           # Fruchterman-Reingold layout
 │   │   └── renderer.py         # HTML (interactive) + SVG (static)
@@ -363,8 +395,8 @@ chatbot-memory-skills/
 ├── cortex-hook.py              # Standalone hook entry point for Claude Code
 ├── extract_memory.py           # Extraction engine
 ├── import_memory.py            # Import/export engine
-├── migrate.py                  # CLI (22 subcommands)
-└── tests/                      # 562 tests across 19 files
+├── migrate.py                  # CLI (23 subcommands)
+└── tests/                      # 592 tests across 20 files
 ```
 
 ---
@@ -438,6 +470,16 @@ python migrate.py context-hook status                      # Check status
 python migrate.py context-export <graph> --policy technical  # One-shot export
 ```
 
+### Cross-Platform Context Writer
+
+```bash
+python migrate.py context-write <graph> --platforms all --project <dir>  # All platforms
+python migrate.py context-write <graph> --platforms cursor copilot       # Specific platforms
+python migrate.py context-write <graph> --platforms all --dry-run        # Preview
+python migrate.py context-write <graph> --platforms all --watch          # Auto-refresh
+python migrate.py context-write <graph> --platforms all --policy professional  # Policy override
+```
+
 ### Temporal Analysis
 
 ```bash
@@ -458,6 +500,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 | **Temporal Tracking** | **Yes** | No | No | No | No |
 | **Coding Tool Extraction** | **Yes** | No | No | No | No |
 | **Auto-Inject Context** | **Yes** | No | No | No | No |
+| **Cross-Platform Context** | **Yes (6)** | No | No | No | No |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
 ---
@@ -466,6 +509,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
+| v6.3 | **Cross-platform context writer** — persistent context files for Claude Code, Cursor, Copilot, Windsurf, Gemini CLI with non-destructive section markers |
 | v6.2 | **Auto-inject context** — SessionStart hook for Claude Code, compact context generation, install/uninstall CLI |
 | v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |
 | v6.0 | Visualization, dashboard, file monitor, sync scheduler |
