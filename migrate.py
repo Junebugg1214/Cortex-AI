@@ -355,6 +355,18 @@ def build_parser():
                     help="Print session statistics")
     ec.add_argument("--enrich", action="store_true",
                     help="Read project files (README, manifests) to enrich extraction")
+    ec.add_argument("--watch", "-w", action="store_true",
+                    help="Watch for new/modified sessions and continuously extract")
+    ec.add_argument("--interval", type=int, default=10,
+                    help="Watch poll interval in seconds (default: 10)")
+    ec.add_argument("--settle", type=float, default=5.0,
+                    help="Debounce: seconds to wait after last file write (default: 5)")
+    ec.add_argument("--context-refresh", nargs="*", default=None,
+                    help="Auto-refresh context for platforms on update "
+                         "(e.g., --context-refresh claude-code cursor)")
+    ec.add_argument("--context-policy", default=None,
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Disclosure policy for context refresh")
 
     # -- context-hook (auto-inject) -------------------------------------------
     ch = sub.add_parser("context-hook",
@@ -1252,6 +1264,22 @@ def run_sync_schedule(args):
 
 def run_extract_coding(args):
     """Extract identity signals from coding tool sessions."""
+    # Watch mode — continuous extraction
+    if getattr(args, "watch", False):
+        from cortex.continuous import watch_coding_sessions
+        output_path = Path(args.output) if args.output else Path("coding_context.json")
+        watch_coding_sessions(
+            graph_path=str(output_path),
+            project_filter=args.project,
+            interval=args.interval,
+            settle_seconds=args.settle,
+            enrich=getattr(args, "enrich", False),
+            context_platforms=args.context_refresh,
+            context_policy=args.context_policy,
+            verbose=True,
+        )
+        return 0
+
     from cortex.coding import (
         discover_claude_code_sessions, load_claude_code_session,
         parse_claude_code_session, aggregate_sessions, session_to_context,
