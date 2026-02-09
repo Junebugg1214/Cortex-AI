@@ -353,6 +353,8 @@ def build_parser():
     ec.add_argument("--verbose", "-v", action="store_true")
     ec.add_argument("--stats", action="store_true",
                     help="Print session statistics")
+    ec.add_argument("--enrich", action="store_true",
+                    help="Read project files (README, manifests) to enrich extraction")
 
     return parser
 
@@ -1248,6 +1250,11 @@ def run_extract_coding(args):
     else:
         combined = sessions[0]
 
+    # Enrich with project files if requested
+    if getattr(args, "enrich", False) and combined.project_path:
+        from cortex.coding import enrich_session
+        enrich_session(combined)
+
     # Stats
     if args.stats or args.verbose:
         print(f"\nCoding Session Summary:")
@@ -1259,6 +1266,15 @@ def run_extract_coding(args):
         print(f"  Plan mode:    {'yes' if combined.plan_mode_used else 'no'}")
         print(f"  Test files:   {combined.test_files_written}")
         print(f"  Branches:     {', '.join(sorted(combined.branches)) or 'none'}")
+        if combined.project_meta.enriched:
+            pm = combined.project_meta
+            print(f"  Project:      {pm.name}")
+            if pm.description:
+                print(f"  Description:  {pm.description[:100]}")
+            if pm.license:
+                print(f"  License:      {pm.license}")
+            if pm.manifest_file:
+                print(f"  Manifest:     {pm.manifest_file}")
 
     # Convert to v4 context
     ctx_data = session_to_context(combined)
