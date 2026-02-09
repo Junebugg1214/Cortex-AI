@@ -464,7 +464,7 @@ class CortexGraph:
             datetime.now(timezone.utc).isoformat(),
         )
         return {
-            "schema_version": "5.1",
+            "schema_version": "5.2",
             "meta": {
                 **self.meta,
                 "generated_at": generated_at,
