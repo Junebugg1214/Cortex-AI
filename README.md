@@ -66,7 +66,7 @@ python migrate.py import context.json --to all -o ./output
 
 ---
 
-## The Nine Layers
+## The Ten Layers
 
 ### 1. Graph Foundation
 
@@ -258,6 +258,27 @@ python migrate.py context-write graph.json --platforms all --watch
 
 Uses `<!-- CORTEX:START -->` / `<!-- CORTEX:END -->` markers — your hand-written rules are never overwritten.
 
+### 10. Continuous Extraction
+
+Watch Claude Code sessions in real-time. Auto-extract behavioral signals as you code, merge into your graph, and optionally chain to cross-platform context refresh:
+
+```bash
+# Watch and auto-update graph
+python migrate.py extract-coding --watch -o coding_context.json
+
+# Watch + auto-refresh context to all platforms
+python migrate.py extract-coding --watch -o ctx.json \
+    --context-refresh claude-code cursor copilot
+
+# Watch specific project only
+python migrate.py extract-coding --watch --project chatbot-memory -o ctx.json
+
+# Custom interval and debounce
+python migrate.py extract-coding --watch --interval 15 --settle 10 -o ctx.json
+```
+
+**How it works:** Polls `~/.claude/projects/` for `*.jsonl` changes (mtime + size), debounces active writes (5s settle), extracts via the coding pipeline, and incrementally merges nodes by label (max confidence, sum mentions, union tags). Graph updates trigger an optional `on_update` callback for cross-platform refresh.
+
 ---
 
 ## Supported Platforms
@@ -384,6 +405,7 @@ chatbot-memory-skills/
 │   ├── coding.py               # Coding session behavioral extraction + project enrichment
 │   ├── hooks.py                # Auto-inject context into Claude Code sessions
 │   ├── context.py              # Cross-platform context writer (6 platforms)
+│   ├── continuous.py           # Real-time session watcher + incremental extraction
 │   ├── viz/
 │   │   ├── layout.py           # Fruchterman-Reingold layout
 │   │   └── renderer.py         # HTML (interactive) + SVG (static)
@@ -396,7 +418,7 @@ chatbot-memory-skills/
 ├── extract_memory.py           # Extraction engine
 ├── import_memory.py            # Import/export engine
 ├── migrate.py                  # CLI (23 subcommands)
-└── tests/                      # 592 tests across 20 files
+└── tests/                      # 618 tests across 21 files
 ```
 
 ---
@@ -458,6 +480,8 @@ python migrate.py extract-coding --discover -p <project>   # Filter by project
 python migrate.py extract-coding --discover -m <context>   # Merge with existing
 python migrate.py extract-coding --discover --stats        # Show session stats
 python migrate.py extract-coding --discover --enrich       # Enrich with project files
+python migrate.py extract-coding --watch -o ctx.json       # Watch mode (continuous)
+python migrate.py extract-coding --watch --context-refresh claude-code cursor  # Watch + auto-refresh
 ```
 
 ### Context Hook (Auto-Inject)
@@ -501,6 +525,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 | **Coding Tool Extraction** | **Yes** | No | No | No | No |
 | **Auto-Inject Context** | **Yes** | No | No | No | No |
 | **Cross-Platform Context** | **Yes (6)** | No | No | No | No |
+| **Continuous Extraction** | **Yes** | No | No | No | No |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
 ---
@@ -509,6 +534,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
+| v6.4 | **Continuous extraction** — real-time session watching with debounce, incremental graph merge, optional cross-platform auto-refresh |
 | v6.3 | **Cross-platform context writer** — persistent context files for Claude Code, Cursor, Copilot, Windsurf, Gemini CLI with non-destructive section markers |
 | v6.2 | **Auto-inject context** — SessionStart hook for Claude Code, compact context generation, install/uninstall CLI |
 | v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |

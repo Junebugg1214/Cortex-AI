@@ -2,7 +2,7 @@
 
 ## Context
 
-This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.3.0, 592 passing tests).** The three biggest changes were:
+This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.4.0, 618 passing tests).** The three biggest changes were:
 
 1. **Node identity model redesigned** — category-agnostic nodes with tags (not category-scoped IDs)
 2. **Phases reordered** — UPAI (the breakthrough) shipped as Phase 3 instead of Phase 5
@@ -27,7 +27,7 @@ Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         
 - Backward compatible: v4 JSON always works, existing tests never break
 - Offline/local first: no cloud dependency
 - Each phase independently shippable
-- **592 tests across 20 test files, all passing**
+- **618 tests across 21 test files, all passing**
 
 ---
 
@@ -783,7 +783,39 @@ python migrate.py context-write graph.json --platforms all --policy professional
 #### Files
 - `cortex/context.py` — PlatformTarget registry, CONTEXT_TARGETS, write_context(), _write_non_destructive(), watch_and_refresh()
 - `tests/test_context.py` — 30 tests covering non-destructive writes, platform formatting, path resolution, idempotency, CLI integration
-- `migrate.py` — `context-write` subcommand (23 total)
+- `migrate.py` — `context-write` subcommand
+
+### Continuous Extraction (v6.4)
+
+Watch `~/.claude/projects/` for new/modified Claude Code session files in real-time. Automatically extracts behavioral signals, incrementally merges into the graph, and optionally chains to `context-write` for cross-platform auto-refresh.
+
+**How it works:**
+1. `CodingSessionWatcher` polls `~/.claude/projects/` recursively for `*.jsonl` files
+2. Detects changes by comparing mtime + file size against tracked state
+3. Two-phase debounce: waits `settle_seconds` (default 5s) of inactivity before processing — prevents thrashing on active sessions
+4. Extracts via the existing coding pipeline: `load → parse → enrich → session_to_context → upgrade_v4_to_v5`
+5. Incrementally merges into the graph: nodes by label (max confidence, sum mentions, union tags), edges if endpoints exist
+6. Saves graph and fires `on_update` callback → optional `write_context()` for cross-platform refresh
+
+```bash
+# Watch and auto-update graph
+python migrate.py extract-coding --watch -o coding_context.json
+
+# Watch + auto-refresh context to all platforms
+python migrate.py extract-coding --watch -o ctx.json \
+    --context-refresh claude-code cursor copilot
+
+# Watch specific project only
+python migrate.py extract-coding --watch --project chatbot-memory -o ctx.json
+
+# Custom interval and debounce
+python migrate.py extract-coding --watch --interval 15 --settle 10 -o ctx.json
+```
+
+#### Files
+- `cortex/continuous.py` — _FileState, CodingSessionWatcher, watch_coding_sessions(), debounce, extract-merge pipeline
+- `tests/test_continuous.py` — 26 tests covering file detection, debounce, extraction pipeline, graph merge, callbacks, lifecycle, project filter
+- `migrate.py` — `--watch`, `--interval`, `--settle`, `--context-refresh`, `--context-policy` flags on `extract-coding`
 
 ---
 
@@ -792,7 +824,7 @@ python migrate.py context-write graph.json --platforms all --policy professional
 ```
 chatbot-memory-skills/
 ├── cortex/
-│   ├── __init__.py                  # v6.2.0
+│   ├── __init__.py                  # v6.4.0
 │   ├── graph.py                     # Phase 1: Node, Edge, CortexGraph (schema 6.0)
 │   ├── compat.py                    # Phase 1: v4 ↔ v5 conversion
 │   ├── temporal.py                  # Phase 2: Snapshot, drift
@@ -813,6 +845,7 @@ chatbot-memory-skills/
 │   ├── coding.py                    # Phase 7: Coding session behavioral extraction
 │   ├── hooks.py                     # Phase 7: Auto-inject context into Claude Code sessions
 │   ├── context.py                   # Phase 7: Cross-platform context writer (6 platforms)
+│   ├── continuous.py                # Phase 7: Real-time session watcher + incremental extraction
 │   ├── viz/                         # Phase 6
 │   │   ├── __init__.py
 │   │   ├── layout.py                # Fruchterman-Reingold + caching + numpy fast path
@@ -828,7 +861,7 @@ chatbot-memory-skills/
 │   ├── chatbot-memory-extractor/
 │   └── chatbot-memory-importer/
 ├── cortex-hook.py                   # Standalone hook entry point for Claude Code
-├── tests/                           # 592 tests across 20 files
+├── tests/                           # 618 tests across 21 files
 │   ├── test_features.py             # Original feature tests
 │   ├── test_graph.py                # Phase 1
 │   ├── test_temporal.py             # Phase 2
@@ -848,7 +881,8 @@ chatbot-memory-skills/
 │   ├── test_scheduler.py            # Phase 6
 │   ├── test_coding.py              # Phase 7
 │   ├── test_hooks.py              # Phase 7: Auto-inject hook
-│   └── test_context.py            # Phase 7: Cross-platform context writer
+│   ├── test_context.py            # Phase 7: Cross-platform context writer
+│   └── test_continuous.py         # Phase 7: Continuous extraction
 ├── extract_memory.py                # Modified Phases 1, 2, 4, 7
 ├── import_memory.py                 # Modified Phases 1, 3
 ├── migrate.py                       # 23 subcommands (modified every phase)
@@ -871,7 +905,7 @@ chatbot-memory-skills/
 | 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
 | 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
 | 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
-| 7 | v6.3 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path, project enrichment, auto-inject context hook, cross-platform context writer (6 platforms) |
+| 7 | v6.4 | Coding Tool Extraction | **DONE** | Behavioral extraction, auto-discovery, project enrichment, auto-inject hook, cross-platform context writer (6 platforms), continuous extraction with debounce |
 
 ---
 
@@ -897,7 +931,7 @@ chatbot-memory-skills/
 ## Verification Strategy (Applied Per Phase)
 
 **Per-phase gate (all phases passed):**
-1. `python -m pytest tests/` — ALL tests pass (592 as of v6.3)
+1. `python -m pytest tests/` — ALL tests pass (618 as of v6.4)
 2. `python migrate.py <test_export> --to claude` — v4 output identical to pre-phase
 3. v4→v5→v4 roundtrip produces empty diff
 4. New CLI subcommands work with both v4 and v5 input
@@ -941,17 +975,17 @@ Closest new entrant. Built by Junde Wu (Oxford PhD). "Agent Self-Managed Context
 
 ## Completion Status
 
-**All 7 phases shipped.** Cortex v6.3.0 is the complete implementation of this roadmap.
+**All 7 phases shipped.** Cortex v6.4.0 is the complete implementation of this roadmap.
 
 | Metric | Value |
 |--------|-------|
-| Version | 6.3.0 |
+| Version | 6.4.0 |
 | Schema | 6.0 |
-| Total tests | 592 |
-| Test files | 20 |
+| Total tests | 618 |
+| Test files | 21 |
 | CLI subcommands | 23 |
 | External dependencies | 0 (core) |
 | Backward compatible | v4 JSON roundtrip preserved |
 | Cross-platform targets | 6 (Claude Code, Cursor, Copilot, Windsurf, Gemini CLI) |
 
-**What's next:** See project discussions for future roadmap ideas (Cursor/Copilot parsers, live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation, continuous extraction).
+**What's next:** See project discussions for future roadmap ideas (Cursor/Copilot parsers, live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation).
