@@ -192,11 +192,29 @@ def build_parser():
     imp.add_argument("--dry-run", action="store_true")
     imp.add_argument("--verbose", "-v", action="store_true")
 
-    # -- query (Phase 1) ---------------------------------------------------
+    # -- query (Phase 1 + Phase 5) -----------------------------------------
     qry = sub.add_parser("query", help="Query a context/graph file")
     qry.add_argument("input_file", help="Path to context JSON (v4 or v5)")
     qry.add_argument("--node", help="Look up a node by label")
     qry.add_argument("--neighbors", help="Get neighbors of a node by label")
+    qry.add_argument("--category", help="List nodes by tag/category")
+    qry.add_argument("--path", nargs=2, metavar=("FROM", "TO"),
+                     help="Find shortest path between two labels")
+    qry.add_argument("--changed-since", help="Show nodes changed since ISO date")
+    qry.add_argument("--strongest", type=int, metavar="N",
+                     help="Top N nodes by confidence")
+    qry.add_argument("--weakest", type=int, metavar="N",
+                     help="Bottom N nodes by confidence")
+    qry.add_argument("--isolated", action="store_true",
+                     help="List nodes with zero edges")
+    qry.add_argument("--related", nargs="?", const="", metavar="LABEL",
+                     help="Nodes related to LABEL (default depth=2)")
+    qry.add_argument("--related-depth", type=int, default=2,
+                     help="Depth for --related traversal (default: 2)")
+    qry.add_argument("--components", action="store_true",
+                     help="Show connected components")
+    qry.add_argument("--nl", metavar="QUERY",
+                     help="Natural-language query (limited patterns)")
 
     # -- stats (Phase 1) ---------------------------------------------------
     st = sub.add_parser("stats", help="Show graph/context statistics")
@@ -267,6 +285,16 @@ def build_parser():
     # -- verify (Phase 3) --------------------------------------------------
     vr = sub.add_parser("verify", help="Verify a signed export")
     vr.add_argument("input_file", help="Path to signed export file")
+
+    # -- gaps (Phase 5) ----------------------------------------------------
+    gp = sub.add_parser("gaps", help="Analyze gaps in knowledge graph")
+    gp.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+
+    # -- digest (Phase 5) --------------------------------------------------
+    dg = sub.add_parser("digest", help="Generate weekly digest (compare two graphs)")
+    dg.add_argument("input_file", help="Path to current context JSON (v4 or v5)")
+    dg.add_argument("--previous", required=True,
+                    help="Path to previous context JSON to compare against")
 
     return parser
 
@@ -506,16 +534,9 @@ def run_query(args):
         print(f"File not found: {input_path}")
         return 1
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    graph = _load_graph(input_path)
 
-    # Load or convert to graph
-    version = data.get("schema_version", "")
-    if version.startswith("5"):
-        graph = CortexGraph.from_v5_json(data)
-    else:
-        graph = upgrade_v4_to_v5(data)
-
+    # --- Phase 1 queries (--node, --neighbors) ---
     if args.node:
         nodes = graph.find_nodes(label=args.node)
         if not nodes:
@@ -547,7 +568,107 @@ def run_query(args):
             print(f"  --[{edge.relation}]--> {neighbor.label} (conf={neighbor.confidence:.2f})")
         return 0
 
-    print("Specify --node <label> or --neighbors <label>")
+    # --- Phase 5 queries (QueryEngine) ---
+    from cortex.query import (
+        QueryEngine, shortest_path, connected_components,
+        betweenness_centrality, parse_nl_query,
+    )
+    from cortex.intelligence import GapAnalyzer
+
+    engine = QueryEngine(graph)
+
+    if args.category:
+        nodes = engine.query_category(args.category)
+        if not nodes:
+            print(f"No nodes with tag '{args.category}'")
+            return 0
+        print(f"Nodes tagged '{args.category}' ({len(nodes)}):")
+        for node in nodes:
+            print(f"  {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.path:
+        from_label, to_label = args.path
+        paths = engine.query_path(from_label, to_label)
+        if not paths:
+            print(f"No path from '{from_label}' to '{to_label}'")
+            return 0
+        print(f"Path from '{from_label}' to '{to_label}':")
+        for node in paths[0]:
+            print(f"  -> {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.changed_since:
+        result = engine.query_changed(args.changed_since)
+        print(f"Changes since {result['since']}: {result['total_changed']} total")
+        if result["new_nodes"]:
+            print(f"\nNew ({len(result['new_nodes'])}):")
+            for n in result["new_nodes"]:
+                print(f"  + {n['label']} (conf={n['confidence']:.2f})")
+        if result["updated_nodes"]:
+            print(f"\nUpdated ({len(result['updated_nodes'])}):")
+            for n in result["updated_nodes"]:
+                print(f"  ~ {n['label']} (conf={n['confidence']:.2f})")
+        return 0
+
+    if args.strongest:
+        nodes = engine.query_strongest(args.strongest)
+        print(f"Top {len(nodes)} by confidence:")
+        for node in nodes:
+            print(f"  {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.weakest:
+        nodes = engine.query_weakest(args.weakest)
+        print(f"Bottom {len(nodes)} by confidence:")
+        for node in nodes:
+            print(f"  {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.isolated:
+        analyzer = GapAnalyzer()
+        isolated = analyzer.isolated_nodes(graph)
+        if not isolated:
+            print("No isolated nodes.")
+            return 0
+        print(f"Isolated nodes ({len(isolated)}):")
+        for node in isolated:
+            print(f"  {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.related is not None:
+        if not args.related:
+            print("Specify a label: --related <LABEL>")
+            return 1
+        nodes = engine.query_related(args.related, depth=args.related_depth)
+        if not nodes:
+            print(f"No related nodes for '{args.related}'")
+            return 0
+        print(f"Related to '{args.related}' (depth={args.related_depth}):")
+        for node in nodes:
+            print(f"  {node.label} (conf={node.confidence:.2f})")
+        return 0
+
+    if args.components:
+        comps = connected_components(graph)
+        if not comps:
+            print("No components (empty graph).")
+            return 0
+        print(f"Connected components ({len(comps)}):")
+        for i, comp in enumerate(comps, 1):
+            labels = sorted(graph.get_node(nid).label for nid in comp if graph.get_node(nid))
+            print(f"  {i}. [{len(comp)} nodes] {', '.join(labels[:10])}"
+                  f"{'...' if len(labels) > 10 else ''}")
+        return 0
+
+    if args.nl:
+        result = parse_nl_query(args.nl, engine)
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    print("Specify a query flag: --node, --neighbors, --category, --path, "
+          "--changed-since, --strongest, --weakest, --isolated, --related, "
+          "--components, --nl")
     return 1
 
 
@@ -792,6 +913,109 @@ def run_verify(args):
     return 0
 
 
+def run_gaps(args):
+    """Analyze gaps in the knowledge graph."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    from cortex.intelligence import GapAnalyzer
+
+    graph = _load_graph(input_path)
+    analyzer = GapAnalyzer()
+    gaps = analyzer.all_gaps(graph)
+
+    if gaps["category_gaps"]:
+        print(f"Missing categories ({len(gaps['category_gaps'])}):")
+        for g in gaps["category_gaps"]:
+            print(f"  - {g['category']}")
+
+    if gaps["confidence_gaps"]:
+        print(f"\nLow-confidence priorities ({len(gaps['confidence_gaps'])}):")
+        for g in gaps["confidence_gaps"]:
+            print(f"  - {g['label']} (conf={g['confidence']:.2f})")
+
+    if gaps["relationship_gaps"]:
+        print(f"\nUnconnected groups ({len(gaps['relationship_gaps'])}):")
+        for g in gaps["relationship_gaps"]:
+            print(f"  - {g['tag']}: {g['node_count']} nodes, 0 edges")
+
+    if gaps["isolated_nodes"]:
+        print(f"\nIsolated nodes ({len(gaps['isolated_nodes'])}):")
+        for g in gaps["isolated_nodes"]:
+            print(f"  - {g['label']} (conf={g['confidence']:.2f})")
+
+    if gaps["stale_nodes"]:
+        print(f"\nStale nodes ({len(gaps['stale_nodes'])}):")
+        for g in gaps["stale_nodes"]:
+            print(f"  - {g['label']} (last seen: {g['last_seen']})")
+
+    total = (len(gaps["category_gaps"]) + len(gaps["confidence_gaps"])
+             + len(gaps["relationship_gaps"]) + len(gaps["isolated_nodes"])
+             + len(gaps["stale_nodes"]))
+    if total == 0:
+        print("No gaps detected.")
+    return 0
+
+
+def run_digest(args):
+    """Generate weekly digest comparing two graph snapshots."""
+    input_path = Path(args.input_file)
+    previous_path = Path(args.previous)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    if not previous_path.exists():
+        print(f"File not found: {previous_path}")
+        return 1
+
+    from cortex.intelligence import InsightGenerator
+
+    current = _load_graph(input_path)
+    previous = _load_graph(previous_path)
+    gen = InsightGenerator()
+    digest = gen.digest(current=current, previous=previous)
+
+    if digest["new_nodes"]:
+        print(f"New nodes ({len(digest['new_nodes'])}):")
+        for n in digest["new_nodes"]:
+            print(f"  + {n['label']} (conf={n['confidence']:.2f})")
+
+    if digest["removed_nodes"]:
+        print(f"\nRemoved nodes ({len(digest['removed_nodes'])}):")
+        for n in digest["removed_nodes"]:
+            print(f"  - {n['label']}")
+
+    if digest["confidence_changes"]:
+        print(f"\nConfidence changes ({len(digest['confidence_changes'])}):")
+        for c in digest["confidence_changes"]:
+            direction = "+" if c["delta"] > 0 else ""
+            print(f"  {c['label']}: {c['previous']:.2f} -> {c['current']:.2f} ({direction}{c['delta']:.2f})")
+
+    if digest["new_edges"]:
+        print(f"\nNew edges ({len(digest['new_edges'])}):")
+        for e in digest["new_edges"]:
+            print(f"  {e['source']} --[{e['relation']}]--> {e['target']}")
+
+    ds = digest["drift_score"]
+    if ds.get("sufficient_data"):
+        print(f"\nDrift score: {ds['score']:.4f}")
+    else:
+        print("\nDrift score: insufficient data")
+
+    if digest["new_contradictions"]:
+        print(f"\nContradictions ({len(digest['new_contradictions'])}):")
+        for c in digest["new_contradictions"]:
+            print(f"  [{c['type']}] {c['description']}")
+
+    gap_count = sum(
+        len(v) for v in digest["gaps"].values() if isinstance(v, list)
+    )
+    print(f"\nGaps: {gap_count} total issues")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -841,6 +1065,7 @@ def main(argv=None):
         "extract", "import", "migrate", "query", "stats",
         "timeline", "contradictions", "drift",
         "identity", "commit", "log", "sync", "verify",
+        "gaps", "digest",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -877,6 +1102,10 @@ def main(argv=None):
         return run_sync(args)
     elif args.subcommand == "verify":
         return run_verify(args)
+    elif args.subcommand == "gaps":
+        return run_gaps(args)
+    elif args.subcommand == "digest":
+        return run_digest(args)
     else:
         return run_migrate(args)
 
