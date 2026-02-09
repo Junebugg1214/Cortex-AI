@@ -2,7 +2,7 @@
 
 ## Context
 
-This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 6 phases are now complete (v6.0.0, 453 passing tests).** The three biggest changes were:
+This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 12 issues identified during the staff-engineer review. **All 7 phases are now complete (v6.1.0, 493 passing tests).** The three biggest changes were:
 
 1. **Node identity model redesigned** — category-agnostic nodes with tags (not category-scoped IDs)
 2. **Phases reordered** — UPAI (the breakthrough) shipped as Phase 3 instead of Phase 5
@@ -13,9 +13,9 @@ This is the revised Cortex roadmap for chatbot-memory-skills, incorporating all 
 ## Architecture Overview
 
 ```
-Phase 1 (v5.0)  →  Phase 2 (v5.1)  →  Phase 3 (v5.2)  →  Phase 4 (v5.3)  →  Phase 5 (v5.4)  →  Phase 6 (v6.0)
-Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         Query + Intel       Viz + Flywheel
-  [DONE]              [DONE]           [DONE] ***            [DONE]              [DONE]              [DONE]
+Phase 1 (v5.0)  →  Phase 2 (v5.1)  →  Phase 3 (v5.2)  →  Phase 4 (v5.3)  →  Phase 5 (v5.4)  →  Phase 6 (v6.0)  →  Phase 7 (v6.1)
+Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         Query + Intel       Viz + Flywheel      Coding Extraction
+  [DONE]              [DONE]           [DONE] ***            [DONE]              [DONE]              [DONE]              [DONE]
                                        BREAKTHROUGH
 ```
 
@@ -27,7 +27,7 @@ Graph Foundation    Temporal Engine     UPAI Protocol       Smart Edges         
 - Backward compatible: v4 JSON always works, existing tests never break
 - Offline/local first: no cloud dependency
 - Each phase independently shippable
-- **453 tests across 17 test files, all passing**
+- **493 tests across 18 test files, all passing**
 
 ---
 
@@ -648,12 +648,48 @@ fast = ["numpy>=1.24.0"]
 
 ---
 
+## Phase 7: Coding Tool Extraction (v6.1) — COMPLETE
+
+**Objective:** Extract identity signals from coding tool sessions (Claude Code, Cursor, Copilot) via behavioral analysis — files edited, tools run, commands executed, patterns followed. Complements existing declarative extraction from chatbot conversations.
+
+### Behavioral vs Declarative Extraction
+
+Chatbot extraction finds **declarative** signals: "I use Python", "My name is Marc". Coding session extraction finds **behavioral** signals: editing `.py` files, running `pytest`, using `git`. Both feed into the same CortexGraph.
+
+### Signals Extracted
+
+| Signal | Source | Maps To |
+|--------|--------|---------|
+| Languages/frameworks | File extensions (.py, .ts, .rs) | `technical_expertise` |
+| CLI tools | Bash commands (pytest, git, docker) | `technical_expertise` |
+| Active projects | Working directory (cwd) | `active_priorities` |
+| Coding patterns | Plan mode, test-first, iteration style | `user_preferences` |
+| Config files | package.json, pyproject.toml, Dockerfile | `technical_expertise` |
+
+### CLI
+
+```bash
+python migrate.py extract-coding session.jsonl -o context.json
+python migrate.py extract-coding --discover --project chatbot-memory
+python migrate.py extract-coding --discover --merge context.json -o context.json
+```
+
+### Files
+- `cortex/coding.py` — CodingSession parser, tech/tool/pattern extractors, session-to-v4 converter, multi-session aggregation, auto-discovery
+- `tests/test_coding.py` — 40 tests covering detection, parsing, extraction, aggregation, integration
+
+### Modified
+- `extract_memory.py` — Claude Code JSONL auto-detection in `load_file()`
+- `migrate.py` — `extract-coding` subcommand (20th subcommand)
+
+---
+
 ## Final Directory Structure (Actual)
 
 ```
 chatbot-memory-skills/
 ├── cortex/
-│   ├── __init__.py                  # v6.0.0
+│   ├── __init__.py                  # v6.1.0
 │   ├── graph.py                     # Phase 1: Node, Edge, CortexGraph (schema 6.0)
 │   ├── compat.py                    # Phase 1: v4 ↔ v5 conversion
 │   ├── temporal.py                  # Phase 2: Snapshot, drift
@@ -671,6 +707,7 @@ chatbot-memory-skills/
 │   ├── centrality.py                # Phase 4: Degree centrality + PageRank + confidence boost
 │   ├── query.py                     # Phase 5: QueryEngine + BFS + union-find + betweenness
 │   ├── intelligence.py              # Phase 5: GapAnalyzer + InsightGenerator
+│   ├── coding.py                    # Phase 7: Coding session behavioral extraction
 │   ├── viz/                         # Phase 6
 │   │   ├── __init__.py
 │   │   ├── layout.py                # Fruchterman-Reingold + caching + numpy fast path
@@ -685,7 +722,7 @@ chatbot-memory-skills/
 ├── skills/
 │   ├── chatbot-memory-extractor/
 │   └── chatbot-memory-importer/
-├── tests/                           # 453 tests across 17 files
+├── tests/                           # 493 tests across 18 files
 │   ├── test_features.py             # Original feature tests
 │   ├── test_graph.py                # Phase 1
 │   ├── test_temporal.py             # Phase 2
@@ -702,10 +739,11 @@ chatbot-memory-skills/
 │   ├── test_viz.py                  # Phase 6
 │   ├── test_dashboard.py            # Phase 6
 │   ├── test_monitor.py              # Phase 6
-│   └── test_scheduler.py            # Phase 6
-├── extract_memory.py                # Modified Phases 1, 2, 4
+│   ├── test_scheduler.py            # Phase 6
+│   └── test_coding.py              # Phase 7
+├── extract_memory.py                # Modified Phases 1, 2, 4, 7
 ├── import_memory.py                 # Modified Phases 1, 3
-├── migrate.py                       # 19 subcommands (modified every phase)
+├── migrate.py                       # 20 subcommands (modified every phase)
 ├── docs/
 │   └── cortex-roadmap-v2.md         # This document
 ├── marketplace.json
@@ -725,6 +763,7 @@ chatbot-memory-skills/
 | 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
 | 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
 | 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
+| 7 | v6.1 | Coding Tool Extraction | **DONE** | Behavioral extraction from Claude Code sessions, auto-discovery, dual-path |
 
 ---
 
@@ -750,7 +789,7 @@ chatbot-memory-skills/
 ## Verification Strategy (Applied Per Phase)
 
 **Per-phase gate (all phases passed):**
-1. `python -m pytest tests/` — ALL tests pass (453 as of v6.0)
+1. `python -m pytest tests/` — ALL tests pass (493 as of v6.1)
 2. `python migrate.py <test_export> --to claude` — v4 output identical to pre-phase
 3. v4→v5→v4 roundtrip produces empty diff
 4. New CLI subcommands work with both v4 and v5 input
@@ -768,24 +807,25 @@ Nobody is building this combination:
 | **Portability (UPAI)** | **Yes** | No | No | No | No |
 | **User-Owned** | **Yes** | No | No | No | No |
 | **Temporal Tracking** | **Yes** | No | No | No | No |
+| **Coding Tool Extraction** | **Yes** | No | No | No | No |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
-The breakthrough = **user-owned portable AI identity with selective disclosure**. That's Phase 3. Everything before it is infrastructure.
+The breakthrough = **user-owned portable AI identity with selective disclosure**. That's Phase 3. Everything before it is infrastructure. Phase 7 extends extraction beyond chatbots into coding tools.
 
 ---
 
 ## Completion Status
 
-**All 6 phases shipped.** Cortex v6.0.0 is the complete implementation of this roadmap.
+**All 7 phases shipped.** Cortex v6.1.0 is the complete implementation of this roadmap.
 
 | Metric | Value |
 |--------|-------|
-| Version | 6.0.0 |
+| Version | 6.1.0 |
 | Schema | 6.0 |
-| Total tests | 453 |
-| Test files | 17 |
-| CLI subcommands | 19 |
+| Total tests | 493 |
+| Test files | 18 |
+| CLI subcommands | 20 |
 | External dependencies | 0 (core) |
 | Backward compatible | v4 JSON roundtrip preserved |
 
-**What's next:** See project discussions for post-v6.0 roadmap ideas (live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation).
+**What's next:** See project discussions for future roadmap ideas (Cursor/Copilot parsers, live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation).

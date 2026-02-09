@@ -2,7 +2,7 @@
 
 **Own your AI memory. Take it everywhere.**
 
-Cortex extracts your context from every AI platform you use — ChatGPT, Claude, Gemini, Perplexity — merges it into a single knowledge graph, and lets you selectively push it back to any platform. Cryptographically signed. Version controlled. Zero external dependencies.
+Cortex extracts your context from every AI platform you use — ChatGPT, Claude, Gemini, Perplexity — and every coding tool — Claude Code, Cursor, Copilot — merges it into a single knowledge graph, and lets you selectively push it back to any platform. Cryptographically signed. Version controlled. Zero external dependencies.
 
 ```bash
 # Extract from ChatGPT, export to Claude
@@ -23,8 +23,10 @@ python migrate.py dashboard context.json
 
 ```
 Chat Exports (ChatGPT, Claude, Gemini, Perplexity, API logs)
+  + Coding Sessions (Claude Code, Cursor, Copilot)
         |
-   extract_memory.py          Parse exports, extract entities
+   extract_memory.py          Parse exports, extract entities (declarative)
+   cortex/coding.py           Parse coding sessions (behavioral)
         |
    CortexGraph                Nodes (entities) + Edges (relationships)
         |
@@ -64,7 +66,7 @@ python migrate.py import context.json --to all -o ./output
 
 ---
 
-## The Six Layers
+## The Seven Layers
 
 ### 1. Graph Foundation
 
@@ -173,6 +175,36 @@ python migrate.py watch ~/exports/ --graph context.json
 python migrate.py sync-schedule --config sync_config.json
 ```
 
+### 7. Coding Tool Extraction
+
+Extract identity from what you *actually do*, not just what you say. Coding sessions reveal your real tech stack, tools, and workflow through behavior:
+
+```bash
+# Auto-discover and extract from Claude Code sessions
+python migrate.py extract-coding --discover -o coding_context.json
+
+# Filter by project name
+python migrate.py extract-coding --discover --project chatbot-memory
+
+# Merge coding extraction with chatbot extraction
+python migrate.py extract-coding --discover --merge context.json -o context.json
+
+# Extract from a specific session file
+python migrate.py extract-coding ~/.claude/projects/*/session.jsonl
+```
+
+**What it extracts:**
+
+| Signal | How | Example |
+|--------|-----|---------|
+| Languages | File extensions | Editing `.py` files -> Python |
+| Frameworks | Config files | `package.json` -> Node.js |
+| CLI tools | Bash commands | Running `pytest` -> Pytest |
+| Projects | Working directory | `/home/user/myapp` -> myapp |
+| Patterns | Tool sequence | Uses plan mode before coding |
+
+Currently supports **Claude Code** (JSONL transcripts). Cursor and Copilot parsers planned.
+
 ---
 
 ## Supported Platforms
@@ -188,6 +220,7 @@ python migrate.py sync-schedule --config sync_config.json
 | Perplexity | `.json` with threads | Yes |
 | API Logs | `.json` with requests array | Yes |
 | JSONL | `.jsonl` (one message per line) | Yes |
+| Claude Code | `.jsonl` session transcripts | Yes |
 | Plain Text | `.txt`, `.md` | Yes |
 
 ### Output (Export To)
@@ -295,6 +328,7 @@ chatbot-memory-skills/
 │   ├── centrality.py           # Degree centrality + PageRank
 │   ├── query.py                # QueryEngine + graph algorithms
 │   ├── intelligence.py         # Gap analysis + weekly digest
+│   ├── coding.py               # Coding session behavioral extraction
 │   ├── viz/
 │   │   ├── layout.py           # Fruchterman-Reingold layout
 │   │   └── renderer.py         # HTML (interactive) + SVG (static)
@@ -305,8 +339,8 @@ chatbot-memory-skills/
 │       └── scheduler.py        # Periodic platform sync
 ├── extract_memory.py           # Extraction engine
 ├── import_memory.py            # Import/export engine
-├── migrate.py                  # CLI (19 subcommands)
-└── tests/                      # 453 tests across 17 files
+├── migrate.py                  # CLI (20 subcommands)
+└── tests/                      # 493 tests across 18 files
 ```
 
 ---
@@ -359,6 +393,16 @@ python migrate.py watch <dir> --graph <graph>              # Auto-extract
 python migrate.py sync-schedule --config <config.json>     # Scheduled sync
 ```
 
+### Coding Tool Extraction
+
+```bash
+python migrate.py extract-coding <session.jsonl>           # From specific file
+python migrate.py extract-coding --discover                # Auto-find sessions
+python migrate.py extract-coding --discover -p <project>   # Filter by project
+python migrate.py extract-coding --discover -m <context>   # Merge with existing
+python migrate.py extract-coding --discover --stats        # Show session stats
+```
+
 ### Temporal Analysis
 
 ```bash
@@ -377,6 +421,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 | **Portability (UPAI)** | **Yes** | No | No | No | No |
 | **User-Owned** | **Yes** | No | No | No | No |
 | **Temporal Tracking** | **Yes** | No | No | No | No |
+| **Coding Tool Extraction** | **Yes** | No | No | No | No |
 | Zero-Dep / Local-First | Yes | No | No | N/A | N/A |
 
 ---
@@ -385,6 +430,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
+| v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions |
 | v6.0 | Visualization, dashboard, file monitor, sync scheduler |
 | v5.4 | Query engine, gap analysis, weekly digest |
 | v5.3 | Smart edge extraction, co-occurrence, centrality, dedup |
