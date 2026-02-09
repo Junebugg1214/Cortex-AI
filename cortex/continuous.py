@@ -11,6 +11,7 @@ Zero external deps. Pure Python stdlib + threading for background.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import threading
@@ -140,8 +141,10 @@ class CodingSessionWatcher:
 
     def _check_for_changes(self) -> None:
         """Compare current file stats against tracked state."""
+        current_files = set()
         for path in self._discover_jsonl_files():
             key = str(path)
+            current_files.add(key)
             try:
                 stat = path.stat()
             except OSError:
@@ -151,6 +154,13 @@ class CodingSessionWatcher:
             if existing is None or stat.st_mtime != existing.mtime or stat.st_size != existing.size:
                 with self._lock:
                     self._pending_changes[key] = time.time()
+
+        # Clean up state for files that no longer exist
+        stale = [k for k in self._file_states if k not in current_files]
+        for k in stale:
+            del self._file_states[k]
+            with self._lock:
+                self._pending_changes.pop(k, None)
 
     def _process_settled_files(self) -> list[Path]:
         """Process files that have been stable for settle_seconds."""
@@ -167,8 +177,9 @@ class CodingSessionWatcher:
             try:
                 self._extract_and_merge(path)
                 processed.append(path)
-            except Exception:
-                pass  # Skip files that fail extraction
+            except Exception as exc:
+                import sys as _sys
+                print(f"  [cortex] extraction failed for {path.name}: {exc}", file=_sys.stderr)
             finally:
                 with self._lock:
                     self._pending_changes.pop(path_str, None)
@@ -267,10 +278,12 @@ class CodingSessionWatcher:
         return CortexGraph()
 
     def _save_graph(self) -> None:
-        """Save graph to graph_path."""
+        """Save graph to graph_path atomically (write tmp + rename)."""
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.graph_path, "w", encoding="utf-8") as f:
+        tmp_path = self.graph_path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(self._graph.export_v5(), f, indent=2)
+        os.replace(str(tmp_path), str(self.graph_path))
 
 
 # ---------------------------------------------------------------------------

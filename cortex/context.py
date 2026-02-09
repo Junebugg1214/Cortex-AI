@@ -133,9 +133,16 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
         existing = path.read_text(encoding="utf-8")
 
         if CORTEX_START in existing and CORTEX_END in existing:
-            # Replace between markers
+            # Replace between markers (validate order)
             start_idx = existing.index(CORTEX_START)
             end_idx = existing.index(CORTEX_END) + len(CORTEX_END)
+            if start_idx >= existing.index(CORTEX_END):
+                # Markers are reversed/malformed — treat as no markers, append
+                separator = "" if existing.endswith("\n\n") else (
+                    "\n" if existing.endswith("\n") else "\n\n"
+                )
+                path.write_text(existing + separator + content, encoding="utf-8")
+                return "updated"
             # Consume trailing newline if present
             if end_idx < len(existing) and existing[end_idx] == "\n":
                 end_idx += 1
