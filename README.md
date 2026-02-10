@@ -79,7 +79,7 @@ pip install cortex-identity[dev]      # + pytest for running tests
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
-cd chatbot-memory-skills
+cd Cortex-AI
 pip install -e .
 ```
 
@@ -126,16 +126,16 @@ The breakthrough layer. Three capabilities:
 
 ```bash
 # Initialize identity
-cortex identity init --name "Your Name"
+cortex identity --init --name "Your Name"
 
 # Commit a version
-cortex identity commit context.json -m "Added June ChatGPT export"
+cortex commit context.json -m "Added June ChatGPT export"
 
 # View history
-cortex identity log
+cortex log
 
 # Compare versions
-cortex identity diff v1 v2
+cortex identity --show
 
 # Push to Claude with professional disclosure policy
 cortex sync claude --push --policy professional -o ./output
@@ -480,10 +480,10 @@ cortex stats <graph>                            # Graph statistics
 ### Identity & Sync
 
 ```bash
-cortex identity init --name <name>              # Create identity
-cortex identity commit <graph> -m <message>     # Version commit
-cortex identity log                             # Version history
-cortex identity diff <v1> <v2>                  # Compare versions
+cortex identity --init --name <name>             # Create identity
+cortex commit <graph> -m <message>               # Version commit
+cortex log                                       # Version history
+cortex identity --show                           # Show identity
 cortex sync <platform> --push --policy <name>   # Push to platform
 cortex sync <platform> --pull <file>            # Pull from platform
 ```
