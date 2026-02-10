@@ -774,8 +774,15 @@ def run_query(args):
 
 def _load_graph(input_path: Path) -> CortexGraph:
     """Load a v4, v5, or v6 JSON file and return a CortexGraph."""
-    with open(input_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(input_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in {input_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as exc:
+        print(f"Error: cannot read {input_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     version = data.get("schema_version", "")
     if version.startswith("5") or version.startswith("6"):
         return CortexGraph.from_v5_json(data)

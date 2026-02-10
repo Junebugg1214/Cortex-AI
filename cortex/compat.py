@@ -97,10 +97,15 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                 if nid in graph.nodes and _normalize_label(graph.nodes[nid].label) != norm:
                     nid = make_node_id_with_tag(label, category)
 
+                # Restore original tags if preserved from v5→v4 downgrade
+                restored_tags = topic_data.get("_original_tags", [category])
+                if not restored_tags or category not in restored_tags:
+                    restored_tags = [category]
+
                 node = Node(
                     id=nid,
                     label=label,
-                    tags=[category],
+                    tags=restored_tags,
                     confidence=topic_data.get("confidence", 0.5),
                     brief=topic_data.get("brief", label),
                     full_description=topic_data.get("full_description", ""),
@@ -210,6 +215,9 @@ def downgrade_v5_to_v4(graph: CortexGraph) -> dict:
         }
         if node.relationship_type:
             topic_dict["relationship_type"] = node.relationship_type
+        # Preserve all tags for re-upgrade (multi-tag nodes collapse to primary)
+        if len(node.tags) > 1:
+            topic_dict["_original_tags"] = list(node.tags)
 
         categories.setdefault(primary, []).append(topic_dict)
 

@@ -44,11 +44,15 @@ def count_cooccurrences(
         label_patterns.append(pat)
 
     for msg in messages:
-        # Find which labels appear in this message
+        # Find which labels appear in this message (deduplicate to avoid self-pairs)
+        seen_labels: set[str] = set()
         present: list[str] = []
         for i, pat in enumerate(label_patterns):
             if pat is not None and pat.search(msg):
-                present.append(node_labels[i])
+                label = node_labels[i]
+                if label not in seen_labels:
+                    seen_labels.add(label)
+                    present.append(label)
 
         # Count all pairs
         for i, a in enumerate(present):

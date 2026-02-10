@@ -188,7 +188,7 @@ CONSTRAINT_TYPES = {
 
 # Correction patterns for tracking user self-corrections
 CORRECTIONS_PATTERNS = [
-    # "I meant X not Y" pattern - captures wrong (Y) then correct (X) for consistency
+    # "I meant X not Y" pattern - group(1) is correct (X), group(2) is wrong (Y)
     r"(?:i meant|actually)\s+([A-Za-z0-9]+)\s+not\s+([A-Za-z0-9]+)",
     # General correction patterns
     r"(?:actually|sorry|correction|to clarify|let me correct|i misspoke),?\s+(?:i meant|it(?:'s| is)|that(?:'s| is)|it should be|i mean)\s+([^.,]+)",
@@ -962,13 +962,13 @@ class AggressiveExtractor:
         if not has_correction_context:
             return
 
-        for pattern in CORRECTIONS_PATTERNS:
+        for pat_idx, pattern in enumerate(CORRECTIONS_PATTERNS):
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 # Handle both single-group and two-group patterns
                 if match.lastindex >= 2:
                     # Determine which group is correct vs wrong based on pattern
                     matched_text = match.group(0).lower()
-                    if pattern is CORRECTIONS_PATTERNS[0]:
+                    if pat_idx == 0:
                         # "I meant X not Y" — group(1) is correct, group(2) is wrong
                         correct_item = match.group(1).strip()
                         wrong_item = match.group(2).strip()
@@ -1162,8 +1162,14 @@ def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'Ag
     Loads topics from existing context file and adds them to the new extraction.
     Uses add_topic() which handles deduplication via find_best_match.
     """
-    with open(existing_path, 'r', encoding='utf-8') as f:
-        existing = json.load(f)
+    try:
+        with open(existing_path, 'r', encoding='utf-8') as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        import sys
+        print(f"[cortex] Warning: could not load merge file {existing_path.name}: {exc}",
+              file=sys.stderr)
+        return extractor
 
     # Load existing topics into the new context
     for category, topics in existing.get("categories", {}).items():
@@ -1193,6 +1199,10 @@ def load_file(file_path: Path) -> tuple[Any, str]:
     if file_path.suffix == '.zip':
         _MAX_ZIP_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB limit (#26)
         with zipfile.ZipFile(file_path, 'r') as zf:
+            # Single-pass: categorize safe entries by priority
+            conversations_entry: str | None = None
+            json_entry: str | None = None
+            txt_entry: str | None = None
             for name in zf.namelist():
                 # Skip path traversal entries (#11)
                 if '..' in name or os.path.isabs(name):
@@ -1200,27 +1210,23 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                 info = zf.getinfo(name)
                 if info.file_size > _MAX_ZIP_ENTRY_SIZE:
                     continue
-                if 'conversations.json' in name:
-                    with zf.open(name) as f:
-                        return json.load(f), "openai"
-            for name in zf.namelist():
-                if '..' in name or os.path.isabs(name):
-                    continue
-                info = zf.getinfo(name)
-                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
-                    continue
-                if name.endswith('.json'):
-                    with zf.open(name) as f:
-                        return json.load(f), "generic"
-            for name in zf.namelist():
-                if '..' in name or os.path.isabs(name):
-                    continue
-                info = zf.getinfo(name)
-                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
-                    continue
-                if name.endswith('.txt'):
-                    with zf.open(name) as f:
-                        return f.read().decode('utf-8'), "text"
+                if conversations_entry is None and 'conversations.json' in name:
+                    conversations_entry = name
+                elif json_entry is None and name.endswith('.json'):
+                    json_entry = name
+                elif txt_entry is None and name.endswith('.txt'):
+                    txt_entry = name
+
+            # Load by priority: conversations.json > any .json > any .txt
+            if conversations_entry is not None:
+                with zf.open(conversations_entry) as f:
+                    return json.load(f), "openai"
+            if json_entry is not None:
+                with zf.open(json_entry) as f:
+                    return json.load(f), "generic"
+            if txt_entry is not None:
+                with zf.open(txt_entry) as f:
+                    return f.read().decode('utf-8'), "text"
         raise ValueError("No supported files in zip")
 
     # JSONL format: one JSON object per line

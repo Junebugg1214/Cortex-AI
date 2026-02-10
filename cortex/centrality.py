@@ -30,7 +30,9 @@ _CENTRALITY_BOOST_MAX = 0.1  # Maximum confidence boost for top-decile
 def compute_degree_centrality(graph: CortexGraph) -> dict[str, float]:
     """Normalized degree centrality: degree(node) / (n - 1).
 
-    Returns empty dict if graph has < 2 nodes.
+    Treats the graph as undirected — each edge increments the degree of
+    both its source and target nodes.  Returns empty dict if graph has
+    < 2 nodes.
     """
     n = len(graph.nodes)
     if n < 2:

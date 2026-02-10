@@ -148,6 +148,14 @@ class ClaudeAdapter(BaseAdapter):
                     "full_description": t.full_description,
                     "confidence": t.confidence,
                     "mention_count": t.mention_count,
+                    "extraction_method": getattr(t, "extraction_method", "mentioned"),
+                    "metrics": getattr(t, "metrics", []),
+                    "relationships": getattr(t, "relationships", []),
+                    "timeline": getattr(t, "timeline", []),
+                    "source_quotes": getattr(t, "source_quotes", []),
+                    "first_seen": getattr(t, "first_seen", None),
+                    "last_seen": getattr(t, "last_seen", None),
+                    "relationship_type": getattr(t, "relationship_type", ""),
                 }
                 for t in topics
             ]

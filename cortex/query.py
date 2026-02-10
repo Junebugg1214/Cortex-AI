@@ -18,6 +18,11 @@ from cortex.graph import Node, _normalize_label
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_BETWEENNESS_MIN_NODES = 50  # Brandes algorithm only activates above this threshold
 
 # ---------------------------------------------------------------------------
 # Graph Algorithms
@@ -96,11 +101,12 @@ def connected_components(graph: CortexGraph) -> list[set[str]]:
 def betweenness_centrality(graph: CortexGraph) -> dict[str, float]:
     """Brandes algorithm for betweenness centrality (undirected).
 
-    Only activates for graphs with >= 50 nodes.
+    Only activates for graphs with >= _BETWEENNESS_MIN_NODES nodes (default 50)
+    because Brandes is O(V*E) and impractical for small graphs.
     Returns normalized scores: divided by (n-1)*(n-2)/2.
     """
     n = len(graph.nodes)
-    if n < 50:
+    if n < _BETWEENNESS_MIN_NODES:
         return {}
 
     adj = _build_adjacency(graph)
@@ -189,7 +195,14 @@ class QueryEngine:
             if not t:
                 return ""
             if t.endswith("Z"):
-                return t[:-1] + "+00:00"
+                t = t[:-1] + "+00:00"
+            # Pad date-only strings to full ISO format for consistent comparison
+            if "T" not in t:
+                # Date-only like "2025-01-15" -> "2025-01-15T00:00:00"
+                t = t.split("+")[0].split("-00:00")[0] + "T00:00:00"
+                if "+" not in t and t.count("-") <= 2:
+                    t += "+00:00"
+                return t
             # If no timezone info, treat as UTC
             if "+" not in t and t.count("-") <= 2:
                 return t + "+00:00"

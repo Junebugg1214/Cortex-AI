@@ -860,9 +860,14 @@ def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dic
                     "confidence": t.confidence,
                     "mention_count": t.mention_count,
                     "detail_level": t.get_detail_level(),
+                    "extraction_method": getattr(t, "extraction_method", "mentioned"),
                     "metrics": t.metrics,
                     "relationships": t.relationships,
-                    "timeline": t.timeline
+                    "timeline": t.timeline,
+                    "source_quotes": getattr(t, "source_quotes", []),
+                    "first_seen": t.first_seen if t.first_seen else None,
+                    "last_seen": t.last_seen if t.last_seen else None,
+                    "relationship_type": getattr(t, "relationship_type", ""),
                 }
                 for t in topics_list
             ]
