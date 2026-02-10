@@ -5,14 +5,16 @@
 Cortex extracts your context from every AI platform you use — ChatGPT, Claude, Gemini, Perplexity — and every coding tool — Claude Code, Cursor, Copilot — merges it into a single knowledge graph, and lets you selectively push it back to any platform. Cryptographically signed. Version controlled. Zero external dependencies.
 
 ```bash
+pip install cortex-identity
+
 # Extract from ChatGPT, export to Claude
-python migrate.py chatgpt-export.zip --to claude -o ./output
+cortex chatgpt-export.zip --to claude -o ./output
 
 # Visualize your knowledge graph
-python migrate.py viz context.json --output graph.html
+cortex viz context.json --output graph.html
 
 # Launch the dashboard
-python migrate.py dashboard context.json
+cortex dashboard context.json
 ```
 
 > **Nobody else builds user-owned portable AI identity.** Mem0, Letta, and built-in AI memories are agent memory — owned by the platform. Cortex is *your* memory, under *your* control.
@@ -25,8 +27,8 @@ python migrate.py dashboard context.json
 Chat Exports (ChatGPT, Claude, Gemini, Perplexity, API logs)
   + Coding Sessions (Claude Code, Cursor, Copilot)
         |
-   extract_memory.py          Parse exports, extract entities (declarative)
-   cortex/coding.py           Parse coding sessions (behavioral)
+   cortex.extract_memory      Parse exports, extract entities (declarative)
+   cortex.coding              Parse coding sessions (behavioral)
         |
    CortexGraph                Nodes (entities) + Edges (relationships)
         |
@@ -43,26 +45,48 @@ Chat Exports (ChatGPT, Claude, Gemini, Perplexity, API logs)
 
 ## Quick Start
 
+### Install
+
+```bash
+pip install cortex-identity
+```
+
+That's it. Zero dependencies — pure Python stdlib.
+
+### Use
+
+```bash
+# Extract context from a chat export
+cortex chatgpt-export.zip --to claude -o ./output
+
+# Or extract to universal JSON first
+cortex extract chatgpt-export.zip -o context.json
+
+# Then export to any platform
+cortex import context.json --to all -o ./output
+```
+
+### Optional Extras
+
+```bash
+pip install cortex-identity[crypto]   # Ed25519 signatures (PyNaCl)
+pip install cortex-identity[fast]     # 10x faster graph layout (numpy)
+pip install cortex-identity[full]     # Both
+pip install cortex-identity[dev]      # + pytest for running tests
+```
+
+### From Source
+
 ```bash
 git clone https://github.com/Junebugg1214/chatbot-memory-skills.git
 cd chatbot-memory-skills
-
-# Extract context from a chat export
-python migrate.py chatgpt-export.zip --to claude -o ./output
-
-# Or extract to universal JSON first
-python migrate.py extract chatgpt-export.zip -o context.json
-
-# Then export to any platform
-python migrate.py import context.json --to all -o ./output
+pip install -e .
 ```
 
 ### Requirements
 
 - Python 3.10+ (macOS, Linux, Windows)
-- No external packages (stdlib only)
-- Optional: `PyNaCl` for Ed25519 signatures (`pip install pynacl`)
-- Optional: `numpy` for 10x faster graph layout (`pip install numpy`)
+- No external packages required for core functionality
 
 ### Production Ready
 
@@ -77,9 +101,9 @@ v6.4 has been hardened for cross-platform use: atomic file saves prevent data co
 Everything is nodes and edges. Nodes have tags (not fixed categories), confidence scores, temporal metadata, and extensible properties. The graph is backward compatible — v4 flat-category JSON converts losslessly.
 
 ```bash
-python migrate.py query context.json --node "Python"
-python migrate.py query context.json --neighbors "Python"
-python migrate.py stats context.json
+cortex query context.json --node "Python"
+cortex query context.json --neighbors "Python"
+cortex stats context.json
 ```
 
 ### 2. Temporal Engine
@@ -87,9 +111,9 @@ python migrate.py stats context.json
 Every extraction snapshots each node's state. Cortex tracks how your identity evolves, detects contradictions ("said X in January, not-X in March"), and computes drift scores across time windows.
 
 ```bash
-python migrate.py timeline context.json --format html
-python migrate.py contradictions context.json --severity 0.5
-python migrate.py drift context.json --window 90
+cortex timeline context.json --format html
+cortex contradictions context.json --severity 0.5
+cortex drift context.json --window 90
 ```
 
 ### 3. UPAI Protocol (Universal Portable AI Identity)
@@ -102,19 +126,19 @@ The breakthrough layer. Three capabilities:
 
 ```bash
 # Initialize identity
-python migrate.py identity init --name "Your Name"
+cortex identity init --name "Your Name"
 
 # Commit a version
-python migrate.py identity commit context.json -m "Added June ChatGPT export"
+cortex identity commit context.json -m "Added June ChatGPT export"
 
 # View history
-python migrate.py identity log
+cortex identity log
 
 # Compare versions
-python migrate.py identity diff v1 v2
+cortex identity diff v1 v2
 
 # Push to Claude with professional disclosure policy
-python migrate.py sync claude --push --policy professional -o ./output
+cortex sync claude --push --policy professional -o ./output
 ```
 
 **Built-in disclosure policies:**
@@ -141,21 +165,21 @@ Structured queries and proactive analysis:
 
 ```bash
 # Find by category, confidence, relationships
-python migrate.py query context.json --category technical_expertise
-python migrate.py query context.json --strongest 10
-python migrate.py query context.json --isolated
+cortex query context.json --category technical_expertise
+cortex query context.json --strongest 10
+cortex query context.json --isolated
 
 # Shortest path between two nodes
-python migrate.py query context.json --path "Python" "Mayo Clinic"
+cortex query context.json --path "Python" "Mayo Clinic"
 
 # Connected components
-python migrate.py query context.json --components
+cortex query context.json --components
 
 # Gap analysis — what's missing from your graph?
-python migrate.py gaps context.json
+cortex gaps context.json
 
 # Weekly digest — what changed?
-python migrate.py digest context.json --previous last_week.json
+cortex digest context.json --previous last_week.json
 ```
 
 ### 6. Visualization + Flywheel
@@ -164,19 +188,19 @@ See your graph, keep it alive:
 
 ```bash
 # Interactive HTML visualization (zoom, pan, hover, click)
-python migrate.py viz context.json --output graph.html
+cortex viz context.json --output graph.html
 
 # Static SVG for documents
-python migrate.py viz context.json --output graph.svg --format svg
+cortex viz context.json --output graph.svg --format svg
 
 # Live dashboard with stats, gaps, components
-python migrate.py dashboard context.json --port 8420
+cortex dashboard context.json --port 8420
 
 # Auto-extract new exports dropped into a folder
-python migrate.py watch ~/exports/ --graph context.json
+cortex watch ~/exports/ --graph context.json
 
 # Scheduled sync to platforms
-python migrate.py sync-schedule --config sync_config.json
+cortex sync-schedule --config sync_config.json
 ```
 
 ### 7. Coding Tool Extraction
@@ -185,19 +209,19 @@ Extract identity from what you *actually do*, not just what you say. Coding sess
 
 ```bash
 # Auto-discover and extract from Claude Code sessions
-python migrate.py extract-coding --discover -o coding_context.json
+cortex extract-coding --discover -o coding_context.json
 
 # Filter by project name
-python migrate.py extract-coding --discover --project chatbot-memory
+cortex extract-coding --discover --project chatbot-memory
 
 # Merge coding extraction with chatbot extraction
-python migrate.py extract-coding --discover --merge context.json -o context.json
+cortex extract-coding --discover --merge context.json -o context.json
 
 # Enrich with project files (README, manifests, license)
-python migrate.py extract-coding --discover --enrich --stats
+cortex extract-coding --discover --enrich --stats
 
 # Extract from a specific session file
-python migrate.py extract-coding ~/.claude/projects/*/session.jsonl
+cortex extract-coding ~/.claude/projects/*/session.jsonl
 ```
 
 **What it extracts:**
@@ -220,13 +244,13 @@ Every new Claude Code session automatically gets your Cortex identity injected. 
 
 ```bash
 # Install the hook (one-time setup)
-python migrate.py context-hook install context.json
+cortex context-hook install context.json
 
 # Preview what gets injected
-python migrate.py context-hook test
+cortex context-hook test
 
 # Export compact context manually
-python migrate.py context-export context.json --policy technical
+cortex context-export context.json --policy technical
 ```
 
 The hook loads your graph, applies disclosure filtering, and injects a compact markdown summary (~300-800 chars) as a system message. Your AI always knows your tech stack, projects, and preferences.
@@ -237,16 +261,16 @@ Write persistent Cortex identity to **every AI coding tool** with non-destructiv
 
 ```bash
 # Write to all 6 platforms at once
-python migrate.py context-write graph.json --platforms all --project ~/myproject
+cortex context-write graph.json --platforms all --project ~/myproject
 
 # Write to specific platforms
-python migrate.py context-write graph.json --platforms cursor copilot windsurf
+cortex context-write graph.json --platforms cursor copilot windsurf
 
 # Preview without writing
-python migrate.py context-write graph.json --platforms all --dry-run
+cortex context-write graph.json --platforms all --dry-run
 
 # Auto-refresh when your graph updates
-python migrate.py context-write graph.json --platforms all --watch
+cortex context-write graph.json --platforms all --watch
 ```
 
 **Supported platforms:**
@@ -268,17 +292,17 @@ Watch Claude Code sessions in real-time. Auto-extract behavioral signals as you 
 
 ```bash
 # Watch and auto-update graph
-python migrate.py extract-coding --watch -o coding_context.json
+cortex extract-coding --watch -o coding_context.json
 
 # Watch + auto-refresh context to all platforms
-python migrate.py extract-coding --watch -o ctx.json \
+cortex extract-coding --watch -o ctx.json \
     --context-refresh claude-code cursor copilot
 
 # Watch specific project only
-python migrate.py extract-coding --watch --project chatbot-memory -o ctx.json
+cortex extract-coding --watch --project chatbot-memory -o ctx.json
 
 # Custom interval and debounce
-python migrate.py extract-coding --watch --interval 15 --settle 10 -o ctx.json
+cortex extract-coding --watch --interval 15 --settle 10 -o ctx.json
 ```
 
 **How it works:** Polls `~/.claude/projects/` for `*.jsonl` changes (mtime + size), debounces active writes (5s settle), extracts via the coding pipeline, and incrementally merges nodes by label (max confidence, sum mentions, union tags). Graph updates trigger an optional `on_update` callback for cross-platform refresh.
@@ -348,10 +372,10 @@ Cortex extracts entities into 17 tag categories:
 Strip sensitive data before extraction:
 
 ```bash
-python migrate.py chatgpt-export.zip --to claude --redact
+cortex chatgpt-export.zip --to claude --redact
 
 # With custom patterns
-python migrate.py chatgpt-export.zip --to claude --redact --redact-patterns custom.json
+cortex chatgpt-export.zip --to claude --redact --redact-patterns custom.json
 ```
 
 Redacts: emails, phones, SSNs, credit cards, API keys, IP addresses, street addresses.
@@ -361,8 +385,8 @@ Redacts: emails, phones, SSNs, credit cards, API keys, IP addresses, street addr
 Combine new exports without losing existing data:
 
 ```bash
-python migrate.py extract export1.json -o context.json
-python migrate.py extract export2.json --merge context.json -o context.json
+cortex extract export1.json -o context.json
+cortex extract export2.json --merge context.json -o context.json
 ```
 
 ### Conflict Detection
@@ -388,8 +412,12 @@ Supported types: `partner`, `mentor`, `advisor`, `investor`, `client`, `competit
 ## Architecture
 
 ```
-chatbot-memory-skills/
+cortex-identity/                    # pip install cortex-identity
+├── pyproject.toml                  # Package metadata + entry points
 ├── cortex/
+│   ├── cli.py                  # CLI entry point (23 subcommands)
+│   ├── extract_memory.py       # Extraction engine (~1400 LOC)
+│   ├── import_memory.py        # Import/export engine (~1000 LOC)
 │   ├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
 │   ├── compat.py               # v4 <-> v5 conversion
 │   ├── temporal.py             # Snapshots, drift scoring
@@ -406,22 +434,17 @@ chatbot-memory-skills/
 │   ├── centrality.py           # Degree centrality + PageRank
 │   ├── query.py                # QueryEngine + graph algorithms
 │   ├── intelligence.py         # Gap analysis + weekly digest
-│   ├── coding.py               # Coding session behavioral extraction + project enrichment
-│   ├── hooks.py                # Auto-inject context into Claude Code sessions
+│   ├── coding.py               # Coding session behavioral extraction
+│   ├── hooks.py                # Auto-inject context into Claude Code
 │   ├── context.py              # Cross-platform context writer (6 platforms)
-│   ├── continuous.py           # Real-time session watcher + incremental extraction
-│   ├── viz/
-│   │   ├── layout.py           # Fruchterman-Reingold layout
-│   │   └── renderer.py         # HTML (interactive) + SVG (static)
-│   ├── dashboard/
-│   │   └── server.py           # Local web dashboard
-│   └── sync/
-│       ├── monitor.py          # File watcher auto-extraction
-│       └── scheduler.py        # Periodic platform sync
-├── cortex-hook.py              # Standalone hook entry point for Claude Code
-├── extract_memory.py           # Extraction engine
-├── import_memory.py            # Import/export engine
-├── migrate.py                  # CLI (23 subcommands)
+│   ├── continuous.py           # Real-time session watcher
+│   ├── _hook.py                # cortex-hook entry point
+│   ├── __main__.py             # python -m cortex support
+│   ├── viz/                    # Visualization
+│   ├── dashboard/              # Local web dashboard
+│   └── sync/                   # File watcher + scheduled sync
+├── migrate.py                  # Backward-compat stub → cortex.cli
+├── cortex-hook.py              # Backward-compat stub → cortex._hook
 └── tests/                      # 618 tests across 21 files
 ```
 
@@ -432,88 +455,88 @@ chatbot-memory-skills/
 ### Extract & Import
 
 ```bash
-python migrate.py <export> --to <platform> -o ./output    # One-step migrate
-python migrate.py extract <export> -o context.json         # Extract only
-python migrate.py import context.json --to <platform>      # Import only
-python migrate.py merge old.json new.json -o merged.json   # Merge contexts
+cortex <export> --to <platform> -o ./output    # One-step migrate
+cortex extract <export> -o context.json         # Extract only
+cortex import context.json --to <platform>      # Import only
+cortex merge old.json new.json -o merged.json   # Merge contexts
 ```
 
 ### Query & Intelligence
 
 ```bash
-python migrate.py query <graph> --node <label>             # Find node
-python migrate.py query <graph> --neighbors <label>        # Find neighbors
-python migrate.py query <graph> --category <tag>           # Filter by tag
-python migrate.py query <graph> --path <from> <to>         # Shortest path
-python migrate.py query <graph> --strongest <n>            # Top N nodes
-python migrate.py query <graph> --weakest <n>              # Bottom N nodes
-python migrate.py query <graph> --isolated                 # Unconnected nodes
-python migrate.py query <graph> --components               # Connected clusters
-python migrate.py gaps <graph>                             # Gap analysis
-python migrate.py digest <graph> --previous <old>          # Weekly digest
-python migrate.py stats <graph>                            # Graph statistics
+cortex query <graph> --node <label>             # Find node
+cortex query <graph> --neighbors <label>        # Find neighbors
+cortex query <graph> --category <tag>           # Filter by tag
+cortex query <graph> --path <from> <to>         # Shortest path
+cortex query <graph> --strongest <n>            # Top N nodes
+cortex query <graph> --weakest <n>              # Bottom N nodes
+cortex query <graph> --isolated                 # Unconnected nodes
+cortex query <graph> --components               # Connected clusters
+cortex gaps <graph>                             # Gap analysis
+cortex digest <graph> --previous <old>          # Weekly digest
+cortex stats <graph>                            # Graph statistics
 ```
 
 ### Identity & Sync
 
 ```bash
-python migrate.py identity init --name <name>              # Create identity
-python migrate.py identity commit <graph> -m <message>     # Version commit
-python migrate.py identity log                             # Version history
-python migrate.py identity diff <v1> <v2>                  # Compare versions
-python migrate.py sync <platform> --push --policy <name>   # Push to platform
-python migrate.py sync <platform> --pull <file>            # Pull from platform
+cortex identity init --name <name>              # Create identity
+cortex identity commit <graph> -m <message>     # Version commit
+cortex identity log                             # Version history
+cortex identity diff <v1> <v2>                  # Compare versions
+cortex sync <platform> --push --policy <name>   # Push to platform
+cortex sync <platform> --pull <file>            # Pull from platform
 ```
 
 ### Visualization & Flywheel
 
 ```bash
-python migrate.py viz <graph> --output graph.html          # Interactive HTML
-python migrate.py viz <graph> --output graph.svg --format svg  # Static SVG
-python migrate.py dashboard <graph> --port 8420            # Web dashboard
-python migrate.py watch <dir> --graph <graph>              # Auto-extract
-python migrate.py sync-schedule --config <config.json>     # Scheduled sync
+cortex viz <graph> --output graph.html          # Interactive HTML
+cortex viz <graph> --output graph.svg --format svg  # Static SVG
+cortex dashboard <graph> --port 8420            # Web dashboard
+cortex watch <dir> --graph <graph>              # Auto-extract
+cortex sync-schedule --config <config.json>     # Scheduled sync
 ```
 
 ### Coding Tool Extraction
 
 ```bash
-python migrate.py extract-coding <session.jsonl>           # From specific file
-python migrate.py extract-coding --discover                # Auto-find sessions
-python migrate.py extract-coding --discover -p <project>   # Filter by project
-python migrate.py extract-coding --discover -m <context>   # Merge with existing
-python migrate.py extract-coding --discover --stats        # Show session stats
-python migrate.py extract-coding --discover --enrich       # Enrich with project files
-python migrate.py extract-coding --watch -o ctx.json       # Watch mode (continuous)
-python migrate.py extract-coding --watch --context-refresh claude-code cursor  # Watch + auto-refresh
+cortex extract-coding <session.jsonl>           # From specific file
+cortex extract-coding --discover                # Auto-find sessions
+cortex extract-coding --discover -p <project>   # Filter by project
+cortex extract-coding --discover -m <context>   # Merge with existing
+cortex extract-coding --discover --stats        # Show session stats
+cortex extract-coding --discover --enrich       # Enrich with project files
+cortex extract-coding --watch -o ctx.json       # Watch mode (continuous)
+cortex extract-coding --watch --context-refresh claude-code cursor  # Watch + auto-refresh
 ```
 
 ### Context Hook (Auto-Inject)
 
 ```bash
-python migrate.py context-hook install <graph> --policy technical  # Install hook
-python migrate.py context-hook uninstall                   # Remove hook
-python migrate.py context-hook test                        # Preview injection
-python migrate.py context-hook status                      # Check status
-python migrate.py context-export <graph> --policy technical  # One-shot export
+cortex context-hook install <graph> --policy technical  # Install hook
+cortex context-hook uninstall                   # Remove hook
+cortex context-hook test                        # Preview injection
+cortex context-hook status                      # Check status
+cortex context-export <graph> --policy technical  # One-shot export
 ```
 
 ### Cross-Platform Context Writer
 
 ```bash
-python migrate.py context-write <graph> --platforms all --project <dir>  # All platforms
-python migrate.py context-write <graph> --platforms cursor copilot       # Specific platforms
-python migrate.py context-write <graph> --platforms all --dry-run        # Preview
-python migrate.py context-write <graph> --platforms all --watch          # Auto-refresh
-python migrate.py context-write <graph> --platforms all --policy professional  # Policy override
+cortex context-write <graph> --platforms all --project <dir>  # All platforms
+cortex context-write <graph> --platforms cursor copilot       # Specific platforms
+cortex context-write <graph> --platforms all --dry-run        # Preview
+cortex context-write <graph> --platforms all --watch          # Auto-refresh
+cortex context-write <graph> --platforms all --policy professional  # Policy override
 ```
 
 ### Temporal Analysis
 
 ```bash
-python migrate.py timeline <graph> --format html           # Timeline view
-python migrate.py contradictions <graph> --severity 0.5    # Find conflicts
-python migrate.py drift <graph> --window 90                # Identity drift
+cortex timeline <graph> --format html           # Timeline view
+cortex contradictions <graph> --severity 0.5    # Find conflicts
+cortex drift <graph> --window 90                # Identity drift
 ```
 
 ---
@@ -538,7 +561,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
-| v6.4 | **Continuous extraction + production hardening** — real-time session watching with debounce, incremental graph merge, cross-platform auto-refresh; hardened for production (atomic saves, path quoting, Windows compat, error visibility) |
+| v6.4 | **pip packaging + continuous extraction + production hardening** — `pip install cortex-identity` with `cortex` CLI entry point; real-time session watching with debounce, incremental graph merge, cross-platform auto-refresh; hardened for production (atomic saves, path quoting, Windows compat, error visibility); 35 sys.path hacks eliminated |
 | v6.3 | **Cross-platform context writer** — persistent context files for Claude Code, Cursor, Copilot, Windsurf, Gemini CLI with non-destructive section markers |
 | v6.2 | **Auto-inject context** — SessionStart hook for Claude Code, compact context generation, install/uninstall CLI |
 | v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |
