@@ -9,6 +9,7 @@ Pure Python stdlib — no external dependencies.
 from __future__ import annotations
 
 import json
+import threading
 import time as _time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -157,6 +158,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     graph: CortexGraph  # Set before server starts
     _cache: dict[str, tuple[float, Any]] = {}  # path -> (timestamp, data)
     _cache_ttl: float = 5.0  # seconds
+    _cache_lock: threading.Lock = threading.Lock()
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -183,7 +185,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         from cortex.viz.layout import fruchterman_reingold
         from cortex.viz.renderer import _tag_color, _node_radius
 
-        graph = self.__class__.graph
+        graph = getattr(self.__class__, "graph", None)
+        if graph is None:
+            self._json_response({"nodes": [], "edges": []})
+            return
         layout = fruchterman_reingold(graph)
 
         nodes: list[dict[str, Any]] = []
@@ -219,7 +224,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json_response({"nodes": nodes, "edges": edges})
 
     def _serve_stats(self) -> None:
-        graph = self.__class__.graph
+        graph = getattr(self.__class__, "graph", None)
+        if graph is None:
+            self._json_response({"node_count": 0, "edge_count": 0, "avg_degree": 0.0})
+            return
         self._json_response(graph.stats())
 
     def _serve_gaps(self) -> None:
@@ -228,7 +236,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json_response(cached)
             return
         from cortex.intelligence import GapAnalyzer
-        graph = self.__class__.graph
+        graph = getattr(self.__class__, "graph", None)
+        if graph is None:
+            self._json_response({})
+            return
         analyzer = GapAnalyzer()
         data = analyzer.all_gaps(graph)
         self._set_cached("/api/gaps", data)
@@ -240,7 +251,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json_response(cached)
             return
         from cortex.query import connected_components
-        graph = self.__class__.graph
+        graph = getattr(self.__class__, "graph", None)
+        if graph is None:
+            self._json_response([])
+            return
         comps = connected_components(graph)
         result = []
         for comp in comps:
@@ -255,13 +269,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json_response(result)
 
     def _get_cached(self, key: str) -> Any | None:
-        entry = self.__class__._cache.get(key)
-        if entry and (_time.monotonic() - entry[0]) < self.__class__._cache_ttl:
-            return entry[1]
-        return None
+        with self.__class__._cache_lock:
+            entry = self.__class__._cache.get(key)
+            if entry and (_time.monotonic() - entry[0]) < self.__class__._cache_ttl:
+                return entry[1]
+            return None
 
     def _set_cached(self, key: str, data: Any) -> None:
-        self.__class__._cache[key] = (_time.monotonic(), data)
+        with self.__class__._cache_lock:
+            self.__class__._cache[key] = (_time.monotonic(), data)
 
     def _json_response(self, data: Any) -> None:
         body = json.dumps(data, default=str).encode("utf-8")

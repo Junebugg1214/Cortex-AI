@@ -298,7 +298,7 @@ def render_svg(
         ti = node_id_to_idx.get(edge.target_id)
         if si is not None and ti is not None:
             a, b = node_positions[si], node_positions[ti]
-            opacity = round(0.2 + edge.confidence * 0.6, 2)
+            opacity = round(min(1.0, max(0.0, 0.2 + edge.confidence * 0.6)), 2)
             parts.append(
                 f'<line x1="{a["x"]}" y1="{a["y"]}" x2="{b["x"]}" y2="{b["y"]}" '
                 f'class="edge" opacity="{opacity}"/>'

@@ -122,6 +122,11 @@ def deduplicate(
 
     Greedy: highest similarity first. If a node was already merged, skip.
     Returns list of (survivor_id, merged_id) tuples.
+
+    Note: This is a single-pass greedy strategy — it does not handle
+    transitive closure. If A~B and B~C both exceed the threshold,
+    only (A,B) may be merged. The merged node A is not re-compared to C.
+    For most knowledge graphs this is acceptable; run multiple passes if needed.
     """
     candidates = find_duplicates(graph, threshold)
     merged_away: set[str] = set()

@@ -71,8 +71,8 @@ def _fr_pure(
 
     rng = random.Random(seed)
     area = width * height
-    k = math.sqrt(area / n)
-    temp = width / 10.0
+    k = math.sqrt(area / n) if area > 0 else 1.0
+    temp = width / 10.0 if width > 0 else 1.0
 
     # Initialize random positions
     pos: dict[str, list[float]] = {
@@ -159,8 +159,8 @@ def _fr_numpy(
 
     rng = np.random.RandomState(seed)
     area = width * height
-    k = np.sqrt(area / n)
-    temp = width / 10.0
+    k = np.sqrt(area / n) if area > 0 else 1.0
+    temp = width / 10.0 if width > 0 else 1.0
 
     # Node index mapping
     idx = {nid: i for i, nid in enumerate(node_list)}

@@ -296,11 +296,21 @@ class CodingSessionWatcher:
 
     def _save_graph(self) -> None:
         """Save graph to graph_path atomically (write tmp + rename)."""
+        import random as _rng
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.graph_path.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(self._graph.export_v5(), f, indent=2)
-        os.replace(str(tmp_path), str(self.graph_path))
+        suffix = f".tmp_{_rng.randint(0, 0xFFFFFF):06x}"
+        tmp_path = self.graph_path.with_suffix(suffix)
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(self._graph.export_v5(), f, indent=2)
+            os.replace(str(tmp_path), str(self.graph_path))
+        except BaseException:
+            # Clean up temp file on failure
+            try:
+                os.unlink(str(tmp_path))
+            except OSError:
+                pass
+            raise
 
 
 # ---------------------------------------------------------------------------

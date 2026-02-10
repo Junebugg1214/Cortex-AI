@@ -71,8 +71,11 @@ def extract_edges_by_rules(
         for tag in node.tags:
             tag_index.setdefault(tag, []).append(node.id)
 
-    # Track existing edges to avoid duplicates
-    existing = {(e.source_id, e.target_id, e.relation) for e in graph.edges.values()}
+    # Track existing edges to avoid duplicates (both directions)
+    existing: set[tuple[str, str, str]] = set()
+    for e in graph.edges.values():
+        existing.add((e.source_id, e.target_id, e.relation))
+        existing.add((e.target_id, e.source_id, e.relation))
     seen: set[tuple[str, str, str]] = set()
     new_edges: list[Edge] = []
 
