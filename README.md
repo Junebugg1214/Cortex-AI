@@ -78,7 +78,7 @@ pip install cortex-identity[dev]      # + pytest for running tests
 ### From Source
 
 ```bash
-git clone https://github.com/Junebugg1214/chatbot-memory-skills.git
+git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd chatbot-memory-skills
 pip install -e .
 ```
