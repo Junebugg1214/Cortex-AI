@@ -817,6 +817,21 @@ python migrate.py extract-coding --watch --interval 15 --settle 10 -o ctx.json
 - `tests/test_continuous.py` — 26 tests covering file detection, debounce, extraction pipeline, graph merge, callbacks, lifecycle, project filter
 - `migrate.py` — `--watch`, `--interval`, `--settle`, `--context-refresh`, `--context-policy` flags on `extract-coding`
 
+### Production Hardening (PR #13)
+
+Six-agent codebase review identified and fixed cross-platform blockers before public release:
+
+| Fix | What Changed | Why |
+|-----|-------------|-----|
+| Hook path quoting | `sys.executable` + `shlex.quote()` | Paths with spaces broke the hook command |
+| Windows compatibility | `sys.executable` instead of hardcoded `python3` | `python3` doesn't exist on Windows |
+| Robust hook matching | Match by `"cortex-hook.py" in command` | Old→new hook format migration, quoting differences |
+| Atomic graph save | Write to `.tmp` then `os.replace()` | Crash during write can't corrupt the graph file |
+| Error visibility | Extraction errors print to stderr | Silent `except Exception: pass` made debugging impossible |
+| Deleted file cleanup | Remove stale entries from `_file_states` | Memory growth in long-running watcher daemons |
+| Reversed marker safety | Validate `CORTEX:START` before `CORTEX:END` | Malformed markers could corrupt user's config files |
+| JSON error handling | `run_verify()` catches `JSONDecodeError` + UTF-8 | Crash on malformed input files |
+
 ---
 
 ## Final Directory Structure (Actual)
@@ -905,7 +920,7 @@ chatbot-memory-skills/
 | 4 | v5.3 | Smart Edges | **DONE** | Pattern-based + proximity extraction, co-occurrence, centrality, graph-aware dedup |
 | 5 | v5.4 | Query + Intelligence | **DONE** | BFS/union-find/betweenness, gap analysis, weekly digest |
 | 6 | v6.0 | Viz + Flywheel | **DONE** | FR layout, HTML/SVG viz, dashboard, file monitor, sync scheduler |
-| 7 | v6.4 | Coding Tool Extraction | **DONE** | Behavioral extraction, auto-discovery, project enrichment, auto-inject hook, cross-platform context writer (6 platforms), continuous extraction with debounce |
+| 7 | v6.4 | Coding Tool Extraction | **DONE** | Behavioral extraction, auto-discovery, project enrichment, auto-inject hook, cross-platform context writer (6 platforms), continuous extraction with debounce, production hardened (PR #13) |
 
 ---
 
@@ -975,7 +990,7 @@ Closest new entrant. Built by Junde Wu (Oxford PhD). "Agent Self-Managed Context
 
 ## Completion Status
 
-**All 7 phases shipped.** Cortex v6.4.0 is the complete implementation of this roadmap.
+**All 7 phases shipped and production hardened.** Cortex v6.4.0 is the complete implementation of this roadmap.
 
 | Metric | Value |
 |--------|-------|
@@ -987,5 +1002,6 @@ Closest new entrant. Built by Junde Wu (Oxford PhD). "Agent Self-Managed Context
 | External dependencies | 0 (core) |
 | Backward compatible | v4 JSON roundtrip preserved |
 | Cross-platform targets | 6 (Claude Code, Cursor, Copilot, Windsurf, Gemini CLI) |
+| Production hardened | PR #13 — cross-platform review (8 fixes) |
 
 **What's next:** See project discussions for future roadmap ideas (Cursor/Copilot parsers, live API sync, delta-based version store, LLM-assisted edge extraction, multi-user graph federation).
