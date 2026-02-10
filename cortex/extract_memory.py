@@ -15,6 +15,7 @@ Usage:
 """
 
 import json
+import os
 import re
 import argparse
 import zipfile
@@ -388,6 +389,10 @@ def get_message_text(message: dict) -> str:
         content = message["content"]
         if isinstance(content, str):
             return content
+        if isinstance(content, dict):
+            # ChatGPT format: {"content_type": "text", "parts": ["..."]}
+            parts = content.get("parts", [])
+            return " ".join(str(p) for p in parts if isinstance(p, str))
         if isinstance(content, list):
             parts = []
             for part in content:
