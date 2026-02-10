@@ -16,12 +16,6 @@ Covers:
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
-_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-extractor" / "scripts"))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-importer" / "scripts"))
 
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.contradictions import ContradictionEngine, Contradiction

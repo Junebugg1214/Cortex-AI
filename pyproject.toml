@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cortex-identity"
+version = "6.4.0"
+description = "Own your AI memory. Take it everywhere."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{name = "Junebugg1214"}]
+keywords = ["ai-identity", "knowledge-graph", "chatgpt", "claude", "memory", "portable"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/Junebugg1214/chatbot-memory-skills"
+Repository = "https://github.com/Junebugg1214/chatbot-memory-skills"
+Issues = "https://github.com/Junebugg1214/chatbot-memory-skills/issues"
+
+[project.optional-dependencies]
+crypto = ["pynacl>=1.5.0"]
+fast = ["numpy>=1.24.0"]
+full = ["pynacl>=1.5.0", "numpy>=1.24.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+cortex = "cortex.cli:main"
+cortex-hook = "cortex._hook:main"
+
+[tool.setuptools.packages.find]
+include = ["cortex*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

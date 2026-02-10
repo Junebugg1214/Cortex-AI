@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
 import threading
 from dataclasses import dataclass, field
@@ -206,10 +205,6 @@ class CodingSessionWatcher:
     def _extract_and_merge(self, path: Path) -> None:
         """Full extraction pipeline for a single JSONL file."""
         # Lazy imports to avoid circular deps and keep startup fast
-        _root = Path(__file__).resolve().parent.parent
-        if str(_root / "skills" / "chatbot-memory-extractor" / "scripts") not in sys.path:
-            sys.path.insert(0, str(_root / "skills" / "chatbot-memory-extractor" / "scripts"))
-
         from cortex.coding import (
             load_claude_code_session,
             parse_claude_code_session,

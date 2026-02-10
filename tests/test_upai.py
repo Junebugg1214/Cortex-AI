@@ -13,12 +13,8 @@ Covers:
 - apply_disclosure returns deep copy (original unchanged)
 """
 
-import sys
 import tempfile
 from pathlib import Path
-
-_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT))
 
 from cortex.graph import CortexGraph, Node, Edge
 from cortex.upai.identity import UPAIIdentity, has_crypto, _HAS_CRYPTO

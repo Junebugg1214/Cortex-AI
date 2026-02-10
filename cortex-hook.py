@@ -1,36 +1,18 @@
 #!/usr/bin/env python3
 """
-Cortex SessionStart hook for Claude Code.
+Thin stub — delegates to cortex._hook.main().
 
-This script is called by Claude Code on session start. It reads JSON from
-stdin, loads your Cortex identity graph, and returns compact context for
-injection as a system message.
-
-Install via: python migrate.py context-hook install <graph.json>
+Preserves ``python cortex-hook.py`` for cloned-repo users who haven't pip-installed.
 """
-
-import json
 import sys
 from pathlib import Path
 
-# Ensure cortex package is importable
+# For cloned-repo usage without pip install: ensure project root is importable
 _ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-extractor" / "scripts"))
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from cortex.hooks import load_hook_config, handle_session_start
-
-
-def main():
-    try:
-        input_data = json.loads(sys.stdin.read())
-    except (json.JSONDecodeError, OSError):
-        input_data = {}
-
-    config = load_hook_config()
-    result = handle_session_start(input_data, config)
-    print(json.dumps(result))
-
+from cortex._hook import main
 
 if __name__ == "__main__":
     main()

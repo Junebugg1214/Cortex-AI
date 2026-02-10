@@ -13,16 +13,12 @@ import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Add scripts to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "chatbot-memory-extractor" / "scripts"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "chatbot-memory-importer" / "scripts"))
-
-from extract_memory import (
+from cortex.extract_memory import (
     AggressiveExtractor, ExtractionContext, ExtractedTopic,
     are_similar, normalize_text, merge_contexts, parse_timestamp,
     RELATIONSHIP_TYPE_PATTERNS, PIIRedactor, PII_PATTERNS
 )
-from import_memory import NormalizedContext, TopicDetail
+from cortex.import_memory import NormalizedContext, TopicDetail
 
 
 class TestTypedRelationships:
@@ -486,18 +482,10 @@ class TestPIIRedaction:
 class TestMigratePipeline:
     """Tests for the unified migrate.py pipeline"""
 
-    def _project_root(self):
-        return Path(__file__).parent.parent
-
     def _import_migrate(self):
-        """Import migrate module from project root."""
-        migrate_path = self._project_root() / "migrate.py"
-        assert migrate_path.exists(), f"migrate.py not found at {migrate_path}"
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("migrate", str(migrate_path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
+        """Import cortex.cli (the canonical CLI module)."""
+        import cortex.cli
+        return cortex.cli
 
     # 1
     def test_platform_formats_mapping(self):

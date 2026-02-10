@@ -22,20 +22,14 @@ import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Path setup
-_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-extractor" / "scripts"))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-importer" / "scripts"))
-
 from cortex.graph import (
     CortexGraph, Node, Edge,
     make_node_id, make_edge_id, make_node_id_with_tag,
     _normalize_label, CATEGORY_ORDER,
 )
 from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4, roundtrip_v4
-from extract_memory import AggressiveExtractor, ExtractionContext, ExtractedTopic
-from import_memory import NormalizedContext
+from cortex.extract_memory import AggressiveExtractor, ExtractionContext, ExtractedTopic
+from cortex.import_memory import NormalizedContext
 
 
 # ============================================================================
@@ -711,12 +705,8 @@ class TestSerialization:
 class TestMigrateSubcommands:
 
     def _import_migrate(self):
-        import importlib.util
-        migrate_path = _ROOT / "migrate.py"
-        spec = importlib.util.spec_from_file_location("migrate", str(migrate_path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
+        import cortex.cli
+        return cortex.cli
 
     def test_query_subcommand_recognized(self):
         mod = self._import_migrate()

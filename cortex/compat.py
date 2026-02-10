@@ -8,14 +8,7 @@ Roundtrip guarantees:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Ensure sibling skill scripts are importable
-_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-extractor" / "scripts"))
-
-from extract_memory import normalize_text, are_similar
+from cortex.extract_memory import normalize_text, are_similar
 
 from cortex.graph import (
     CortexGraph,

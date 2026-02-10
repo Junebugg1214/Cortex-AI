@@ -8,6 +8,11 @@ env/
 venv/
 .env
 
+# Build / packaging
+dist/
+build/
+*.egg-info/
+
 # Output files (user-specific)
 *_context.json
 output/

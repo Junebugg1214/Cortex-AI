@@ -1,15 +1,9 @@
 """Tests for cortex.hooks — auto-inject context into Claude Code sessions."""
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
-
-# Ensure project root is importable
-_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT))
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-extractor" / "scripts"))
 
 from cortex.hooks import (
     HookConfig,

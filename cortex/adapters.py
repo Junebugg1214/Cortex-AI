@@ -9,21 +9,16 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Ensure import_memory is importable
-_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT / "skills" / "chatbot-memory-importer" / "scripts"))
-
 from cortex.graph import CortexGraph
 from cortex.compat import downgrade_v5_to_v4
 from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
 
-from import_memory import (
+from cortex.import_memory import (
     NormalizedContext,
     export_claude_preferences,
     export_claude_memories,

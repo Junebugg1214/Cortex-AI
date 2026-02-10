@@ -8,12 +8,9 @@ Covers:
 """
 
 import sys
-from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cortex.graph import CortexGraph, Node, Edge, CATEGORY_ORDER
 from cortex.intelligence import GapAnalyzer, InsightGenerator

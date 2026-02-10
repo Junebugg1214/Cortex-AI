@@ -9,7 +9,6 @@ Pure Python stdlib — no external dependencies.
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import time
 from pathlib import Path
@@ -159,13 +158,8 @@ class ExportMonitor:
 
     def _extract_from_file(self, path: Path) -> dict | None:
         """Attempt to extract v4 data from a file. Returns None on failure."""
-        # Import extraction tools (lazy, they have heavy path setup)
-        _root = Path(__file__).resolve().parent.parent.parent
-        if str(_root / "skills" / "chatbot-memory-extractor" / "scripts") not in sys.path:
-            sys.path.insert(0, str(_root / "skills" / "chatbot-memory-extractor" / "scripts"))
-
         try:
-            from extract_memory import AggressiveExtractor, load_file
+            from cortex.extract_memory import AggressiveExtractor, load_file
         except ImportError:
             return None
 
