@@ -38,22 +38,22 @@ def _normalize_label(label: str) -> str:
 
 
 def make_node_id(label: str) -> str:
-    """Deterministic node ID: first 12 hex chars of SHA-256 of normalized label."""
+    """Deterministic node ID: first 16 hex chars of SHA-256 of normalized label."""
     normalized = _normalize_label(label)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def make_node_id_with_tag(label: str, tag: str) -> str:
     """Collision-resistant node ID: append tag to the hash input."""
     normalized = _normalize_label(label)
     data = f"{normalized}:{tag}"
-    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
 
 
 def make_edge_id(source_id: str, target_id: str, relation: str) -> str:
     """Deterministic edge ID from (source, target, relation)."""
     data = f"{source_id}:{target_id}:{relation}"
-    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------

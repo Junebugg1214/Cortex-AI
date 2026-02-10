@@ -14,7 +14,8 @@ import hmac
 import json
 import os
 import secrets
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,7 +69,14 @@ class UPAIIdentity:
     name: str                     # Human-readable name
     public_key_b64: str           # Base64-encoded public key (Ed25519) or HMAC key hash
     created_at: str               # ISO-8601
-    _private_key: bytes | None    # Never serialized to public exports
+    _private_key: bytes | None = field(default=None, repr=False)  # Never serialized; excluded from repr
+
+    def __repr__(self) -> str:
+        """Custom repr that never exposes private key material."""
+        return (
+            f"UPAIIdentity(did={self.did!r}, name={self.name!r}, "
+            f"created_at={self.created_at!r}, has_private_key={self._private_key is not None})"
+        )
 
     @classmethod
     def generate(cls, name: str) -> UPAIIdentity:
@@ -106,9 +114,24 @@ class UPAIIdentity:
         """Save identity.json (public) + identity.key (private) to store_dir."""
         store_dir.mkdir(parents=True, exist_ok=True)
 
+        # Restrict store directory permissions
+        try:
+            os.chmod(store_dir, 0o700)
+        except OSError:
+            print(
+                f"WARNING: Could not set permissions on {store_dir}. "
+                "Private key may be accessible to other users.",
+                file=sys.stderr,
+            )
+
         # Public identity
         public_path = store_dir / "identity.json"
         public_path.write_text(json.dumps(self.to_public_dict(), indent=2))
+
+        # Write .gitignore to protect key from accidental commits
+        gitignore_path = store_dir / ".gitignore"
+        if not gitignore_path.exists():
+            gitignore_path.write_text("identity.key\n")
 
         # Private key — restrict file permissions
         if self._private_key is not None:
@@ -118,10 +141,13 @@ class UPAIIdentity:
             }
             key_path.write_text(json.dumps(key_data, indent=2))
             try:
-                import os as _os
-                _os.chmod(key_path, 0o600)
+                os.chmod(key_path, 0o600)
             except OSError:
-                pass  # Best-effort on platforms that don't support chmod
+                print(
+                    f"WARNING: Could not restrict permissions on {key_path.name}. "
+                    "Private key file may be readable by other users.",
+                    file=sys.stderr,
+                )
 
     @classmethod
     def load(cls, store_dir: Path) -> UPAIIdentity:

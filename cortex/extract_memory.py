@@ -211,7 +211,12 @@ PII_PATTERNS = [
     ("EMAIL", r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
     ("SSN", r'\b\d{3}-\d{2}-\d{4}\b'),
     ("CREDIT_CARD", r'\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b'),
-    ("API_KEY", r'(?:sk_live_[A-Za-z0-9]{24,}|sk-[A-Za-z0-9]{32,}|api[_-]?key[=:\s]+[A-Za-z0-9_\-]{20,})'),
+    ("PRIVATE_KEY", r'-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'),
+    ("AWS_KEY", r'\bAKIA[0-9A-Z]{16}\b'),
+    ("GITHUB_TOKEN", r'\bgh[ps]_[A-Za-z0-9_]{36,}\b'),
+    ("API_KEY", r'(?:sk_live_[A-Za-z0-9]{24,}|sk-(?:ant-)?[A-Za-z0-9]{32,}|api[_-]?key[=:\s]+[A-Za-z0-9_\-]{20,})'),
+    ("BEARER_TOKEN", r'\bBearer\s+[A-Za-z0-9._\-]{20,}\b'),
+    ("DATABASE_URL", r'(?:postgres|mysql|mongodb|redis)://[^\s]+@[^\s]+'),
     ("IP_ADDRESS", r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
     ("STREET_ADDRESS", r'\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Ave|Blvd|Dr|Rd|Ln|Ct|Way|Pl|Cir|Ter|Pkwy)\.?\b'),
     ("PHONE", r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?)[0-9]{3}[-.\s]?[0-9]{4}\b'),
@@ -1186,16 +1191,33 @@ def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'Ag
 
 def load_file(file_path: Path) -> tuple[Any, str]:
     if file_path.suffix == '.zip':
+        _MAX_ZIP_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB limit (#26)
         with zipfile.ZipFile(file_path, 'r') as zf:
             for name in zf.namelist():
+                # Skip path traversal entries (#11)
+                if '..' in name or os.path.isabs(name):
+                    continue
+                info = zf.getinfo(name)
+                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
+                    continue
                 if 'conversations.json' in name:
                     with zf.open(name) as f:
                         return json.load(f), "openai"
             for name in zf.namelist():
+                if '..' in name or os.path.isabs(name):
+                    continue
+                info = zf.getinfo(name)
+                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
+                    continue
                 if name.endswith('.json'):
                     with zf.open(name) as f:
                         return json.load(f), "generic"
             for name in zf.namelist():
+                if '..' in name or os.path.isabs(name):
+                    continue
+                info = zf.getinfo(name)
+                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
+                    continue
                 if name.endswith('.txt'):
                     with zf.open(name) as f:
                         return f.read().decode('utf-8'), "text"

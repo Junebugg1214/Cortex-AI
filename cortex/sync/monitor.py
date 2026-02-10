@@ -39,13 +39,17 @@ class ExportMonitor:
         interval: int = 30,
         on_extract: Callable[[Path, CortexGraph], None] | None = None,
     ) -> None:
-        self.watch_dir = Path(watch_dir)
+        self.watch_dir = Path(watch_dir).resolve()
         self.graph_path = Path(graph_path)
         self.interval = interval
+        # Validate watch_dir: reject path traversal (#25)
+        if ".." in str(watch_dir):
+            raise ValueError(f"watch_dir must not contain '..': {watch_dir}")
         self.on_extract = on_extract
         self._file_mtimes: dict[str, float] = {}
         self._running = False
         self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()  # Guards file check+process (#33)
 
     def start(self) -> None:
         """Start monitoring in a background daemon thread."""
@@ -83,24 +87,25 @@ class ExportMonitor:
 
     def _check_changes(self) -> list[Path]:
         """Check for new or modified files. Returns list of changed paths."""
-        changed: list[Path] = []
-        current_files = self._exportable_files()
+        with self._lock:
+            changed: list[Path] = []
+            current_files = self._exportable_files()
 
-        for path in current_files:
-            key = str(path)
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
-            old_mtime = self._file_mtimes.get(key)
-            if old_mtime is None or mtime > old_mtime:
-                changed.append(path)
-                self._file_mtimes[key] = mtime
+            for path in current_files:
+                key = str(path)
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    continue
+                old_mtime = self._file_mtimes.get(key)
+                if old_mtime is None or mtime > old_mtime:
+                    changed.append(path)
+                    self._file_mtimes[key] = mtime
 
-        for path in changed:
-            self._process_file(path)
+            for path in changed:
+                self._process_file(path)
 
-        return changed
+            return changed
 
     def _exportable_files(self) -> list[Path]:
         """List files in watch_dir that look like chat exports."""
@@ -144,7 +149,7 @@ class ExportMonitor:
 
         except Exception as exc:
             import sys
-            print(f"[cortex monitor] Error processing {path}: {exc}", file=sys.stderr)
+            print(f"[cortex monitor] Error processing {path.name}: {exc}", file=sys.stderr)
 
     def _load_or_create_graph(self) -> CortexGraph:
         """Load existing graph from graph_path, or create empty."""
@@ -154,7 +159,7 @@ class ExportMonitor:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 import sys
-                print(f"[cortex monitor] Corrupted graph file {self.graph_path}, starting fresh", file=sys.stderr)
+                print(f"[cortex monitor] Corrupted graph file {self.graph_path.name}, starting fresh", file=sys.stderr)
                 return CortexGraph()
             version = data.get("schema_version", "")
             if version.startswith("5") or version.startswith("6"):
@@ -164,8 +169,9 @@ class ExportMonitor:
 
     def _save_graph(self, graph: CortexGraph) -> None:
         """Save graph to graph_path atomically via tmp+rename."""
+        import secrets as _secrets
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.graph_path.with_suffix(".tmp")
+        tmp_path = self.graph_path.with_suffix(f".{_secrets.token_hex(8)}.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(graph.export_v5(), f, indent=2)
         tmp_path.replace(self.graph_path)
