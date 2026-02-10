@@ -171,11 +171,14 @@ class SystemPromptAdapter(BaseAdapter):
         text = file_path.read_text(encoding="utf-8")
         v4_categories: dict[str, list[dict]] = {}
 
-        # Parse <category>...</category> blocks
+        # Parse <category>...</category> blocks (skip structural wrappers)
         import re
+        _WRAPPER_TAGS = {"user_context", "context", "system", "prompt"}
         pattern = r"<(\w+)>(.*?)</\1>"
         for match in re.finditer(pattern, text, re.DOTALL):
             category = match.group(1)
+            if category in _WRAPPER_TAGS:
+                continue
             content = match.group(2)
             items = []
             for line in content.strip().split("\n"):

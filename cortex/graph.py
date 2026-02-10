@@ -105,16 +105,16 @@ class Node:
         return cls(
             id=d["id"],
             label=d["label"],
-            tags=d.get("tags", []),
+            tags=list(d.get("tags", [])),
             confidence=d.get("confidence", 0.5),
-            properties=d.get("properties", {}),
+            properties=dict(d.get("properties", {})),
             brief=d.get("brief", ""),
             full_description=d.get("full_description", ""),
             mention_count=d.get("mention_count", 1),
             extraction_method=d.get("extraction_method", "mentioned"),
-            metrics=d.get("metrics", []),
-            timeline=d.get("timeline", []),
-            source_quotes=d.get("source_quotes", []),
+            metrics=list(d.get("metrics", [])),
+            timeline=list(d.get("timeline", [])),
+            source_quotes=list(d.get("source_quotes", [])),
             first_seen=d.get("first_seen", ""),
             last_seen=d.get("last_seen", ""),
             relationship_type=d.get("relationship_type", ""),
@@ -242,10 +242,10 @@ class CortexGraph:
 
             node_copy = copy.deepcopy(node)
 
-            # Find latest snapshot at or before timestamp
+            # Find latest snapshot at or before timestamp (skip empty timestamps)
             applicable = [
                 s for s in node.snapshots
-                if _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
+                if s.get("timestamp", "") and _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
             if applicable:
                 applicable.sort(key=lambda s: s.get("timestamp", ""))
@@ -253,10 +253,10 @@ class CortexGraph:
                 node_copy.confidence = latest.get("confidence", node.confidence)
                 node_copy.tags = list(latest.get("tags", node.tags))
 
-            # Only include snapshots up to the timestamp
+            # Only include snapshots up to the timestamp (skip empty timestamps)
             node_copy.snapshots = [
                 s for s in node_copy.snapshots
-                if _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
+                if s.get("timestamp", "") and _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
 
             result.nodes[nid] = node_copy

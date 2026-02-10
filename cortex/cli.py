@@ -104,9 +104,9 @@ def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
         path = output_dir / filename
         result = export_fn(ctx, min_conf)
         if is_json:
-            path.write_text(json.dumps(result, indent=2))
+            path.write_text(json.dumps(result, indent=2), encoding="utf-8")
         else:
-            path.write_text(result)
+            path.write_text(result, encoding="utf-8")
         outputs.append((key, path))
         if verbose:
             print(f"   wrote {path}")

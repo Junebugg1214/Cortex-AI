@@ -9,6 +9,7 @@ Minimum co-occurrence count of 3 always required.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -32,14 +33,21 @@ def count_cooccurrences(
     substring. Returns {(label_a, label_b): count} with sorted pairs.
     """
     counts: dict[tuple[str, str], int] = {}
-    labels_lower = [l.lower() for l in node_labels]
+    # Pre-compile word-boundary patterns to avoid substring false positives
+    # (e.g. "AI" matching "waiting", "Go" matching "going")
+    label_patterns = []
+    for label in node_labels:
+        try:
+            pat = re.compile(r"\b" + re.escape(label.lower()) + r"\b", re.IGNORECASE)
+        except re.error:
+            pat = None
+        label_patterns.append(pat)
 
     for msg in messages:
-        msg_lower = msg.lower()
         # Find which labels appear in this message
         present: list[str] = []
-        for i, label_lower in enumerate(labels_lower):
-            if label_lower in msg_lower:
+        for i, pat in enumerate(label_patterns):
+            if pat is not None and pat.search(msg):
                 present.append(node_labels[i])
 
         # Count all pairs
@@ -57,12 +65,18 @@ def label_message_counts(
 ) -> dict[str, int]:
     """Count how many messages each label appears in."""
     counts: dict[str, int] = {label: 0 for label in node_labels}
-    labels_lower = [(label, label.lower()) for label in node_labels]
+    # Pre-compile word-boundary patterns to match whole words only
+    label_patterns: list[tuple[str, re.Pattern | None]] = []
+    for label in node_labels:
+        try:
+            pat = re.compile(r"\b" + re.escape(label.lower()) + r"\b", re.IGNORECASE)
+        except re.error:
+            pat = None
+        label_patterns.append((label, pat))
 
     for msg in messages:
-        msg_lower = msg.lower()
-        for label, label_lower in labels_lower:
-            if label_lower in msg_lower:
+        for label, pat in label_patterns:
+            if pat is not None and pat.search(msg):
                 counts[label] += 1
 
     return counts

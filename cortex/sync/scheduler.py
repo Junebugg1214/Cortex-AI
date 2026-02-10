@@ -135,8 +135,13 @@ class SyncScheduler:
 
     def _run_sync(self, schedule: SyncSchedule) -> None:
         """Execute a single sync and reschedule."""
-        self._execute_sync(schedule)
-        self._schedule_next(schedule)
+        try:
+            self._execute_sync(schedule)
+        except Exception as exc:
+            import sys
+            print(f"[cortex scheduler] Error syncing {schedule.platform}: {exc}", file=sys.stderr)
+        finally:
+            self._schedule_next(schedule)
 
     def _execute_sync(self, schedule: SyncSchedule) -> list[Path]:
         """Execute a sync for one schedule. Returns output file paths."""

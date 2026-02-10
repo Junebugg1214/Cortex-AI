@@ -129,8 +129,9 @@ def render_html(
     for tag in sorted(present_tags - set(CATEGORY_ORDER)):
         legend_items.append((tag, _tag_color(tag)))
 
-    nodes_json = json.dumps(nodes_data)
-    edges_json = json.dumps(edges_data)
+    # Escape </ sequences to prevent </script> injection in JSON data
+    nodes_json = json.dumps(nodes_data).replace("</", "<\\/")
+    edges_json = json.dumps(edges_data).replace("</", "<\\/")
     legend_html = "\n".join(
         f'<div><span style="display:inline-block;width:12px;height:12px;'
         f'background:{color};border-radius:50%;margin-right:4px;vertical-align:middle;">'
@@ -224,7 +225,9 @@ canvas.addEventListener("mousemove",function(e){{
     const n=NODES[hit];
     tooltip.style.display="block";
     tooltip.style.left=(e.clientX+12)+"px"; tooltip.style.top=(e.clientY+12)+"px";
-    tooltip.innerHTML="<b>"+n.label+"</b><br>Tags: "+n.tags.join(", ")+"<br>Confidence: "+n.confidence+(n.brief?"<br>"+n.brief:"");
+    tooltip.textContent=""; const b=document.createElement("b"); b.textContent=n.label; tooltip.appendChild(b);
+    tooltip.appendChild(document.createTextNode(" | Tags: "+n.tags.join(", ")+" | Confidence: "+n.confidence));
+    if(n.brief){{ tooltip.appendChild(document.createTextNode(" | "+n.brief)); }}
   }} else {{ tooltip.style.display="none"; }}
 }});
 canvas.addEventListener("mouseup",function(){{ dragging=false; canvas.style.cursor="grab"; }});

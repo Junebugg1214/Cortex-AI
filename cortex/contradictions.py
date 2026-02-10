@@ -154,20 +154,23 @@ class ContradictionEngine:
             if len(nodes) < 2:
                 continue
 
-            # Collect unique description hashes grouped by source
-            source_hashes: dict[str, set[str]] = {}  # source -> set of hashes
+            # Collect latest description hash per source (by timestamp)
+            source_latest: dict[str, tuple[str, str]] = {}  # source -> (timestamp, hash)
             for node in nodes:
                 snapshots = node.snapshots if hasattr(node, "snapshots") else []
                 for snap in snapshots:
                     source = snap.get("source", "unknown")
                     desc_hash = snap.get("description_hash", "")
+                    ts = snap.get("timestamp", "")
                     if desc_hash:
-                        source_hashes.setdefault(source, set()).add(desc_hash)
+                        prev = source_latest.get(source)
+                        if prev is None or ts > prev[0]:
+                            source_latest[source] = (ts, desc_hash)
 
             # Only flag when different sources disagree (not temporal changes within one source)
-            if len(source_hashes) < 2:
+            if len(source_latest) < 2:
                 continue
-            per_source_latest = {src: max(hashes) for src, hashes in source_hashes.items()}
+            per_source_latest = {src: pair[1] for src, pair in source_latest.items()}
             unique_hashes = set(per_source_latest.values())
             if len(unique_hashes) >= 2:
                 node_ids = [n.id for n in nodes]

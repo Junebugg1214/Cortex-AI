@@ -186,7 +186,14 @@ class QueryEngine:
         updated_nodes: list[dict] = []
 
         def _norm_ts(t: str) -> str:
-            return t[:-1] + "+00:00" if t.endswith("Z") else t
+            if not t:
+                return ""
+            if t.endswith("Z"):
+                return t[:-1] + "+00:00"
+            # If no timezone info, treat as UTC
+            if "+" not in t and t.count("-") <= 2:
+                return t + "+00:00"
+            return t
 
         norm_since = _norm_ts(since)
 

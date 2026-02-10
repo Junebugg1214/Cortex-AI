@@ -133,7 +133,7 @@ def extract_edges_by_proximity(
         if label_lower not in label_map:
             label_map[label_lower] = node.id
             try:
-                pat = re.compile(re.escape(label_lower), re.IGNORECASE)
+                pat = re.compile(r"\b" + re.escape(label_lower) + r"\b", re.IGNORECASE)
                 patterns.append((pat, node.id))
             except re.error:
                 continue
