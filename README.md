@@ -59,10 +59,14 @@ python migrate.py import context.json --to all -o ./output
 
 ### Requirements
 
-- Python 3.10+
+- Python 3.10+ (macOS, Linux, Windows)
 - No external packages (stdlib only)
 - Optional: `PyNaCl` for Ed25519 signatures (`pip install pynacl`)
 - Optional: `numpy` for 10x faster graph layout (`pip install numpy`)
+
+### Production Ready
+
+v6.4 has been hardened for cross-platform use: atomic file saves prevent data corruption, paths with spaces are properly quoted, `sys.executable` ensures Windows compatibility, and all extraction errors surface to stderr for debugging.
 
 ---
 
@@ -534,7 +538,7 @@ python migrate.py drift <graph> --window 90                # Identity drift
 
 | Version | Milestone |
 |---------|-----------|
-| v6.4 | **Continuous extraction** — real-time session watching with debounce, incremental graph merge, optional cross-platform auto-refresh |
+| v6.4 | **Continuous extraction + production hardening** — real-time session watching with debounce, incremental graph merge, cross-platform auto-refresh; hardened for production (atomic saves, path quoting, Windows compat, error visibility) |
 | v6.3 | **Cross-platform context writer** — persistent context files for Claude Code, Cursor, Copilot, Windsurf, Gemini CLI with non-destructive section markers |
 | v6.2 | **Auto-inject context** — SessionStart hook for Claude Code, compact context generation, install/uninstall CLI |
 | v6.1 | **Coding tool extraction** — behavioral extraction from Claude Code sessions, project enrichment |
