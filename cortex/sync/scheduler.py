@@ -37,11 +37,22 @@ class SyncConfig:
 
     @classmethod
     def from_file(cls, path: Path) -> SyncConfig:
-        """Load config from a JSON file."""
+        """Load config from a JSON file. Validates config values."""
         data = json.loads(path.read_text(encoding="utf-8"))
-        schedules = [
-            SyncSchedule(**s) for s in data.get("schedules", [])
-        ]
+        schedules = []
+        for s in data.get("schedules", []):
+            sched = SyncSchedule(**s)
+            # Validate interval (#15)
+            if sched.interval_minutes < 1 or sched.interval_minutes > 10080:
+                raise ValueError(
+                    f"interval_minutes must be 1-10080, got {sched.interval_minutes}"
+                )
+            # Validate output_dir: reject path traversal (#9)
+            if ".." in sched.output_dir:
+                raise ValueError(
+                    f"output_dir must not contain '..', got {sched.output_dir}"
+                )
+            schedules.append(sched)
         return cls(
             schedules=schedules,
             graph_path=data["graph_path"],

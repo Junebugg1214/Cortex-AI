@@ -53,7 +53,7 @@ class TestVersionStore:
             store = VersionStore(Path(tmpdir) / ".cortex")
             graph = _sample_graph()
             version = store.commit(graph, "test")
-            assert len(version.version_id) == 16  # first 16 chars of SHA-256
+            assert len(version.version_id) == 32  # first 32 chars of SHA-256
             # version_id should be hex
             int(version.version_id, 16)
 

@@ -67,9 +67,18 @@ def apply_disclosure(graph: CortexGraph, policy: DisclosurePolicy) -> CortexGrap
     - Cap at max_nodes (highest confidence first)
     - Remove edges where either endpoint was filtered out
     """
+    # Filter metadata for non-full policies (#5: prevent metadata leakage)
+    is_full = policy.name == "full"
+    if is_full:
+        filtered_meta = copy.deepcopy(graph.meta)
+    else:
+        # Only preserve safe metadata keys
+        _SAFE_META_KEYS = {"schema_version", "generated_at"}
+        filtered_meta = {k: v for k, v in graph.meta.items() if k in _SAFE_META_KEYS}
+
     result = CortexGraph(
         schema_version=graph.schema_version,
-        meta=copy.deepcopy(graph.meta),
+        meta=filtered_meta,
     )
 
     # Collect candidate nodes
@@ -106,12 +115,35 @@ def apply_disclosure(graph: CortexGraph, policy: DisclosurePolicy) -> CortexGrap
         for prop_key in policy.redact_properties:
             node_copy.properties.pop(prop_key, None)
 
+        # Strip source_quotes and full_description for non-full policies (#17)
+        if not is_full:
+            node_copy.source_quotes = []
+            node_copy.full_description = ""
+
+        # Filter snapshots through disclosure policy (#4)
+        if not is_full and hasattr(node_copy, "snapshots"):
+            filtered_snaps = []
+            for snap in node_copy.snapshots:
+                snap_tags = snap.get("tags", [])
+                if policy.exclude_tags and any(t in policy.exclude_tags for t in snap_tags):
+                    continue
+                if policy.include_tags and not any(t in policy.include_tags for t in snap_tags):
+                    continue
+                # Strip redact_properties from snapshot if present
+                for prop_key in policy.redact_properties:
+                    snap.pop(prop_key, None)
+                filtered_snaps.append(snap)
+            node_copy.snapshots = filtered_snaps
+
         result.nodes[nid] = node_copy
         included_ids.add(nid)
 
-    # Include edges where both endpoints exist
+    # Include edges where both endpoints exist, with property redaction (#3)
     for eid, edge in graph.edges.items():
         if edge.source_id in included_ids and edge.target_id in included_ids:
-            result.edges[eid] = copy.deepcopy(edge)
+            edge_copy = copy.deepcopy(edge)
+            for prop_key in policy.redact_properties:
+                edge_copy.properties.pop(prop_key, None)
+            result.edges[eid] = edge_copy
 
     return result

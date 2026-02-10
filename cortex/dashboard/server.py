@@ -9,6 +9,7 @@ Pure Python stdlib — no external dependencies.
 from __future__ import annotations
 
 import json
+import time as _time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any
@@ -154,6 +155,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the Cortex dashboard."""
 
     graph: CortexGraph  # Set before server starts
+    _cache: dict[str, tuple[float, Any]] = {}  # path -> (timestamp, data)
+    _cache_ttl: float = 5.0  # seconds
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -220,12 +223,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json_response(graph.stats())
 
     def _serve_gaps(self) -> None:
+        cached = self._get_cached("/api/gaps")
+        if cached is not None:
+            self._json_response(cached)
+            return
         from cortex.intelligence import GapAnalyzer
         graph = self.__class__.graph
         analyzer = GapAnalyzer()
-        self._json_response(analyzer.all_gaps(graph))
+        data = analyzer.all_gaps(graph)
+        self._set_cached("/api/gaps", data)
+        self._json_response(data)
 
     def _serve_components(self) -> None:
+        cached = self._get_cached("/api/components")
+        if cached is not None:
+            self._json_response(cached)
+            return
         from cortex.query import connected_components
         graph = self.__class__.graph
         comps = connected_components(graph)
@@ -238,7 +251,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if node is not None
             )
             result.append({"size": len(comp), "labels": labels})
+        self._set_cached("/api/components", result)
         self._json_response(result)
+
+    def _get_cached(self, key: str) -> Any | None:
+        entry = self.__class__._cache.get(key)
+        if entry and (_time.monotonic() - entry[0]) < self.__class__._cache_ttl:
+            return entry[1]
+        return None
+
+    def _set_cached(self, key: str, data: Any) -> None:
+        self.__class__._cache[key] = (_time.monotonic(), data)
 
     def _json_response(self, data: Any) -> None:
         body = json.dumps(data, default=str).encode("utf-8")
@@ -248,9 +271,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        # CORS: allow localhost on the configured port (#29)
         origin = self.headers.get("Origin", "")
-        allowed = {"http://127.0.0.1:8420", "http://localhost:8420"}
-        self.send_header("Access-Control-Allow-Origin", origin if origin in allowed else "http://127.0.0.1:8420")
+        port = getattr(self.server, "server_port", 8420)
+        allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+        self.send_header("Access-Control-Allow-Origin", origin if origin in allowed else f"http://127.0.0.1:{port}")
+        # Security headers (#28)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -272,6 +301,8 @@ def start_dashboard(
     DashboardHandler.graph = graph
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
     print(f"Cortex Dashboard: http://127.0.0.1:{port}")
+    import sys
+    print("WARNING: Dashboard running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
     if open_browser:
         import webbrowser
         import threading as _threading

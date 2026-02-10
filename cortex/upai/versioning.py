@@ -107,7 +107,7 @@ class VersionStore:
 
         # Hash
         graph_hash = hashlib.sha256(graph_bytes).hexdigest()
-        version_id = graph_hash[:16]
+        version_id = graph_hash[:32]
 
         # Determine parent
         history = self._load_history()
@@ -186,12 +186,32 @@ class VersionStore:
             "modified": modified,
         }
 
-    def checkout(self, version_id: str) -> CortexGraph:
-        """Load a specific version's graph snapshot."""
+    def checkout(self, version_id: str, verify: bool = True) -> CortexGraph:
+        """Load a specific version's graph snapshot.
+
+        If verify=True, checks the integrity hash from history against the
+        loaded data. Raises ValueError on mismatch.
+        """
         snapshot_path = self.versions_dir / f"{version_id}.json"
         if not snapshot_path.exists():
             raise FileNotFoundError(f"Version {version_id} not found")
-        data = json.loads(snapshot_path.read_text())
+        raw_text = snapshot_path.read_text()
+        data = json.loads(raw_text)
+
+        # Verify integrity hash against history record (#6)
+        if verify:
+            history = self._load_history()
+            record = next((h for h in history if h["version_id"] == version_id), None)
+            if record and record.get("graph_hash"):
+                graph_json = json.dumps(data, sort_keys=True, ensure_ascii=False)
+                actual_hash = hashlib.sha256(graph_json.encode("utf-8")).hexdigest()
+                if actual_hash != record["graph_hash"]:
+                    raise ValueError(
+                        f"Integrity check failed for version {version_id}: "
+                        f"expected {record['graph_hash'][:16]}..., "
+                        f"got {actual_hash[:16]}..."
+                    )
+
         return CortexGraph.from_v5_json(data)
 
     def head(self) -> ContextVersion | None:

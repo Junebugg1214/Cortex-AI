@@ -361,11 +361,20 @@ def enrich_project(project_path: str) -> ProjectMetadata:
     Reads README, package manifests, and checks for CI/Docker.
     Returns ProjectMetadata with whatever could be found.
     Gracefully handles missing files, permission errors, etc.
+    Only reads from paths under the user's home directory (#34).
     """
     meta = ProjectMetadata()
     root = Path(project_path)
 
     if not root.is_dir():
+        return meta
+
+    # Validate project path: reject path traversal (#34)
+    try:
+        resolved = root.resolve()
+        if ".." in str(project_path):
+            return meta
+    except (OSError, ValueError):
         return meta
 
     meta.name = root.name
@@ -622,7 +631,8 @@ def session_to_context(session: CodingSession) -> dict:
         else:
             brief = f"Active project: {project_name}"
 
-        desc_parts = [f"Working directory: {session.project_path}"]
+        # Sanitize project path: show only directory name, not full path (#8)
+        desc_parts = [f"Working directory: {Path(session.project_path).name}"]
         if pm.readme_summary and pm.readme_summary != pm.description:
             desc_parts.append(f"README: {pm.readme_summary}")
         if pm.license:

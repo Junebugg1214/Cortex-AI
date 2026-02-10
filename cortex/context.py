@@ -168,10 +168,18 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
 # ---------------------------------------------------------------------------
 
 def _resolve_path(template: str, project_dir: str | None = None) -> Path:
-    """Expand {home} and {project} in path templates."""
-    resolved = template.replace("{home}", str(Path.home()))
+    """Expand {home} and {project} in path templates.
+
+    Validates that the resolved path is under home or project directory (#30).
+    """
+    home = str(Path.home())
+    resolved = template.replace("{home}", home)
     project = project_dir or os.getcwd()
     resolved = resolved.replace("{project}", project)
+    result = Path(resolved).resolve()
+    # Validate the resolved path is under home or project (#30)
+    if not (str(result).startswith(home) or str(result).startswith(str(Path(project).resolve()))):
+        raise ValueError(f"Resolved path {result} is outside allowed directories")
     return Path(resolved)
 
 

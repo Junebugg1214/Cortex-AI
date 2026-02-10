@@ -111,9 +111,22 @@ class ClaudeAdapter(BaseAdapter):
 
         raw = json.loads(file_path.read_text(encoding="utf-8"))
 
-        # Handle UPAI envelope
+        # Handle UPAI envelope — verify integrity hash if present (#6)
         if isinstance(raw, dict) and "data" in raw:
             memories = raw["data"]
+            expected_hash = raw.get("integrity_hash")
+            if expected_hash:
+                import hashlib
+                actual_hash = hashlib.sha256(
+                    json.dumps(memories, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                ).hexdigest()
+                if actual_hash != expected_hash:
+                    import sys
+                    print(
+                        f"WARNING: Integrity hash mismatch in {file_path.name}. "
+                        "Data may have been tampered with.",
+                        file=sys.stderr,
+                    )
         else:
             memories = raw
 
