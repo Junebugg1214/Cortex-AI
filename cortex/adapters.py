@@ -90,7 +90,7 @@ class ClaudeAdapter(BaseAdapter):
         # Preferences text
         prefs = export_claude_preferences(ctx, policy.min_confidence)
         prefs_path = output_dir / "claude_preferences.txt"
-        prefs_path.write_text(prefs)
+        prefs_path.write_text(prefs, encoding="utf-8")
         paths.append(prefs_path)
 
         # Memories JSON
@@ -98,9 +98,9 @@ class ClaudeAdapter(BaseAdapter):
         mem_path = output_dir / "claude_memories.json"
         if identity is not None:
             envelope = _add_upai_envelope(memories, identity)
-            mem_path.write_text(json.dumps(envelope, indent=2))
+            mem_path.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
         else:
-            mem_path.write_text(json.dumps(memories, indent=2))
+            mem_path.write_text(json.dumps(memories, indent=2), encoding="utf-8")
         paths.append(mem_path)
 
         return paths
@@ -109,7 +109,7 @@ class ClaudeAdapter(BaseAdapter):
         """Parse Claude memories JSON back into a CortexGraph."""
         from cortex.compat import upgrade_v4_to_v5
 
-        raw = json.loads(file_path.read_text())
+        raw = json.loads(file_path.read_text(encoding="utf-8"))
 
         # Handle UPAI envelope
         if isinstance(raw, dict) and "data" in raw:
@@ -160,7 +160,7 @@ class SystemPromptAdapter(BaseAdapter):
             prompt += f"\n<!-- UPAI DID: {identity.did} -->"
 
         path = output_dir / "system_prompt.txt"
-        path.write_text(prompt)
+        path.write_text(prompt, encoding="utf-8")
         return [path]
 
     def pull(self, file_path: Path) -> CortexGraph:
@@ -168,7 +168,7 @@ class SystemPromptAdapter(BaseAdapter):
         from cortex.graph import Node, make_node_id
         from cortex.compat import upgrade_v4_to_v5
 
-        text = file_path.read_text()
+        text = file_path.read_text(encoding="utf-8")
         v4_categories: dict[str, list[dict]] = {}
 
         # Parse <category>...</category> blocks
@@ -212,12 +212,12 @@ class NotionAdapter(BaseAdapter):
 
         md = export_notion(ctx, policy.min_confidence)
         md_path = output_dir / "notion_page.md"
-        md_path.write_text(md)
+        md_path.write_text(md, encoding="utf-8")
         paths.append(md_path)
 
         db = export_notion_database_json(ctx, policy.min_confidence)
         db_path = output_dir / "notion_database.json"
-        db_path.write_text(json.dumps(db, indent=2))
+        db_path.write_text(json.dumps(db, indent=2), encoding="utf-8")
         paths.append(db_path)
 
         return paths
@@ -242,7 +242,7 @@ class GDocsAdapter(BaseAdapter):
 
         html = export_google_docs(ctx, policy.min_confidence)
         path = output_dir / "google_docs.html"
-        path.write_text(html)
+        path.write_text(html, encoding="utf-8")
         return [path]
 
     def pull(self, file_path: Path) -> CortexGraph:

@@ -148,14 +148,24 @@ class InsightGenerator:
         from cortex.temporal import drift_score
         from cortex.contradictions import ContradictionEngine
 
-        # Build label → node maps
-        cur_by_label: dict[str, Node] = {}
+        # Build label → node list maps (handle multiple nodes with same label)
+        from collections import defaultdict as _defaultdict
+        _cur_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in current.nodes.values():
-            cur_by_label[_normalize_label(node.label)] = node
+            _cur_multi[_normalize_label(node.label)].append(node)
+        # Pick highest-confidence node per label for comparison
+        cur_by_label: dict[str, Node] = {
+            label: max(nodes, key=lambda n: n.confidence)
+            for label, nodes in _cur_multi.items()
+        }
 
-        prev_by_label: dict[str, Node] = {}
+        _prev_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in previous.nodes.values():
-            prev_by_label[_normalize_label(node.label)] = node
+            _prev_multi[_normalize_label(node.label)].append(node)
+        prev_by_label: dict[str, Node] = {
+            label: max(nodes, key=lambda n: n.confidence)
+            for label, nodes in _prev_multi.items()
+        }
 
         cur_labels = set(cur_by_label.keys())
         prev_labels = set(prev_by_label.keys())

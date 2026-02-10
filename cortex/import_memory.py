@@ -24,6 +24,7 @@ Usage:
     python import_memory_v4.py context.json -f gdocs -c high
 """
 
+import html as _html_mod
 import json
 import re
 import argparse
@@ -329,7 +330,7 @@ class NormalizedContext:
             return cls.from_claude_memories(data)
 
         version = data.get("schema_version", "")
-        if version.startswith("5"):
+        if version.startswith("5") or version.startswith("6"):
             return cls.from_v5(data)
         if version.startswith("4"):
             return cls.from_v4(data)
@@ -522,6 +523,11 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
     return memories
 
 
+def _xml_escape(text: str) -> str:
+    """Escape XML special characters in user content."""
+    return _html_mod.escape(text, quote=False)
+
+
 def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
     """Generate XML context block for system prompts"""
     lines = ["<user_context>"]
@@ -538,7 +544,7 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             lines.append(f"  <{category}>")
             lines.append("    <!-- IMPORTANT: These are hard constraints that must be respected -->")
             for topic in topics[category]:
-                lines.append(f"    - {topic.brief}")
+                lines.append(f"    - {_xml_escape(topic.brief)}")
             lines.append(f"  </{category}>")
             continue
 
@@ -547,7 +553,7 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             lines.append(f"  <{category}>")
             lines.append("    <!-- User explicitly avoids these -->")
             for topic in topics[category]:
-                lines.append(f"    - {topic.topic}")
+                lines.append(f"    - {_xml_escape(topic.topic)}")
             lines.append(f"  </{category}>")
             continue
 
@@ -556,7 +562,7 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             lines.append(f"  <{category}>")
             lines.append("    <!-- Patterns where user has corrected themselves before -->")
             for topic in topics[category]:
-                lines.append(f"    - {topic.brief}")
+                lines.append(f"    - {_xml_escape(topic.brief)}")
             lines.append(f"  </{category}>")
             continue
 
@@ -581,9 +587,9 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
                         formatted = topic.format_by_confidence(min_confidence)
                         if formatted:
                             if level == "minimal":
-                                lines.append(f"    [{formatted}]")
+                                lines.append(f"    [{_xml_escape(formatted)}]")
                             else:
-                                lines.append(f"    - {formatted}")
+                                lines.append(f"    - {_xml_escape(formatted)}")
 
             lines.append(f"  </{category}>")
             continue
@@ -595,9 +601,9 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             formatted = topic.format_by_confidence(min_confidence)
             if formatted:
                 if level == "minimal":
-                    lines.append(f"    [{formatted}]")
+                    lines.append(f"    [{_xml_escape(formatted)}]")
                 else:
-                    lines.append(f"    - {formatted}")
+                    lines.append(f"    - {_xml_escape(formatted)}")
 
         lines.append(f"  </{category}>")
 
@@ -765,29 +771,30 @@ def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> s
         label = CATEGORY_LABELS.get(category, category)
         lines.append(f"<h2>{label}</h2>")
         
+        _esc = _html_mod.escape
         for topic in topics[category]:
             level = topic.get_detail_level()
             badge_class = f"badge-{level}"
-            
+
             if level == "full":
-                lines.append(f"<h3>{topic.topic} <span class='badge {badge_class}'>High</span></h3>")
+                lines.append(f"<h3>{_esc(topic.topic)} <span class='badge {badge_class}'>High</span></h3>")
                 if topic.full_description:
-                    lines.append(f"<p>{topic.full_description}</p>")
+                    lines.append(f"<p>{_esc(topic.full_description)}</p>")
                 elif topic.brief and topic.brief != topic.topic:
-                    lines.append(f"<p>{topic.brief}</p>")
+                    lines.append(f"<p>{_esc(topic.brief)}</p>")
                 if topic.metrics:
                     lines.append("<p><strong>Metrics:</strong> ")
                     for m in topic.metrics[:3]:
-                        lines.append(f"<span class='metric'>{m}</span> ")
+                        lines.append(f"<span class='metric'>{_esc(m)}</span> ")
                     lines.append("</p>")
                 if topic.relationships:
-                    lines.append(f"<p><strong>Related:</strong> {', '.join(topic.relationships[:3])}</p>")
+                    lines.append(f"<p><strong>Related:</strong> {_esc(', '.join(topic.relationships[:3]))}</p>")
                 if topic.timeline:
-                    lines.append(f"<p><strong>Timeline:</strong> {', '.join(topic.timeline)}</p>")
+                    lines.append(f"<p><strong>Timeline:</strong> {_esc(', '.join(topic.timeline))}</p>")
             elif level == "moderate":
-                lines.append(f"<p><strong>{topic.topic}</strong> <span class='badge {badge_class}'>Medium</span>: {topic.brief}</p>")
+                lines.append(f"<p><strong>{_esc(topic.topic)}</strong> <span class='badge {badge_class}'>Medium</span>: {_esc(topic.brief)}</p>")
             else:
-                lines.append(f"<p class='low'>{topic.topic} <span class='badge {badge_class}'>Low</span></p>")
+                lines.append(f"<p class='low'>{_esc(topic.topic)} <span class='badge {badge_class}'>Low</span></p>")
     
     lines.append("</body>")
     lines.append("</html>")

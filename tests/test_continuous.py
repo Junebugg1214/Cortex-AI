@@ -525,8 +525,13 @@ class TestGraphMerge:
                 tags=["technical_expertise"], confidence=0.8, properties={},
             ))
 
-        # New graph with edge between them
+        # New graph with same nodes + edge between them
         new_graph = CortexGraph()
+        for label in ["Python", "Pytest"]:
+            new_graph.add_node(Node(
+                id=make_node_id(label), label=label,
+                tags=["technical_expertise"], confidence=0.8, properties={},
+            ))
         edge = Edge(
             id=make_edge_id(make_node_id("Python"), make_node_id("Pytest"), "used_in"),
             source_id=make_node_id("Python"),

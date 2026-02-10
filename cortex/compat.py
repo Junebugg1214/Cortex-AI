@@ -119,15 +119,14 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
     # ----- Pass 2: Resolve relationship strings → edges ---------------------
     for node in list(graph.nodes.values()):
         rel_strings = []
-        # Gather relationship strings from the original v4 data
+        # Gather relationship strings from ALL matching v4 categories
         for category in CATEGORY_ORDER:
             topics = v4_data.get("categories", {}).get(category, [])
             for td in topics:
                 if _normalize_label(td.get("topic", "")) == _normalize_label(node.label):
-                    rel_strings = td.get("relationships", [])
-                    break
-            if rel_strings:
-                break
+                    for r in td.get("relationships", []):
+                        if r not in rel_strings:
+                            rel_strings.append(r)
 
         for rel_label in rel_strings:
             rel_label = rel_label.strip()
@@ -243,6 +242,6 @@ def _primary_tag(node: Node) -> str:
 
 
 def roundtrip_v4(v4_data: dict) -> dict:
-    """v4 → v5 → v4. Result should be identical (lossless roundtrip)."""
+    """v4 → v5 → v4. Note: may add stub nodes, _node_id fields, and deduplicate topics."""
     graph = upgrade_v4_to_v5(v4_data)
     return downgrade_v5_to_v4(graph)

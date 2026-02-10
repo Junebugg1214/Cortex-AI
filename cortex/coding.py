@@ -557,9 +557,11 @@ def _toml_value(text: str, key: str) -> str:
     Handles: key = \"value\" or key = 'value'.
     Does NOT handle multiline strings or inline tables.
     """
-    pattern = rf'^\s*{re.escape(key)}\s*=\s*["\'](.+?)["\']'
+    pattern = rf'^\s*{re.escape(key)}\s*=\s*"(.+?)"|^\s*{re.escape(key)}\s*=\s*\'(.+?)\''
     m = re.search(pattern, text, re.MULTILINE)
-    return m.group(1) if m else ""
+    if not m:
+        return ""
+    return m.group(1) or m.group(2) or ""
 
 
 def _detect_license(root: Path) -> str:

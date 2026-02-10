@@ -136,8 +136,9 @@ class ExportMonitor:
             if self.on_extract:
                 self.on_extract(path, graph)
 
-        except Exception:
-            pass  # Silently skip files that fail extraction
+        except Exception as exc:
+            import sys
+            print(f"[cortex monitor] Error processing {path}: {exc}", file=sys.stderr)
 
     def _load_or_create_graph(self) -> CortexGraph:
         """Load existing graph from graph_path, or create empty."""

@@ -124,11 +124,11 @@ def drift_score(graph_a: CortexGraph, graph_b: CortexGraph) -> dict:
 
     if len(nodes_a) < 3 or len(nodes_b) < 3:
         return {
-            "score": 0.0,
+            "score": None,
             "details": {
-                "label_drift": 0.0,
-                "tag_drift": 0.0,
-                "confidence_drift": 0.0,
+                "label_drift": None,
+                "tag_drift": None,
+                "confidence_drift": None,
                 "node_count_a": len(nodes_a),
                 "node_count_b": len(nodes_b),
             },

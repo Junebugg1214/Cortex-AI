@@ -149,16 +149,16 @@ class CodingSessionWatcher:
             except OSError:
                 continue
 
-            existing = self._file_states.get(key)
-            if existing is None or stat.st_mtime != existing.mtime or stat.st_size != existing.size:
-                with self._lock:
+            with self._lock:
+                existing = self._file_states.get(key)
+                if existing is None or stat.st_mtime != existing.mtime or stat.st_size != existing.size:
                     self._pending_changes[key] = time.time()
 
         # Clean up state for files that no longer exist
-        stale = [k for k in self._file_states if k not in current_files]
-        for k in stale:
-            del self._file_states[k]
-            with self._lock:
+        with self._lock:
+            stale = [k for k in self._file_states if k not in current_files]
+            for k in stale:
+                del self._file_states[k]
                 self._pending_changes.pop(k, None)
 
     def _process_settled_files(self) -> list[Path]:
@@ -231,10 +231,13 @@ class CodingSessionWatcher:
 
     def _merge_graph(self, new_graph) -> None:
         """Merge nodes and edges from new_graph into self._graph."""
+        # Map new_graph node IDs to self._graph node IDs (for edge rewiring)
+        id_map: dict[str, str] = {}
         for new_node in new_graph.nodes.values():
             existing = self._graph.find_nodes(label=new_node.label)
             if existing:
                 target = existing[0]
+                id_map[new_node.id] = target.id
                 target.confidence = max(target.confidence, new_node.confidence)
                 target.mention_count += new_node.mention_count
                 # Union tags preserving order
@@ -249,12 +252,22 @@ class CodingSessionWatcher:
                 if new_node.last_seen and (not target.last_seen or new_node.last_seen > target.last_seen):
                     target.last_seen = new_node.last_seen
             else:
+                id_map[new_node.id] = new_node.id
                 self._graph.add_node(new_node)
 
         for edge in new_graph.edges.values():
-            if edge.id not in self._graph.edges:
-                if edge.source_id in self._graph.nodes and edge.target_id in self._graph.nodes:
-                    self._graph.add_edge(edge)
+            src = id_map.get(edge.source_id)
+            tgt = id_map.get(edge.target_id)
+            if src and tgt and src in self._graph.nodes and tgt in self._graph.nodes:
+                from cortex.graph import Edge, make_edge_id
+                new_eid = make_edge_id(src, tgt, edge.relation)
+                if new_eid not in self._graph.edges:
+                    rewired = Edge(
+                        id=new_eid, source_id=src, target_id=tgt,
+                        relation=edge.relation, confidence=edge.confidence,
+                        first_seen=edge.first_seen, last_seen=edge.last_seen,
+                    )
+                    self._graph.add_edge(rewired)
 
     # -- Private: graph I/O -------------------------------------------------
 
@@ -264,8 +277,13 @@ class CodingSessionWatcher:
         from cortex.compat import upgrade_v4_to_v5
 
         if self.graph_path.exists():
-            with open(self.graph_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(self.graph_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError) as exc:
+                import sys
+                print(f"[cortex] Warning: corrupted graph at {self.graph_path}: {exc}", file=sys.stderr)
+                return CortexGraph()
             version = data.get("schema_version", "")
             if version.startswith("5") or version.startswith("6"):
                 return CortexGraph.from_v5_json(data)

@@ -773,11 +773,11 @@ def run_query(args):
 
 
 def _load_graph(input_path: Path) -> CortexGraph:
-    """Load a v4 or v5 JSON file and return a CortexGraph."""
+    """Load a v4, v5, or v6 JSON file and return a CortexGraph."""
     with open(input_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     version = data.get("schema_version", "")
-    if version.startswith("5"):
+    if version.startswith("5") or version.startswith("6"):
         return CortexGraph.from_v5_json(data)
     return upgrade_v4_to_v5(data)
 
@@ -1345,7 +1345,14 @@ def run_extract_coding(args):
         if merge_path.exists():
             with open(merge_path, "r", encoding="utf-8") as f:
                 existing = json.load(f)
-            ctx_data = merge_contexts(existing, ctx_data)
+            # Merge v4 categories from existing into ctx_data
+            for category, topics in existing.get("categories", {}).items():
+                if category not in ctx_data.setdefault("categories", {}):
+                    ctx_data["categories"][category] = []
+                existing_keys = {t.get("topic", "").lower() for t in ctx_data["categories"][category]}
+                for topic in topics:
+                    if topic.get("topic", "").lower() not in existing_keys:
+                        ctx_data["categories"][category].append(topic)
             if args.verbose:
                 print(f"\nMerged with {merge_path}")
 

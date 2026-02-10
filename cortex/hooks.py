@@ -174,6 +174,7 @@ def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
     """Load graph, apply disclosure policy, format as compact markdown.
 
     Returns empty string if graph can't be loaded or is empty.
+    cwd: optional working directory for future project-aware context.
     """
     if not config.graph_path:
         return ""
@@ -186,6 +187,17 @@ def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
     policy = BUILTIN_POLICIES.get(config.policy)
     if policy is None:
         policy = BUILTIN_POLICIES["technical"]
+
+    # If include_project and cwd provided, try to load project-specific graph
+    if config.include_project and cwd:
+        project_graph_path = Path(cwd) / ".cortex" / "graph.json"
+        if project_graph_path.exists():
+            project_graph = _load_graph(str(project_graph_path))
+            if project_graph and project_graph.nodes:
+                # Merge project nodes into main graph for context
+                for node in project_graph.nodes.values():
+                    if node.id not in graph.nodes:
+                        graph.nodes[node.id] = node
 
     filtered = apply_disclosure(graph, policy)
     if not filtered.nodes:

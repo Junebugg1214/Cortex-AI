@@ -298,13 +298,13 @@ def parse_timestamp(ts: Any) -> datetime | None:
     if isinstance(ts, (int, float)):
         try:
             return datetime.fromtimestamp(ts, tz=timezone.utc)
-        except:
+        except (ValueError, TypeError, OSError, OverflowError):
             return None
     if isinstance(ts, str):
         for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
             try:
                 return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
-            except:
+            except (ValueError, TypeError):
                 continue
     return None
 
@@ -671,7 +671,7 @@ class AggressiveExtractor:
     
     def _extract_identity(self, text: str, timestamp: datetime | None = None):
         for pattern in IDENTITY_PATTERNS:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
+            for match in re.finditer(pattern, text):
                 name = match.group(1).strip()
                 if name.lower() not in SKIP_WORDS:
                     self.context.add_topic("identity", name, brief=name, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
@@ -839,11 +839,11 @@ class AggressiveExtractor:
         for topics in self.context.topics.values():
             for key, topic in topics.items():
                 if key in lower or normalize_text(topic.topic) in normalize_text(text):
-                    if is_current:
+                    if is_current and "current" not in topic.timeline:
                         topic.timeline.append("current")
-                    if is_past:
+                    if is_past and "past" not in topic.timeline:
                         topic.timeline.append("past")
-                    if is_future:
+                    if is_future and "planned" not in topic.timeline:
                         topic.timeline.append("planned")
 
     def _extract_negations(self, text: str, timestamp: datetime | None = None):
@@ -961,10 +961,16 @@ class AggressiveExtractor:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 # Handle both single-group and two-group patterns
                 if match.lastindex >= 2:
-                    # Check if this is the "X not Y" pattern where X is correct, Y is wrong
-                    if " not " in match.group(0).lower():
+                    # Determine which group is correct vs wrong based on pattern
+                    matched_text = match.group(0).lower()
+                    if pattern is CORRECTIONS_PATTERNS[0]:
+                        # "I meant X not Y" — group(1) is correct, group(2) is wrong
                         correct_item = match.group(1).strip()
                         wrong_item = match.group(2).strip()
+                    elif matched_text.startswith(("not ", "no ")) or matched_text.startswith("no,"):
+                        # "not X but Y" — group(1) is wrong, group(2) is correct
+                        wrong_item = match.group(1).strip()
+                        correct_item = match.group(2).strip()
                     else:
                         # Standard pattern: group 1 is wrong, group 2 is correct
                         wrong_item = match.group(1).strip()
@@ -1035,6 +1041,8 @@ class AggressiveExtractor:
         conversations = data if isinstance(data, list) else data.get("conversations", data.get("items", []))
         for conv in conversations:
             for node in conv.get("mapping", {}).values():
+                if not isinstance(node, dict):
+                    continue
                 message = node.get("message")
                 if message and is_user_message(message):
                     self.extract_from_text(get_message_text(message), parse_timestamp(message.get("create_time")))
