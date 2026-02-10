@@ -113,7 +113,7 @@ Every extraction snapshots each node's state. Cortex tracks how your identity ev
 ```bash
 cortex timeline context.json --format html
 cortex contradictions context.json --severity 0.5
-cortex drift context.json --window 90
+cortex drift context.json --compare previous.json
 ```
 
 ### 3. UPAI Protocol (Universal Portable AI Identity)
@@ -138,7 +138,7 @@ cortex log
 cortex identity --show
 
 # Push to Claude with professional disclosure policy
-cortex sync claude --push --policy professional -o ./output
+cortex sync context.json --to claude --policy professional -o ./output
 ```
 
 **Built-in disclosure policies:**
@@ -458,7 +458,7 @@ cortex-identity/                    # pip install cortex-identity
 cortex <export> --to <platform> -o ./output    # One-step migrate
 cortex extract <export> -o context.json         # Extract only
 cortex import context.json --to <platform>      # Import only
-cortex merge old.json new.json -o merged.json   # Merge contexts
+cortex extract new.json --merge old.json -o merged.json  # Merge contexts
 ```
 
 ### Query & Intelligence
@@ -484,8 +484,7 @@ cortex identity --init --name <name>             # Create identity
 cortex commit <graph> -m <message>               # Version commit
 cortex log                                       # Version history
 cortex identity --show                           # Show identity
-cortex sync <platform> --push --policy <name>   # Push to platform
-cortex sync <platform> --pull <file>            # Pull from platform
+cortex sync <graph> --to <platform> --policy <name>  # Push to platform
 ```
 
 ### Visualization & Flywheel
