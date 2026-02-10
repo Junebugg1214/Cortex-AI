@@ -129,6 +129,8 @@ class SyncScheduler:
         timer.daemon = True
         timer.start()
         with self._lock:
+            # Prune completed timers to prevent memory leak
+            self._timers = [t for t in self._timers if t.is_alive()]
             self._timers.append(timer)
 
     def _run_sync(self, schedule: SyncSchedule) -> None:

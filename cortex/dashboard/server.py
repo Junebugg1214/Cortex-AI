@@ -232,9 +232,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         result = []
         for comp in comps:
             labels = sorted(
-                graph.get_node(nid).label
+                node.label
                 for nid in comp
-                if graph.get_node(nid)
+                for node in [graph.get_node(nid)]
+                if node is not None
             )
             result.append({"size": len(comp), "labels": labels})
         self._json_response(result)
@@ -247,7 +248,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:8420")
         self.end_headers()
         self.wfile.write(body)
 
@@ -271,6 +272,8 @@ def start_dashboard(
     print(f"Cortex Dashboard: http://127.0.0.1:{port}")
     if open_browser:
         import webbrowser
-        webbrowser.open(f"http://127.0.0.1:{port}")
+        import threading as _threading
+        # Open browser after a short delay so serve_forever() is running
+        _threading.Timer(0.5, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
     server.serve_forever()
     return server

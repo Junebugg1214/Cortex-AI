@@ -96,7 +96,7 @@ class Node:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
             "relationship_type": self.relationship_type,
-            "snapshots": [dict(s) for s in self.snapshots],
+            "snapshots": [{k: list(v) if isinstance(v, list) else v for k, v in s.items()} for s in self.snapshots],
         }
         return d
 
@@ -227,9 +227,17 @@ class CortexGraph:
             meta=dict(self.meta),
         )
 
+        def _normalize_ts(ts: str) -> str:
+            """Normalize Z suffix to +00:00 for consistent comparison."""
+            if ts.endswith("Z"):
+                return ts[:-1] + "+00:00"
+            return ts
+
+        norm_timestamp = _normalize_ts(timestamp)
+
         for nid, node in self.nodes.items():
             # Check if node existed at this time
-            if node.first_seen and node.first_seen > timestamp:
+            if node.first_seen and _normalize_ts(node.first_seen) > norm_timestamp:
                 continue
 
             node_copy = copy.deepcopy(node)
@@ -237,7 +245,7 @@ class CortexGraph:
             # Find latest snapshot at or before timestamp
             applicable = [
                 s for s in node.snapshots
-                if s.get("timestamp", "") <= timestamp
+                if _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
             if applicable:
                 applicable.sort(key=lambda s: s.get("timestamp", ""))
@@ -248,7 +256,7 @@ class CortexGraph:
             # Only include snapshots up to the timestamp
             node_copy.snapshots = [
                 s for s in node_copy.snapshots
-                if s.get("timestamp", "") <= timestamp
+                if _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
 
             result.nodes[nid] = node_copy

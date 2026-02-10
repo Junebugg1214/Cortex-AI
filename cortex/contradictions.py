@@ -154,19 +154,21 @@ class ContradictionEngine:
             if len(nodes) < 2:
                 continue
 
-            # Collect unique description hashes across nodes
-            desc_hashes: dict[str, str] = {}  # node_id -> description_hash
+            # Collect unique description hashes grouped by source
+            source_hashes: dict[str, set[str]] = {}  # source -> set of hashes
             for node in nodes:
                 snapshots = node.snapshots if hasattr(node, "snapshots") else []
                 for snap in snapshots:
                     source = snap.get("source", "unknown")
                     desc_hash = snap.get("description_hash", "")
-                    key = f"{node.id}:{source}"
                     if desc_hash:
-                        desc_hashes[key] = desc_hash
+                        source_hashes.setdefault(source, set()).add(desc_hash)
 
-            # If we have hashes from different sources that disagree
-            unique_hashes = set(desc_hashes.values())
+            # Only flag when different sources disagree (not temporal changes within one source)
+            if len(source_hashes) < 2:
+                continue
+            per_source_latest = {src: max(hashes) for src, hashes in source_hashes.items()}
+            unique_hashes = set(per_source_latest.values())
             if len(unique_hashes) >= 2:
                 node_ids = [n.id for n in nodes]
                 severity = min(1.0, 0.5 + (len(unique_hashes) * 0.15))
@@ -220,9 +222,8 @@ class ContradictionEngine:
                             detected_at=now,
                             resolution="prefer_newer",
                         ))
-                        break
                     # Was in negation, moved to positive
-                    if neg_tag in tags_before and pos_tag in tags_after and pos_tag not in tags_before:
+                    elif neg_tag in tags_before and pos_tag in tags_after and pos_tag not in tags_before:
                         severity = 0.6
                         contradictions.append(Contradiction(
                             type="tag_conflict",
@@ -235,6 +236,5 @@ class ContradictionEngine:
                             detected_at=now,
                             resolution="prefer_newer",
                         ))
-                        break
 
         return contradictions

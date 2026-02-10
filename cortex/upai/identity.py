@@ -110,13 +110,18 @@ class UPAIIdentity:
         public_path = store_dir / "identity.json"
         public_path.write_text(json.dumps(self.to_public_dict(), indent=2))
 
-        # Private key
+        # Private key — restrict file permissions
         if self._private_key is not None:
             key_path = store_dir / "identity.key"
             key_data = {
                 "private_key_b64": base64.b64encode(self._private_key).decode("ascii"),
             }
             key_path.write_text(json.dumps(key_data, indent=2))
+            try:
+                import os as _os
+                _os.chmod(key_path, 0o600)
+            except OSError:
+                pass  # Best-effort on platforms that don't support chmod
 
     @classmethod
     def load(cls, store_dir: Path) -> UPAIIdentity:
@@ -153,16 +158,21 @@ class UPAIIdentity:
             return base64.b64encode(sig).decode("ascii")
 
     @classmethod
-    def verify(cls, data: bytes, signature_b64: str, public_key_b64: str) -> bool:
+    def verify(cls, data: bytes, signature_b64: str, public_key_b64: str, *, key_type: str = "ed25519") -> bool:
         """Verify a signature against public key.
 
         For Ed25519: true cryptographic verification.
         For HMAC: always returns False (HMAC verification requires the secret).
+        key_type should be "ed25519" or "sha256" to disambiguate key format.
         """
+        if key_type != "ed25519":
+            # HMAC mode: cannot verify without the secret key
+            return False
+
         sig_bytes = base64.b64decode(signature_b64)
         pub_bytes = base64.b64decode(public_key_b64)
 
-        if _HAS_CRYPTO and len(pub_bytes) == 32:
+        if _HAS_CRYPTO:
             try:
                 verify_key = nacl.signing.VerifyKey(pub_bytes)
                 verify_key.verify(data, sig_bytes)
@@ -170,7 +180,7 @@ class UPAIIdentity:
             except Exception:
                 return False
 
-        # HMAC mode: cannot verify without the secret key
+        # No crypto library available
         return False
 
     def verify_own(self, data: bytes, signature_b64: str) -> bool:

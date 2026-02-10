@@ -303,7 +303,7 @@ class TestDriftScoring:
         )
         result = drift_score(g_a, g_b)
         assert result["sufficient_data"] is False
-        assert result["score"] == 0.0
+        assert result["score"] is None
 
     def test_drift_insufficient_data_both_small(self):
         g_a = _make_graph(_make_node("Python"), _make_node("Django"))

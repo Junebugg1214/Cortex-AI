@@ -275,11 +275,11 @@ def render_svg(
     # Build index for edge rendering
     node_id_to_idx: dict[str, int] = {}
     node_positions: list[dict] = []
-    for i, (nid, pos) in enumerate(layout.items()):
+    for nid, pos in layout.items():
         node = graph.get_node(nid)
         if not node:
             continue
-        node_id_to_idx[nid] = i
+        node_id_to_idx[nid] = len(node_positions)
         primary_tag = node.tags[0] if node.tags else "mentions"
         node_positions.append({
             "x": round(pos[0] * width, 2),

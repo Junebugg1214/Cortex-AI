@@ -185,6 +185,11 @@ class QueryEngine:
         new_nodes: list[dict] = []
         updated_nodes: list[dict] = []
 
+        def _norm_ts(t: str) -> str:
+            return t[:-1] + "+00:00" if t.endswith("Z") else t
+
+        norm_since = _norm_ts(since)
+
         for node in self.graph.nodes.values():
             node_info = {
                 "id": node.id,
@@ -194,7 +199,7 @@ class QueryEngine:
             }
 
             # New node: first_seen >= since
-            if node.first_seen and node.first_seen >= since:
+            if node.first_seen and _norm_ts(node.first_seen) >= norm_since:
                 new_nodes.append(node_info)
                 continue
 
@@ -202,11 +207,11 @@ class QueryEngine:
             has_update = False
             for snap in node.snapshots:
                 ts = snap.get("timestamp", "")
-                if ts and ts >= since:
+                if ts and _norm_ts(ts) >= norm_since:
                     has_update = True
                     break
             # Or last_seen >= since (and not new)
-            if not has_update and node.last_seen and node.last_seen >= since:
+            if not has_update and node.last_seen and _norm_ts(node.last_seen) >= norm_since:
                 has_update = True
 
             if has_update:
