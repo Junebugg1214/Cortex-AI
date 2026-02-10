@@ -68,7 +68,10 @@ class ExportMonitor:
     def _scan_initial(self) -> None:
         """Record initial file modification times without triggering extraction."""
         for path in self._exportable_files():
-            self._file_mtimes[str(path)] = path.stat().st_mtime
+            try:
+                self._file_mtimes[str(path)] = path.stat().st_mtime
+            except OSError:
+                continue
 
     def _poll_loop(self) -> None:
         """Main polling loop."""
@@ -85,7 +88,10 @@ class ExportMonitor:
 
         for path in current_files:
             key = str(path)
-            mtime = path.stat().st_mtime
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
             old_mtime = self._file_mtimes.get(key)
             if old_mtime is None or mtime > old_mtime:
                 changed.append(path)
@@ -143,8 +149,13 @@ class ExportMonitor:
     def _load_or_create_graph(self) -> CortexGraph:
         """Load existing graph from graph_path, or create empty."""
         if self.graph_path.exists():
-            with open(self.graph_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(self.graph_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                import sys
+                print(f"[cortex monitor] Corrupted graph file {self.graph_path}, starting fresh", file=sys.stderr)
+                return CortexGraph()
             version = data.get("schema_version", "")
             if version.startswith("5") or version.startswith("6"):
                 return CortexGraph.from_v5_json(data)
@@ -152,10 +163,12 @@ class ExportMonitor:
         return CortexGraph()
 
     def _save_graph(self, graph: CortexGraph) -> None:
-        """Save graph to graph_path."""
+        """Save graph to graph_path atomically via tmp+rename."""
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.graph_path, "w", encoding="utf-8") as f:
+        tmp_path = self.graph_path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(graph.export_v5(), f, indent=2)
+        tmp_path.replace(self.graph_path)
 
     def _extract_from_file(self, path: Path) -> dict | None:
         """Attempt to extract v4 data from a file. Returns None on failure."""

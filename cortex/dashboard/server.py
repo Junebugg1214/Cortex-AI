@@ -248,7 +248,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:8420")
+        origin = self.headers.get("Origin", "")
+        allowed = {"http://127.0.0.1:8420", "http://localhost:8420"}
+        self.send_header("Access-Control-Allow-Origin", origin if origin in allowed else "http://127.0.0.1:8420")
         self.end_headers()
         self.wfile.write(body)
 

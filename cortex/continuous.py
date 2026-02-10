@@ -196,7 +196,11 @@ class CodingSessionWatcher:
         if processed:
             self._save_graph()
             if self.on_update:
-                self.on_update(self.graph_path, self._graph)
+                try:
+                    self.on_update(self.graph_path, self._graph)
+                except Exception as exc:
+                    import sys
+                    print(f"[cortex continuous] on_update callback error: {exc}", file=sys.stderr)
 
         return processed
 

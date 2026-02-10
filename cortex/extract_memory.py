@@ -1346,7 +1346,7 @@ def main():
         result = extractor.process_gemini_export(data)
     elif fmt == "perplexity":
         result = extractor.process_perplexity_export(data)
-    elif fmt == "jsonl":
+    elif fmt in ("jsonl", "claude_code"):
         result = extractor.process_jsonl_messages(data)
     elif fmt == "api_logs":
         result = extractor.process_api_logs(data)

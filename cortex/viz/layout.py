@@ -126,8 +126,8 @@ def _fr_pure(
             pos[nid][0] = max(0.0, min(width, pos[nid][0]))
             pos[nid][1] = max(0.0, min(height, pos[nid][1]))
 
-        # Cool temperature
-        temp *= 1.0 - (iteration + 1) / iterations
+        # Cool temperature (linear schedule)
+        temp = (width / 10.0) * (1.0 - (iteration + 1) / iterations)
 
         if progress:
             progress(iteration + 1, iterations)
@@ -214,8 +214,8 @@ def _fr_numpy(
         np.clip(pos[:, 0], 0.0, width, out=pos[:, 0])
         np.clip(pos[:, 1], 0.0, height, out=pos[:, 1])
 
-        # Cool temperature
-        temp *= 1.0 - (iteration + 1) / iterations
+        # Cool temperature (linear schedule)
+        temp = (width / 10.0) * (1.0 - (iteration + 1) / iterations)
 
         if progress:
             progress(iteration + 1, iterations)
