@@ -8,15 +8,29 @@
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
 </p>
 
-<p align="center">
-  <img src="assets/demo.svg" alt="Cortex demo" width="800">
-</p>
-
 ---
 
 **Your ChatGPT knows you. Now Claude does too.**
 
 Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies.
+
+### Own your memory
+
+<p align="center">
+  <img src="assets/demo-own.gif" alt="Extract and query your AI memory" width="800">
+</p>
+
+### Share it how you want
+
+<p align="center">
+  <img src="assets/demo-share.gif" alt="Disclosure policies control what each platform sees" width="800">
+</p>
+
+### Serve it as an API
+
+<p align="center">
+  <img src="assets/demo-api.gif" alt="CaaS server with grant tokens and HTTP access" width="800">
+</p>
 
 ## Quick Start
 
