@@ -1,0 +1,298 @@
+{
+  "schema_version": "5.0",
+  "meta": {
+    "node_count": 12,
+    "edge_count": 16,
+    "generated_at": "2026-02-15T12:00:00Z"
+  },
+  "graph": {
+    "nodes": {
+      "node_python": {
+        "id": "node_python",
+        "label": "Python",
+        "tags": ["technical_expertise"],
+        "confidence": 0.95,
+        "properties": {},
+        "brief": "Primary language for backend systems and tooling",
+        "full_description": "Extensive experience with async patterns, FastAPI, pytest, and building zero-dependency libraries.",
+        "mention_count": 14,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-15T00:00:00Z"
+      },
+      "node_fastapi": {
+        "id": "node_fastapi",
+        "label": "FastAPI",
+        "tags": ["technical_expertise"],
+        "confidence": 0.88,
+        "properties": {},
+        "brief": "Preferred web framework for async microservices",
+        "full_description": "Migrating backend services from Flask to FastAPI for better async support and automatic OpenAPI generation.",
+        "mention_count": 8,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-10T00:00:00Z"
+      },
+      "node_kubernetes": {
+        "id": "node_kubernetes",
+        "label": "Kubernetes",
+        "tags": ["technical_expertise", "domain_knowledge"],
+        "confidence": 0.85,
+        "properties": {},
+        "brief": "Container orchestration on AWS EKS",
+        "full_description": "Manages Kubernetes clusters with blue-green deployments, Helm charts, and Terraform for infrastructure-as-code.",
+        "mention_count": 6,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-20T00:00:00Z",
+        "last_seen": "2026-02-12T00:00:00Z"
+      },
+      "node_knowledge_graphs": {
+        "id": "node_knowledge_graphs",
+        "label": "Knowledge Graphs",
+        "tags": ["domain_knowledge", "active_priorities"],
+        "confidence": 0.92,
+        "properties": {},
+        "brief": "Building identity-aware knowledge graph systems",
+        "full_description": "Designing graph-based systems for personal context storage with confidence scoring and disclosure policies.",
+        "mention_count": 11,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-18T00:00:00Z",
+        "last_seen": "2026-02-15T00:00:00Z"
+      },
+      "node_api_design": {
+        "id": "node_api_design",
+        "label": "API Design",
+        "tags": ["technical_expertise", "professional_context"],
+        "confidence": 0.90,
+        "properties": {},
+        "brief": "RESTful API design with 8 years of experience",
+        "full_description": "Designs APIs with clear resource naming, URL-path versioning, and actionable error messages.",
+        "mention_count": 9,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-14T00:00:00Z"
+      },
+      "node_meridian_labs": {
+        "id": "node_meridian_labs",
+        "label": "Meridian Labs",
+        "tags": ["professional_context"],
+        "confidence": 0.82,
+        "properties": {},
+        "brief": "Current employer — senior engineer role",
+        "full_description": "Senior engineer at Meridian Labs, processing 50k req/s, leading a team of 5 engineers.",
+        "mention_count": 4,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-01T00:00:00Z"
+      },
+      "node_data_sovereignty": {
+        "id": "node_data_sovereignty",
+        "label": "Data Sovereignty",
+        "tags": ["identity", "active_priorities"],
+        "confidence": 0.88,
+        "properties": {},
+        "brief": "Users should own their AI context data",
+        "full_description": "Believes platforms should not own user context. Building tools for portable, user-controlled identity.",
+        "mention_count": 7,
+        "extraction_method": "pattern_match",
+        "first_seen": "2026-01-18T00:00:00Z",
+        "last_seen": "2026-02-15T00:00:00Z"
+      },
+      "node_mentoring": {
+        "id": "node_mentoring",
+        "label": "Mentoring",
+        "tags": ["identity", "professional_context"],
+        "confidence": 0.75,
+        "properties": {},
+        "brief": "Mentors two junior engineers, reviews all PRs",
+        "full_description": "Active mentor who reviews all junior engineer PRs and values code readability.",
+        "mention_count": 3,
+        "extraction_method": "pattern_match",
+        "first_seen": "2026-02-01T00:00:00Z",
+        "last_seen": "2026-02-12T00:00:00Z"
+      },
+      "node_postgresql": {
+        "id": "node_postgresql",
+        "label": "PostgreSQL",
+        "tags": ["technical_expertise"],
+        "confidence": 0.82,
+        "properties": {},
+        "brief": "Primary database with async drivers",
+        "full_description": "Uses PostgreSQL with async drivers for high-throughput backend services.",
+        "mention_count": 5,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-20T00:00:00Z",
+        "last_seen": "2026-02-08T00:00:00Z"
+      },
+      "node_docker": {
+        "id": "node_docker",
+        "label": "Docker",
+        "tags": ["technical_expertise"],
+        "confidence": 0.80,
+        "properties": {},
+        "brief": "Container platform — writes Dockerfiles and Helm charts",
+        "full_description": "Docker is central to the deployment workflow. Authors all Dockerfiles and Helm charts.",
+        "mention_count": 4,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-20T00:00:00Z",
+        "last_seen": "2026-02-10T00:00:00Z"
+      },
+      "node_simplicity": {
+        "id": "node_simplicity",
+        "label": "Simplicity",
+        "tags": ["identity", "user_preferences"],
+        "confidence": 0.85,
+        "properties": {},
+        "brief": "Values simplicity over cleverness in code",
+        "full_description": "Prefers readable code, no external dependencies when possible, and concise documentation.",
+        "mention_count": 5,
+        "extraction_method": "pattern_match",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-15T00:00:00Z"
+      },
+      "node_testing": {
+        "id": "node_testing",
+        "label": "Testing",
+        "tags": ["technical_expertise", "user_preferences"],
+        "confidence": 0.87,
+        "properties": {},
+        "brief": "Pytest with 95% coverage minimum",
+        "full_description": "Runs pytest extensively, enforces 95% code coverage, considers testing critical to workflow.",
+        "mention_count": 6,
+        "extraction_method": "direct_mention",
+        "first_seen": "2026-01-15T00:00:00Z",
+        "last_seen": "2026-02-14T00:00:00Z"
+      }
+    },
+    "edges": {
+      "edge_python_fastapi": {
+        "id": "edge_python_fastapi",
+        "source_id": "node_python",
+        "target_id": "node_fastapi",
+        "relation": "works_with",
+        "confidence": 0.90,
+        "properties": {}
+      },
+      "edge_python_postgresql": {
+        "id": "edge_python_postgresql",
+        "source_id": "node_python",
+        "target_id": "node_postgresql",
+        "relation": "works_with",
+        "confidence": 0.85,
+        "properties": {}
+      },
+      "edge_python_testing": {
+        "id": "edge_python_testing",
+        "source_id": "node_python",
+        "target_id": "node_testing",
+        "relation": "related_to",
+        "confidence": 0.88,
+        "properties": {}
+      },
+      "edge_kubernetes_docker": {
+        "id": "edge_kubernetes_docker",
+        "source_id": "node_kubernetes",
+        "target_id": "node_docker",
+        "relation": "works_with",
+        "confidence": 0.87,
+        "properties": {}
+      },
+      "edge_fastapi_api_design": {
+        "id": "edge_fastapi_api_design",
+        "source_id": "node_fastapi",
+        "target_id": "node_api_design",
+        "relation": "related_to",
+        "confidence": 0.82,
+        "properties": {}
+      },
+      "edge_meridian_python": {
+        "id": "edge_meridian_python",
+        "source_id": "node_meridian_labs",
+        "target_id": "node_python",
+        "relation": "uses",
+        "confidence": 0.80,
+        "properties": {}
+      },
+      "edge_meridian_kubernetes": {
+        "id": "edge_meridian_kubernetes",
+        "source_id": "node_meridian_labs",
+        "target_id": "node_kubernetes",
+        "relation": "uses",
+        "confidence": 0.78,
+        "properties": {}
+      },
+      "edge_knowledge_graphs_sovereignty": {
+        "id": "edge_knowledge_graphs_sovereignty",
+        "source_id": "node_knowledge_graphs",
+        "target_id": "node_data_sovereignty",
+        "relation": "motivated_by",
+        "confidence": 0.90,
+        "properties": {}
+      },
+      "edge_knowledge_graphs_api": {
+        "id": "edge_knowledge_graphs_api",
+        "source_id": "node_knowledge_graphs",
+        "target_id": "node_api_design",
+        "relation": "related_to",
+        "confidence": 0.78,
+        "properties": {}
+      },
+      "edge_knowledge_graphs_python": {
+        "id": "edge_knowledge_graphs_python",
+        "source_id": "node_knowledge_graphs",
+        "target_id": "node_python",
+        "relation": "built_with",
+        "confidence": 0.85,
+        "properties": {}
+      },
+      "edge_mentoring_simplicity": {
+        "id": "edge_mentoring_simplicity",
+        "source_id": "node_mentoring",
+        "target_id": "node_simplicity",
+        "relation": "values",
+        "confidence": 0.75,
+        "properties": {}
+      },
+      "edge_mentoring_testing": {
+        "id": "edge_mentoring_testing",
+        "source_id": "node_mentoring",
+        "target_id": "node_testing",
+        "relation": "emphasizes",
+        "confidence": 0.78,
+        "properties": {}
+      },
+      "edge_mentoring_meridian": {
+        "id": "edge_mentoring_meridian",
+        "source_id": "node_mentoring",
+        "target_id": "node_meridian_labs",
+        "relation": "at",
+        "confidence": 0.72,
+        "properties": {}
+      },
+      "edge_sovereignty_simplicity": {
+        "id": "edge_sovereignty_simplicity",
+        "source_id": "node_data_sovereignty",
+        "target_id": "node_simplicity",
+        "relation": "aligns_with",
+        "confidence": 0.70,
+        "properties": {}
+      },
+      "edge_docker_python": {
+        "id": "edge_docker_python",
+        "source_id": "node_docker",
+        "target_id": "node_python",
+        "relation": "packages",
+        "confidence": 0.75,
+        "properties": {}
+      },
+      "edge_api_testing": {
+        "id": "edge_api_testing",
+        "source_id": "node_api_design",
+        "target_id": "node_testing",
+        "relation": "requires",
+        "confidence": 0.80,
+        "properties": {}
+      }
+    }
+  }
+}

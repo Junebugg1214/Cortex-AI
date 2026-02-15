@@ -1,0 +1,120 @@
+[
+  {
+    "title": "Python async patterns",
+    "mapping": {
+      "msg_001": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["I've been working on migrating our backend from Flask to FastAPI. The async patterns are much cleaner for our microservices architecture. I'm a senior engineer at Meridian Labs and we process about 50k requests per second."]},
+          "create_time": 1706745600
+        }
+      },
+      "msg_002": {
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"parts": ["FastAPI is a great choice for high-throughput microservices..."]}
+        }
+      },
+      "msg_003": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["We use PostgreSQL with async drivers and Redis for caching. I also maintain our internal Python SDK that other teams depend on. Testing is critical for us — we run pytest with 95% coverage minimum."]},
+          "create_time": 1706745900
+        }
+      }
+    }
+  },
+  {
+    "title": "Kubernetes deployment strategy",
+    "mapping": {
+      "msg_010": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["I'm setting up our Kubernetes cluster on AWS EKS. We need blue-green deployments for zero-downtime releases. My team of 5 engineers relies on clean CI/CD pipelines — we use GitHub Actions for everything."]},
+          "create_time": 1707004800
+        }
+      },
+      "msg_011": {
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"parts": ["Blue-green deployments on EKS are well-supported..."]}
+        }
+      },
+      "msg_012": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["Docker is central to our workflow. I write all our Dockerfiles and Helm charts. Terraform manages the infrastructure. I prefer infrastructure-as-code over ClickOps every time."]},
+          "create_time": 1707005100
+        }
+      }
+    }
+  },
+  {
+    "title": "Graph database design",
+    "mapping": {
+      "msg_020": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["I'm building a knowledge graph system for personal identity data. The core idea is that people should own their AI context — not the platforms. I use NetworkX for prototyping but the production system is pure Python with no external dependencies."]},
+          "create_time": 1707264000
+        }
+      },
+      "msg_021": {
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"parts": ["That's an interesting approach to data sovereignty..."]}
+        }
+      },
+      "msg_022": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["The graph stores nodes with confidence scores and edges with relationship types. I'm implementing disclosure policies so users can control what each platform sees — full context for trusted tools, minimal for others."]},
+          "create_time": 1707264300
+        }
+      }
+    }
+  },
+  {
+    "title": "API design principles",
+    "mapping": {
+      "msg_030": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["I strongly prefer RESTful APIs with clear resource naming. Versioning should be in the URL path, not headers. Every endpoint needs proper error responses with actionable messages. I've been designing APIs for about 8 years now."]},
+          "create_time": 1707523200
+        }
+      },
+      "msg_031": {
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"parts": ["Those are solid API design principles..."]}
+        }
+      }
+    }
+  },
+  {
+    "title": "Open source philosophy",
+    "mapping": {
+      "msg_040": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["I believe in building tools that respect user autonomy. My projects are MIT-licensed. I value simplicity over cleverness — code should be readable by a junior developer. I mentor two junior engineers on my team and review all their PRs."]},
+          "create_time": 1707782400
+        }
+      },
+      "msg_041": {
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"parts": ["That's a great mentoring philosophy..."]}
+        }
+      },
+      "msg_042": {
+        "message": {
+          "author": {"role": "user"},
+          "content": {"parts": ["Communication style: I prefer concise, direct messages. No fluff. Technical writing should be precise. I document architecture decisions in ADRs and keep READMEs up to date."]},
+          "create_time": 1707782700
+        }
+      }
+    }
+  }
+]
