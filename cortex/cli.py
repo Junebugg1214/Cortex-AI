@@ -396,6 +396,39 @@ def build_parser():
     cw.add_argument("--interval", type=int, default=30,
                     help="Watch poll interval in seconds (default: 30)")
 
+    # -- serve (CaaS API) -------------------------------------------------
+    sv = sub.add_parser("serve", help="Start CaaS API server")
+    sv.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    sv.add_argument("--port", "-p", type=int, default=8421,
+                    help="Server port (default: 8421)")
+    sv.add_argument("--store-dir", default=".cortex",
+                    help="Identity/version store directory (default: .cortex)")
+    sv.add_argument("--allowed-origins", nargs="*",
+                    help="CORS allowed origins")
+
+    # -- grant (manage CaaS grants) ----------------------------------------
+    gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
+    gr.add_argument("--create", action="store_true", help="Create a new grant")
+    gr.add_argument("--list", action="store_true", dest="list_grants",
+                    help="List all grants")
+    gr.add_argument("--revoke", metavar="GRANT_ID", help="Revoke a grant")
+    gr.add_argument("--audience", help="Audience for new grant")
+    gr.add_argument("--policy", default="professional",
+                    choices=list(BUILTIN_POLICIES.keys()),
+                    help="Disclosure policy (default: professional)")
+    gr.add_argument("--ttl", type=int, default=24,
+                    help="Token TTL in hours (default: 24)")
+    gr.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
+
+    # -- rotate (key rotation) ---------------------------------------------
+    ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
+    ro.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
+    ro.add_argument("--reason", default="rotated",
+                    choices=["rotated", "compromised", "expired"],
+                    help="Rotation reason (default: rotated)")
+
     return parser
 
 
@@ -1553,6 +1586,143 @@ def run_stats(args):
 
 
 # ---------------------------------------------------------------------------
+# CaaS: serve, grant, rotate
+# ---------------------------------------------------------------------------
+
+def run_serve(args):
+    """Start the CaaS API server."""
+    from cortex.caas.server import start_caas_server
+
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    data = json.loads(input_path.read_text(encoding="utf-8"))
+    version = data.get("schema_version", "")
+    if version.startswith(("5", "6")):
+        graph = CortexGraph.from_v5_json(data)
+    else:
+        graph = upgrade_v4_to_v5(data)
+
+    store_dir = Path(args.store_dir)
+    if not (store_dir / "identity.json").exists():
+        print(f"No identity found in {store_dir}. Run: cortex identity --init")
+        return 1
+
+    identity = UPAIIdentity.load(store_dir)
+    version_store = VersionStore(store_dir)
+
+    allowed_origins = None
+    if args.allowed_origins:
+        allowed_origins = set(args.allowed_origins)
+
+    grants_path = str(store_dir / "grants.json")
+
+    print(f"CaaS API: http://127.0.0.1:{args.port}")
+    print(f"Identity: {identity.did}")
+    print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+    print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
+
+    server = start_caas_server(
+        graph=graph,
+        identity=identity,
+        version_store=version_store,
+        port=args.port,
+        allowed_origins=allowed_origins,
+        grants_persist_path=grants_path,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        server.shutdown()
+    return 0
+
+
+def run_grant(args):
+    """Manage CaaS grant tokens."""
+    from cortex.upai.tokens import GrantToken
+
+    store_dir = Path(args.store_dir)
+    if not (store_dir / "identity.json").exists():
+        print(f"No identity found in {store_dir}. Run: cortex identity --init")
+        return 1
+
+    identity = UPAIIdentity.load(store_dir)
+
+    if args.create:
+        audience = args.audience
+        if not audience:
+            print("--audience is required for --create")
+            return 1
+
+        token = GrantToken.create(
+            identity, audience=audience,
+            policy=args.policy, ttl_hours=args.ttl,
+        )
+        token_str = token.sign(identity)
+
+        print(f"Grant ID: {token.grant_id}")
+        print(f"Audience: {token.audience}")
+        print(f"Policy: {token.policy}")
+        print(f"Scopes: {', '.join(token.scopes)}")
+        print(f"Expires: {token.expires_at}")
+        print(f"\nToken:\n{token_str}")
+        return 0
+
+    elif args.list_grants:
+        from cortex.caas.server import GrantStore
+        grants_path = str(store_dir / "grants.json")
+        gs = GrantStore(persist_path=grants_path)
+        grants = gs.list_all()
+        if not grants:
+            print("No grants found.")
+        else:
+            for g in grants:
+                status = "REVOKED" if g.get("revoked") else "active"
+                print(f"  {g['grant_id'][:12]}... | {g.get('audience', '?')} | {g.get('policy', '?')} | {status}")
+        return 0
+
+    elif args.revoke:
+        from cortex.caas.server import GrantStore
+        grants_path = str(store_dir / "grants.json")
+        gs = GrantStore(persist_path=grants_path)
+        if gs.revoke(args.revoke):
+            print(f"Revoked grant: {args.revoke}")
+        else:
+            print(f"Grant not found: {args.revoke}")
+            return 1
+        return 0
+
+    else:
+        print("Specify --create, --list, or --revoke")
+        return 1
+
+
+def run_rotate(args):
+    """Rotate UPAI identity key."""
+    from cortex.upai.keychain import Keychain
+
+    store_dir = Path(args.store_dir)
+    if not (store_dir / "identity.json").exists():
+        print(f"No identity found in {store_dir}. Run: cortex identity --init")
+        return 1
+
+    identity = UPAIIdentity.load(store_dir)
+    kc = Keychain(store_dir)
+
+    new_identity, proof = kc.rotate(identity)
+    print(f"Old DID: {identity.did}")
+    print(f"New DID: {new_identity.did}")
+    print(f"Reason: {args.reason}")
+    if proof:
+        print(f"Revocation proof: {proof[:32]}...")
+    print("Identity rotated successfully.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1569,6 +1739,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
+        "serve", "grant", "rotate",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1623,6 +1794,12 @@ def main(argv=None):
         return run_context_hook(args)
     elif args.subcommand == "context-export":
         return run_context_export(args)
+    elif args.subcommand == "serve":
+        return run_serve(args)
+    elif args.subcommand == "grant":
+        return run_grant(args)
+    elif args.subcommand == "rotate":
+        return run_rotate(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
     else:

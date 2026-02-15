@@ -41,9 +41,14 @@ def _graph_to_normalized(graph: CortexGraph, policy: DisclosurePolicy) -> Normal
 
 def _add_upai_envelope(data: dict | list, identity: UPAIIdentity | None) -> dict:
     """Wrap data with UPAI metadata and optional signature."""
+    import secrets as _secrets
+
+    exported_at = datetime.now(timezone.utc).isoformat()
     envelope: dict = {
         "upai_version": "5.2",
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": exported_at,
+        "nonce": _secrets.token_hex(16),
+        "iat": exported_at,
         "data": data,
     }
     if identity is not None:

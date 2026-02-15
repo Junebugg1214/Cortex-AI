@@ -32,7 +32,7 @@ class TestIdentityGeneration:
     def test_generate_creates_identity(self):
         identity = UPAIIdentity.generate("Test User")
         assert identity.name == "Test User"
-        assert identity.did.startswith("did:upai:")
+        assert identity.did.startswith("did:")
         assert identity.public_key_b64
         assert identity.created_at
         assert identity._private_key is not None
@@ -41,10 +41,9 @@ class TestIdentityGeneration:
         if not has_crypto():
             return  # skip
         identity = UPAIIdentity.generate("Test")
-        assert identity.did.startswith("did:upai:ed25519:")
-        # fingerprint is 32 hex chars
-        fingerprint = identity.did.split(":")[-1]
-        assert len(fingerprint) == 32
+        assert identity.did.startswith("did:key:z6Mk")
+        # did:key format: z + base58btc(multicodec_prefix + public_key)
+        assert len(identity.did) > 20
 
     def test_did_format_hmac_fallback(self):
         # Force HMAC mode by temporarily disabling crypto
