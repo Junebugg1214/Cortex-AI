@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" width="820" height="470">
+  <style>
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
+    .line { opacity: 0; animation: fadeIn 0.4s ease forwards }
+    .l1  { animation-delay: 0.5s }
+    .l2  { animation-delay: 1.8s }
+    .l3  { animation-delay: 3.5s }
+    .l4  { animation-delay: 5.0s }
+    .l5  { animation-delay: 5.6s }
+    .l6  { animation-delay: 6.2s }
+    .l7  { animation-delay: 7.8s }
+    .l8  { animation-delay: 9.0s }
+    .l9  { animation-delay: 9.5s }
+    .l10 { animation-delay: 10.0s }
+    .l11 { animation-delay: 10.5s }
+    .l12 { animation-delay: 12.0s }
+    .l13 { animation-delay: 13.2s }
+    .prompt { fill: #a6e3a1 }
+    .cmd { fill: #cdd6f4 }
+    .out { fill: #a6adc8 }
+    .accent { fill: #89dceb }
+    .file { fill: #f9e2af }
+    .success { fill: #a6e3a1 }
+    .dim { fill: #6c7086 }
+    .title-text { fill: #a6adc8; font-size: 13px }
+  </style>
+
+  <!-- Terminal window chrome -->
+  <rect width="820" height="470" rx="10" fill="#1e1e2e"/>
+  <rect width="820" height="36" rx="10" fill="#313244"/>
+  <rect y="26" width="820" height="10" fill="#313244"/>
+
+  <!-- Traffic lights -->
+  <circle cx="20" cy="18" r="6" fill="#f38ba8"/>
+  <circle cx="40" cy="18" r="6" fill="#f9e2af"/>
+  <circle cx="60" cy="18" r="6" fill="#a6e3a1"/>
+
+  <!-- Title bar text -->
+  <text x="410" y="22" text-anchor="middle" class="title-text" font-family="ui-monospace,SF Mono,Menlo,monospace">cortex-identity</text>
+
+  <g font-family="ui-monospace,SF Mono,Menlo,monospace" font-size="13.5">
+
+    <!-- Line 1: pip install -->
+    <g class="line l1">
+      <text x="20" y="65">
+        <tspan class="prompt">$</tspan>
+        <tspan class="cmd"> pip install cortex-identity</tspan>
+      </text>
+    </g>
+
+    <!-- Line 2: install success -->
+    <g class="line l2">
+      <text x="20" y="88" class="success">Successfully installed cortex-identity-1.0.0</text>
+    </g>
+
+    <!-- Line 3: cortex migrate command -->
+    <g class="line l3">
+      <text x="20" y="120">
+        <tspan class="prompt">$</tspan>
+        <tspan class="cmd"> cortex chatgpt-export.zip --to claude -o ./output</tspan>
+      </text>
+    </g>
+
+    <!-- Line 4: Loading -->
+    <g class="line l4">
+      <text x="20" y="143" class="out">Loading: chatgpt-export.zip</text>
+    </g>
+
+    <!-- Line 5: Format -->
+    <g class="line l5">
+      <text x="20" y="166" class="out">Format: openai</text>
+    </g>
+
+    <!-- Line 6: Extracted -->
+    <g class="line l6">
+      <text x="20" y="189">
+        <tspan class="out">Extracted </tspan>
+        <tspan class="accent">47 topics</tspan>
+        <tspan class="out"> across </tspan>
+        <tspan class="accent">12 categories</tspan>
+      </text>
+    </g>
+
+    <!-- Line 7: stats command -->
+    <g class="line l7">
+      <text x="20" y="225">
+        <tspan class="prompt">$</tspan>
+        <tspan class="cmd"> cortex stats output/context.json</tspan>
+      </text>
+    </g>
+
+    <!-- Line 8-11: stats output -->
+    <g class="line l8">
+      <text x="20" y="248">
+        <tspan class="out">Nodes: </tspan><tspan class="accent">47</tspan>
+      </text>
+    </g>
+    <g class="line l9">
+      <text x="20" y="271">
+        <tspan class="out">Edges: </tspan><tspan class="accent">23</tspan>
+      </text>
+    </g>
+    <g class="line l10">
+      <text x="20" y="294">
+        <tspan class="out">Top: </tspan>
+        <tspan class="file">Python</tspan>
+        <tspan class="dim"> (0.95)</tspan>
+        <tspan class="out">, </tspan>
+        <tspan class="file">React</tspan>
+        <tspan class="dim"> (0.88)</tspan>
+        <tspan class="out">, </tspan>
+        <tspan class="file">AWS</tspan>
+        <tspan class="dim"> (0.82)</tspan>
+      </text>
+    </g>
+
+    <!-- Line 12: viz command -->
+    <g class="line l11">
+      <text x="20" y="330">
+        <tspan class="prompt">$</tspan>
+        <tspan class="cmd"> cortex viz output/context.json --output graph.html</tspan>
+      </text>
+    </g>
+
+    <!-- Line 13: viz output -->
+    <g class="line l12">
+      <text x="20" y="353">
+        <tspan class="out">Wrote interactive graph to </tspan>
+        <tspan class="file">graph.html</tspan>
+        <tspan class="dim"> (47 nodes, 23 edges)</tspan>
+      </text>
+    </g>
+
+    <!-- Line 14: ready prompt -->
+    <g class="line l13">
+      <text x="20" y="389">
+        <tspan class="prompt">$</tspan>
+        <tspan class="cmd"> _</tspan>
+      </text>
+    </g>
+
+  </g>
+</svg>
