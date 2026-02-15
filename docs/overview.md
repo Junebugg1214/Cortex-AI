@@ -73,3 +73,33 @@ cortex extract-coding --watch -o context.json
 - **Cryptographically signed** — proves the data is yours and unchanged
 - **API-ready** — platforms can pull your context over HTTP instead of you copy-pasting
 - **Zero dependencies** — runs with just Python's standard library
+
+---
+
+## Setup & Adoption
+
+### Requirements
+
+- Python 3.10+
+- A terminal
+- That's it — no accounts, no API keys, no cloud services
+
+Optional: `pip install cortex-identity[crypto]` adds Ed25519 signatures (requires `pynacl`).
+
+### Time to First Result: ~5 Minutes
+
+1. **Install** (~30 seconds): `pip install cortex-identity`
+2. **Export from ChatGPT** (~2 minutes): Settings > Data Controls > Export Data > wait for email > download zip
+3. **Run extraction** (~10 seconds): `cortex chatgpt-export.zip -o context.json`
+4. **See what you got** (~10 seconds): `cortex stats context.json`
+
+### Who It's For Right Now
+
+Developers and power users who use multiple AI platforms, are comfortable with CLI tools, and care about owning their data. If you've felt the pain of starting over with a new AI because it doesn't know you — Cortex solves that.
+
+### Current Limitations
+
+- CLI-only — no GUI, no browser extension, no desktop app
+- Chat platform exports are manual (export zip, run command, repeat)
+- The CaaS server (serve/grant/tokens) has a learning curve
+- Claude doesn't have a clean bulk export path yet
