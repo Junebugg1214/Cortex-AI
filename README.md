@@ -16,7 +16,7 @@
 
 **Your ChatGPT knows you. Now Claude does too.**
 
-Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform. Cryptographically signed. Version controlled. Zero dependencies.
+Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies.
 
 ## Quick Start
 
@@ -40,6 +40,7 @@ cortex viz output/context.json --output graph.html
 | **You own it** | Yes | No | No | No | No |
 | **Portable** | Yes | No | No | No | No |
 | **Knowledge graph** | Yes | Partial | No | No | No |
+| **API-ready** | Yes | No | No | No | No |
 | **Temporal tracking** | Yes | No | No | No | No |
 | **Works offline** | Yes | No | No | No | No |
 | **Zero dependencies** | Yes | No | No | N/A | N/A |
@@ -52,7 +53,8 @@ cortex viz output/context.json --output graph.html
 Chat Exports (ChatGPT, Claude, Gemini, Perplexity)
   + Coding Sessions (Claude Code, Cursor, Copilot)
         |
-   Extract ──→ Knowledge Graph ──→ Sign & Version ──→ Push Anywhere
+   Extract ──→ Knowledge Graph ──→ Sign & Version ──┬──→ Push Anywhere
+                                                     └──→ Serve via API (CaaS)
 ```
 
 Nodes are entities, not category items. "Python" is ONE node with tags `[technical_expertise, domain_knowledge]` — not duplicated across categories. Edges capture typed relationships: `Python --applied_in--> Healthcare`.
@@ -122,11 +124,18 @@ cortex digest context.json --previous last_week.json
 <details>
 <summary><strong>UPAI Protocol (Cryptographic Identity)</strong></summary>
 
-Three capabilities:
+Full protocol specification: [`spec/upai-v1.0.md`](spec/upai-v1.0.md)
 
+- **W3C `did:key` identity** — Ed25519 multicodec + base58btc. Interoperable with the decentralized identity ecosystem.
 - **Cryptographic signing** — SHA-256 integrity (always). Ed25519 signatures (with `pynacl`). Proves the graph is yours and untampered.
+- **Signed envelopes** — Three-part `header.payload.signature` format with replay protection (nonce, iat, exp, audience binding).
+- **Signed grant tokens** — Scoped access tokens (`context:read`, `versions:read`) with Ed25519 signatures and expiration.
+- **Key rotation** — Rotate to a new keypair with a verifiable revocation chain. Old keys get revocation proofs.
 - **Selective disclosure** — Policies control what each platform sees. "Professional" shows job/skills. "Technical" shows your tech stack. "Minimal" shows almost nothing.
 - **Version control** — Git-like commits for your identity. Log, diff, checkout, rollback.
+- **JSON Schema validation** — 9 schemas for all data structures, stdlib-only validator.
+- **Structured error codes** — UPAI-4xxx (client) and UPAI-5xxx (server) error registry.
+- **Webhook signing** — HMAC-SHA256 payload signatures for event notifications.
 
 ```bash
 cortex identity --init --name "Your Name"
@@ -134,6 +143,7 @@ cortex commit context.json -m "Added June ChatGPT export"
 cortex log
 cortex identity --show
 cortex sync context.json --to claude --policy professional -o ./output
+cortex rotate                                    # Rotate identity keys
 ```
 
 **Built-in disclosure policies:**
@@ -144,6 +154,38 @@ cortex sync context.json --to claude --policy professional -o ./output
 | `professional` | Identity, work, skills, priorities | 0.6 |
 | `technical` | Tech stack, domain knowledge, priorities | 0.5 |
 | `minimal` | Identity, communication preferences only | 0.8 |
+
+</details>
+
+<details>
+<summary><strong>Context-as-a-Service (CaaS) API</strong></summary>
+
+Serve your context over HTTP so AI platforms can pull it directly. OpenAPI spec: [`spec/openapi.json`](spec/openapi.json)
+
+```bash
+# Start the CaaS server
+cortex serve context.json --port 8421
+
+# Create a scoped access token for a platform
+cortex grant --create --audience "Claude" --policy professional
+
+# Revoke or list grants
+cortex grant --list
+cortex grant --revoke <grant_id>
+```
+
+**18 API endpoints** across 6 groups:
+
+| Group | Endpoints | Auth |
+|-------|-----------|------|
+| Discovery | `/.well-known/upai-configuration`, `/identity` | None |
+| Grants | `POST/GET/DELETE /grants` | Self-managed |
+| Context | `/context`, `/context/compact`, `/context/nodes`, `/context/edges`, `/context/stats` | `context:read` |
+| Versions | `/versions`, `/versions/<id>`, `/versions/diff` | `versions:read` |
+| Webhooks | `POST/GET/DELETE /webhooks` | Self-managed |
+| Server | `/` (info) | None |
+
+**Auth flow:** Platform requests a signed grant token with `cortex grant` -> uses it as `Authorization: Bearer <token>` -> server verifies signature, expiry, and scope -> returns disclosure-filtered context.
 
 </details>
 
@@ -340,7 +382,7 @@ Cortex extracts entities into 17 tag categories:
 </details>
 
 <details>
-<summary><strong>Full CLI Reference (24 commands)</strong></summary>
+<summary><strong>Full CLI Reference (27 commands)</strong></summary>
 
 ### Extract & Import
 
@@ -420,6 +462,16 @@ cortex context-write <graph> --platforms all --watch          # Auto-refresh
 cortex context-write <graph> --platforms all --policy professional  # Policy override
 ```
 
+### Context-as-a-Service (CaaS)
+
+```bash
+cortex serve <graph> --port 8421                 # Start CaaS server
+cortex grant --create --audience <name>          # Create access token
+cortex grant --list                              # List grants
+cortex grant --revoke <grant_id>                 # Revoke grant
+cortex rotate                                    # Rotate identity keys
+```
+
 ### Temporal Analysis
 
 ```bash
@@ -436,8 +488,11 @@ cortex drift <graph> --compare previous.json    # Identity drift
 ```
 cortex-identity/                    # pip install cortex-identity
 ├── pyproject.toml                  # Package metadata + entry points
+├── spec/
+│   ├── upai-v1.0.md            # UPAI protocol specification (RFC-style)
+│   └── openapi.json            # OpenAPI 3.1 CaaS API specification
 ├── cortex/
-│   ├── cli.py                  # CLI entry point (24 subcommands)
+│   ├── cli.py                  # CLI entry point (27 subcommands)
 │   ├── extract_memory.py       # Extraction engine (~1400 LOC)
 │   ├── import_memory.py        # Import/export engine (~1000 LOC)
 │   ├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
@@ -446,9 +501,17 @@ cortex-identity/                    # pip install cortex-identity
 │   ├── contradictions.py       # Contradiction detection
 │   ├── timeline.py             # Timeline views
 │   ├── upai/
-│   │   ├── identity.py         # UPAI identity, DID, Ed25519/HMAC signing
+│   │   ├── identity.py         # did:key identity, Ed25519/HMAC, SignedEnvelope
 │   │   ├── disclosure.py       # Selective disclosure policies
-│   │   └── versioning.py       # Git-like version control
+│   │   ├── versioning.py       # Git-like version control
+│   │   ├── schemas.py          # JSON Schema validation (stdlib-only)
+│   │   ├── tokens.py           # Signed grant tokens (Ed25519)
+│   │   ├── keychain.py         # Key rotation & revocation chain
+│   │   ├── errors.py           # Structured error codes (UPAI-4xxx/5xxx)
+│   │   ├── pagination.py       # Cursor-based pagination
+│   │   └── webhooks.py         # HMAC-SHA256 webhook signing
+│   ├── caas/
+│   │   └── server.py           # Context-as-a-Service HTTP API (18 endpoints)
 │   ├── adapters.py             # Claude/SystemPrompt/Notion/GDocs adapters
 │   ├── edge_extraction.py      # Pattern-based + proximity edge discovery
 │   ├── cooccurrence.py         # PMI / frequency co-occurrence
@@ -467,7 +530,7 @@ cortex-identity/                    # pip install cortex-identity
 │   └── sync/                   # File watcher + scheduled sync
 ├── migrate.py                  # Backward-compat stub → cortex.cli
 ├── cortex-hook.py              # Backward-compat stub → cortex._hook
-└── tests/                      # 618 tests across 21 files
+└── tests/                      # 796 tests across 29 files
 ```
 
 </details>
@@ -477,6 +540,7 @@ cortex-identity/                    # pip install cortex-identity
 
 | Version | Milestone |
 |---------|-----------|
+| v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
 | v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
 
 <details>
