@@ -47,6 +47,24 @@ This starts an HTTP server. AI platforms can request a scoped access token, then
 
 ---
 
+## Keeping Your Graph Up to Date
+
+For chat platforms (ChatGPT, Claude, Gemini), the extraction process is **manual**. When you have new conversations, export your data again and merge it with your existing graph:
+
+```bash
+cortex chatgpt-export-new.zip --merge context.json -o context.json
+```
+
+Repeat this periodically (weekly, monthly) to keep your knowledge graph current. These platforms don't offer live APIs for conversations, so export-and-merge is the workflow for now.
+
+For **Claude Code**, Cortex can extract in real-time. It watches your coding sessions as they happen and automatically merges new signals into your graph:
+
+```bash
+cortex extract-coding --watch -o context.json
+```
+
+---
+
 ## The Key Ideas
 
 - **You own your data** — it's a local file, not locked in someone's cloud
