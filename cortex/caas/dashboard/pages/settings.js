@@ -19,6 +19,16 @@
             '  </div>' +
             '  <div>' +
             '    <div class="card">' +
+            '      <div class="card-header">Custom Policies</div>' +
+            '      <form id="policy-form" onsubmit="return false" style="margin-bottom:16px">' +
+            '        <div class="form-group"><label>Name</label><input type="text" id="policy-name" placeholder="my-policy" required pattern="[a-zA-Z0-9][a-zA-Z0-9\\-]{0,63}"></div>' +
+            '        <div class="form-group"><label>Include Tags (comma-sep)</label><input type="text" id="policy-include" placeholder="identity,technical_expertise"></div>' +
+            '        <div class="form-group"><label>Min Confidence</label><input type="number" id="policy-conf" value="0" step="0.1" min="0" max="1"></div>' +
+            '        <button type="submit" class="btn btn-primary btn-sm">Create Policy</button>' +
+            '      </form>' +
+            '      <div id="policy-list"></div>' +
+            '    </div>' +
+            '    <div class="card" style="margin-top:16px">' +
             '      <div class="card-header">Webhooks</div>' +
             '      <form id="wh-form" onsubmit="return false" style="margin-bottom:16px">' +
             '        <div class="form-group"><label>URL</label><input type="url" id="wh-url" placeholder="https://example.com/webhook" required></div>' +
@@ -78,7 +88,27 @@
             }
         });
 
-        await Promise.all([loadConfig(), loadWebhooks()]);
+        // Policy form
+        document.getElementById('policy-form').addEventListener('submit', async function () {
+            var name = document.getElementById('policy-name').value.trim();
+            if (!name) return;
+            var include = document.getElementById('policy-include').value.trim();
+            var conf = parseFloat(document.getElementById('policy-conf').value) || 0;
+            var body = { name: name, min_confidence: conf };
+            if (include) body.include_tags = include.split(',').map(function (s) { return s.trim(); });
+            try {
+                await D.api('/policies', { method: 'POST', body: JSON.stringify(body) });
+                D.showToast('Policy created', 'success');
+                document.getElementById('policy-name').value = '';
+                document.getElementById('policy-include').value = '';
+                document.getElementById('policy-conf').value = '0';
+                await loadPolicies();
+            } catch (e) {
+                D.showToast('Failed: ' + e.message, 'error');
+            }
+        });
+
+        await Promise.all([loadConfig(), loadWebhooks(), loadPolicies()]);
     });
 
     async function loadConfig() {
@@ -127,6 +157,44 @@
             if (e.message !== 'unauthorized') document.getElementById('wh-list').innerHTML = '<div class="loading">Failed to load webhooks</div>';
         }
     }
+
+    async function loadPolicies() {
+        try {
+            var data = await D.api('/policies');
+            var policies = data.policies || [];
+            if (policies.length === 0) {
+                document.getElementById('policy-list').innerHTML = '<div class="loading">No policies</div>';
+                return;
+            }
+            var html = '<table class="data-table"><thead><tr><th>Name</th><th>Tags</th><th>Conf</th><th></th></tr></thead><tbody>';
+            policies.forEach(function (p) {
+                var tags = (p.include_tags || []).join(', ') || 'all';
+                var badge = p.builtin ? '<span class="badge badge-active">Builtin</span>' : '';
+                var del_btn = p.builtin ? '' : '<button class="btn btn-danger btn-sm" onclick="CortexDashboard._deletePolicy(\'' + D.escapeHtml(p.name) + '\')">Delete</button>';
+                html += '<tr>' +
+                    '<td>' + D.escapeHtml(p.name) + ' ' + badge + '</td>' +
+                    '<td style="font-size:0.75rem">' + D.escapeHtml(tags) + '</td>' +
+                    '<td>' + p.min_confidence + '</td>' +
+                    '<td>' + del_btn + '</td>' +
+                    '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('policy-list').innerHTML = html;
+        } catch (e) {
+            if (e.message !== 'unauthorized') document.getElementById('policy-list').innerHTML = '<div class="loading">Failed to load policies</div>';
+        }
+    }
+
+    D._deletePolicy = async function (name) {
+        if (!confirm('Delete policy "' + name + '"?')) return;
+        try {
+            await D.api('/policies/' + name, { method: 'DELETE' });
+            D.showToast('Policy deleted', 'success');
+            await loadPolicies();
+        } catch (e) {
+            D.showToast('Failed: ' + e.message, 'error');
+        }
+    };
 
     D._deleteWebhook = async function (webhookId) {
         if (!confirm('Delete this webhook?')) return;

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from cortex.upai.webhooks import WebhookRegistration
+from cortex.upai.disclosure import DisclosurePolicy
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,25 @@ class AbstractWebhookStore(abc.ABC):
 
     @abc.abstractmethod
     def get_for_event(self, event: str) -> list[WebhookRegistration]: ...
+
+
+class AbstractPolicyStore(abc.ABC):
+    """Thread-safe custom policy store interface."""
+
+    @abc.abstractmethod
+    def add(self, policy: DisclosurePolicy) -> None: ...
+
+    @abc.abstractmethod
+    def get(self, name: str) -> DisclosurePolicy | None: ...
+
+    @abc.abstractmethod
+    def list_all(self) -> list[DisclosurePolicy]: ...
+
+    @abc.abstractmethod
+    def update(self, name: str, policy: DisclosurePolicy) -> bool: ...
+
+    @abc.abstractmethod
+    def delete(self, name: str) -> bool: ...
 
 
 class AbstractAuditLog(abc.ABC):
@@ -136,3 +156,39 @@ class InMemoryAuditLog(AbstractAuditLog):
             if event_type:
                 entries = [e for e in entries if e["event_type"] == event_type]
             return list(reversed(entries[:limit]))
+
+
+class JsonPolicyStore(AbstractPolicyStore):
+    """Thread-safe in-memory policy store."""
+
+    def __init__(self) -> None:
+        self._policies: dict[str, DisclosurePolicy] = {}
+        self._lock = threading.Lock()
+
+    def add(self, policy: DisclosurePolicy) -> None:
+        with self._lock:
+            self._policies[policy.name] = policy
+
+    def get(self, name: str) -> DisclosurePolicy | None:
+        with self._lock:
+            return self._policies.get(name)
+
+    def list_all(self) -> list[DisclosurePolicy]:
+        with self._lock:
+            return list(self._policies.values())
+
+    def update(self, name: str, policy: DisclosurePolicy) -> bool:
+        with self._lock:
+            if name not in self._policies:
+                return False
+            if policy.name != name:
+                del self._policies[name]
+            self._policies[policy.name] = policy
+            return True
+
+    def delete(self, name: str) -> bool:
+        with self._lock:
+            if name not in self._policies:
+                return False
+            del self._policies[name]
+            return True

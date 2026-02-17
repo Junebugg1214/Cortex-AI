@@ -13,8 +13,9 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog
+from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, AbstractPolicyStore
 from cortex.upai.webhooks import WebhookRegistration
+from cortex.upai.disclosure import DisclosurePolicy
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +343,101 @@ class SqliteDeliveryLog(_SqliteBase):
             }
             for row in rows
         ]
+
+
+# ---------------------------------------------------------------------------
+# SqlitePolicyStore
+# ---------------------------------------------------------------------------
+
+class SqlitePolicyStore(_SqliteBase, AbstractPolicyStore):
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS policies (
+                name              TEXT PRIMARY KEY,
+                include_tags      TEXT NOT NULL DEFAULT '[]',
+                exclude_tags      TEXT NOT NULL DEFAULT '[]',
+                min_confidence    REAL NOT NULL DEFAULT 0.0,
+                redact_properties TEXT NOT NULL DEFAULT '[]',
+                max_nodes         INTEGER NOT NULL DEFAULT 0,
+                created_at        TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        self._conn.commit()
+
+    def add(self, policy: DisclosurePolicy) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO policies "
+                "(name, include_tags, exclude_tags, min_confidence, redact_properties, max_nodes, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    policy.name,
+                    json.dumps(policy.include_tags),
+                    json.dumps(policy.exclude_tags),
+                    policy.min_confidence,
+                    json.dumps(policy.redact_properties),
+                    policy.max_nodes,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
+
+    def get(self, name: str) -> DisclosurePolicy | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM policies WHERE name = ?", (name,)
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_policy(row)
+
+    def list_all(self) -> list[DisclosurePolicy]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM policies ORDER BY name").fetchall()
+        return [self._row_to_policy(row) for row in rows]
+
+    def update(self, name: str, policy: DisclosurePolicy) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT name FROM policies WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                return False
+            if policy.name != name:
+                self._conn.execute("DELETE FROM policies WHERE name = ?", (name,))
+            self._conn.execute(
+                "INSERT OR REPLACE INTO policies "
+                "(name, include_tags, exclude_tags, min_confidence, redact_properties, max_nodes, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    policy.name,
+                    json.dumps(policy.include_tags),
+                    json.dumps(policy.exclude_tags),
+                    policy.min_confidence,
+                    json.dumps(policy.redact_properties),
+                    policy.max_nodes,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
+            return True
+
+    def delete(self, name: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM policies WHERE name = ?", (name,)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_policy(row: sqlite3.Row) -> DisclosurePolicy:
+        return DisclosurePolicy(
+            name=row["name"],
+            include_tags=json.loads(row["include_tags"]),
+            exclude_tags=json.loads(row["exclude_tags"]),
+            min_confidence=row["min_confidence"],
+            redact_properties=json.loads(row["redact_properties"]),
+            max_nodes=row["max_nodes"],
+        )

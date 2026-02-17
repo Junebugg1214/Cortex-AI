@@ -54,11 +54,11 @@ from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import TYPE_CHECKING, Any
 
-from cortex.upai.disclosure import BUILTIN_POLICIES, apply_disclosure
+from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, PolicyRegistry, apply_disclosure
 from cortex.upai.errors import (
     UPAIError,
     ERR_INVALID_TOKEN, ERR_INSUFFICIENT_SCOPE, ERR_NOT_FOUND,
-    ERR_INVALID_REQUEST, ERR_INVALID_POLICY, ERR_INTERNAL, ERR_NOT_CONFIGURED,
+    ERR_INVALID_REQUEST, ERR_INVALID_POLICY, ERR_POLICY_IMMUTABLE, ERR_INTERNAL, ERR_NOT_CONFIGURED,
 )
 from cortex.upai.pagination import paginate
 from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, JsonWebhookStore
@@ -205,12 +205,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
     version_store: Any = None
     webhook_store: AbstractWebhookStore = JsonWebhookStore()
     audit_log: AbstractAuditLog | None = None
+    policy_registry: PolicyRegistry = PolicyRegistry()
+    metrics_registry: Any = None  # Optional MetricsRegistry (None = metrics disabled)
     rate_limiter: Any = None  # Optional RateLimiter
     webhook_worker: Any = None  # Optional WebhookWorker
     _allowed_origins: set[str] = set()
     session_manager: DashboardSessionManager | None = None
 
     def do_GET(self) -> None:
+        self._request_start_time = _time.monotonic()
+        self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
 
@@ -228,6 +232,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_list_grants()
         elif path == "/health":
             self._serve_health()
+        elif path == "/metrics":
+            self._serve_metrics()
         elif path == "/context":
             self._serve_context(query)
         elif path == "/context/compact":
@@ -250,6 +256,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_version(version_id, query)
         elif path == "/webhooks":
             self._serve_list_webhooks()
+        elif path == "/policies":
+            self._serve_list_policies()
+        elif path.startswith("/policies/"):
+            policy_name = path[len("/policies/"):]
+            self._serve_get_policy(policy_name)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_get(path, query)
@@ -259,6 +270,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
     def do_POST(self) -> None:
+        self._request_start_time = _time.monotonic()
+        self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
 
@@ -269,6 +282,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_grant()
         elif path == "/webhooks":
             self._handle_create_webhook()
+        elif path == "/policies":
+            self._handle_create_policy()
         # ── Dashboard routes ──────────────────────────────────────
         elif path == "/dashboard/auth":
             self._handle_dashboard_login()
@@ -278,6 +293,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
     def do_DELETE(self) -> None:
+        self._request_start_time = _time.monotonic()
+        self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
 
@@ -290,15 +307,33 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/webhooks/"):
             webhook_id = path[len("/webhooks/"):]
             self._handle_delete_webhook(webhook_id)
+        elif path.startswith("/policies/"):
+            policy_name = path[len("/policies/"):]
+            self._handle_delete_policy(policy_name)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_delete(path)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
+    def do_PUT(self) -> None:
+        self._request_start_time = _time.monotonic()
+        self._metrics_inc_in_flight(1)
+        if self._check_rate_limit():
+            return
+
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        if path.startswith("/policies/"):
+            policy_name = path[len("/policies/"):]
+            self._handle_update_policy(policy_name)
+        else:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+
     def do_OPTIONS(self) -> None:
         self._respond(204, "text/plain", b"", extra_headers={
-            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
         })
 
@@ -319,6 +354,65 @@ class CaaSHandler(BaseHTTPRequestHandler):
             })
             return True
         return False
+
+    # ── Metrics helpers ────────────────────────────────────────────────
+
+    _request_start_time: float = 0.0
+
+    @staticmethod
+    def _metrics_path(path: str) -> str:
+        """Normalize request path for metric labels (replace IDs with :id)."""
+        parts = path.strip("/").split("/")
+        normalized = []
+        for i, part in enumerate(parts):
+            # Heuristic: if a part looks like a UUID or long hex string, replace with :id
+            if len(part) > 8 and ("-" in part or all(c in "0123456789abcdef" for c in part.lower())):
+                normalized.append(":id")
+            else:
+                normalized.append(part)
+        return "/" + "/".join(normalized) if normalized else "/"
+
+    def _metrics_inc_in_flight(self, delta: int) -> None:
+        registry = self.__class__.metrics_registry
+        if registry is None:
+            return
+        from cortex.caas.instrumentation import HTTP_IN_FLIGHT
+        if delta > 0:
+            HTTP_IN_FLIGHT.inc()
+        else:
+            HTTP_IN_FLIGHT.dec()
+
+    def _record_metrics(self, status_code: int) -> None:
+        registry = self.__class__.metrics_registry
+        if registry is None:
+            return
+        from cortex.caas.instrumentation import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
+        parsed = urllib.parse.urlparse(self.path)
+        path = self._metrics_path(parsed.path.rstrip("/") or "/")
+        method = self.command or "GET"
+        HTTP_REQUESTS_TOTAL.inc(method=method, path=path, status=str(status_code))
+        start = getattr(self, "_request_start_time", 0.0)
+        if start:
+            duration = _time.monotonic() - start
+            HTTP_REQUEST_DURATION.observe(duration, method=method, path=path)
+        self._metrics_inc_in_flight(-1)
+
+    def _serve_metrics(self) -> None:
+        registry = self.__class__.metrics_registry
+        if registry is None:
+            self._respond(404, "text/plain", b"Metrics not enabled\n")
+            return
+        # Update domain gauges before collecting
+        from cortex.caas.instrumentation import GRANTS_ACTIVE, GRAPH_NODES, GRAPH_EDGES
+        graph = self.__class__.graph
+        if graph:
+            GRAPH_NODES.set(float(len(graph.nodes)))
+            GRAPH_EDGES.set(float(len(graph.edges)))
+        grants = self.__class__.grant_store.list_all()
+        active = sum(1 for g in grants if not g.get("revoked"))
+        GRANTS_ACTIVE.set(float(active))
+        body = registry.collect().encode("utf-8")
+        self._respond(200, "text/plain; version=0.0.4; charset=utf-8", body)
 
     # ── Auth helpers ─────────────────────────────────────────────────
 
@@ -413,7 +507,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 "versions": "/versions",
                 "webhooks": "/webhooks",
             },
-            "supported_policies": list(BUILTIN_POLICIES.keys()),
+            "supported_policies": [p.name for p in self.__class__.policy_registry.list_all()],
             "supported_scopes": [
                 "context:read", "context:subscribe",
                 "versions:read", "identity:read",
@@ -466,7 +560,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("'audience' must be at most 256 characters"))
             return
 
-        if policy not in BUILTIN_POLICIES:
+        if self.__class__.policy_registry.get(policy) is None:
             self._error_response(ERR_INVALID_POLICY(policy))
             return
 
@@ -532,7 +626,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = self._get_policy_for_token(token_data)
-        policy = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["professional"])
+        policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
         data = filtered.export_v5()
 
@@ -549,7 +643,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = self._get_policy_for_token(token_data)
-        policy = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["professional"])
+        policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
 
         lines = []
@@ -570,7 +664,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = self._get_policy_for_token(token_data)
-        policy = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["professional"])
+        policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
 
         items = [n.to_dict() for n in filtered.nodes.values()]
@@ -592,7 +686,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = self._get_policy_for_token(token_data)
-        policy = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["professional"])
+        policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
 
         node = filtered.nodes.get(node_id)
@@ -613,7 +707,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = self._get_policy_for_token(token_data)
-        policy = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["professional"])
+        policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
 
         items = [e.to_dict() for e in filtered.edges.values()]
@@ -761,6 +855,122 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(ERR_NOT_FOUND("webhook"))
 
+    # ── Policies ─────────────────────────────────────────────────
+
+    def _serve_list_policies(self) -> None:
+        policies = self.__class__.policy_registry.list_all()
+        result = []
+        for p in policies:
+            result.append({
+                "name": p.name,
+                "include_tags": p.include_tags,
+                "exclude_tags": p.exclude_tags,
+                "min_confidence": p.min_confidence,
+                "redact_properties": p.redact_properties,
+                "max_nodes": p.max_nodes,
+                "builtin": self.__class__.policy_registry.is_builtin(p.name),
+            })
+        self._json_response({"policies": result})
+
+    def _serve_get_policy(self, name: str) -> None:
+        policy = self.__class__.policy_registry.get(name)
+        if policy is None:
+            self._error_response(ERR_NOT_FOUND("policy"))
+            return
+        self._json_response({
+            "name": policy.name,
+            "include_tags": policy.include_tags,
+            "exclude_tags": policy.exclude_tags,
+            "min_confidence": policy.min_confidence,
+            "redact_properties": policy.redact_properties,
+            "max_nodes": policy.max_nodes,
+            "builtin": self.__class__.policy_registry.is_builtin(policy.name),
+        })
+
+    def _handle_create_policy(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+
+        name = body.get("name", "")
+        if not name:
+            self._error_response(ERR_INVALID_REQUEST("'name' is required"))
+            return
+
+        if self.__class__.policy_registry.get(name) is not None:
+            self._error_response(ERR_INVALID_REQUEST(f"Policy '{name}' already exists"))
+            return
+
+        try:
+            policy = DisclosurePolicy(
+                name=name,
+                include_tags=body.get("include_tags", []),
+                exclude_tags=body.get("exclude_tags", []),
+                min_confidence=float(body.get("min_confidence", 0.0)),
+                redact_properties=body.get("redact_properties", []),
+                max_nodes=int(body.get("max_nodes", 0)),
+            )
+            self.__class__.policy_registry.register(policy)
+        except (ValueError, TypeError) as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        self._json_response({
+            "name": policy.name,
+            "include_tags": policy.include_tags,
+            "exclude_tags": policy.exclude_tags,
+            "min_confidence": policy.min_confidence,
+            "redact_properties": policy.redact_properties,
+            "max_nodes": policy.max_nodes,
+        }, status=201)
+
+    def _handle_update_policy(self, name: str) -> None:
+        if self.__class__.policy_registry.is_builtin(name):
+            self._error_response(ERR_POLICY_IMMUTABLE(name))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        existing = self.__class__.policy_registry.get(name)
+        if existing is None:
+            self._error_response(ERR_NOT_FOUND("policy"))
+            return
+
+        try:
+            policy = DisclosurePolicy(
+                name=body.get("name", name),
+                include_tags=body.get("include_tags", existing.include_tags),
+                exclude_tags=body.get("exclude_tags", existing.exclude_tags),
+                min_confidence=float(body.get("min_confidence", existing.min_confidence)),
+                redact_properties=body.get("redact_properties", existing.redact_properties),
+                max_nodes=int(body.get("max_nodes", existing.max_nodes)),
+            )
+            self.__class__.policy_registry.update(name, policy)
+        except (ValueError, TypeError) as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        self._json_response({
+            "name": policy.name,
+            "include_tags": policy.include_tags,
+            "exclude_tags": policy.exclude_tags,
+            "min_confidence": policy.min_confidence,
+            "redact_properties": policy.redact_properties,
+            "max_nodes": policy.max_nodes,
+        })
+
+    def _handle_delete_policy(self, name: str) -> None:
+        if self.__class__.policy_registry.is_builtin(name):
+            self._error_response(ERR_POLICY_IMMUTABLE(name))
+            return
+
+        if self.__class__.policy_registry.delete(name):
+            self._json_response({"deleted": True, "name": name})
+        else:
+            self._error_response(ERR_NOT_FOUND("policy"))
+
     # ── Dashboard: static files ─────────────────────────────────────
 
     def _serve_dashboard_file(self, path: str) -> None:
@@ -851,6 +1061,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._dashboard_api_audit(query)
         elif api_path == "/webhooks":
             self._dashboard_api_list_webhooks()
+        elif api_path == "/policies":
+            self._serve_list_policies()
         elif api_path == "/config":
             self._dashboard_api_config()
         else:
@@ -867,6 +1079,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_grant()
         elif api_path == "/webhooks":
             self._handle_create_webhook()
+        elif api_path == "/policies":
+            self._handle_create_policy()
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -883,6 +1097,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif api_path.startswith("/webhooks/"):
             webhook_id = api_path[len("/webhooks/"):]
             self._handle_delete_webhook(webhook_id)
+        elif api_path.startswith("/policies/"):
+            policy_name = api_path[len("/policies/"):]
+            self._handle_delete_policy(policy_name)
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -909,11 +1126,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         policy_name = query.get("policy", ["full"])[0]
-        if policy_name not in BUILTIN_POLICIES:
+        policy = self.__class__.policy_registry.get(policy_name)
+        if policy is None:
             self._error_response(ERR_INVALID_POLICY(policy_name))
             return
-
-        policy = BUILTIN_POLICIES[policy_name]
         filtered = apply_disclosure(graph, policy)
 
         from cortex.viz.layout import fruchterman_reingold
@@ -1034,7 +1250,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "edge_count": len(graph.edges) if graph else 0,
             "grant_count": len(self.__class__.grant_store.list_all()),
             "webhook_count": len(self.__class__.webhook_store.list_all()),
-            "policies": list(BUILTIN_POLICIES.keys()),
+            "policies": [p.name for p in self.__class__.policy_registry.list_all()],
         })
 
     # ── Response helpers ─────────────────────────────────────────────
@@ -1102,6 +1318,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         self.end_headers()
         self.wfile.write(body)
+        self._record_metrics(code)
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress noisy request logging."""
@@ -1121,6 +1338,7 @@ def start_caas_server(
     grants_persist_path: str | None = None,
     storage_backend: str = "json",
     db_path: str | None = None,
+    enable_metrics: bool = False,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever())."""
     CaaSHandler.graph = graph
@@ -1128,13 +1346,21 @@ def start_caas_server(
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
+    CaaSHandler.policy_registry = PolicyRegistry()
+
+    if enable_metrics:
+        from cortex.caas.instrumentation import create_default_registry
+        CaaSHandler.metrics_registry = create_default_registry()
+    else:
+        CaaSHandler.metrics_registry = None
 
     if storage_backend == "sqlite" and db_path:
-        from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog
+        from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog, SqlitePolicyStore
         CaaSHandler.grant_store = SqliteGrantStore(db_path)
         webhook_store = SqliteWebhookStore(db_path)
         CaaSHandler.webhook_store = webhook_store
         CaaSHandler.audit_log = SqliteAuditLog(db_path)
+        CaaSHandler.policy_registry = PolicyRegistry(store=SqlitePolicyStore(db_path))
         delivery_log = SqliteDeliveryLog(db_path)
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(webhook_store, delivery_log=delivery_log)

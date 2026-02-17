@@ -2,9 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install the package
+# Install the package with all optional dependencies
 COPY . .
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[full]"
 
 # Create data directory
 RUN mkdir -p /data

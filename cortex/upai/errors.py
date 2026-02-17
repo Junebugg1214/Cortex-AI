@@ -69,6 +69,10 @@ def ERR_REPLAY_DETECTED(**details: object) -> UPAIError:
 def ERR_RATE_LIMITED(message: str = "Too many requests", **details: object) -> UPAIError:
     return UPAIError(code="UPAI-4009", error_type="rate_limited", message=message, details=dict(details), http_status=429)
 
+def ERR_POLICY_IMMUTABLE(policy: str = "", **details: object) -> UPAIError:
+    msg = f"Cannot modify built-in policy: {policy}" if policy else "Cannot modify built-in policy"
+    return UPAIError(code="UPAI-4010", error_type="policy_immutable", message=msg, details=dict(details), http_status=403)
+
 def ERR_INTERNAL(message: str = "Unexpected server error", **details: object) -> UPAIError:
     return UPAIError(code="UPAI-5001", error_type="internal_error", message=message, details=dict(details), http_status=500)
 
@@ -90,6 +94,7 @@ ERROR_CODES: dict[str, str] = {
     "UPAI-4007": "revoked_key",
     "UPAI-4008": "replay_detected",
     "UPAI-4009": "rate_limited",
+    "UPAI-4010": "policy_immutable",
     "UPAI-5001": "internal_error",
     "UPAI-5002": "not_configured",
 }

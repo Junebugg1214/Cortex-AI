@@ -434,6 +434,24 @@ def build_parser():
     gr.add_argument("--store-dir", default=".cortex",
                     help="Identity store directory (default: .cortex)")
 
+    # -- policy (custom disclosure policies) --------------------------------
+    po = sub.add_parser("policy", help="Manage custom disclosure policies")
+    po.add_argument("--list", action="store_true", dest="list_policies",
+                    help="List all policies")
+    po.add_argument("--create", action="store_true", help="Create a new policy")
+    po.add_argument("--show", metavar="NAME", help="Show policy details")
+    po.add_argument("--delete", metavar="NAME", help="Delete a custom policy")
+    po.add_argument("--name", help="Policy name for --create")
+    po.add_argument("--include-tags", help="Comma-separated include tags")
+    po.add_argument("--exclude-tags", help="Comma-separated exclude tags")
+    po.add_argument("--min-confidence", type=float, default=0.0,
+                    help="Minimum confidence threshold")
+    po.add_argument("--redact-properties", help="Comma-separated property keys to redact")
+    po.add_argument("--max-nodes", type=int, default=0,
+                    help="Max nodes (0 = unlimited)")
+    po.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
+
     # -- rotate (key rotation) ---------------------------------------------
     ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
     ro.add_argument("--store-dir", default=".cortex",
@@ -1751,6 +1769,82 @@ def run_grant(args):
         return 1
 
 
+def run_policy(args):
+    """Manage custom disclosure policies."""
+    from cortex.upai.disclosure import DisclosurePolicy, PolicyRegistry, BUILTIN_POLICIES
+
+    if args.list_policies:
+        print("Built-in policies:")
+        for name in BUILTIN_POLICIES:
+            p = BUILTIN_POLICIES[name]
+            print(f"  {name} (builtin) — min_conf={p.min_confidence}, tags={p.include_tags or 'all'}")
+        print("\n(Custom policies require a running CaaS server.)")
+        return 0
+
+    if args.show:
+        name = args.show
+        if name in BUILTIN_POLICIES:
+            p = BUILTIN_POLICIES[name]
+            print(f"Name: {p.name} (builtin)")
+            print(f"  Include tags: {p.include_tags or 'all'}")
+            print(f"  Exclude tags: {p.exclude_tags or 'none'}")
+            print(f"  Min confidence: {p.min_confidence}")
+            print(f"  Redact properties: {p.redact_properties or 'none'}")
+            print(f"  Max nodes: {p.max_nodes or 'unlimited'}")
+            return 0
+        print(f"Policy '{name}' not found in built-in policies.")
+        print("Custom policies require a running CaaS server.")
+        return 1
+
+    if args.create:
+        name = args.name
+        if not name:
+            print("--name is required for --create")
+            return 1
+        include_tags = [t.strip() for t in args.include_tags.split(",")] if args.include_tags else []
+        exclude_tags = [t.strip() for t in args.exclude_tags.split(",")] if args.exclude_tags else []
+        redact_props = [t.strip() for t in args.redact_properties.split(",")] if args.redact_properties else []
+
+        policy = DisclosurePolicy(
+            name=name,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            min_confidence=args.min_confidence,
+            redact_properties=redact_props,
+            max_nodes=args.max_nodes,
+        )
+        print(f"Policy definition for '{name}':")
+        print(f"  Include tags: {policy.include_tags or 'all'}")
+        print(f"  Exclude tags: {policy.exclude_tags or 'none'}")
+        print(f"  Min confidence: {policy.min_confidence}")
+        print(f"  Redact properties: {policy.redact_properties or 'none'}")
+        print(f"  Max nodes: {policy.max_nodes or 'unlimited'}")
+        print("\nTo register on a running server, POST to /policies:")
+        import json as _json
+        body = {
+            "name": name,
+            "include_tags": policy.include_tags,
+            "exclude_tags": policy.exclude_tags,
+            "min_confidence": policy.min_confidence,
+            "redact_properties": policy.redact_properties,
+            "max_nodes": policy.max_nodes,
+        }
+        print(f"  curl -X POST http://localhost:8421/policies -d '{_json.dumps(body)}'")
+        return 0
+
+    if args.delete:
+        name = args.delete
+        if name in BUILTIN_POLICIES:
+            print(f"Cannot delete built-in policy: {name}")
+            return 1
+        print(f"To delete on a running server:")
+        print(f"  curl -X DELETE http://localhost:8421/policies/{name}")
+        return 0
+
+    print("Specify --list, --create, --show <name>, or --delete <name>")
+    return 1
+
+
 def run_rotate(args):
     """Rotate UPAI identity key."""
     from cortex.upai.keychain import Keychain
@@ -1790,7 +1884,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
-        "serve", "grant", "rotate", "pull",
+        "serve", "grant", "rotate", "pull", "policy",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1853,6 +1947,8 @@ def main(argv=None):
         return run_grant(args)
     elif args.subcommand == "rotate":
         return run_rotate(args)
+    elif args.subcommand == "policy":
+        return run_policy(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
     else:
