@@ -1,0 +1,344 @@
+"""
+SQLite storage backends for CaaS.
+
+Thread-safe via a shared connection protected by a Python threading.Lock.
+Uses WAL journal mode for better concurrent read performance.
+All tables created with CREATE TABLE IF NOT EXISTS — no migration runner needed.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from datetime import datetime, timezone
+
+from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog
+from cortex.upai.webhooks import WebhookRegistration
+
+
+# ---------------------------------------------------------------------------
+# Shared connection base
+# ---------------------------------------------------------------------------
+
+class _SqliteBase:
+    """Provides a shared SQLite connection with Python-level locking."""
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._conn.row_factory = sqlite3.Row
+        self._create_tables()
+
+    def _create_tables(self) -> None:
+        """Override in subclass to run CREATE TABLE IF NOT EXISTS."""
+        pass
+
+    def close(self) -> None:
+        """Close the connection (for testing)."""
+        self._conn.close()
+
+
+# ---------------------------------------------------------------------------
+# SqliteGrantStore
+# ---------------------------------------------------------------------------
+
+class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS grants (
+                grant_id   TEXT PRIMARY KEY,
+                token_str  TEXT NOT NULL,
+                token_data TEXT NOT NULL,
+                audience   TEXT NOT NULL DEFAULT '',
+                policy     TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                revoked    INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        self._conn.commit()
+
+    def add(self, grant_id: str, token_str: str, token_data: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO grants (grant_id, token_str, token_data, audience, policy, created_at, revoked) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0)",
+                (
+                    grant_id,
+                    token_str,
+                    json.dumps(token_data),
+                    token_data.get("audience", ""),
+                    token_data.get("policy", ""),
+                    token_data.get("issued_at", ""),
+                ),
+            )
+            self._conn.commit()
+
+    def get(self, grant_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM grants WHERE grant_id = ?", (grant_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "token_str": row["token_str"],
+            "token_data": json.loads(row["token_data"]),
+            "created_at": row["created_at"],
+            "revoked": bool(row["revoked"]),
+        }
+
+    def list_all(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM grants ORDER BY created_at").fetchall()
+        result = []
+        for row in rows:
+            token_data = json.loads(row["token_data"])
+            result.append({
+                "grant_id": row["grant_id"],
+                "audience": token_data.get("audience", ""),
+                "policy": token_data.get("policy", ""),
+                "created_at": row["created_at"],
+                "revoked": bool(row["revoked"]),
+            })
+        return result
+
+    def revoke(self, grant_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE grants SET revoked = 1 WHERE grant_id = ?", (grant_id,)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# SqliteWebhookStore
+# ---------------------------------------------------------------------------
+
+class SqliteWebhookStore(_SqliteBase, AbstractWebhookStore):
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS webhooks (
+                webhook_id TEXT PRIMARY KEY,
+                url        TEXT NOT NULL,
+                events     TEXT NOT NULL,
+                secret     TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT '',
+                active     INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+        self._conn.commit()
+
+    def add(self, registration: WebhookRegistration) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO webhooks (webhook_id, url, events, secret, created_at, active) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    registration.webhook_id,
+                    registration.url,
+                    json.dumps(registration.events),
+                    registration.secret,
+                    registration.created_at,
+                    1 if registration.active else 0,
+                ),
+            )
+            self._conn.commit()
+
+    def get(self, webhook_id: str) -> WebhookRegistration | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM webhooks WHERE webhook_id = ?", (webhook_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return WebhookRegistration(
+            webhook_id=row["webhook_id"],
+            url=row["url"],
+            events=json.loads(row["events"]),
+            secret=row["secret"],
+            created_at=row["created_at"],
+            active=bool(row["active"]),
+        )
+
+    def list_all(self) -> list[WebhookRegistration]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM webhooks ORDER BY created_at").fetchall()
+        return [
+            WebhookRegistration(
+                webhook_id=row["webhook_id"],
+                url=row["url"],
+                events=json.loads(row["events"]),
+                secret=row["secret"],
+                created_at=row["created_at"],
+                active=bool(row["active"]),
+            )
+            for row in rows
+        ]
+
+    def delete(self, webhook_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM webhooks WHERE webhook_id = ?", (webhook_id,)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def get_for_event(self, event: str) -> list[WebhookRegistration]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM webhooks WHERE active = 1"
+            ).fetchall()
+        result = []
+        for row in rows:
+            events = json.loads(row["events"])
+            if event in events:
+                result.append(WebhookRegistration(
+                    webhook_id=row["webhook_id"],
+                    url=row["url"],
+                    events=events,
+                    secret=row["secret"],
+                    created_at=row["created_at"],
+                    active=True,
+                ))
+        return result
+
+
+# ---------------------------------------------------------------------------
+# SqliteAuditLog
+# ---------------------------------------------------------------------------
+
+class SqliteAuditLog(_SqliteBase, AbstractAuditLog):
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp  TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                details    TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        self._conn.commit()
+
+    def log(self, event_type: str, details: dict | None = None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit_log (timestamp, event_type, details) VALUES (?, ?, ?)",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    event_type,
+                    json.dumps(details or {}),
+                ),
+            )
+            self._conn.commit()
+
+    def query(
+        self,
+        event_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        with self._lock:
+            if event_type:
+                rows = self._conn.execute(
+                    "SELECT * FROM audit_log WHERE event_type = ? ORDER BY id DESC LIMIT ?",
+                    (event_type, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "timestamp": row["timestamp"],
+                "event_type": row["event_type"],
+                "details": json.loads(row["details"]),
+            }
+            for row in rows
+        ]
+
+
+# ---------------------------------------------------------------------------
+# SqliteDeliveryLog
+# ---------------------------------------------------------------------------
+
+class SqliteDeliveryLog(_SqliteBase):
+    """Webhook delivery attempt log."""
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
+                delivery_id TEXT PRIMARY KEY,
+                webhook_id  TEXT NOT NULL,
+                event       TEXT NOT NULL,
+                status_code INTEGER NOT NULL DEFAULT 0,
+                success     INTEGER NOT NULL DEFAULT 0,
+                error       TEXT NOT NULL DEFAULT '',
+                attempt     INTEGER NOT NULL DEFAULT 1,
+                delivered_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        self._conn.commit()
+
+    def record(
+        self,
+        delivery_id: str,
+        webhook_id: str,
+        event: str,
+        status_code: int,
+        success: bool,
+        error: str = "",
+        attempt: int = 1,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO webhook_deliveries "
+                "(delivery_id, webhook_id, event, status_code, success, error, attempt, delivered_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    delivery_id,
+                    webhook_id,
+                    event,
+                    status_code,
+                    1 if success else 0,
+                    error,
+                    attempt,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
+
+    def query(self, webhook_id: str | None = None, limit: int = 100) -> list[dict]:
+        with self._lock:
+            if webhook_id:
+                rows = self._conn.execute(
+                    "SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY delivered_at DESC LIMIT ?",
+                    (webhook_id, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM webhook_deliveries ORDER BY delivered_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [
+            {
+                "delivery_id": row["delivery_id"],
+                "webhook_id": row["webhook_id"],
+                "event": row["event"],
+                "status_code": row["status_code"],
+                "success": bool(row["success"]),
+                "error": row["error"],
+                "attempt": row["attempt"],
+                "delivered_at": row["delivered_at"],
+            }
+            for row in rows
+        ]

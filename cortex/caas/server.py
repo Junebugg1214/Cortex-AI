@@ -30,6 +30,8 @@ Endpoints:
     POST   /webhooks                     → register webhook
     GET    /webhooks                     → list webhooks
     DELETE /webhooks/<webhook_id>        → unregister
+
+    GET  /health                         → health check (no auth)
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from cortex.upai.errors import (
     ERR_INVALID_REQUEST, ERR_INVALID_POLICY, ERR_INTERNAL, ERR_NOT_CONFIGURED,
 )
 from cortex.upai.pagination import paginate
+from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, JsonWebhookStore
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
@@ -61,8 +64,8 @@ if TYPE_CHECKING:
 # Grant store (in-memory + optional persistence)
 # ---------------------------------------------------------------------------
 
-class GrantStore:
-    """Thread-safe grant token store."""
+class JsonGrantStore(AbstractGrantStore):
+    """Thread-safe grant token store with optional JSON file persistence."""
 
     def __init__(self, persist_path: str | None = None) -> None:
         self._grants: dict[str, dict] = {}  # grant_id → {token_str, token_data, created_at, revoked}
@@ -122,6 +125,10 @@ class GrantStore:
             return False
 
 
+# Backward-compatible alias
+GrantStore = JsonGrantStore
+
+
 # ---------------------------------------------------------------------------
 # Nonce cache (replay protection)
 # ---------------------------------------------------------------------------
@@ -164,6 +171,15 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_BODY_SIZE = 1_048_576  # 1 MB
+
+VALID_SCOPES = {"context:read", "context:subscribe", "versions:read", "identity:read"}
+
+
+# ---------------------------------------------------------------------------
 # CaaS Request Handler
 # ---------------------------------------------------------------------------
 
@@ -173,13 +189,19 @@ class CaaSHandler(BaseHTTPRequestHandler):
     # Class-level attributes (set before server starts)
     graph: CortexGraph | None = None
     identity: UPAIIdentity | None = None
-    grant_store: GrantStore = GrantStore()
+    grant_store: AbstractGrantStore = JsonGrantStore()
     nonce_cache: NonceCache = NonceCache()
     version_store: Any = None
-    webhook_store: dict = {}
+    webhook_store: AbstractWebhookStore = JsonWebhookStore()
+    audit_log: AbstractAuditLog | None = None
+    rate_limiter: Any = None  # Optional RateLimiter
+    webhook_worker: Any = None  # Optional WebhookWorker
     _allowed_origins: set[str] = set()
 
     def do_GET(self) -> None:
+        if self._check_rate_limit():
+            return
+
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
         query = urllib.parse.parse_qs(parsed.query)
@@ -192,6 +214,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_identity()
         elif path == "/grants":
             self._serve_list_grants()
+        elif path == "/health":
+            self._serve_health()
         elif path == "/context":
             self._serve_context(query)
         elif path == "/context/compact":
@@ -218,6 +242,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
     def do_POST(self) -> None:
+        if self._check_rate_limit():
+            return
+
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
 
@@ -229,6 +256,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
     def do_DELETE(self) -> None:
+        if self._check_rate_limit():
+            return
+
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
 
@@ -247,6 +277,24 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "Access-Control-Allow-Headers": "Authorization, Content-Type",
         })
 
+    # ── Rate limiting ─────────────────────────────────────────────────
+
+    def _check_rate_limit(self) -> bool:
+        """Check rate limit. Returns True if request was rejected (response already sent)."""
+        limiter = self.__class__.rate_limiter
+        if limiter is None:
+            return False
+        client_ip = self.client_address[0]
+        if not limiter.allow(client_ip):
+            from cortex.upai.errors import ERR_RATE_LIMITED
+            error = ERR_RATE_LIMITED()
+            body = json.dumps(error.to_dict(), default=str).encode("utf-8")
+            self._respond(error.http_status, "application/json", body, extra_headers={
+                "Retry-After": str(limiter.window),
+            })
+            return True
+        return False
+
     # ── Auth helpers ─────────────────────────────────────────────────
 
     def _authenticate(self, required_scope: str = "") -> dict | None:
@@ -255,6 +303,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         auth_header = self.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
+            self._audit("auth.failed", {"reason": "missing_or_malformed_header"})
             self._error_response(ERR_INVALID_TOKEN("Missing or malformed Authorization header"))
             return None
 
@@ -268,12 +317,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
             token_str, identity.public_key_b64
         )
         if token is None:
+            self._audit("auth.failed", {"reason": err})
             self._error_response(ERR_INVALID_TOKEN(err))
             return None
 
         # Check grant not revoked
         grant_info = self.__class__.grant_store.get(token.grant_id)
         if grant_info and grant_info.get("revoked"):
+            self._audit("auth.failed", {"reason": "grant_revoked", "grant_id": token.grant_id})
             self._error_response(ERR_INVALID_TOKEN("Grant has been revoked"))
             return None
 
@@ -283,6 +334,36 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return None
 
         return token.to_dict()
+
+    # ── Audit helper ─────────────────────────────────────────────────
+
+    def _audit(self, event_type: str, details: dict | None = None) -> None:
+        """Log an audit event if audit_log is configured."""
+        log = self.__class__.audit_log
+        if log is not None:
+            log.log(event_type, details)
+
+    # ── Webhook fire helper ──────────────────────────────────────────
+
+    def _fire_webhook(self, event: str, data: dict) -> None:
+        """Enqueue a webhook event for delivery if worker is configured."""
+        worker = self.__class__.webhook_worker
+        if worker is not None:
+            worker.enqueue(event, data)
+
+    # ── Health check ─────────────────────────────────────────────────
+
+    def _serve_health(self) -> None:
+        identity = self.__class__.identity
+        graph = self.__class__.graph
+        grant_count = len(self.__class__.grant_store.list_all())
+        self._json_response({
+            "status": "ok",
+            "version": "1.0.0",
+            "has_identity": identity is not None,
+            "has_graph": graph is not None,
+            "grant_count": grant_count,
+        })
 
     # ── Info / Discovery ─────────────────────────────────────────────
 
@@ -355,9 +436,29 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("'audience' is required"))
             return
 
+        # Validate audience length
+        if len(audience) > 256:
+            self._error_response(ERR_INVALID_REQUEST("'audience' must be at most 256 characters"))
+            return
+
         if policy not in BUILTIN_POLICIES:
             self._error_response(ERR_INVALID_POLICY(policy))
             return
+
+        # Validate ttl_hours range
+        if not isinstance(ttl_hours, (int, float)) or ttl_hours < 1 or ttl_hours > 8760:
+            self._error_response(ERR_INVALID_REQUEST("'ttl_hours' must be between 1 and 8760"))
+            return
+
+        # Validate scopes
+        if scopes is not None:
+            if not isinstance(scopes, list):
+                self._error_response(ERR_INVALID_REQUEST("'scopes' must be a list"))
+                return
+            for s in scopes:
+                if s not in VALID_SCOPES:
+                    self._error_response(ERR_INVALID_REQUEST(f"Unknown scope: {s}"))
+                    return
 
         token = GrantToken.create(
             identity, audience=audience, policy=policy,
@@ -366,6 +467,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         token_str = token.sign(identity)
 
         self.__class__.grant_store.add(token.grant_id, token_str, token.to_dict())
+        self._audit("grant.created", {"grant_id": token.grant_id, "audience": audience, "policy": policy})
+        self._fire_webhook("grant.created", {"grant_id": token.grant_id, "audience": audience, "policy": policy})
 
         self._json_response({
             "grant_id": token.grant_id,
@@ -381,6 +484,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_revoke_grant(self, grant_id: str) -> None:
         if self.__class__.grant_store.revoke(grant_id):
+            self._audit("grant.revoked", {"grant_id": grant_id})
+            self._fire_webhook("grant.revoked", {"grant_id": grant_id})
             self._json_response({"revoked": True, "grant_id": grant_id})
         else:
             self._error_response(ERR_NOT_FOUND("grant"))
@@ -577,6 +682,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("'url' is required"))
             return
 
+        # Validate URL format
+        if not url.startswith(("http://", "https://")):
+            self._error_response(ERR_INVALID_REQUEST("'url' must start with http:// or https://"))
+            return
+
+        # Validate URL length
+        if len(url) > 2048:
+            self._error_response(ERR_INVALID_REQUEST("'url' must be at most 2048 characters"))
+            return
+
         try:
             from cortex.upai.webhooks import create_webhook, VALID_EVENTS
         except ImportError:
@@ -590,7 +705,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 return
 
         registration = create_webhook(url, events or list(VALID_EVENTS))
-        self.__class__.webhook_store[registration.webhook_id] = registration
+        self.__class__.webhook_store.add(registration)
+        self._audit("webhook.created", {"webhook_id": registration.webhook_id, "url": url})
 
         self._json_response({
             "webhook_id": registration.webhook_id,
@@ -601,8 +717,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         }, status=201)
 
     def _serve_list_webhooks(self) -> None:
+        registrations = self.__class__.webhook_store.list_all()
         webhooks = []
-        for wid, reg in self.__class__.webhook_store.items():
+        for reg in registrations:
             webhooks.append({
                 "webhook_id": reg.webhook_id,
                 "url": reg.url,
@@ -613,8 +730,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response({"webhooks": webhooks})
 
     def _handle_delete_webhook(self, webhook_id: str) -> None:
-        if webhook_id in self.__class__.webhook_store:
-            del self.__class__.webhook_store[webhook_id]
+        if self.__class__.webhook_store.delete(webhook_id):
+            self._audit("webhook.deleted", {"webhook_id": webhook_id})
             self._json_response({"deleted": True, "webhook_id": webhook_id})
         else:
             self._error_response(ERR_NOT_FOUND("webhook"))
@@ -626,6 +743,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             self._error_response(ERR_INVALID_REQUEST("Empty request body"))
+            return None
+        if content_length > MAX_BODY_SIZE:
+            self._respond(413, "application/json", json.dumps({
+                "error": {"code": "UPAI-4004", "type": "invalid_request",
+                          "message": "Request body too large", "details": {}}
+            }).encode("utf-8"))
             return None
         try:
             raw = self.rfile.read(content_length)
@@ -689,14 +812,35 @@ def start_caas_server(
     port: int = 8421,
     allowed_origins: set[str] | None = None,
     grants_persist_path: str | None = None,
+    storage_backend: str = "json",
+    db_path: str | None = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever())."""
     CaaSHandler.graph = graph
     CaaSHandler.identity = identity
     CaaSHandler.version_store = version_store
-    CaaSHandler.grant_store = GrantStore(persist_path=grants_persist_path)
     CaaSHandler.nonce_cache = NonceCache()
-    CaaSHandler.webhook_store = {}
+
+    if storage_backend == "sqlite" and db_path:
+        from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog
+        CaaSHandler.grant_store = SqliteGrantStore(db_path)
+        webhook_store = SqliteWebhookStore(db_path)
+        CaaSHandler.webhook_store = webhook_store
+        CaaSHandler.audit_log = SqliteAuditLog(db_path)
+        delivery_log = SqliteDeliveryLog(db_path)
+        from cortex.caas.webhook_worker import WebhookWorker
+        worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
+        worker.start()
+        CaaSHandler.webhook_worker = worker
+    else:
+        CaaSHandler.grant_store = JsonGrantStore(persist_path=grants_persist_path)
+        json_webhook_store = JsonWebhookStore()
+        CaaSHandler.webhook_store = json_webhook_store
+        CaaSHandler.audit_log = None
+        from cortex.caas.webhook_worker import WebhookWorker
+        worker = WebhookWorker(json_webhook_store)
+        worker.start()
+        CaaSHandler.webhook_worker = worker
 
     if allowed_origins:
         CaaSHandler._allowed_origins = allowed_origins

@@ -88,7 +88,7 @@ class Keychain:
             ))
             self._save()
 
-    def rotate(self, current_identity: UPAIIdentity) -> tuple[UPAIIdentity, str]:
+    def rotate(self, current_identity: UPAIIdentity, reason: str = "rotated") -> tuple[UPAIIdentity, str]:
         """Rotate to a new key. Returns (new_identity, revocation_proof).
 
         The revocation_proof is a signature by the OLD key over the revocation record,
@@ -104,7 +104,7 @@ class Keychain:
         for record in self._records:
             if record.did == current_identity.did and not record.revoked_at:
                 record.revoked_at = now
-                record.revocation_reason = "rotated"
+                record.revocation_reason = reason
                 record.successor_did = new_identity.did
                 break
 

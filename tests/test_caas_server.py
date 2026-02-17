@@ -18,6 +18,7 @@ from cortex.graph import CortexGraph, Node, Edge
 from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.tokens import GrantToken, SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache, ThreadingHTTPServer
+from cortex.caas.storage import JsonWebhookStore
 
 
 def _build_test_graph() -> CortexGraph:
@@ -46,7 +47,7 @@ def _setup_server():
     CaaSHandler.grant_store = GrantStore()
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.version_store = None
-    CaaSHandler.webhook_store = {}
+    CaaSHandler.webhook_store = JsonWebhookStore()
     CaaSHandler._allowed_origins = set()
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)

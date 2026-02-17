@@ -1,0 +1,13 @@
+services:
+  cortex:
+    build: .
+    ports:
+      - "8421:8421"
+    volumes:
+      - cortex-data:/data
+    environment:
+      - CORTEX_PORT=8421
+    restart: unless-stopped
+
+volumes:
+  cortex-data:

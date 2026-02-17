@@ -66,6 +66,9 @@ def ERR_REVOKED_KEY(did: str = "", **details: object) -> UPAIError:
 def ERR_REPLAY_DETECTED(**details: object) -> UPAIError:
     return UPAIError(code="UPAI-4008", error_type="replay_detected", message="Nonce has already been used", details=dict(details), http_status=400)
 
+def ERR_RATE_LIMITED(message: str = "Too many requests", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-4009", error_type="rate_limited", message=message, details=dict(details), http_status=429)
+
 def ERR_INTERNAL(message: str = "Unexpected server error", **details: object) -> UPAIError:
     return UPAIError(code="UPAI-5001", error_type="internal_error", message=message, details=dict(details), http_status=500)
 
@@ -86,6 +89,7 @@ ERROR_CODES: dict[str, str] = {
     "UPAI-4006": "schema_validation",
     "UPAI-4007": "revoked_key",
     "UPAI-4008": "replay_detected",
+    "UPAI-4009": "rate_limited",
     "UPAI-5001": "internal_error",
     "UPAI-5002": "not_configured",
 }

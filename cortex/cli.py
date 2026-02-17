@@ -405,6 +405,10 @@ def build_parser():
                     help="Identity/version store directory (default: .cortex)")
     sv.add_argument("--allowed-origins", nargs="*",
                     help="CORS allowed origins")
+    sv.add_argument("--storage", choices=["json", "sqlite"], default="json",
+                    help="Storage backend (default: json)")
+    sv.add_argument("--db-path", default=None,
+                    help="SQLite database path (default: <store-dir>/cortex.db)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1618,10 +1622,13 @@ def run_serve(args):
         allowed_origins = set(args.allowed_origins)
 
     grants_path = str(store_dir / "grants.json")
+    storage_backend = args.storage
+    db_path = args.db_path or str(store_dir / "cortex.db")
 
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+    print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend == "sqlite" else ""))
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1631,6 +1638,8 @@ def run_serve(args):
         port=args.port,
         allowed_origins=allowed_origins,
         grants_persist_path=grants_path,
+        storage_backend=storage_backend,
+        db_path=db_path,
     )
     try:
         server.serve_forever()
@@ -1662,6 +1671,11 @@ def run_grant(args):
             policy=args.policy, ttl_hours=args.ttl,
         )
         token_str = token.sign(identity)
+
+        # Persist to grant store
+        from cortex.caas.server import GrantStore
+        gs = GrantStore(persist_path=str(store_dir / "grants.json"))
+        gs.add(token.grant_id, token_str, token.to_dict())
 
         print(f"Grant ID: {token.grant_id}")
         print(f"Audience: {token.audience}")
@@ -1712,7 +1726,7 @@ def run_rotate(args):
     identity = UPAIIdentity.load(store_dir)
     kc = Keychain(store_dir)
 
-    new_identity, proof = kc.rotate(identity)
+    new_identity, proof = kc.rotate(identity, reason=args.reason)
     print(f"Old DID: {identity.did}")
     print(f"New DID: {new_identity.did}")
     print(f"Reason: {args.reason}")
