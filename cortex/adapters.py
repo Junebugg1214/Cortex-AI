@@ -225,7 +225,7 @@ class SystemPromptAdapter(BaseAdapter):
 
 
 class NotionAdapter(BaseAdapter):
-    """Push: notion_page.md + notion_database.json. Pull: not yet supported."""
+    """Push: notion_page.md + notion_database.json. Pull: parse .json or .md back to nodes."""
     name = "notion"
 
     def push(
@@ -252,11 +252,202 @@ class NotionAdapter(BaseAdapter):
         return paths
 
     def pull(self, file_path: Path) -> CortexGraph:
-        raise NotImplementedError("Notion pull not yet supported")
+        """Parse Notion export back into a CortexGraph.
+
+        Detects format by extension:
+        - .json  -> database rows (notion_database.json)
+        - .md    -> markdown page (notion_page.md)
+        """
+        from cortex.compat import upgrade_v4_to_v5
+
+        # Build reverse map: label -> category key
+        from cortex.import_memory import CATEGORY_LABELS
+        _label_to_cat: dict[str, str] = {v: k for k, v in CATEGORY_LABELS.items()}
+
+        v4_categories: dict[str, list[dict]] = {}
+
+        if file_path.suffix == ".json":
+            # ---- Database JSON format ----
+            raw = json.loads(file_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, list):
+                raise ValueError("Expected a JSON list of row objects")
+
+            for row in raw:
+                label = row.get("Category", "mentions")
+                category = _label_to_cat.get(label, label)
+                topic_name = row.get("Topic", "").strip()
+                if not topic_name:
+                    continue
+
+                brief = row.get("Brief", "") or ""
+                full_desc = row.get("Full Description", "") or ""
+                confidence = row.get("Confidence", 0.7)
+                if not isinstance(confidence, (int, float)):
+                    confidence = 0.7
+                mention_count = row.get("Mention Count", 1)
+                if not isinstance(mention_count, int):
+                    mention_count = 1
+                metrics = row.get("Metrics", []) or []
+                if isinstance(metrics, str):
+                    metrics = [m.strip() for m in metrics.split(",") if m.strip()]
+                relationships = row.get("Relationships", []) or []
+                if isinstance(relationships, str):
+                    relationships = [r.strip() for r in relationships.split(",") if r.strip()]
+                timeline_raw = row.get("Timeline", "") or ""
+                timeline = [t.strip() for t in timeline_raw.split(",") if t.strip()] if isinstance(timeline_raw, str) else timeline_raw
+
+                entry = {
+                    "topic": topic_name,
+                    "brief": brief if brief else topic_name,
+                    "full_description": full_desc,
+                    "confidence": confidence,
+                    "mention_count": mention_count,
+                    "extraction_method": "mentioned",
+                    "metrics": metrics,
+                    "relationships": relationships,
+                    "timeline": timeline,
+                    "source_quotes": [],
+                    "first_seen": None,
+                    "last_seen": None,
+                    "relationship_type": "",
+                }
+                v4_categories.setdefault(category, []).append(entry)
+
+        else:
+            # ---- Markdown page format ----
+            text = file_path.read_text(encoding="utf-8")
+            current_category: str | None = None
+
+            # Strip emoji prefixes used in headings (single codepoint or multi-byte)
+            _emoji_strip = re.compile(
+                r"^[\U0001f300-\U0001faff\u2600-\u27bf\u2700-\u27bf\u00a9\u00ae\u203c-\u3299\ufe0f\u200d\u20e3]*\s*"
+            )
+
+            for line in text.split("\n"):
+                stripped = line.strip()
+
+                # Category heading: ## {emoji} {Label}
+                m_cat = re.match(r"^##\s+(.+)$", stripped)
+                if m_cat and not stripped.startswith("###"):
+                    heading_text = _emoji_strip.sub("", m_cat.group(1)).strip()
+                    # Skip non-category headings
+                    if heading_text in ("Summary", "Database Template"):
+                        current_category = None
+                        continue
+                    category = _label_to_cat.get(heading_text, heading_text)
+                    current_category = category
+                    continue
+
+                if current_category is None:
+                    continue
+
+                # Full-detail topic: ### {badge} {topic}
+                m_full = re.match(r"^###\s+.?\s*(.+)$", stripped)
+                if m_full:
+                    topic_name = _emoji_strip.sub("", m_full.group(1)).strip()
+                    if topic_name:
+                        entry = {
+                            "topic": topic_name,
+                            "brief": topic_name,
+                            "full_description": "",
+                            "confidence": 0.9,
+                            "mention_count": 1,
+                            "extraction_method": "mentioned",
+                            "metrics": [],
+                            "relationships": [],
+                            "timeline": [],
+                            "source_quotes": [],
+                            "first_seen": None,
+                            "last_seen": None,
+                            "relationship_type": "",
+                        }
+                        v4_categories.setdefault(current_category, []).append(entry)
+                    continue
+
+                # Description line right after a ### heading (no bullet/heading prefix)
+                if (
+                    not stripped.startswith("#")
+                    and not stripped.startswith("-")
+                    and not stripped.startswith("|")
+                    and not stripped.startswith(">")
+                    and stripped
+                    and current_category in v4_categories
+                    and v4_categories[current_category]
+                ):
+                    last = v4_categories[current_category][-1]
+                    # Only fill if description is still empty and brief == topic
+                    if not last["full_description"] and last["brief"] == last["topic"]:
+                        last["full_description"] = stripped
+                        last["brief"] = stripped
+                        continue
+
+                # Moderate-detail bullet: - {badge} **{topic}**: {brief}
+                m_mod = re.match(r"^-\s+.?\s*\*\*(.+?)\*\*:\s*(.+)$", stripped)
+                if m_mod:
+                    topic_name = m_mod.group(1).strip()
+                    brief = m_mod.group(2).strip()
+                    if topic_name:
+                        entry = {
+                            "topic": topic_name,
+                            "brief": brief,
+                            "full_description": "",
+                            "confidence": 0.7,
+                            "mention_count": 1,
+                            "extraction_method": "mentioned",
+                            "metrics": [],
+                            "relationships": [],
+                            "timeline": [],
+                            "source_quotes": [],
+                            "first_seen": None,
+                            "last_seen": None,
+                            "relationship_type": "",
+                        }
+                        v4_categories.setdefault(current_category, []).append(entry)
+                    continue
+
+                # Minimal-detail bullet: - {badge} {topic}
+                m_min = re.match(r"^-\s+.?\s*(.+)$", stripped)
+                if m_min:
+                    topic_name = _emoji_strip.sub("", m_min.group(1)).strip()
+                    # Skip metadata bullets (Metrics:, Related:, Timeline:)
+                    if topic_name.startswith("**Metrics:**") or topic_name.startswith("**Related:**") or topic_name.startswith("**Timeline:**"):
+                        # Extract metadata into the last entry
+                        if current_category in v4_categories and v4_categories[current_category]:
+                            last = v4_categories[current_category][-1]
+                            if topic_name.startswith("**Metrics:**"):
+                                val = topic_name.split("**Metrics:**", 1)[1].strip()
+                                last["metrics"] = [m.strip() for m in val.split(",") if m.strip()]
+                            elif topic_name.startswith("**Related:**"):
+                                val = topic_name.split("**Related:**", 1)[1].strip()
+                                last["relationships"] = [r.strip() for r in val.split(",") if r.strip()]
+                            elif topic_name.startswith("**Timeline:**"):
+                                val = topic_name.split("**Timeline:**", 1)[1].strip()
+                                last["timeline"] = [t.strip() for t in val.split(",") if t.strip()]
+                        continue
+                    if topic_name:
+                        entry = {
+                            "topic": topic_name,
+                            "brief": topic_name,
+                            "full_description": "",
+                            "confidence": 0.5,
+                            "mention_count": 1,
+                            "extraction_method": "mentioned",
+                            "metrics": [],
+                            "relationships": [],
+                            "timeline": [],
+                            "source_quotes": [],
+                            "first_seen": None,
+                            "last_seen": None,
+                            "relationship_type": "",
+                        }
+                        v4_categories.setdefault(current_category, []).append(entry)
+
+        v4 = {"schema_version": "4.0", "meta": {}, "categories": v4_categories}
+        return upgrade_v4_to_v5(v4)
 
 
 class GDocsAdapter(BaseAdapter):
-    """Push: google_docs.html. Pull: not yet supported."""
+    """Push: google_docs.html. Pull: parse HTML back to nodes."""
     name = "gdocs"
 
     def push(
@@ -275,7 +466,151 @@ class GDocsAdapter(BaseAdapter):
         return [path]
 
     def pull(self, file_path: Path) -> CortexGraph:
-        raise NotImplementedError("GDocs pull not yet supported")
+        """Parse Google Docs HTML export back into a CortexGraph.
+
+        Parses the HTML produced by export_google_docs():
+        - <h2> tags -> category headings
+        - <h3> tags -> high-confidence topics
+        - <p><strong>...</strong>: ...</p> -> medium-confidence topics
+        - <p class='low'>...</p> -> low-confidence topics
+        """
+        from cortex.compat import upgrade_v4_to_v5
+        from cortex.import_memory import CATEGORY_LABELS
+
+        _label_to_cat: dict[str, str] = {v: k for k, v in CATEGORY_LABELS.items()}
+
+        text = file_path.read_text(encoding="utf-8")
+        v4_categories: dict[str, list[dict]] = {}
+        current_category: str | None = None
+
+        # Helper to strip HTML tags from a string
+        def _strip_tags(s: str) -> str:
+            return re.sub(r"<[^>]+>", "", s).strip()
+
+        for line in text.split("\n"):
+            stripped = line.strip()
+
+            # Category heading: <h2>Label</h2>
+            m_h2 = re.match(r"<h2>(.+?)</h2>", stripped)
+            if m_h2:
+                label = _strip_tags(m_h2.group(1)).strip()
+                if label == "Summary":
+                    current_category = None
+                    continue
+                category = _label_to_cat.get(label, label)
+                current_category = category
+                continue
+
+            if current_category is None:
+                continue
+
+            # High-confidence topic: <h3>{topic} <span...>High</span></h3>
+            m_h3 = re.match(r"<h3>(.+?)\s*<span[^>]*>.*?</span></h3>", stripped)
+            if m_h3:
+                topic_name = _strip_tags(m_h3.group(1)).strip()
+                if topic_name:
+                    entry = {
+                        "topic": topic_name,
+                        "brief": topic_name,
+                        "full_description": "",
+                        "confidence": 0.9,
+                        "mention_count": 1,
+                        "extraction_method": "mentioned",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                        "relationship_type": "",
+                    }
+                    v4_categories.setdefault(current_category, []).append(entry)
+                continue
+
+            # Description paragraph after <h3> (no <strong>, no class='low')
+            m_desc = re.match(r"<p>([^<]+)</p>", stripped)
+            if m_desc and "class=" not in stripped and "<strong>" not in stripped:
+                desc = m_desc.group(1).strip()
+                if current_category in v4_categories and v4_categories[current_category]:
+                    last = v4_categories[current_category][-1]
+                    if not last["full_description"] and last["brief"] == last["topic"]:
+                        last["full_description"] = desc
+                        last["brief"] = desc
+                continue
+
+            # Metrics line: <p><strong>Metrics:</strong> ...
+            m_metrics = re.match(r"<p><strong>Metrics:</strong>\s*", stripped)
+            if m_metrics and current_category in v4_categories and v4_categories[current_category]:
+                last = v4_categories[current_category][-1]
+                metrics_text = re.findall(r"<span class='metric'>(.+?)</span>", stripped)
+                last["metrics"] = [_strip_tags(m) for m in metrics_text]
+                continue
+
+            # Related line: <p><strong>Related:</strong> ...
+            m_rel = re.match(r"<p><strong>Related:</strong>\s*(.+?)</p>", stripped)
+            if m_rel and current_category in v4_categories and v4_categories[current_category]:
+                last = v4_categories[current_category][-1]
+                val = _strip_tags(m_rel.group(1))
+                last["relationships"] = [r.strip() for r in val.split(",") if r.strip()]
+                continue
+
+            # Timeline line: <p><strong>Timeline:</strong> ...
+            m_tl = re.match(r"<p><strong>Timeline:</strong>\s*(.+?)</p>", stripped)
+            if m_tl and current_category in v4_categories and v4_categories[current_category]:
+                last = v4_categories[current_category][-1]
+                val = _strip_tags(m_tl.group(1))
+                last["timeline"] = [t.strip() for t in val.split(",") if t.strip()]
+                continue
+
+            # Medium-confidence topic: <p><strong>{topic}</strong> <span...>Medium</span>: {brief}</p>
+            m_med = re.match(r"<p><strong>(.+?)</strong>\s*<span[^>]*>.*?</span>:\s*(.+?)</p>", stripped)
+            if m_med:
+                topic_name = _strip_tags(m_med.group(1)).strip()
+                brief = _strip_tags(m_med.group(2)).strip()
+                if topic_name:
+                    entry = {
+                        "topic": topic_name,
+                        "brief": brief,
+                        "full_description": "",
+                        "confidence": 0.7,
+                        "mention_count": 1,
+                        "extraction_method": "mentioned",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                        "relationship_type": "",
+                    }
+                    v4_categories.setdefault(current_category, []).append(entry)
+                continue
+
+            # Low-confidence topic: <p class='low'>{topic} <span...>Low</span></p>
+            m_low = re.match(r"<p class='low'>(.+?)\s*<span[^>]*>.*?</span></p>", stripped)
+            if m_low:
+                topic_name = _strip_tags(m_low.group(1)).strip()
+                if topic_name:
+                    entry = {
+                        "topic": topic_name,
+                        "brief": topic_name,
+                        "full_description": "",
+                        "confidence": 0.5,
+                        "mention_count": 1,
+                        "extraction_method": "mentioned",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                        "relationship_type": "",
+                    }
+                    v4_categories.setdefault(current_category, []).append(entry)
+                continue
+
+        v4 = {"schema_version": "4.0", "meta": {}, "categories": v4_categories}
+        return upgrade_v4_to_v5(v4)
 
 
 ADAPTERS: dict[str, BaseAdapter] = {

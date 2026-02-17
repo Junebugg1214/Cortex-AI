@@ -1,0 +1,184 @@
+/* Cortex Dashboard — Core Application */
+(function () {
+    'use strict';
+
+    // ── API helper ──────────────────────────────────────────────
+    async function api(path, opts) {
+        opts = opts || {};
+        opts.credentials = 'same-origin';
+        opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+        var resp = await fetch('/dashboard/api' + path, opts);
+        if (resp.status === 401) {
+            showLogin();
+            throw new Error('unauthorized');
+        }
+        var data = await resp.json();
+        if (!resp.ok) {
+            var msg = (data.error && data.error.message) || data.error || 'Request failed';
+            throw new Error(msg);
+        }
+        return data;
+    }
+
+    // ── Auth ────────────────────────────────────────────────────
+    var loginScreen = document.getElementById('login-screen');
+    var appShell = document.getElementById('app-shell');
+    var loginForm = document.getElementById('login-form');
+    var loginError = document.getElementById('login-error');
+    var loginBtn = document.getElementById('login-btn');
+
+    function showLogin() {
+        loginScreen.style.display = 'flex';
+        appShell.style.display = 'none';
+    }
+
+    function showApp() {
+        loginScreen.style.display = 'none';
+        appShell.style.display = 'flex';
+        route();
+    }
+
+    loginForm.addEventListener('submit', async function () {
+        var pw = document.getElementById('login-password').value;
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Signing in...';
+        loginError.style.display = 'none';
+        try {
+            await fetch('/dashboard/auth', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+            }).then(function (r) {
+                if (!r.ok) throw new Error('Invalid password');
+                return r.json();
+            });
+            showApp();
+        } catch (e) {
+            loginError.textContent = e.message;
+            loginError.style.display = 'block';
+        } finally {
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Sign In';
+        }
+    });
+
+    // ── Router ──────────────────────────────────────────────────
+    var routes = {};  // page name -> render function
+    var currentPage = null;
+
+    function registerPage(name, renderFn) {
+        routes[name] = renderFn;
+    }
+
+    function route() {
+        var hash = location.hash || '#/';
+        var page = hash.replace('#/', '') || 'overview';
+        if (page === currentPage) return;
+        currentPage = page;
+
+        // Update nav active state
+        document.querySelectorAll('.nav-link').forEach(function (el) {
+            el.classList.toggle('active', el.getAttribute('data-page') === page);
+        });
+
+        var container = document.getElementById('page-container');
+        container.innerHTML = '<div class="loading">Loading...</div>';
+
+        if (routes[page]) {
+            try {
+                routes[page](container);
+            } catch (e) {
+                container.innerHTML = '<div class="loading">Error: ' + escapeHtml(e.message) + '</div>';
+            }
+        } else {
+            container.innerHTML = '<div class="loading">Page not found</div>';
+        }
+    }
+
+    window.addEventListener('hashchange', route);
+
+    // ── Toast notifications ─────────────────────────────────────
+    function showToast(msg, type) {
+        type = type || 'info';
+        var el = document.createElement('div');
+        el.className = 'toast toast-' + type;
+        el.textContent = msg;
+        document.getElementById('toast-container').appendChild(el);
+        setTimeout(function () { el.remove(); }, 4000);
+    }
+
+    // ── Utilities ───────────────────────────────────────────────
+    function formatDate(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function truncateId(id, len) {
+        len = len || 12;
+        if (!id || id.length <= len) return id || '';
+        return id.substring(0, len) + '...';
+    }
+
+    function copyToClipboard(text) {
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () {
+                showToast('Copied to clipboard', 'success');
+            });
+        } else {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            showToast('Copied to clipboard', 'success');
+        }
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function debounce(fn, ms) {
+        var timer;
+        return function () {
+            var args = arguments;
+            var ctx = this;
+            clearTimeout(timer);
+            timer = setTimeout(function () { fn.apply(ctx, args); }, ms);
+        };
+    }
+
+    function renderPage(container, html) {
+        container.innerHTML = html;
+    }
+
+    // ── Check session on load ───────────────────────────────────
+    (async function init() {
+        try {
+            await api('/identity');
+            showApp();
+        } catch (e) {
+            showLogin();
+        }
+    })();
+
+    // ── Exports for page modules ────────────────────────────────
+    window.CortexDashboard = {
+        api: api,
+        registerPage: registerPage,
+        showToast: showToast,
+        formatDate: formatDate,
+        truncateId: truncateId,
+        copyToClipboard: copyToClipboard,
+        escapeHtml: escapeHtml,
+        debounce: debounce,
+        renderPage: renderPage,
+        route: route,
+    };
+})();

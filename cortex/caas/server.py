@@ -32,6 +32,14 @@ Endpoints:
     DELETE /webhooks/<webhook_id>        → unregister
 
     GET  /health                         → health check (no auth)
+
+    Dashboard:
+    GET  /dashboard                      → SPA shell
+    GET  /dashboard/*                    → static files
+    POST /dashboard/auth                 → session login
+    GET  /dashboard/api/*                → owner-only JSON endpoints
+    POST /dashboard/api/*                → owner-only mutations
+    DELETE /dashboard/api/*              → owner-only deletions
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ import threading
 import time as _time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +62,8 @@ from cortex.upai.errors import (
 )
 from cortex.upai.pagination import paginate
 from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, JsonWebhookStore
+from cortex.caas.dashboard.static import resolve_dashboard_path, guess_content_type
+from cortex.caas.dashboard.auth import DashboardSessionManager
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
@@ -197,6 +208,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     rate_limiter: Any = None  # Optional RateLimiter
     webhook_worker: Any = None  # Optional WebhookWorker
     _allowed_origins: set[str] = set()
+    session_manager: DashboardSessionManager | None = None
 
     def do_GET(self) -> None:
         if self._check_rate_limit():
@@ -238,6 +250,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_version(version_id, query)
         elif path == "/webhooks":
             self._serve_list_webhooks()
+        # ── Dashboard routes ──────────────────────────────────────
+        elif path.startswith("/dashboard/api/"):
+            self._route_dashboard_api_get(path, query)
+        elif path.startswith("/dashboard"):
+            self._serve_dashboard_file(path)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
@@ -252,6 +269,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_grant()
         elif path == "/webhooks":
             self._handle_create_webhook()
+        # ── Dashboard routes ──────────────────────────────────────
+        elif path == "/dashboard/auth":
+            self._handle_dashboard_login()
+        elif path.startswith("/dashboard/api/"):
+            self._route_dashboard_api_post(path)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
@@ -268,6 +290,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/webhooks/"):
             webhook_id = path[len("/webhooks/"):]
             self._handle_delete_webhook(webhook_id)
+        # ── Dashboard routes ──────────────────────────────────────
+        elif path.startswith("/dashboard/api/"):
+            self._route_dashboard_api_delete(path)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
@@ -736,6 +761,282 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(ERR_NOT_FOUND("webhook"))
 
+    # ── Dashboard: static files ─────────────────────────────────────
+
+    def _serve_dashboard_file(self, path: str) -> None:
+        """Serve a static file from the dashboard directory."""
+        resolved = resolve_dashboard_path(path)
+        if resolved is None:
+            self._error_response(ERR_NOT_FOUND("dashboard file"))
+            return
+        ct = guess_content_type(resolved)
+        body = resolved.read_bytes()
+        self._respond(200, ct, body, dashboard=True)
+
+    # ── Dashboard: session auth ──────────────────────────────────
+
+    def _handle_dashboard_login(self) -> None:
+        """POST /dashboard/auth — authenticate with derived password."""
+        sm = self.__class__.session_manager
+        if sm is None:
+            self._error_response(ERR_NOT_CONFIGURED("Dashboard not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        password = body.get("password", "")
+        token = sm.authenticate(password)
+        if token is None:
+            self._audit("dashboard.login_failed", {})
+            self._respond(401, "application/json",
+                          json.dumps({"error": "invalid_password"}).encode(),
+                          dashboard=True)
+            return
+
+        self._audit("dashboard.login", {})
+        resp_body = json.dumps({"ok": True}).encode()
+        self._respond(200, "application/json", resp_body, dashboard=True,
+                      extra_headers={
+                          "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Strict; Path=/dashboard",
+                      })
+
+    def _dashboard_auth_check(self) -> bool:
+        """Validate dashboard session cookie. Returns True if valid, sends 401 otherwise."""
+        sm = self.__class__.session_manager
+        if sm is None:
+            self._respond(401, "application/json",
+                          json.dumps({"error": "dashboard_not_configured"}).encode(),
+                          dashboard=True)
+            return False
+
+        cookie_header = self.headers.get("Cookie", "")
+        token = None
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_session="):
+                token = part[len("cortex_session="):]
+                break
+
+        if not token or not sm.validate(token):
+            self._respond(401, "application/json",
+                          json.dumps({"error": "unauthorized"}).encode(),
+                          dashboard=True)
+            return False
+        return True
+
+    # ── Dashboard: API routing ───────────────────────────────────
+
+    def _route_dashboard_api_get(self, path: str, query: dict) -> None:
+        """Route GET /dashboard/api/* requests."""
+        if not self._dashboard_auth_check():
+            return
+
+        api_path = path[len("/dashboard/api"):]
+
+        if api_path == "/identity":
+            self._dashboard_api_identity()
+        elif api_path == "/graph":
+            self._dashboard_api_graph(query)
+        elif api_path == "/stats":
+            self._dashboard_api_stats()
+        elif api_path == "/grants":
+            self._dashboard_api_list_grants()
+        elif api_path == "/versions":
+            self._dashboard_api_versions(query)
+        elif api_path == "/versions/diff":
+            self._dashboard_api_version_diff(query)
+        elif api_path == "/audit":
+            self._dashboard_api_audit(query)
+        elif api_path == "/webhooks":
+            self._dashboard_api_list_webhooks()
+        elif api_path == "/config":
+            self._dashboard_api_config()
+        else:
+            self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
+
+    def _route_dashboard_api_post(self, path: str) -> None:
+        """Route POST /dashboard/api/* requests."""
+        if not self._dashboard_auth_check():
+            return
+
+        api_path = path[len("/dashboard/api"):]
+
+        if api_path == "/grants":
+            self._handle_create_grant()
+        elif api_path == "/webhooks":
+            self._handle_create_webhook()
+        else:
+            self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
+
+    def _route_dashboard_api_delete(self, path: str) -> None:
+        """Route DELETE /dashboard/api/* requests."""
+        if not self._dashboard_auth_check():
+            return
+
+        api_path = path[len("/dashboard/api"):]
+
+        if api_path.startswith("/grants/"):
+            grant_id = api_path[len("/grants/"):]
+            self._handle_revoke_grant(grant_id)
+        elif api_path.startswith("/webhooks/"):
+            webhook_id = api_path[len("/webhooks/"):]
+            self._handle_delete_webhook(webhook_id)
+        else:
+            self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
+
+    # ── Dashboard: API handlers ──────────────────────────────────
+
+    def _dashboard_api_identity(self) -> None:
+        identity = self.__class__.identity
+        if identity is None:
+            self._error_response(ERR_NOT_CONFIGURED("No identity"))
+            return
+        self._json_response({
+            "did": identity.did,
+            "name": identity.name,
+            "created_at": identity.created_at,
+            "key_type": identity._key_type,
+            "public_key_prefix": identity.public_key_b64[:24] + "...",
+        })
+
+    def _dashboard_api_graph(self, query: dict) -> None:
+        graph = self.__class__.graph
+        identity = self.__class__.identity
+        if graph is None or identity is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+
+        policy_name = query.get("policy", ["full"])[0]
+        if policy_name not in BUILTIN_POLICIES:
+            self._error_response(ERR_INVALID_POLICY(policy_name))
+            return
+
+        policy = BUILTIN_POLICIES[policy_name]
+        filtered = apply_disclosure(graph, policy)
+
+        from cortex.viz.layout import fruchterman_reingold
+        from cortex.viz.renderer import _tag_color, _node_radius
+
+        layout = fruchterman_reingold(filtered, iterations=50, max_nodes=200)
+
+        node_list = []
+        node_index = {}
+        for i, (nid, node) in enumerate(filtered.nodes.items()):
+            pos = layout.get(nid, (0.5, 0.5))
+            color = _tag_color(node.tags[0]) if node.tags else "#95a5a6"
+            node_list.append({
+                "id": nid,
+                "label": node.label,
+                "x": pos[0],
+                "y": pos[1],
+                "r": _node_radius(node.confidence),
+                "color": color,
+                "tags": node.tags,
+                "confidence": node.confidence,
+                "brief": node.brief,
+            })
+            node_index[nid] = i
+
+        edge_list = []
+        for edge in filtered.edges.values():
+            si = node_index.get(edge.source_id)
+            ti = node_index.get(edge.target_id)
+            if si is not None and ti is not None:
+                edge_list.append({
+                    "s": si, "t": ti,
+                    "relation": edge.relation,
+                    "confidence": edge.confidence,
+                })
+
+        self._json_response({
+            "nodes": node_list,
+            "edges": edge_list,
+            "policy": policy_name,
+        })
+
+    def _dashboard_api_stats(self) -> None:
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        self._json_response(graph.stats())
+
+    def _dashboard_api_list_grants(self) -> None:
+        grants = self.__class__.grant_store.list_all()
+        self._json_response({"grants": grants})
+
+    def _dashboard_api_versions(self, query: dict) -> None:
+        vs = self.__class__.version_store
+        if vs is None:
+            self._json_response({"items": [], "has_more": False})
+            return
+
+        versions = vs.log(limit=100)
+        items = [v.to_dict() for v in versions]
+
+        limit = int(query.get("limit", ["20"])[0])
+        cursor = query.get("cursor", [None])[0]
+        page = paginate(items, limit=limit, cursor=cursor, sort_key="version_id")
+        self._json_response(page.to_dict())
+
+    def _dashboard_api_version_diff(self, query: dict) -> None:
+        vs = self.__class__.version_store
+        if vs is None:
+            self._error_response(ERR_NOT_CONFIGURED("No version store"))
+            return
+
+        a = query.get("a", [None])[0]
+        b = query.get("b", [None])[0]
+        if not a or not b:
+            self._error_response(ERR_INVALID_REQUEST("Both 'a' and 'b' params required"))
+            return
+
+        try:
+            diff = vs.diff(a, b)
+            self._json_response(diff)
+        except FileNotFoundError as e:
+            self._error_response(ERR_NOT_FOUND(str(e)))
+
+    def _dashboard_api_audit(self, query: dict) -> None:
+        log = self.__class__.audit_log
+        if log is None:
+            self._json_response({"entries": []})
+            return
+
+        limit = int(query.get("limit", ["50"])[0])
+        entries = log.recent(limit=limit)
+        self._json_response({"entries": entries})
+
+    def _dashboard_api_list_webhooks(self) -> None:
+        registrations = self.__class__.webhook_store.list_all()
+        webhooks = []
+        for reg in registrations:
+            webhooks.append({
+                "webhook_id": reg.webhook_id,
+                "url": reg.url,
+                "events": reg.events,
+                "active": reg.active,
+                "created_at": reg.created_at,
+            })
+        self._json_response({"webhooks": webhooks})
+
+    def _dashboard_api_config(self) -> None:
+        identity = self.__class__.identity
+        graph = self.__class__.graph
+        port = getattr(self.server, "server_port", 8421)
+        self._json_response({
+            "port": port,
+            "did": identity.did if identity else None,
+            "storage_backend": "sqlite" if hasattr(self.__class__.grant_store, '_db_path') else "json",
+            "node_count": len(graph.nodes) if graph else 0,
+            "edge_count": len(graph.edges) if graph else 0,
+            "grant_count": len(self.__class__.grant_store.list_all()),
+            "webhook_count": len(self.__class__.webhook_store.list_all()),
+            "policies": list(BUILTIN_POLICIES.keys()),
+        })
+
     # ── Response helpers ─────────────────────────────────────────────
 
     def _read_body(self) -> dict | None:
@@ -771,6 +1072,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         content_type: str,
         body: bytes,
         extra_headers: dict[str, str] | None = None,
+        dashboard: bool = False,
     ) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -787,7 +1089,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # Security headers
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'none'")
+        if dashboard:
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                             "style-src 'self' 'unsafe-inline'")
+        else:
+            self.send_header("Content-Security-Policy", "default-src 'none'")
 
         if extra_headers:
             for k, v in extra_headers.items():
@@ -820,6 +1127,7 @@ def start_caas_server(
     CaaSHandler.identity = identity
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
+    CaaSHandler.session_manager = DashboardSessionManager(identity)
 
     if storage_backend == "sqlite" and db_path:
         from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog

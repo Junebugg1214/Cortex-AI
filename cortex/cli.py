@@ -396,6 +396,15 @@ def build_parser():
     cw.add_argument("--interval", type=int, default=30,
                     help="Watch poll interval in seconds (default: 30)")
 
+    # -- pull (import from platform export) --------------------------------
+    pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
+    pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
+    pl.add_argument("--from", dest="from_platform", required=True,
+                    choices=["notion", "gdocs", "claude", "system-prompt"],
+                    help="Source platform adapter")
+    pl.add_argument("--output", "-o", default=None,
+                    help="Output graph JSON path (default: <input>_graph.json)")
+
     # -- serve (CaaS API) -------------------------------------------------
     sv = sub.add_parser("serve", help="Start CaaS API server")
     sv.add_argument("input_file", help="Path to context JSON (v4 or v5)")
@@ -1589,6 +1598,34 @@ def run_stats(args):
     return 0
 
 
+def run_pull(args):
+    """Import a platform export file back into a CortexGraph."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    adapter = ADAPTERS.get(args.from_platform)
+    if adapter is None:
+        print(f"Unknown platform: {args.from_platform}")
+        return 1
+
+    try:
+        graph = adapter.pull(input_path)
+    except Exception as e:
+        print(f"Error parsing {input_path}: {e}")
+        return 1
+
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_graph.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+    st = graph.stats()
+    print(f"Imported from {args.from_platform}: {st['node_count']} nodes, {st['edge_count']} edges")
+    print(f"Saved to: {output_path}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CaaS: serve, grant, rotate
 # ---------------------------------------------------------------------------
@@ -1753,7 +1790,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
-        "serve", "grant", "rotate",
+        "serve", "grant", "rotate", "pull",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1808,6 +1845,8 @@ def main(argv=None):
         return run_context_hook(args)
     elif args.subcommand == "context-export":
         return run_context_export(args)
+    elif args.subcommand == "pull":
+        return run_pull(args)
     elif args.subcommand == "serve":
         return run_serve(args)
     elif args.subcommand == "grant":
