@@ -31,3 +31,6 @@ Thumbs.db
 # Test files
 test_*.json
 sample_*.json
+
+# Local-only (not tracked)
+local/
