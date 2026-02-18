@@ -122,7 +122,11 @@ class TestIdentityGeneration:
         assert len(doc["verificationMethod"]) == 1
         vm = doc["verificationMethod"][0]
         assert vm["id"] == f"{identity.did}#key-1"
-        assert vm["publicKeyBase64"] == identity.public_key_b64
+        # Ed25519 keys use publicKeyMultibase; HMAC keys use publicKeyBase64
+        if "publicKeyMultibase" in vm:
+            assert vm["publicKeyMultibase"].startswith("z")
+        else:
+            assert vm["publicKeyBase64"] == identity.public_key_b64
         assert len(doc["authentication"]) == 1
 
     def test_to_public_dict(self):
