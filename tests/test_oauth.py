@@ -91,8 +91,9 @@ class TestState(unittest.TestCase):
 
     def test_tampered_rejects(self):
         state = generate_state(self.secret, "google", "nonce123")
-        # Flip a character
-        tampered = state[:-1] + ("A" if state[-1] != "A" else "B")
+        # Flip a character near the middle (last char may be padding-insignificant)
+        mid = len(state) // 2
+        tampered = state[:mid] + ("A" if state[mid] != "A" else "B") + state[mid + 1:]
         result = validate_state(self.secret, tampered)
         self.assertIsNone(result)
 

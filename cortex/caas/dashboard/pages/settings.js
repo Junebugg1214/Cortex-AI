@@ -126,6 +126,8 @@
             html += configRow('Edges', config.edge_count);
             html += configRow('Grants', config.grant_count);
             html += configRow('Webhooks', config.webhook_count);
+            html += configRow('Credentials', config.credential_count || 0);
+            html += configRow('SSE', config.sse_enabled ? '<span class="badge badge-active">Enabled</span>' : '<span class="badge badge-revoked">Disabled</span>');
             html += configRow('Policies', (config.policies || []).join(', '));
             html += '</tbody></table>';
             document.getElementById('settings-config').innerHTML = html;

@@ -226,6 +226,41 @@ DID_DOCUMENT_SCHEMA: dict = {
     },
 }
 
+CREDENTIAL_PROOF_SCHEMA: dict = {
+    "type": "object",
+    "required": ["type", "created", "verificationMethod", "proofPurpose", "proofValue"],
+    "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "created": {"type": "string", "minLength": 1},
+        "verificationMethod": {"type": "string", "minLength": 1},
+        "proofPurpose": {"type": "string", "enum": ["assertionMethod", "authentication"]},
+        "proofValue": {"type": "string", "minLength": 1},
+    },
+}
+
+CREDENTIAL_SCHEMA: dict = {
+    "type": "object",
+    "required": ["@context", "id", "type", "issuer", "issuanceDate", "credentialSubject", "proof"],
+    "properties": {
+        "@context": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "issuer": {"type": "string", "pattern": r"^did:"},
+        "issuanceDate": {"type": "string", "minLength": 1},
+        "expirationDate": {"type": "string"},
+        "credentialSubject": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": {"type": "string", "pattern": r"^did:"},
+            },
+        },
+        "proof": CREDENTIAL_PROOF_SCHEMA,
+        "status": {"type": "string", "enum": ["active", "revoked", "expired"]},
+        "boundNodeId": {"type": "string"},
+    },
+}
+
 
 # Schema registry
 SCHEMAS: dict[str, dict] = {
@@ -238,6 +273,8 @@ SCHEMAS: dict[str, dict] = {
     "disclosure_policy": DISCLOSURE_POLICY_SCHEMA,
     "version": VERSION_SCHEMA,
     "did_document": DID_DOCUMENT_SCHEMA,
+    "credential": CREDENTIAL_SCHEMA,
+    "credential_proof": CREDENTIAL_PROOF_SCHEMA,
 }
 
 

@@ -212,6 +212,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
     _allowed_origins: set[str] = set()
     session_manager: DashboardSessionManager | None = None
     oauth_manager: Any = None  # Optional OAuthManager
+    credential_store: Any = None  # Optional CredentialStore
+    sse_manager: Any = None  # Optional SSEManager
+    keychain: Any = None  # Optional Keychain
 
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
@@ -257,11 +260,21 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_version(version_id, query)
         elif path == "/webhooks":
             self._serve_list_webhooks()
+        elif path == "/credentials":
+            self._serve_credentials(query)
+        elif path.startswith("/credentials/"):
+            cred_id = path[len("/credentials/"):]
+            self._serve_credential_detail(cred_id)
         elif path == "/policies":
             self._serve_list_policies()
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._serve_get_policy(policy_name)
+        elif path.startswith("/resolve/"):
+            did_encoded = path[len("/resolve/"):]
+            self._serve_resolve_did(did_encoded)
+        elif path == "/events":
+            self._handle_sse(query)
         # ── OAuth routes ──────────────────────────────────────────
         elif path == "/dashboard/oauth/providers":
             self._serve_oauth_providers()
@@ -290,6 +303,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_grant()
         elif path == "/webhooks":
             self._handle_create_webhook()
+        elif path == "/credentials":
+            self._handle_create_credential()
+        elif path.startswith("/credentials/") and path.endswith("/verify"):
+            cred_id = path[len("/credentials/"):-len("/verify")]
+            self._handle_verify_credential(cred_id)
         elif path == "/policies":
             self._handle_create_policy()
         elif path == "/api/token-exchange":
@@ -317,6 +335,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/webhooks/"):
             webhook_id = path[len("/webhooks/"):]
             self._handle_delete_webhook(webhook_id)
+        elif path.startswith("/credentials/"):
+            cred_id = path[len("/credentials/"):]
+            self._handle_delete_credential(cred_id)
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._handle_delete_policy(policy_name)
@@ -475,10 +496,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
     # ── Webhook fire helper ──────────────────────────────────────────
 
     def _fire_webhook(self, event: str, data: dict) -> None:
-        """Enqueue a webhook event for delivery if worker is configured."""
+        """Enqueue a webhook event for delivery if worker is configured. Also broadcast via SSE."""
         worker = self.__class__.webhook_worker
         if worker is not None:
             worker.enqueue(event, data)
+        sse = self.__class__.sse_manager
+        if sse is not None:
+            sse.broadcast(event, data)
 
     # ── Health check ─────────────────────────────────────────────────
 
@@ -503,6 +527,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "version": "1.0.0",
             "upai_version": "1.0",
             "did": identity.did if identity else None,
+            "discovery": "/.well-known/upai-configuration",
         })
 
     def _serve_discovery(self) -> None:
@@ -516,6 +541,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 "grants": "/grants",
                 "versions": "/versions",
                 "webhooks": "/webhooks",
+                "credentials": "/credentials",
+                "events": "/events",
             },
             "supported_policies": [p.name for p in self.__class__.policy_registry.list_all()],
             "supported_scopes": [
@@ -981,6 +1008,341 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(ERR_NOT_FOUND("policy"))
 
+    # ── Credentials ─────────────────────────────────────────────────
+
+    def _handle_create_credential(self) -> None:
+        """POST /credentials — issue a self-signed credential."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+
+        identity = self.__class__.identity
+        store = self.__class__.credential_store
+        if identity is None:
+            self._error_response(ERR_NOT_CONFIGURED("No identity configured"))
+            return
+        if store is None:
+            self._error_response(ERR_NOT_CONFIGURED("Credential store not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        credential_type = body.get("credential_type", ["VerifiableCredential"])
+        subject_did = body.get("subject_did", "")
+        claims = body.get("claims", {})
+        ttl_days = body.get("ttl_days", 0)
+        bound_node_id = body.get("bound_node_id", "")
+
+        if not subject_did:
+            self._error_response(ERR_INVALID_REQUEST("'subject_did' is required"))
+            return
+
+        if not isinstance(claims, dict):
+            self._error_response(ERR_INVALID_REQUEST("'claims' must be an object"))
+            return
+
+        from cortex.upai.credentials import CredentialIssuer
+        issuer = CredentialIssuer()
+        try:
+            credential = issuer.issue(
+                identity=identity,
+                subject_did=subject_did,
+                credential_type=credential_type,
+                claims=claims,
+                ttl_days=ttl_days,
+                bound_node_id=bound_node_id,
+            )
+        except ValueError as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        store.add(credential)
+        self._audit("credential.created", {"credential_id": credential.credential_id})
+        self._fire_webhook("context.updated", {"credential_created": credential.credential_id})
+        self._json_response(credential.to_dict(), status=201)
+
+    def _serve_credentials(self, query: dict) -> None:
+        """GET /credentials — list credentials, optional ?node_id= filter."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+
+        store = self.__class__.credential_store
+        if store is None:
+            self._json_response({"credentials": []})
+            return
+
+        node_id = query.get("node_id", [None])[0]
+        if node_id:
+            credentials = store.list_by_node(node_id)
+        else:
+            credentials = store.list_all()
+
+        self._json_response({
+            "credentials": [c.to_dict() for c in credentials],
+        })
+
+    def _serve_credential_detail(self, cred_id: str) -> None:
+        """GET /credentials/{id} — get credential by ID."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+
+        store = self.__class__.credential_store
+        if store is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        credential = store.get(cred_id)
+        if credential is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        self._json_response(credential.to_dict())
+
+    def _handle_delete_credential(self, cred_id: str) -> None:
+        """DELETE /credentials/{id} — requires dashboard session auth."""
+        if not self._dashboard_auth_check():
+            return
+
+        store = self.__class__.credential_store
+        if store is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        if store.delete(cred_id):
+            self._audit("credential.deleted", {"credential_id": cred_id})
+            self._json_response({"deleted": True, "credential_id": cred_id})
+        else:
+            self._error_response(ERR_NOT_FOUND("credential"))
+
+    def _handle_verify_credential(self, cred_id: str) -> None:
+        """POST /credentials/{id}/verify — re-verify credential signature."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+
+        identity = self.__class__.identity
+        store = self.__class__.credential_store
+        if store is None or identity is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        credential = store.get(cred_id)
+        if credential is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        from cortex.upai.credentials import CredentialVerifier
+        verifier = CredentialVerifier()
+        valid, error = verifier.verify(credential.to_dict(), identity.public_key_b64)
+        status = verifier.check_status(credential)
+
+        self._json_response({
+            "credential_id": cred_id,
+            "valid": valid,
+            "status": status,
+            "error": error,
+        })
+
+    # ── Discovery / DID resolution ───────────────────────────────────
+
+    def _serve_resolve_did(self, did_encoded: str) -> None:
+        """GET /resolve/{did} — resolve a DID to its DID Document."""
+        did = urllib.parse.unquote(did_encoded)
+
+        identity = self.__class__.identity
+        from cortex.upai.discovery import DIDResolver
+        resolver = DIDResolver()
+
+        port = getattr(self.server, "server_port", 8421)
+        service_endpoints = None
+        if identity and identity.did == did:
+            service_endpoints = [{
+                "id": f"{identity.did}#caas",
+                "type": "ContextService",
+                "serviceEndpoint": f"http://localhost:{port}",
+            }]
+
+        doc = resolver.resolve(
+            did,
+            identity=identity,
+            service_endpoints=service_endpoints,
+        )
+        if doc is None:
+            self._error_response(ERR_NOT_FOUND("DID"))
+            return
+
+        self._json_response(doc)
+
+    # ── SSE (Server-Sent Events) ─────────────────────────────────────
+
+    def _handle_sse(self, query: dict) -> None:
+        """GET /events — SSE endpoint for real-time push."""
+        sse = self.__class__.sse_manager
+        if sse is None:
+            self._respond(503, "application/json",
+                          json.dumps({"error": "SSE not enabled"}).encode("utf-8"))
+            return
+
+        token_data = self._authenticate("context:subscribe")
+        if token_data is None:
+            return
+
+        # Parse event filter
+        events_param = query.get("events", [None])[0]
+        events: set[str] = set()
+        if events_param:
+            events = set(events_param.split(","))
+
+        grant_id = token_data.get("grant_id", "")
+
+        # Send SSE headers
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+
+        # Register subscriber
+        subscriber = sse.subscribe(self.wfile, events=events, grant_id=grant_id)
+        self._audit("sse.connected", {"subscriber_id": subscriber.subscriber_id})
+
+        # Block until connection closes
+        try:
+            while subscriber.alive:
+                import time as _t
+                _t.sleep(1)
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            sse.unsubscribe(subscriber.subscriber_id)
+
+    # ── Backup / Device routes (dashboard-only) ──────────────────────
+
+    def _handle_create_backup(self) -> None:
+        """POST /dashboard/api/backup — create encrypted backup."""
+        identity = self.__class__.identity
+        if identity is None:
+            self._error_response(ERR_NOT_CONFIGURED("No identity"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        passphrase = body.get("passphrase", "")
+        if not passphrase or len(passphrase) < 8:
+            self._error_response(ERR_INVALID_REQUEST("Passphrase must be at least 8 characters"))
+            return
+
+        from cortex.upai.backup import KeyBackup
+        backup = KeyBackup()
+        try:
+            blob = backup.backup(identity, passphrase)
+        except ValueError as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        self._audit("backup.created", {})
+        self._json_response(json.loads(blob), status=201)
+
+    def _handle_restore_backup(self) -> None:
+        """POST /dashboard/api/backup/restore — restore from encrypted backup."""
+        body = self._read_body()
+        if body is None:
+            return
+
+        backup_data = body.get("backup")
+        passphrase = body.get("passphrase", "")
+
+        if not backup_data or not passphrase:
+            self._error_response(ERR_INVALID_REQUEST("'backup' and 'passphrase' required"))
+            return
+
+        from cortex.upai.backup import KeyBackup
+        kb = KeyBackup()
+        try:
+            backup_bytes = json.dumps(backup_data).encode("utf-8")
+            restored = kb.restore(backup_bytes, passphrase)
+        except ValueError as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        self._audit("backup.restored", {"did": restored.did})
+        self._json_response({
+            "did": restored.did,
+            "name": restored.name,
+            "public_key_b64": restored.public_key_b64,
+        })
+
+    def _handle_generate_recovery(self) -> None:
+        """POST /dashboard/api/backup/recovery-phrase — generate 12-word phrase."""
+        from cortex.upai.backup import RecoveryCodeGenerator
+        gen = RecoveryCodeGenerator()
+        phrase = gen.generate_recovery_phrase()
+        self._json_response({"recovery_phrase": phrase}, status=201)
+
+    def _handle_authorize_device(self) -> None:
+        """POST /dashboard/api/devices — authorize a new device."""
+        identity = self.__class__.identity
+        kc = self.__class__.keychain
+        if identity is None or kc is None:
+            self._error_response(ERR_NOT_CONFIGURED("Identity or keychain not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        device_name = body.get("device_name", "")
+        if not device_name:
+            self._error_response(ERR_INVALID_REQUEST("'device_name' is required"))
+            return
+
+        try:
+            record, device_identity = kc.authorize_device(identity, device_name)
+        except ValueError as e:
+            self._error_response(ERR_INVALID_REQUEST(str(e)))
+            return
+
+        self._audit("device.authorized", {"device_id": record.device_id, "device_name": device_name})
+        self._json_response({
+            "device_id": record.device_id,
+            "device_name": record.device_name,
+            "device_did": record.device_did,
+            "device_public_key_b64": record.device_public_key_b64,
+            "authorized_at": record.authorized_at,
+        }, status=201)
+
+    def _serve_devices(self) -> None:
+        """GET /dashboard/api/devices — list authorized devices."""
+        kc = self.__class__.keychain
+        if kc is None:
+            self._json_response({"devices": []})
+            return
+        devices = kc.list_devices()
+        self._json_response({
+            "devices": [d.to_dict() for d in devices],
+        })
+
+    def _handle_revoke_device(self, device_id: str) -> None:
+        """DELETE /dashboard/api/devices/{id} — revoke device."""
+        kc = self.__class__.keychain
+        if kc is None:
+            self._error_response(ERR_NOT_FOUND("device"))
+            return
+
+        revoked_at = kc.revoke_device(device_id)
+        if revoked_at:
+            self._audit("device.revoked", {"device_id": device_id})
+            self._json_response({"revoked": True, "device_id": device_id, "revoked_at": revoked_at})
+        else:
+            self._error_response(ERR_NOT_FOUND("device"))
+
     # ── OAuth routes ──────────────────────────────────────────────────
 
     def _serve_oauth_providers(self) -> None:
@@ -1237,6 +1599,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_list_policies()
         elif api_path == "/config":
             self._dashboard_api_config()
+        elif api_path == "/devices":
+            self._serve_devices()
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -1253,6 +1617,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_webhook()
         elif api_path == "/policies":
             self._handle_create_policy()
+        elif api_path == "/backup":
+            self._handle_create_backup()
+        elif api_path == "/backup/restore":
+            self._handle_restore_backup()
+        elif api_path == "/backup/recovery-phrase":
+            self._handle_generate_recovery()
+        elif api_path == "/devices":
+            self._handle_authorize_device()
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -1272,6 +1644,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif api_path.startswith("/policies/"):
             policy_name = api_path[len("/policies/"):]
             self._handle_delete_policy(policy_name)
+        elif api_path.startswith("/devices/"):
+            device_id = api_path[len("/devices/"):]
+            self._handle_revoke_device(device_id)
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -1414,6 +1789,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         identity = self.__class__.identity
         graph = self.__class__.graph
         om = self.__class__.oauth_manager
+        cs = self.__class__.credential_store
         port = getattr(self.server, "server_port", 8421)
         self._json_response({
             "port": port,
@@ -1423,9 +1799,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "edge_count": len(graph.edges) if graph else 0,
             "grant_count": len(self.__class__.grant_store.list_all()),
             "webhook_count": len(self.__class__.webhook_store.list_all()),
+            "credential_count": cs.count if cs else 0,
             "policies": [p.name for p in self.__class__.policy_registry.list_all()],
             "oauth_providers": om.provider_names if om and om.enabled else [],
             "oauth_allowed_emails": sorted(om._allowed_emails) if om and om._allowed_emails else None,
+            "sse_enabled": self.__class__.sse_manager is not None,
         })
 
     # ── Response helpers ─────────────────────────────────────────────
@@ -1516,6 +1894,9 @@ def start_caas_server(
     enable_metrics: bool = False,
     oauth_providers: dict | None = None,
     oauth_allowed_emails: set[str] | None = None,
+    credential_store_path: str | None = None,
+    enable_sse: bool = False,
+    store_dir: str | None = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever())."""
     CaaSHandler.graph = graph
@@ -1581,6 +1962,26 @@ def start_caas_server(
         worker = WebhookWorker(json_webhook_store)
         worker.start()
         CaaSHandler.webhook_worker = worker
+
+    # Credential store
+    from cortex.upai.credentials import CredentialStore
+    CaaSHandler.credential_store = CredentialStore(store_path=credential_store_path)
+
+    # SSE
+    if enable_sse:
+        from cortex.caas.sse import SSEManager
+        sse = SSEManager()
+        sse.start()
+        CaaSHandler.sse_manager = sse
+    else:
+        CaaSHandler.sse_manager = None
+
+    # Keychain
+    if store_dir:
+        from cortex.upai.keychain import Keychain
+        CaaSHandler.keychain = Keychain(Path(store_dir))
+    else:
+        CaaSHandler.keychain = None
 
     if allowed_origins:
         CaaSHandler._allowed_origins = allowed_origins

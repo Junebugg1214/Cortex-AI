@@ -423,6 +423,8 @@ def build_parser():
                     help="Add OAuth provider (e.g. --oauth-provider google ID SECRET)")
     sv.add_argument("--oauth-allowed-email", action="append", metavar="EMAIL",
                     help="Restrict OAuth login to specific email(s)")
+    sv.add_argument("--enable-sse", action="store_true",
+                    help="Enable Server-Sent Events endpoint (/events)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1699,12 +1701,17 @@ def run_serve(args):
     if args.oauth_allowed_email:
         oauth_allowed_emails = set(args.oauth_allowed_email)
 
+    enable_sse = getattr(args, "enable_sse", False)
+    cred_store_path = str(store_dir / "credentials.json")
+
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
     print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend == "sqlite" else ""))
     if oauth_providers:
         print(f"OAuth: {', '.join(oauth_providers.keys())}")
+    if enable_sse:
+        print("SSE: enabled (/events)")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1718,6 +1725,9 @@ def run_serve(args):
         db_path=db_path,
         oauth_providers=oauth_providers,
         oauth_allowed_emails=oauth_allowed_emails,
+        credential_store_path=cred_store_path,
+        enable_sse=enable_sse,
+        store_dir=str(store_dir),
     )
     try:
         server.serve_forever()

@@ -13,11 +13,12 @@
         );
 
         try {
-            var [identity, stats, audit, grants] = await Promise.all([
+            var [identity, stats, audit, grants, config] = await Promise.all([
                 D.api('/identity'),
                 D.api('/stats'),
                 D.api('/audit?limit=10'),
                 D.api('/grants'),
+                D.api('/config'),
             ]);
 
             // Identity + stats cards
@@ -26,7 +27,8 @@
                 statCard('DID', '<span class="truncated" onclick="CortexDashboard.copyToClipboard(\'' + D.escapeHtml(identity.did) + '\')">' + D.truncateId(identity.did, 20) + '</span>', identity.key_type) +
                 statCard('Nodes', stats.node_count, 'In graph') +
                 statCard('Edges', stats.edge_count, 'Avg degree: ' + (stats.avg_degree || 0).toFixed(1)) +
-                statCard('Active Grants', activeGrants, grants.grants.length + ' total');
+                statCard('Active Grants', activeGrants, grants.grants.length + ' total') +
+                statCard('Credentials', config.credential_count || 0, 'Verifiable');
 
             // Tag bars
             var tagDist = stats.tag_distribution || {};
