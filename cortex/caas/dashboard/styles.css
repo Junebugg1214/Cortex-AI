@@ -97,6 +97,59 @@ body {
     font-size: 0.875rem;
 }
 
+/* Login divider (OAuth) */
+.login-divider {
+    display: flex;
+    align-items: center;
+    margin: 20px 0 16px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.login-divider span {
+    padding: 0 12px;
+}
+
+/* OAuth buttons */
+#oauth-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.btn-oauth {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card-bg);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text);
+}
+
+.btn-oauth:hover {
+    background: #f8f9fa;
+    border-color: #bdc3c7;
+}
+
+.btn-oauth-google { border-left: 3px solid #4285f4; }
+.btn-oauth-github { border-left: 3px solid #333; }
+
 /* App shell layout */
 #app-shell {
     display: flex;

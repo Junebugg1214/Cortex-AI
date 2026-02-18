@@ -31,6 +31,7 @@ class DashboardSessionManager:
         self._identity = identity
         self._session_ttl = session_ttl
         self._sessions: dict[str, float] = {}  # token -> expiry timestamp
+        self._session_meta: dict[str, dict] = {}  # token -> {auth_method, provider, email}
         self._lock = threading.Lock()
         self._password = self._derive_password()
 
@@ -69,10 +70,31 @@ class DashboardSessionManager:
                 return False
             return True
 
+    def create_oauth_session(self, provider: str, email: str, name: str = "") -> str:
+        """Create a session for an OAuth-authenticated user (skips password check)."""
+        token = secrets.token_hex(32)
+        expiry = time.monotonic() + self._session_ttl
+        with self._lock:
+            self._cleanup()
+            self._sessions[token] = expiry
+            self._session_meta[token] = {
+                "auth_method": "oauth",
+                "provider": provider,
+                "email": email,
+                "name": name,
+            }
+        return token
+
+    def get_session_meta(self, session_token: str) -> dict | None:
+        """Return session metadata (auth_method, provider, email) or None."""
+        with self._lock:
+            return self._session_meta.get(session_token)
+
     def revoke(self, session_token: str) -> None:
         """Revoke a session token."""
         with self._lock:
             self._sessions.pop(session_token, None)
+            self._session_meta.pop(session_token, None)
 
     def _cleanup(self) -> None:
         """Remove expired sessions (called under lock)."""

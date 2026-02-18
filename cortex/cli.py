@@ -418,6 +418,11 @@ def build_parser():
                     help="Storage backend (default: json)")
     sv.add_argument("--db-path", default=None,
                     help="SQLite database path (default: <store-dir>/cortex.db)")
+    sv.add_argument("--oauth-provider", action="append", nargs=3,
+                    metavar=("PROVIDER", "CLIENT_ID", "CLIENT_SECRET"),
+                    help="Add OAuth provider (e.g. --oauth-provider google ID SECRET)")
+    sv.add_argument("--oauth-allowed-email", action="append", metavar="EMAIL",
+                    help="Restrict OAuth login to specific email(s)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1680,10 +1685,26 @@ def run_serve(args):
     storage_backend = args.storage
     db_path = args.db_path or str(store_dir / "cortex.db")
 
+    # Parse OAuth providers
+    oauth_providers = None
+    if args.oauth_provider:
+        oauth_providers = {}
+        for provider_name, client_id, client_secret in args.oauth_provider:
+            oauth_providers[provider_name] = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+
+    oauth_allowed_emails = None
+    if args.oauth_allowed_email:
+        oauth_allowed_emails = set(args.oauth_allowed_email)
+
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
     print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend == "sqlite" else ""))
+    if oauth_providers:
+        print(f"OAuth: {', '.join(oauth_providers.keys())}")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1695,6 +1716,8 @@ def run_serve(args):
         grants_persist_path=grants_path,
         storage_backend=storage_backend,
         db_path=db_path,
+        oauth_providers=oauth_providers,
+        oauth_allowed_emails=oauth_allowed_emails,
     )
     try:
         server.serve_forever()

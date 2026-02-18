@@ -211,6 +211,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     webhook_worker: Any = None  # Optional WebhookWorker
     _allowed_origins: set[str] = set()
     session_manager: DashboardSessionManager | None = None
+    oauth_manager: Any = None  # Optional OAuthManager
 
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
@@ -261,6 +262,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._serve_get_policy(policy_name)
+        # ── OAuth routes ──────────────────────────────────────────
+        elif path == "/dashboard/oauth/providers":
+            self._serve_oauth_providers()
+        elif path == "/dashboard/oauth/authorize":
+            self._handle_oauth_authorize(query)
+        elif path == "/dashboard/oauth/callback":
+            self._handle_oauth_callback(query)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_get(path, query)
@@ -284,6 +292,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_webhook()
         elif path == "/policies":
             self._handle_create_policy()
+        elif path == "/api/token-exchange":
+            self._handle_token_exchange()
         # ── Dashboard routes ──────────────────────────────────────
         elif path == "/dashboard/auth":
             self._handle_dashboard_login()
@@ -971,6 +981,168 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(ERR_NOT_FOUND("policy"))
 
+    # ── OAuth routes ──────────────────────────────────────────────────
+
+    def _serve_oauth_providers(self) -> None:
+        """GET /dashboard/oauth/providers — list available OAuth providers (no auth)."""
+        om = self.__class__.oauth_manager
+        if om is None or not om.enabled:
+            self._json_response({"providers": []})
+            return
+        self._json_response({"providers": om.provider_names})
+
+    def _handle_oauth_authorize(self, query: dict) -> None:
+        """GET /dashboard/oauth/authorize — 302 redirect to provider."""
+        om = self.__class__.oauth_manager
+        if om is None or not om.enabled:
+            self._oauth_redirect_to_dashboard("oauth_not_configured")
+            return
+
+        provider_name = query.get("provider", [None])[0]
+        if not provider_name:
+            self._oauth_redirect_to_dashboard("missing_provider")
+            return
+
+        result = om.get_authorization_url(provider_name)
+        if result is None:
+            self._oauth_redirect_to_dashboard("unknown_provider")
+            return
+
+        url, _nonce = result
+        self._respond(302, "text/plain", b"Redirecting...", extra_headers={
+            "Location": url,
+        })
+
+    def _handle_oauth_callback(self, query: dict) -> None:
+        """GET /dashboard/oauth/callback — exchange code, create session, redirect."""
+        om = self.__class__.oauth_manager
+        if om is None:
+            self._oauth_redirect_to_dashboard("oauth_not_configured")
+            return
+
+        error = query.get("error", [None])[0]
+        if error:
+            self._oauth_redirect_to_dashboard(f"provider_error:{error}")
+            return
+
+        code = query.get("code", [None])[0]
+        state = query.get("state", [None])[0]
+        if not code or not state:
+            self._oauth_redirect_to_dashboard("missing_code_or_state")
+            return
+
+        userinfo, provider_or_error = om.handle_callback(code, state)
+        if userinfo is None:
+            self._oauth_redirect_to_dashboard(provider_or_error)
+            return
+
+        # Create session via DashboardSessionManager
+        sm = self.__class__.session_manager
+        if sm is None:
+            self._oauth_redirect_to_dashboard("dashboard_not_configured")
+            return
+
+        email = userinfo.get("email", "")
+        name = userinfo.get("name", userinfo.get("login", ""))
+        token = sm.create_oauth_session(provider_or_error, email, name)
+        self._audit("dashboard.oauth_login", {"provider": provider_or_error, "email": email})
+
+        # SameSite=Lax because this is a cross-site redirect from the OAuth provider
+        self._respond(302, "text/plain", b"Redirecting to dashboard...", extra_headers={
+            "Location": "/dashboard",
+            "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Lax; Path=/dashboard",
+        })
+
+    def _oauth_redirect_to_dashboard(self, error: str = "") -> None:
+        """Helper: redirect to dashboard with optional error query param."""
+        location = "/dashboard"
+        if error:
+            location += f"?oauth_error={urllib.parse.quote(error)}"
+        self._respond(302, "text/plain", b"Redirecting...", extra_headers={
+            "Location": location,
+        })
+
+    def _handle_token_exchange(self) -> None:
+        """POST /api/token-exchange — validate external token, create UPAI grant."""
+        from cortex.upai.tokens import GrantToken
+        from cortex.caas.oauth import validate_google_id_token, validate_github_token
+
+        om = self.__class__.oauth_manager
+        if om is None or not om.enabled:
+            self._error_response(ERR_NOT_CONFIGURED("OAuth not configured"))
+            return
+
+        identity = self.__class__.identity
+        if identity is None:
+            self._error_response(ERR_NOT_CONFIGURED("No identity configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        provider = body.get("provider", "")
+        token = body.get("token", "")
+        audience = body.get("audience", "")
+
+        if not provider or not token:
+            self._error_response(ERR_INVALID_REQUEST("'provider' and 'token' are required"))
+            return
+
+        if not audience:
+            self._error_response(ERR_INVALID_REQUEST("'audience' is required"))
+            return
+
+        # Validate external token
+        email = None
+        if provider == "google":
+            provider_cfg = om._providers.get("google")
+            if provider_cfg is None:
+                self._error_response(ERR_INVALID_REQUEST("Google OAuth not configured"))
+                return
+            claims = validate_google_id_token(token, provider_cfg.client_id)
+            if claims is None:
+                self._error_response(ERR_INVALID_TOKEN("Invalid Google ID token"))
+                return
+            email = claims.get("email", "")
+        elif provider == "github":
+            user_info = validate_github_token(token)
+            if user_info is None:
+                self._error_response(ERR_INVALID_TOKEN("Invalid GitHub token"))
+                return
+            email = user_info.get("email", "")
+        else:
+            self._error_response(ERR_INVALID_REQUEST(f"Unsupported provider: {provider}"))
+            return
+
+        # Check email allowlist
+        if email and not om.is_email_allowed(email):
+            self._respond(403, "application/json",
+                          json.dumps({"error": "email_not_allowed"}).encode())
+            return
+
+        # Create grant
+        policy = body.get("policy", "professional")
+        scopes = body.get("scopes")
+        ttl_hours = body.get("ttl_hours", 24)
+
+        grant = GrantToken.create(
+            identity, audience=audience, policy=policy,
+            scopes=scopes, ttl_hours=ttl_hours,
+        )
+        grant_str = grant.sign(identity)
+
+        self.__class__.grant_store.add(grant.grant_id, grant_str, grant.to_dict())
+        self._audit("token_exchange", {"provider": provider, "email": email, "audience": audience})
+
+        self._json_response({
+            "grant_id": grant.grant_id,
+            "token": grant_str,
+            "expires_at": grant.expires_at,
+            "policy": grant.policy,
+            "scopes": grant.scopes,
+        }, status=201)
+
     # ── Dashboard: static files ─────────────────────────────────────
 
     def _serve_dashboard_file(self, path: str) -> None:
@@ -1241,6 +1413,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     def _dashboard_api_config(self) -> None:
         identity = self.__class__.identity
         graph = self.__class__.graph
+        om = self.__class__.oauth_manager
         port = getattr(self.server, "server_port", 8421)
         self._json_response({
             "port": port,
@@ -1251,6 +1424,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "grant_count": len(self.__class__.grant_store.list_all()),
             "webhook_count": len(self.__class__.webhook_store.list_all()),
             "policies": [p.name for p in self.__class__.policy_registry.list_all()],
+            "oauth_providers": om.provider_names if om and om.enabled else [],
+            "oauth_allowed_emails": sorted(om._allowed_emails) if om and om._allowed_emails else None,
         })
 
     # ── Response helpers ─────────────────────────────────────────────
@@ -1339,6 +1514,8 @@ def start_caas_server(
     storage_backend: str = "json",
     db_path: str | None = None,
     enable_metrics: bool = False,
+    oauth_providers: dict | None = None,
+    oauth_allowed_emails: set[str] | None = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever())."""
     CaaSHandler.graph = graph
@@ -1347,6 +1524,35 @@ def start_caas_server(
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
     CaaSHandler.policy_registry = PolicyRegistry()
+
+    # OAuth setup
+    if oauth_providers:
+        import hashlib as _hl
+        from cortex.caas.oauth import OAuthManager, OAuthProviderConfig, PROVIDER_DEFAULTS
+        providers = {}
+        for name, creds in oauth_providers.items():
+            defaults = PROVIDER_DEFAULTS.get(name, {})
+            providers[name] = OAuthProviderConfig(
+                name=name,
+                client_id=creds["client_id"],
+                client_secret=creds["client_secret"],
+                authorize_url=defaults.get("authorize_url", ""),
+                token_url=defaults.get("token_url", ""),
+                userinfo_url=defaults.get("userinfo_url", ""),
+                scopes=defaults.get("scopes", []),
+            )
+        # Derive state secret from identity private key
+        pk = identity._private_key or identity.did.encode()
+        state_secret = _hl.sha256(pk + b"cortex-oauth-state").digest()
+        redirect_base = f"http://127.0.0.1:{port}"
+        CaaSHandler.oauth_manager = OAuthManager(
+            providers=providers,
+            state_secret=state_secret,
+            redirect_base=redirect_base,
+            allowed_emails=oauth_allowed_emails,
+        )
+    else:
+        CaaSHandler.oauth_manager = None
 
     if enable_metrics:
         from cortex.caas.instrumentation import create_default_registry

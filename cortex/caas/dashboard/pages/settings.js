@@ -13,6 +13,10 @@
             '      <div id="settings-config"></div>' +
             '    </div>' +
             '    <div class="card" style="margin-top:16px">' +
+            '      <div class="card-header">Authentication</div>' +
+            '      <div id="settings-auth"></div>' +
+            '    </div>' +
+            '    <div class="card" style="margin-top:16px">' +
             '      <div class="card-header">Export</div>' +
             '      <button class="btn btn-primary" id="export-btn">Download Graph JSON</button>' +
             '    </div>' +
@@ -125,6 +129,21 @@
             html += configRow('Policies', (config.policies || []).join(', '));
             html += '</tbody></table>';
             document.getElementById('settings-config').innerHTML = html;
+
+            // Authentication card
+            var authHtml = '<table class="data-table"><tbody>';
+            authHtml += configRow('Password Auth', '<span class="badge badge-active">Enabled</span>');
+            var oauthProviders = config.oauth_providers || [];
+            if (oauthProviders.length > 0) {
+                authHtml += configRow('OAuth Providers', oauthProviders.join(', '));
+            } else {
+                authHtml += configRow('OAuth', '<span class="badge badge-revoked">Not configured</span>');
+            }
+            if (config.oauth_allowed_emails) {
+                authHtml += configRow('Allowed Emails', config.oauth_allowed_emails.join(', '));
+            }
+            authHtml += '</tbody></table>';
+            document.getElementById('settings-auth').innerHTML = authHtml;
         } catch (e) {
             if (e.message !== 'unauthorized') document.getElementById('settings-config').innerHTML = '<div class="loading">Failed to load config</div>';
         }

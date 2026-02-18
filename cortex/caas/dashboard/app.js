@@ -158,6 +158,45 @@
         container.innerHTML = html;
     }
 
+    // ── OAuth initialization ────────────────────────────────────
+    (async function initOAuth() {
+        try {
+            var resp = await fetch('/dashboard/oauth/providers');
+            var data = await resp.json();
+            var providers = data.providers || [];
+            if (providers.length === 0) return;
+
+            var divider = document.getElementById('oauth-divider');
+            var buttons = document.getElementById('oauth-buttons');
+            divider.style.display = '';
+            buttons.style.display = '';
+
+            var providerLabels = { google: 'Google', github: 'GitHub' };
+            providers.forEach(function (p) {
+                var btn = document.createElement('button');
+                btn.className = 'btn btn-oauth btn-oauth-' + p;
+                btn.textContent = 'Sign in with ' + (providerLabels[p] || p);
+                btn.addEventListener('click', function () {
+                    window.location.href = '/dashboard/oauth/authorize?provider=' + encodeURIComponent(p);
+                });
+                buttons.appendChild(btn);
+            });
+        } catch (e) {
+            // OAuth not available — silently ignore
+        }
+
+        // Check for OAuth error in URL params
+        var params = new URLSearchParams(window.location.search);
+        var oauthError = params.get('oauth_error');
+        if (oauthError) {
+            var errEl = document.getElementById('oauth-error');
+            errEl.textContent = 'OAuth error: ' + oauthError;
+            errEl.style.display = 'block';
+            // Clean URL
+            window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+        }
+    })();
+
     // ── Check session on load ───────────────────────────────────
     (async function init() {
         try {
