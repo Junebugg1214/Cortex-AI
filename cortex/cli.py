@@ -236,6 +236,10 @@ def build_parser():
     ident.add_argument("--show", action="store_true", help="Show current identity")
     ident.add_argument("--store-dir", default=".cortex",
                        help="Identity store directory (default: .cortex)")
+    ident.add_argument("--did-doc", action="store_true",
+                       help="Output W3C DID document JSON")
+    ident.add_argument("--keychain", action="store_true",
+                       help="Show key rotation history and status")
 
     # -- commit (Phase 3) --------------------------------------------------
     cm = sub.add_parser("commit", help="Version a graph snapshot")
@@ -408,6 +412,8 @@ def build_parser():
     # -- serve (CaaS API) -------------------------------------------------
     sv = sub.add_parser("serve", help="Start CaaS API server")
     sv.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    sv.add_argument("--config", "-C", default=None,
+                    help="Path to cortex.ini config file")
     sv.add_argument("--port", "-p", type=int, default=8421,
                     help="Server port (default: 8421)")
     sv.add_argument("--store-dir", default=".cortex",
@@ -440,6 +446,10 @@ def build_parser():
                     help="Token TTL in hours (default: 24)")
     gr.add_argument("--store-dir", default=".cortex",
                     help="Identity store directory (default: .cortex)")
+    gr.add_argument("--storage", choices=["json", "sqlite"], default="json",
+                    help="Grant storage backend (default: json)")
+    gr.add_argument("--db-path", default=None,
+                    help="SQLite database path (default: <store-dir>/cortex.db)")
 
     # -- policy (custom disclosure policies) --------------------------------
     po = sub.add_parser("policy", help="Manage custom disclosure policies")
@@ -963,7 +973,45 @@ def run_identity(args):
         print(f"Public Key: {identity.public_key_b64[:32]}...")
         return 0
 
-    print("Specify --init or --show")
+    if getattr(args, "did_doc", False):
+        id_path = store_dir / "identity.json"
+        if not id_path.exists():
+            print(f"No identity found in {store_dir}. Use --init to create one.")
+            return 1
+        identity = UPAIIdentity.load(store_dir)
+        doc = identity.to_did_document()
+        print(json.dumps(doc, indent=2))
+        return 0
+
+    if getattr(args, "keychain", False):
+        from cortex.upai.keychain import Keychain
+        id_path = store_dir / "identity.json"
+        if not id_path.exists():
+            print(f"No identity found in {store_dir}. Use --init to create one.")
+            return 1
+        kc = Keychain(store_dir)
+        history = kc.get_history()
+        if not history:
+            print("No key history found.")
+            return 0
+        errors = kc.verify_rotation_chain()
+        chain_status = "VALID" if not errors else "INVALID"
+        print(f"Key Rotation History (chain: {chain_status}):")
+        for record in history:
+            if record.revoked_at:
+                status = f"REVOKED ({record.revocation_reason})"
+                date_info = f"created={record.created_at}, revoked={record.revoked_at}"
+            else:
+                status = "ACTIVE"
+                date_info = f"created={record.created_at}"
+            print(f"  {record.did[:32]}... | {status} | {date_info}")
+        if errors:
+            print(f"\nChain errors:")
+            for err in errors:
+                print(f"  - {err}")
+        return 0
+
+    print("Specify --init, --show, --did-doc, or --keychain")
     return 1
 
 
@@ -1658,6 +1706,23 @@ def run_pull(args):
 def run_serve(args):
     """Start the CaaS API server."""
     from cortex.caas.server import start_caas_server
+    from cortex.caas.config import CortexConfig
+    from cortex.caas.logging_config import setup_logging
+
+    # Load configuration
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            print(f"Config file not found: {config_path}")
+            return 1
+        config = CortexConfig.from_file(str(config_path))
+    else:
+        config = CortexConfig.from_env()
+
+    # Set up structured logging from config
+    log_level = config.get("logging", "level", fallback="INFO")
+    log_format = config.get("logging", "format", fallback="text")
+    setup_logging(level=log_level, fmt=log_format)
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -1708,6 +1773,9 @@ def run_serve(args):
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
     print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend == "sqlite" else ""))
+    if args.config:
+        print(f"Config: {args.config}")
+    print(f"Logging: level={log_level}, format={log_format}")
     if oauth_providers:
         print(f"OAuth: {', '.join(oauth_providers.keys())}")
     if enable_sse:
@@ -1728,12 +1796,24 @@ def run_serve(args):
         credential_store_path=cred_store_path,
         enable_sse=enable_sse,
         store_dir=str(store_dir),
+        config=config,
     )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-        server.shutdown()
+
+    # Use ShutdownCoordinator for graceful shutdown if available
+    coordinator = getattr(server, '_shutdown_coordinator', None)
+    if coordinator:
+        coordinator.install_signal_handlers()
+        try:
+            coordinator.wait_for_shutdown()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            server.shutdown()
+    else:
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            server.shutdown()
     return 0
 
 
@@ -1748,6 +1828,16 @@ def run_grant(args):
 
     identity = UPAIIdentity.load(store_dir)
 
+    # Select grant store backend
+    storage = getattr(args, "storage", "json")
+    if storage == "sqlite":
+        from cortex.caas.sqlite_store import SqliteGrantStore
+        db_path = args.db_path or str(Path(store_dir) / "cortex.db")
+        gs = SqliteGrantStore(db_path)
+    else:
+        from cortex.caas.server import GrantStore
+        gs = GrantStore(persist_path=str(store_dir / "grants.json"))
+
     if args.create:
         audience = args.audience
         if not audience:
@@ -1759,10 +1849,6 @@ def run_grant(args):
             policy=args.policy, ttl_hours=args.ttl,
         )
         token_str = token.sign(identity)
-
-        # Persist to grant store
-        from cortex.caas.server import GrantStore
-        gs = GrantStore(persist_path=str(store_dir / "grants.json"))
         gs.add(token.grant_id, token_str, token.to_dict())
 
         print(f"Grant ID: {token.grant_id}")
@@ -1770,13 +1856,11 @@ def run_grant(args):
         print(f"Policy: {token.policy}")
         print(f"Scopes: {', '.join(token.scopes)}")
         print(f"Expires: {token.expires_at}")
+        print(f"Storage: {storage}")
         print(f"\nToken:\n{token_str}")
         return 0
 
     elif args.list_grants:
-        from cortex.caas.server import GrantStore
-        grants_path = str(store_dir / "grants.json")
-        gs = GrantStore(persist_path=grants_path)
         grants = gs.list_all()
         if not grants:
             print("No grants found.")
@@ -1787,9 +1871,6 @@ def run_grant(args):
         return 0
 
     elif args.revoke:
-        from cortex.caas.server import GrantStore
-        grants_path = str(store_dir / "grants.json")
-        gs = GrantStore(persist_path=grants_path)
         if gs.revoke(args.revoke):
             print(f"Revoked grant: {args.revoke}")
         else:

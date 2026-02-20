@@ -5,8 +5,16 @@ services:
       - "8421:8421"
     volumes:
       - cortex-data:/data
+      - ./deploy/cortex.ini:/etc/cortex/cortex.ini:ro
+    env_file:
+      - deploy/.env.example
     environment:
-      - CORTEX_PORT=8421
+      - CORTEX_LOGGING_FORMAT=json
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:
