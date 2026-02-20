@@ -49,12 +49,12 @@ from cortex.upai.tokens import (
 class TestRoleDefinitions:
     def test_owner_has_all_scopes(self):
         assert scopes_for_role("owner") == ALL_SCOPES
-        assert len(scopes_for_role("owner")) == 10
+        assert len(scopes_for_role("owner")) == 11
 
     def test_admin_has_all_except_devices(self):
         admin = scopes_for_role("admin")
         assert "devices:manage" not in admin
-        assert len(admin) == 9
+        assert len(admin) == 10
 
     def test_reader_scopes(self):
         reader = scopes_for_role("reader")
@@ -68,7 +68,7 @@ class TestRoleDefinitions:
         assert scopes_for_role("unknown") == set()
 
     def test_valid_roles(self):
-        assert VALID_ROLES == {"owner", "admin", "reader", "subscriber"}
+        assert VALID_ROLES == {"owner", "admin", "editor", "reader", "subscriber"}
 
 
 class TestRoleHasScope:
@@ -163,7 +163,7 @@ class TestTokenRoleField:
 
 class TestValidScopes:
     def test_ten_scopes(self):
-        assert len(VALID_SCOPES) == 10
+        assert len(VALID_SCOPES) == 11
 
     def test_all_scope_constants(self):
         assert SCOPE_CONTEXT_READ in VALID_SCOPES

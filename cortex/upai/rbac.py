@@ -6,18 +6,20 @@ field which auto-resolves to the corresponding scopes, simplifying
 token creation and management.
 
 Roles:
-    owner       — all 10 scopes (full control)
+    owner       — all 11 scopes (full control)
     admin       — all except devices:manage
+    editor      — context read/write/subscribe + identity:read
     reader      — read-only (context, versions, identity, credentials)
     subscriber  — read + subscribe (for SSE consumers)
 """
 
 from __future__ import annotations
 
-# ── Scope constants (all 10) ──────────────────────────────────────────────
+# ── Scope constants (all 11) ──────────────────────────────────────────────
 
 ALL_SCOPES: set[str] = {
     "context:read",
+    "context:write",
     "context:subscribe",
     "versions:read",
     "identity:read",
@@ -34,6 +36,12 @@ ALL_SCOPES: set[str] = {
 ROLE_SCOPES: dict[str, set[str]] = {
     "owner": set(ALL_SCOPES),
     "admin": ALL_SCOPES - {"devices:manage"},
+    "editor": {
+        "context:read",
+        "context:write",
+        "context:subscribe",
+        "identity:read",
+    },
     "reader": {
         "context:read",
         "versions:read",

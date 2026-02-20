@@ -191,7 +191,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 MAX_BODY_SIZE = 1_048_576  # 1 MB
 
 VALID_SCOPES = {
-    "context:read", "context:subscribe", "versions:read", "identity:read",
+    "context:read", "context:write", "context:subscribe", "versions:read", "identity:read",
     "credentials:read", "credentials:write",
     "webhooks:manage", "policies:manage", "grants:manage", "devices:manage",
 }
@@ -222,12 +222,40 @@ class CaaSHandler(BaseHTTPRequestHandler):
     credential_store: Any = None  # Optional CredentialStore
     sse_manager: Any = None  # Optional SSEManager
     keychain: Any = None  # Optional Keychain
+    csrf_enabled: bool = False  # Set True to require CSRF tokens on dashboard mutations
 
     _request_id: str = ""
+    _logger = None  # lazily set
+
+    @classmethod
+    def _get_logger(cls):
+        if cls._logger is None:
+            import logging
+            cls._logger = logging.getLogger("caas.server")
+        return cls._logger
 
     def _init_request_id(self) -> None:
         """Extract or generate a request correlation ID."""
         self._request_id = parse_request_id(self.headers.get("X-Request-ID"))
+        # Propagate to thread-local for logging
+        try:
+            from cortex.caas.logging_config import set_request_id
+            set_request_id(self._request_id)
+        except ImportError:
+            pass
+
+    def _log_request(self, status_code: int) -> None:
+        """Log the completed request with method, path, status, and duration."""
+        logger = self._get_logger()
+        duration_ms = round((_time.monotonic() - self._request_start_time) * 1000, 1)
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        method = self.command or "GET"
+        logger.info(
+            "%s %s %d %.1fms",
+            method, path, status_code, duration_ms,
+            extra={"method": method, "path": path, "status": status_code, "duration_ms": duration_ms},
+        )
 
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
@@ -262,6 +290,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_context_edges(query)
         elif path == "/context/stats":
             self._serve_context_stats(query)
+        elif path.startswith("/context/path/"):
+            rest = path[len("/context/path/"):]
+            self._serve_shortest_path(rest)
+        elif path.startswith("/context/nodes/") and path.endswith("/neighbors"):
+            node_id = path[len("/context/nodes/"):-len("/neighbors")]
+            self._serve_node_neighbors(node_id, query)
         elif path.startswith("/context/nodes/"):
             node_id = path[len("/context/nodes/"):]
             self._serve_context_node(node_id, query)
@@ -320,6 +354,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         if path == "/grants":
             self._handle_create_grant()
+        elif path == "/context/nodes":
+            self._handle_create_node()
+        elif path == "/context/edges":
+            self._handle_create_edge()
+        elif path == "/context/search":
+            self._handle_search_nodes()
+        elif path == "/context/batch":
+            self._handle_batch_mutations()
         elif path == "/webhooks":
             self._handle_create_webhook()
         elif path == "/credentials":
@@ -352,6 +394,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if path.startswith("/grants/"):
             grant_id = path[len("/grants/"):]
             self._handle_revoke_grant(grant_id)
+        elif path.startswith("/context/nodes/"):
+            node_id = path[len("/context/nodes/"):]
+            self._handle_delete_node(node_id)
+        elif path.startswith("/context/edges/"):
+            edge_id = path[len("/context/edges/"):]
+            self._handle_delete_edge(edge_id)
         elif path.startswith("/webhooks/"):
             webhook_id = path[len("/webhooks/"):]
             self._handle_delete_webhook(webhook_id)
@@ -377,7 +425,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
 
-        if path.startswith("/policies/"):
+        if path.startswith("/context/nodes/"):
+            node_id = path[len("/context/nodes/"):]
+            self._handle_update_node(node_id)
+        elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._handle_update_policy(policy_name)
         else:
@@ -835,6 +886,278 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         self._json_response(graph.stats())
 
+    # ── Graph mutations & intelligence ──────────────────────────────
+
+    def _handle_create_node(self) -> None:
+        """POST /context/nodes — create a new node. Requires context:write."""
+        from cortex.graph import Node, make_node_id
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        label = body.get("label", "")
+        if not label:
+            self._error_response(ERR_INVALID_REQUEST("'label' is required"))
+            return
+        node_id = body.get("id") or make_node_id(label)
+        node = Node(
+            id=node_id,
+            label=label,
+            tags=body.get("tags", []),
+            confidence=body.get("confidence", 0.5),
+            properties=body.get("properties", {}),
+            brief=body.get("brief", ""),
+            full_description=body.get("full_description", ""),
+        )
+        graph.add_node(node)
+        self._audit("context.node.created", {"node_id": node_id, "label": label})
+        self._fire_webhook("context.node.created", {"node_id": node_id, "label": label})
+        self._json_response(node.to_dict(), status=201)
+
+    def _handle_update_node(self, node_id: str) -> None:
+        """PUT /context/nodes/{id} — partial update. Requires context:write."""
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        node = graph.update_node(node_id, body)
+        if node is None:
+            self._error_response(ERR_NOT_FOUND("node"))
+            return
+        self._audit("context.node.updated", {"node_id": node_id})
+        self._fire_webhook("context.node.updated", {"node_id": node_id})
+        self._json_response(node.to_dict())
+
+    def _handle_delete_node(self, node_id: str) -> None:
+        """DELETE /context/nodes/{id} — remove node + connected edges. Requires context:write."""
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        if graph.remove_node(node_id):
+            self._audit("context.node.deleted", {"node_id": node_id})
+            self._fire_webhook("context.node.deleted", {"node_id": node_id})
+            self._json_response({"deleted": True, "node_id": node_id})
+        else:
+            self._error_response(ERR_NOT_FOUND("node"))
+
+    def _handle_create_edge(self) -> None:
+        """POST /context/edges — create edge. Requires context:write."""
+        from cortex.graph import Edge, make_edge_id
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        source_id = body.get("source_id", "")
+        target_id = body.get("target_id", "")
+        relation = body.get("relation", "")
+        if not source_id or not target_id or not relation:
+            self._error_response(ERR_INVALID_REQUEST("'source_id', 'target_id', and 'relation' are required"))
+            return
+        if source_id not in graph.nodes:
+            self._error_response(ERR_NOT_FOUND(f"source node '{source_id}'"))
+            return
+        if target_id not in graph.nodes:
+            self._error_response(ERR_NOT_FOUND(f"target node '{target_id}'"))
+            return
+        edge_id = body.get("id") or make_edge_id(source_id, target_id, relation)
+        edge = Edge(
+            id=edge_id,
+            source_id=source_id,
+            target_id=target_id,
+            relation=relation,
+            confidence=body.get("confidence", 0.5),
+            properties=body.get("properties", {}),
+        )
+        graph.add_edge(edge)
+        self._audit("context.edge.created", {"edge_id": edge_id, "relation": relation})
+        self._fire_webhook("context.edge.created", {"edge_id": edge_id})
+        self._json_response(edge.to_dict(), status=201)
+
+    def _handle_delete_edge(self, edge_id: str) -> None:
+        """DELETE /context/edges/{id} — remove edge. Requires context:write."""
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        if graph.remove_edge(edge_id):
+            self._audit("context.edge.deleted", {"edge_id": edge_id})
+            self._fire_webhook("context.edge.deleted", {"edge_id": edge_id})
+            self._json_response({"deleted": True, "edge_id": edge_id})
+        else:
+            self._error_response(ERR_NOT_FOUND("edge"))
+
+    def _handle_search_nodes(self) -> None:
+        """POST /context/search — full-text search. Requires context:read."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        query = body.get("query", "")
+        if not query:
+            self._error_response(ERR_INVALID_REQUEST("'query' is required"))
+            return
+        fields = body.get("fields")
+        min_confidence = body.get("min_confidence", 0.0)
+        limit = body.get("limit", 50)
+        results = graph.search_nodes(query, fields=fields, min_confidence=min_confidence, limit=limit)
+        self._json_response({
+            "results": [n.to_dict() for n in results],
+            "count": len(results),
+        })
+
+    def _serve_node_neighbors(self, node_id: str, query: dict) -> None:
+        """GET /context/nodes/{id}/neighbors — neighbors with optional relation filter."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        if node_id not in graph.nodes:
+            self._error_response(ERR_NOT_FOUND("node"))
+            return
+        relation = query.get("relation", [None])[0]
+        neighbors = graph.get_neighbors(node_id, relation=relation)
+        self._json_response({
+            "node_id": node_id,
+            "neighbors": [
+                {"edge": e.to_dict(), "node": n.to_dict()}
+                for e, n in neighbors
+            ],
+            "count": len(neighbors),
+        })
+
+    def _serve_shortest_path(self, rest: str) -> None:
+        """GET /context/path/{source_id}/{target_id} — shortest path."""
+        token_data = self._authenticate("context:read")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        parts = rest.split("/", 1)
+        if len(parts) != 2:
+            self._error_response(ERR_INVALID_REQUEST("Path format: /context/path/{source_id}/{target_id}"))
+            return
+        source_id, target_id = parts
+        path = graph.shortest_path(source_id, target_id)
+        self._json_response({
+            "source_id": source_id,
+            "target_id": target_id,
+            "path": path,
+            "length": len(path) - 1 if path else -1,
+        })
+
+    def _handle_batch_mutations(self) -> None:
+        """POST /context/batch — batch create/update/delete. Requires context:write."""
+        from cortex.graph import Node, Edge, make_node_id, make_edge_id
+        token_data = self._authenticate_or_dashboard("context:write")
+        if token_data is None:
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        operations = body.get("operations", [])
+        if not isinstance(operations, list):
+            self._error_response(ERR_INVALID_REQUEST("'operations' must be a list"))
+            return
+        results = []
+        for op in operations:
+            op_type = op.get("op", "")
+            try:
+                if op_type == "create_node":
+                    label = op.get("label", "")
+                    nid = op.get("id") or make_node_id(label)
+                    node = Node(
+                        id=nid, label=label,
+                        tags=op.get("tags", []),
+                        confidence=op.get("confidence", 0.5),
+                        properties=op.get("properties", {}),
+                        brief=op.get("brief", ""),
+                    )
+                    graph.add_node(node)
+                    self._fire_webhook("context.node.created", {"node_id": nid})
+                    results.append({"op": op_type, "id": nid, "status": "ok"})
+                elif op_type == "update_node":
+                    nid = op.get("id", "")
+                    updates = {k: v for k, v in op.items() if k not in ("op", "id")}
+                    n = graph.update_node(nid, updates)
+                    if n is None:
+                        results.append({"op": op_type, "id": nid, "status": "not_found"})
+                    else:
+                        self._fire_webhook("context.node.updated", {"node_id": nid})
+                        results.append({"op": op_type, "id": nid, "status": "ok"})
+                elif op_type == "delete_node":
+                    nid = op.get("id", "")
+                    if graph.remove_node(nid):
+                        self._fire_webhook("context.node.deleted", {"node_id": nid})
+                        results.append({"op": op_type, "id": nid, "status": "ok"})
+                    else:
+                        results.append({"op": op_type, "id": nid, "status": "not_found"})
+                elif op_type == "create_edge":
+                    src = op.get("source_id", "")
+                    tgt = op.get("target_id", "")
+                    rel = op.get("relation", "")
+                    eid = op.get("id") or make_edge_id(src, tgt, rel)
+                    edge = Edge(
+                        id=eid, source_id=src, target_id=tgt, relation=rel,
+                        confidence=op.get("confidence", 0.5),
+                        properties=op.get("properties", {}),
+                    )
+                    graph.add_edge(edge)
+                    self._fire_webhook("context.edge.created", {"edge_id": eid})
+                    results.append({"op": op_type, "id": eid, "status": "ok"})
+                elif op_type == "delete_edge":
+                    eid = op.get("id", "")
+                    if graph.remove_edge(eid):
+                        self._fire_webhook("context.edge.deleted", {"edge_id": eid})
+                        results.append({"op": op_type, "id": eid, "status": "ok"})
+                    else:
+                        results.append({"op": op_type, "id": eid, "status": "not_found"})
+                else:
+                    results.append({"op": op_type, "status": "unknown_operation"})
+            except Exception as e:
+                results.append({"op": op_type, "status": "error", "error": str(e)})
+        self._audit("context.batch", {"count": len(operations)})
+        self._json_response({"results": results, "count": len(results)})
+
     # ── Versions ─────────────────────────────────────────────────────
 
     def _serve_versions(self, query: dict) -> None:
@@ -918,6 +1241,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if len(url) > 2048:
             self._error_response(ERR_INVALID_REQUEST("'url' must be at most 2048 characters"))
             return
+
+        # SSRF check — block private/internal IPs
+        try:
+            from cortex.caas.security import validate_webhook_url
+            url_valid, url_err = validate_webhook_url(url)
+            if not url_valid:
+                self._error_response(ERR_INVALID_REQUEST(f"Webhook URL rejected: {url_err}"))
+                return
+        except Exception:
+            pass  # If security module unavailable, skip check
 
         try:
             from cortex.upai.webhooks import create_webhook, VALID_EVENTS
@@ -1697,8 +2030,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
                           "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Strict; Path=/dashboard",
                       })
 
-    def _dashboard_auth_check(self) -> bool:
-        """Validate dashboard session cookie. Returns True if valid, sends 401 otherwise."""
+    def _dashboard_auth_check(self, check_csrf: bool = False) -> bool:
+        """Validate dashboard session cookie. Returns True if valid, sends 401 otherwise.
+
+        If *check_csrf* is True, also validates the X-CSRF-Token header against
+        the session token.
+        """
         sm = self.__class__.session_manager
         if sm is None:
             self._respond(401, "application/json",
@@ -1719,7 +2056,38 @@ class CaaSHandler(BaseHTTPRequestHandler):
                           json.dumps({"error": "unauthorized"}).encode(),
                           dashboard=True)
             return False
+
+        # CSRF validation for mutating requests (only if enabled)
+        if check_csrf and self.__class__.csrf_enabled and hasattr(sm, 'csrf_secret'):
+            from cortex.caas.security import CSRFProtection
+            csrf = CSRFProtection(sm.csrf_secret)
+            csrf_token = self.headers.get("X-CSRF-Token", "")
+            if not csrf.validate_token(token, csrf_token):
+                self._respond(403, "application/json",
+                              json.dumps({"error": "csrf_validation_failed"}).encode(),
+                              dashboard=True)
+                return False
         return True
+
+    def _get_csrf_token_for_session(self) -> str | None:
+        """Generate a CSRF token for the current session cookie, if present."""
+        if not self.__class__.csrf_enabled:
+            return None
+        sm = self.__class__.session_manager
+        if sm is None or not hasattr(sm, 'csrf_secret'):
+            return None
+        cookie_header = self.headers.get("Cookie", "")
+        token = None
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_session="):
+                token = part[len("cortex_session="):]
+                break
+        if not token or not sm.validate(token):
+            return None
+        from cortex.caas.security import CSRFProtection
+        csrf = CSRFProtection(sm.csrf_secret)
+        return csrf.generate_token(token)
 
     # ── Dashboard: API routing ───────────────────────────────────
 
@@ -1727,6 +2095,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         """Route GET /dashboard/api/* requests."""
         if not self._dashboard_auth_check():
             return
+        # Generate CSRF token for mutating actions
+        csrf_token = self._get_csrf_token_for_session()
+        if csrf_token:
+            self._csrf_token_for_response = csrf_token
 
         api_path = path[len("/dashboard/api"):]
 
@@ -1760,7 +2132,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _route_dashboard_api_post(self, path: str) -> None:
         """Route POST /dashboard/api/* requests."""
-        if not self._dashboard_auth_check():
+        if not self._dashboard_auth_check(check_csrf=True):
             return
 
         api_path = path[len("/dashboard/api"):]
@@ -1787,7 +2159,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _route_dashboard_api_delete(self, path: str) -> None:
         """Route DELETE /dashboard/api/* requests."""
-        if not self._dashboard_auth_check():
+        if not self._dashboard_auth_check(check_csrf=True):
             return
 
         api_path = path[len("/dashboard/api"):]
@@ -1983,7 +2355,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     # ── Response helpers ─────────────────────────────────────────────
 
-    def _read_body(self) -> dict | None:
+    def _read_body(self, require_json: bool = True) -> dict | None:
         """Read and parse JSON request body. Returns None and sends error on failure."""
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
@@ -1992,6 +2364,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if content_length > MAX_BODY_SIZE:
             self._error_response(ERR_PAYLOAD_TOO_LARGE())
             return None
+        # Content-Type validation
+        if require_json:
+            from cortex.caas.security import require_json_content_type
+            ct = self.headers.get("Content-Type", "")
+            valid, ct_err = require_json_content_type(ct)
+            if not valid:
+                self._respond(415, "application/json",
+                              json.dumps({"error": "unsupported_media_type", "detail": ct_err}).encode("utf-8"))
+                return None
         try:
             raw = self.rfile.read(content_length)
             return json.loads(raw)
@@ -2052,6 +2433,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; script-src 'self' 'unsafe-inline'; "
                              "style-src 'self' 'unsafe-inline'")
+            # Include CSRF token if available
+            csrf = getattr(self, "_csrf_token_for_response", None)
+            if csrf:
+                self.send_header("X-CSRF-Token", csrf)
+                self._csrf_token_for_response = None
         else:
             self.send_header("Content-Security-Policy", "default-src 'none'")
 
@@ -2062,10 +2448,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         self._record_metrics(code)
+        self._log_request(code)
 
     def log_message(self, format: str, *args: Any) -> None:
-        """Suppress noisy request logging."""
-        pass
+        """Route BaseHTTPRequestHandler logs through stdlib logging."""
+        import logging
+        logging.getLogger("caas.server").debug(format, *args)
 
 
 # ---------------------------------------------------------------------------
@@ -2087,14 +2475,41 @@ def start_caas_server(
     credential_store_path: str | None = None,
     enable_sse: bool = False,
     store_dir: str | None = None,
+    config: Any = None,
 ) -> ThreadingHTTPServer:
-    """Start the CaaS API server. Returns the server instance (call serve_forever())."""
+    """Start the CaaS API server. Returns the server instance (call serve_forever()).
+
+    If *config* (a CortexConfig) is provided, its values are used as defaults
+    for any parameter not explicitly passed by the caller.
+    """
+    # Apply config defaults where explicit params weren't overridden
+    if config is not None:
+        if port == 8421:
+            port = config.getint("server", "port", fallback=8421)
+        if storage_backend == "json":
+            storage_backend = config.get("storage", "backend", fallback="json")
+        if db_path is None:
+            _cfg_db = config.get("storage", "db_path", fallback="")
+            if _cfg_db:
+                db_path = _cfg_db
+        if not enable_sse:
+            enable_sse = config.getbool("sse", "enabled", fallback=False)
+        if store_dir is None:
+            _cfg_dir = config.get("storage", "store_dir", fallback="")
+            if _cfg_dir:
+                store_dir = _cfg_dir
+
     CaaSHandler.graph = graph
     CaaSHandler.identity = identity
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
     CaaSHandler.policy_registry = PolicyRegistry()
+    # CSRF: enable via config
+    if config is not None:
+        CaaSHandler.csrf_enabled = config.getbool("security", "csrf_enabled", fallback=True)
+    else:
+        CaaSHandler.csrf_enabled = False  # off by default when no config provided
 
     # OAuth setup
     if oauth_providers:
@@ -2133,7 +2548,15 @@ def start_caas_server(
 
     if storage_backend == "sqlite" and db_path:
         from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog, SqlitePolicyStore
-        CaaSHandler.grant_store = SqliteGrantStore(db_path)
+        # Set up field encryption for grant tokens
+        _encryptor = None
+        try:
+            from cortex.caas.encryption import FieldEncryptor
+            pk = identity._private_key or identity.did.encode()
+            _encryptor = FieldEncryptor.from_identity_key(pk)
+        except Exception:
+            pass
+        CaaSHandler.grant_store = SqliteGrantStore(db_path, encryptor=_encryptor)
         webhook_store = SqliteWebhookStore(db_path)
         CaaSHandler.webhook_store = webhook_store
         CaaSHandler.audit_log = SqliteAuditLog(db_path)
@@ -2181,5 +2604,19 @@ def start_caas_server(
             f"http://localhost:{port}",
         }
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), CaaSHandler)
+    host = "127.0.0.1"
+    if config is not None:
+        host = config.get("server", "host", fallback="127.0.0.1")
+    server = ThreadingHTTPServer((host, port), CaaSHandler)
+
+    # Build shutdown coordinator
+    from cortex.caas.shutdown import ShutdownCoordinator
+    coordinator = ShutdownCoordinator()
+    if CaaSHandler.sse_manager is not None:
+        coordinator.register("sse", CaaSHandler.sse_manager.stop)
+    if CaaSHandler.webhook_worker is not None:
+        coordinator.register("webhook_worker", CaaSHandler.webhook_worker.stop)
+    coordinator.register("http_server", server.shutdown)
+    server._shutdown_coordinator = coordinator  # type: ignore[attr-defined]
+
     return server

@@ -309,6 +309,129 @@ class CortexGraph:
             if e.source_id == node_id or e.target_id == node_id
         ]
 
+    # ── Update ─────────────────────────────────────────────────────────
+
+    def update_node(self, node_id: str, updates: dict) -> Node | None:
+        """Partial update of node fields. Returns updated node or None if not found."""
+        node = self.nodes.get(node_id)
+        if node is None:
+            return None
+        allowed = {
+            "label", "tags", "confidence", "properties", "brief",
+            "full_description", "mention_count", "extraction_method",
+            "metrics", "timeline", "source_quotes", "relationship_type",
+        }
+        for key, value in updates.items():
+            if key in allowed and hasattr(node, key):
+                setattr(node, key, value)
+        node.last_seen = datetime.now(timezone.utc).isoformat()
+        return node
+
+    # ── Search ─────────────────────────────────────────────────────────
+
+    def search_nodes(
+        self,
+        query: str,
+        fields: list[str] | None = None,
+        min_confidence: float = 0.0,
+        limit: int = 50,
+    ) -> list[Node]:
+        """Full-text substring search across node fields.
+
+        Searches label, brief, full_description, and property values
+        by default. Case-insensitive.
+        """
+        if not query:
+            return []
+        q_lower = query.lower()
+        default_fields = {"label", "brief", "full_description", "properties"}
+        search_fields = set(fields) if fields else default_fields
+        results = []
+        for node in self.nodes.values():
+            if node.confidence < min_confidence:
+                continue
+            matched = False
+            if "label" in search_fields and q_lower in node.label.lower():
+                matched = True
+            if not matched and "brief" in search_fields and q_lower in node.brief.lower():
+                matched = True
+            if not matched and "full_description" in search_fields and q_lower in node.full_description.lower():
+                matched = True
+            if not matched and "properties" in search_fields:
+                for v in node.properties.values():
+                    if isinstance(v, str) and q_lower in v.lower():
+                        matched = True
+                        break
+            if matched:
+                results.append(node)
+                if len(results) >= limit:
+                    break
+        return results
+
+    # ── Graph traversal ────────────────────────────────────────────────
+
+    def shortest_path(
+        self, source_id: str, target_id: str, max_depth: int = 10
+    ) -> list[str]:
+        """BFS shortest path from source to target. Returns list of node IDs (empty if unreachable)."""
+        if source_id not in self.nodes or target_id not in self.nodes:
+            return []
+        if source_id == target_id:
+            return [source_id]
+
+        # Build adjacency list
+        adj: dict[str, list[str]] = {nid: [] for nid in self.nodes}
+        for edge in self.edges.values():
+            if edge.source_id in adj:
+                adj[edge.source_id].append(edge.target_id)
+            if edge.target_id in adj:
+                adj[edge.target_id].append(edge.source_id)
+
+        from collections import deque
+        visited: set[str] = {source_id}
+        queue: deque[tuple[str, list[str]]] = deque([(source_id, [source_id])])
+
+        while queue:
+            current, path = queue.popleft()
+            if len(path) > max_depth:
+                break
+            for neighbor in adj[current]:
+                if neighbor == target_id:
+                    return path + [neighbor]
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
+        return []
+
+    def k_hop_neighborhood(
+        self, node_id: str, k: int = 2
+    ) -> tuple[set[str], set[str]]:
+        """Return (node_ids, edge_ids) within k hops of node_id."""
+        if node_id not in self.nodes:
+            return set(), set()
+
+        visited_nodes: set[str] = {node_id}
+        frontier: set[str] = {node_id}
+        visited_edges: set[str] = set()
+
+        for _ in range(k):
+            next_frontier: set[str] = set()
+            for nid in frontier:
+                for edge in self.edges.values():
+                    if edge.source_id == nid and edge.target_id not in visited_nodes:
+                        visited_nodes.add(edge.target_id)
+                        next_frontier.add(edge.target_id)
+                        visited_edges.add(edge.id)
+                    elif edge.target_id == nid and edge.source_id not in visited_nodes:
+                        visited_nodes.add(edge.source_id)
+                        next_frontier.add(edge.source_id)
+                        visited_edges.add(edge.id)
+                    elif edge.source_id in visited_nodes and edge.target_id in visited_nodes:
+                        visited_edges.add(edge.id)
+            frontier = next_frontier
+
+        return visited_nodes, visited_edges
+
     # ── Merge ───────────────────────────────────────────────────────────
 
     def merge_nodes(self, node_id_a: str, node_id_b: str) -> Node:

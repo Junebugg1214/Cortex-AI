@@ -34,10 +34,20 @@ class _SqliteBase:
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
+        self._run_migrations()
 
     def _create_tables(self) -> None:
         """Override in subclass to run CREATE TABLE IF NOT EXISTS."""
         pass
+
+    def _run_migrations(self) -> None:
+        """Run pending schema migrations after table creation."""
+        try:
+            from cortex.caas.migrations import MigrationRunner
+            runner = MigrationRunner(self._conn)
+            runner.migrate()
+        except Exception:
+            pass  # Don't fail store init if migrations module unavailable
 
     def close(self) -> None:
         """Close the connection (for testing)."""
@@ -49,6 +59,10 @@ class _SqliteBase:
 # ---------------------------------------------------------------------------
 
 class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
+
+    def __init__(self, db_path: str, encryptor=None) -> None:
+        self._encryptor = encryptor
+        super().__init__(db_path)
 
     def _create_tables(self) -> None:
         self._conn.execute("""
@@ -65,13 +79,17 @@ class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
         self._conn.commit()
 
     def add(self, grant_id: str, token_str: str, token_data: dict) -> None:
+        # Encrypt token_str if encryptor is available
+        stored_token = token_str
+        if self._encryptor is not None:
+            stored_token = self._encryptor.encrypt(token_str)
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO grants (grant_id, token_str, token_data, audience, policy, created_at, revoked) "
                 "VALUES (?, ?, ?, ?, ?, ?, 0)",
                 (
                     grant_id,
-                    token_str,
+                    stored_token,
                     json.dumps(token_data),
                     token_data.get("audience", ""),
                     token_data.get("policy", ""),
@@ -87,8 +105,12 @@ class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
             ).fetchone()
         if row is None:
             return None
+        # Decrypt token_str if it's encrypted
+        token_str = row["token_str"]
+        if self._encryptor is not None and self._encryptor.is_encrypted(token_str):
+            token_str = self._encryptor.decrypt(token_str)
         return {
-            "token_str": row["token_str"],
+            "token_str": token_str,
             "token_data": json.loads(row["token_data"]),
             "created_at": row["created_at"],
             "revoked": bool(row["revoked"]),

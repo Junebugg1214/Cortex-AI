@@ -34,6 +34,7 @@ class DashboardSessionManager:
         self._session_meta: dict[str, dict] = {}  # token -> {auth_method, provider, email}
         self._lock = threading.Lock()
         self._password = self._derive_password()
+        self._csrf_secret = self._derive_csrf_secret()
 
     def _derive_password(self) -> str:
         """Derive a dashboard password from the identity private key."""
@@ -43,10 +44,20 @@ class DashboardSessionManager:
             return hashlib.sha256(self._identity.did.encode()).hexdigest()[:24]
         return hmac.new(pk, b"cortex-dashboard", hashlib.sha256).hexdigest()[:24]
 
+    def _derive_csrf_secret(self) -> bytes:
+        """Derive a CSRF secret from the identity for stateless CSRF tokens."""
+        pk = self._identity._private_key or self._identity.did.encode()
+        return hmac.new(pk, b"cortex-csrf-secret", hashlib.sha256).digest()
+
     @property
     def password(self) -> str:
         """The derived dashboard password (for display at server start)."""
         return self._password
+
+    @property
+    def csrf_secret(self) -> bytes:
+        """The derived CSRF secret for CSRFProtection."""
+        return self._csrf_secret
 
     def authenticate(self, password: str) -> str | None:
         """Validate password and return a session token, or None on failure."""

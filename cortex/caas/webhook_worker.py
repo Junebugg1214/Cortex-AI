@@ -8,6 +8,7 @@ and dead-letter queue for exhausted retries.
 
 from __future__ import annotations
 
+import logging
 import queue
 import random
 import threading
@@ -18,6 +19,8 @@ from typing import TYPE_CHECKING
 from cortex.upai.webhooks import deliver_webhook
 from cortex.caas.circuit_breaker import CircuitBreaker, CircuitState
 from cortex.caas.dead_letter import DeadLetterQueue
+
+_log = logging.getLogger("caas.webhooks")
 
 if TYPE_CHECKING:
     from cortex.caas.storage import AbstractWebhookStore
@@ -137,6 +140,7 @@ class WebhookWorker:
         # Check circuit breaker
         if not cb.allow_request():
             # Circuit is open — send directly to dead-letter
+            _log.warning("Circuit open for %s, routing to dead-letter", registration.webhook_id)
             self._dead_letter.push(
                 webhook_id=registration.webhook_id,
                 event=event,
@@ -164,9 +168,12 @@ class WebhookWorker:
 
             if success:
                 cb.record_success()
+                _log.debug("Delivered %s to %s (attempt %d)", event, registration.url, attempt)
                 return
 
             last_error = f"HTTP {status_code}"
+            _log.warning("Delivery failed %s to %s: HTTP %d (attempt %d/%d)",
+                         event, registration.url, status_code, attempt, self._max_retries)
 
             # 429 Too Many Requests — respect Retry-After, don't trip circuit
             if status_code == 429:
@@ -185,6 +192,8 @@ class WebhookWorker:
                 time.sleep(delay)
 
         # All retries exhausted — push to dead-letter queue
+        _log.error("All retries exhausted for %s to %s, pushing to dead-letter",
+                    event, registration.url)
         self._dead_letter.push(
             webhook_id=registration.webhook_id,
             event=event,

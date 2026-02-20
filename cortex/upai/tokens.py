@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 SCOPE_CONTEXT_READ = "context:read"
+SCOPE_CONTEXT_WRITE = "context:write"
 SCOPE_CONTEXT_SUBSCRIBE = "context:subscribe"
 SCOPE_VERSIONS_READ = "versions:read"
 SCOPE_IDENTITY_READ = "identity:read"
@@ -40,6 +41,7 @@ SCOPE_DEVICES_MANAGE = "devices:manage"
 
 VALID_SCOPES: set[str] = {
     SCOPE_CONTEXT_READ,
+    SCOPE_CONTEXT_WRITE,
     SCOPE_CONTEXT_SUBSCRIBE,
     SCOPE_VERSIONS_READ,
     SCOPE_IDENTITY_READ,
