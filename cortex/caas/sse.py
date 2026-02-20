@@ -5,11 +5,15 @@ SSE uses Content-Type: text/event-stream with chunked responses.
 One-directional (server -> client). Clients reconnect via EventSource API.
 
 Wire format:
+    id: 42
     event: context.updated
     data: {"nodes_changed": [...]}
 
     :heartbeat
 
+Event replay: reconnecting clients send Last-Event-ID header or
+?last_event_id= query param. Buffered events since that ID are replayed
+before entering live mode.
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+
+from cortex.caas.event_buffer import EventBuffer
 
 
 @dataclass
@@ -35,14 +41,25 @@ class SSESubscriber:
 
 
 class SSEManager:
-    """Manages SSE subscribers and broadcasts events."""
+    """Manages SSE subscribers and broadcasts events with replay support."""
 
-    def __init__(self, heartbeat_interval: float = 30.0) -> None:
+    def __init__(
+        self,
+        heartbeat_interval: float = 30.0,
+        buffer_size: int = 1000,
+        buffer_ttl: float = 3600.0,
+    ) -> None:
         self._subscribers: dict[str, SSESubscriber] = {}
         self._lock = threading.Lock()
         self._heartbeat_interval = heartbeat_interval
         self._running = False
         self._heartbeat_thread: threading.Thread | None = None
+        self._event_buffer = EventBuffer(max_size=buffer_size, ttl_seconds=buffer_ttl)
+
+    @property
+    def event_buffer(self) -> EventBuffer:
+        """Access the event buffer for replay."""
+        return self._event_buffer
 
     def start(self) -> None:
         """Start the heartbeat thread."""
@@ -90,6 +107,10 @@ class SSEManager:
     def broadcast(self, event_type: str, data: Any) -> int:
         """Send event to all matching subscribers. Returns count of deliveries."""
         payload = json.dumps(data, default=str)
+
+        # Buffer the event for replay
+        event_id = self._event_buffer.append(event_type, payload)
+
         delivered = 0
         dead: list[str] = []
 
@@ -98,7 +119,7 @@ class SSEManager:
                 # Empty events set means subscribe to all
                 if sub.events and event_type not in sub.events:
                     continue
-                if not self._send(sub, event_type, payload):
+                if not self._send(sub, event_type, payload, event_id):
                     dead.append(sid)
                 else:
                     delivered += 1
@@ -111,12 +132,35 @@ class SSEManager:
 
         return delivered
 
-    def _send(self, subscriber: SSESubscriber, event: str, data: str) -> bool:
+    def replay(self, wfile: Any, since_id: int, events: set[str] | None = None) -> int:
+        """Replay buffered events since a given ID to a wfile. Returns count sent."""
+        buffered = self._event_buffer.since(since_id)
+        count = 0
+        for event in buffered:
+            # Apply event filter
+            if events and event.event_type not in events:
+                continue
+            try:
+                message = f"id: {event.event_id}\nevent: {event.event_type}\ndata: {event.data}\n\n"
+                wfile.write(message.encode("utf-8"))
+                wfile.flush()
+                count += 1
+            except (OSError, BrokenPipeError, ConnectionResetError):
+                break
+        return count
+
+    def _send(self, subscriber: SSESubscriber, event: str, data: str,
+              event_id: int | None = None) -> bool:
         """Write an SSE-formatted message. Returns False if connection is broken."""
         if not subscriber.alive:
             return False
         try:
-            message = f"event: {event}\ndata: {data}\n\n"
+            parts = []
+            if event_id is not None:
+                parts.append(f"id: {event_id}")
+            parts.append(f"event: {event}")
+            parts.append(f"data: {data}")
+            message = "\n".join(parts) + "\n\n"
             subscriber.wfile.write(message.encode("utf-8"))
             subscriber.wfile.flush()
             return True

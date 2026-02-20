@@ -60,6 +60,10 @@ def _setup():
     CaaSHandler.webhook_worker = None
     CaaSHandler.audit_log = None
     CaaSHandler.session_manager = None
+    CaaSHandler.oauth_manager = None
+    CaaSHandler.credential_store = None
+    CaaSHandler.sse_manager = None
+    CaaSHandler.keychain = None
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
     port = server.server_address[1]
@@ -69,7 +73,8 @@ def _setup():
     thread.start()
     time.sleep(0.1)
 
-    token = GrantToken.create(identity, audience="SDKTest")
+    from cortex.upai.tokens import VALID_SCOPES
+    token = GrantToken.create(identity, audience="SDKTest", scopes=list(VALID_SCOPES))
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from cortex.graph import CortexGraph, Node, Edge
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken
+from cortex.upai.tokens import GrantToken, VALID_SCOPES
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
 from cortex.caas.storage import JsonWebhookStore, InMemoryAuditLog
 from cortex.caas.rate_limit import RateLimiter
@@ -36,6 +36,8 @@ def _setup_server(rate_limiter=None, audit_log=None):
     identity = UPAIIdentity.generate("Test User")
     graph = _build_test_graph()
 
+    from cortex.upai.disclosure import PolicyRegistry
+
     CaaSHandler.graph = graph
     CaaSHandler.identity = identity
     CaaSHandler.grant_store = GrantStore()
@@ -45,6 +47,13 @@ def _setup_server(rate_limiter=None, audit_log=None):
     CaaSHandler.audit_log = audit_log
     CaaSHandler.rate_limiter = rate_limiter
     CaaSHandler.webhook_worker = None
+    CaaSHandler.metrics_registry = None
+    CaaSHandler.session_manager = None
+    CaaSHandler.oauth_manager = None
+    CaaSHandler.credential_store = None
+    CaaSHandler.sse_manager = None
+    CaaSHandler.keychain = None
+    CaaSHandler.policy_registry = PolicyRegistry()
     CaaSHandler._allowed_origins = set()
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
@@ -55,7 +64,7 @@ def _setup_server(rate_limiter=None, audit_log=None):
     thread.start()
     time.sleep(0.1)
 
-    token = GrantToken.create(identity, audience="Test")
+    token = GrantToken.create(identity, audience="Test", scopes=list(VALID_SCOPES))
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 
@@ -261,7 +270,7 @@ class TestInputValidation:
         try:
             data, status = _post(port, "/webhooks",
                                {"url": "not-a-url", "events": ["grant.created"]},
-                               expect_error=True)
+                               token=token_str, expect_error=True)
             assert status == 400
             assert "http" in data["error"]["message"]
         finally:
@@ -274,7 +283,7 @@ class TestInputValidation:
         try:
             data, status = _post(port, "/webhooks",
                                {"url": "https://example.com/" + "x" * 2049},
-                               expect_error=True)
+                               token=token_str, expect_error=True)
             assert status == 400
             assert "2048" in data["error"]["message"]
         finally:
@@ -318,6 +327,7 @@ class TestAuditLogging:
             # Revoke it
             url = f"http://127.0.0.1:{port}/grants/{grant_id}"
             req = urllib.request.Request(url, method="DELETE")
+            req.add_header("Authorization", f"Bearer {token_str}")
             urllib.request.urlopen(req)
 
             entries = audit.query(event_type="grant.revoked")
@@ -347,7 +357,8 @@ class TestAuditLogging:
             return
         try:
             _post(port, "/webhooks",
-                  {"url": "https://example.com/hook", "events": ["grant.created"]})
+                  {"url": "https://example.com/hook", "events": ["grant.created"]},
+                  token=token_str)
             entries = audit.query(event_type="webhook.created")
             assert len(entries) >= 1
         finally:

@@ -123,8 +123,10 @@ class TestSSEFormat(unittest.TestCase):
         output = wfile.getvalue().decode()
 
         lines = output.strip().split("\n")
-        self.assertTrue(lines[0].startswith("event: "))
-        self.assertTrue(lines[1].startswith("data: "))
+        # Wire format: id: N\nevent: ...\ndata: ...\n\n
+        self.assertTrue(lines[0].startswith("id: "))
+        self.assertTrue(lines[1].startswith("event: "))
+        self.assertTrue(lines[2].startswith("data: "))
         # Should end with double newline (blank line separator)
         self.assertTrue(output.endswith("\n\n"))
 

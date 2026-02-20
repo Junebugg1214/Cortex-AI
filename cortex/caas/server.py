@@ -59,7 +59,10 @@ from cortex.upai.errors import (
     UPAIError,
     ERR_INVALID_TOKEN, ERR_INSUFFICIENT_SCOPE, ERR_NOT_FOUND,
     ERR_INVALID_REQUEST, ERR_INVALID_POLICY, ERR_POLICY_IMMUTABLE, ERR_INTERNAL, ERR_NOT_CONFIGURED,
+    ERR_PAYLOAD_TOO_LARGE,
 )
+from cortex.caas.correlation import parse_request_id
+from cortex.caas.caching import generate_etag, check_if_none_match, get_cache_profile
 from cortex.upai.pagination import paginate
 from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, JsonWebhookStore
 from cortex.caas.dashboard.static import resolve_dashboard_path, guess_content_type
@@ -187,7 +190,11 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 MAX_BODY_SIZE = 1_048_576  # 1 MB
 
-VALID_SCOPES = {"context:read", "context:subscribe", "versions:read", "identity:read"}
+VALID_SCOPES = {
+    "context:read", "context:subscribe", "versions:read", "identity:read",
+    "credentials:read", "credentials:write",
+    "webhooks:manage", "policies:manage", "grants:manage", "devices:manage",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +223,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
     sse_manager: Any = None  # Optional SSEManager
     keychain: Any = None  # Optional Keychain
 
+    _request_id: str = ""
+
+    def _init_request_id(self) -> None:
+        """Extract or generate a request correlation ID."""
+        self._request_id = parse_request_id(self.headers.get("X-Request-ID"))
+
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
+        self._init_request_id()
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
@@ -273,6 +287,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/resolve/"):
             did_encoded = path[len("/resolve/"):]
             self._serve_resolve_did(did_encoded)
+        elif path == "/audit":
+            self._serve_audit(query)
+        elif path == "/audit/verify":
+            self._serve_audit_verify()
         elif path == "/events":
             self._handle_sse(query)
         # ── OAuth routes ──────────────────────────────────────────
@@ -292,6 +310,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._request_start_time = _time.monotonic()
+        self._init_request_id()
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
@@ -322,6 +341,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         self._request_start_time = _time.monotonic()
+        self._init_request_id()
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
@@ -349,6 +369,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         self._request_start_time = _time.monotonic()
+        self._init_request_id()
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
@@ -485,13 +506,38 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         return token.to_dict()
 
+    def _authenticate_or_dashboard(self, required_scope: str = "") -> dict | None:
+        """Authenticate via Bearer token OR dashboard session cookie.
+
+        For routes that accept either. Returns token_data dict (or synthetic
+        owner dict for dashboard sessions), or None (error already sent).
+        """
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return self._authenticate(required_scope)
+
+        # Fall back to dashboard session
+        if self._dashboard_auth_check():
+            # Dashboard sessions get implicit owner privileges
+            return {"_dashboard": True, "scopes": list(VALID_SCOPES)}
+        return None
+
     # ── Audit helper ─────────────────────────────────────────────────
 
-    def _audit(self, event_type: str, details: dict | None = None) -> None:
+    def _audit(self, event_type: str, details: dict | None = None, actor: str = "") -> None:
         """Log an audit event if audit_log is configured."""
         log = self.__class__.audit_log
         if log is not None:
-            log.log(event_type, details)
+            d = dict(details) if details else {}
+            request_id = self._request_id or ""
+            # Use new ledger API if available, else fall back to old
+            if hasattr(log, 'append'):
+                log.append(event_type, actor=actor or "system",
+                           request_id=request_id, details=d)
+            else:
+                if request_id:
+                    d["request_id"] = request_id
+                log.log(event_type, d)
 
     # ── Webhook fire helper ──────────────────────────────────────────
 
@@ -545,10 +591,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 "events": "/events",
             },
             "supported_policies": [p.name for p in self.__class__.policy_registry.list_all()],
-            "supported_scopes": [
-                "context:read", "context:subscribe",
-                "versions:read", "identity:read",
-            ],
+            "supported_scopes": sorted(VALID_SCOPES),
             "server_version": "1.0.0",
         })
 
@@ -573,6 +616,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_create_grant(self) -> None:
         from cortex.upai.tokens import GrantToken
+        from cortex.upai.rbac import scopes_for_role, VALID_ROLES
+
+        # Auth: grants:manage or dashboard
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
 
         identity = self.__class__.identity
         if identity is None:
@@ -586,7 +635,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
         audience = body.get("audience", "")
         policy = body.get("policy", "professional")
         scopes = body.get("scopes")
+        role = body.get("role", "")
         ttl_hours = body.get("ttl_hours", 24)
+
+        # If role provided, resolve scopes from role
+        if role:
+            if role not in VALID_ROLES:
+                self._error_response(ERR_INVALID_REQUEST(f"Unknown role: {role}"))
+                return
+            scopes = list(scopes_for_role(role))
 
         if not audience:
             self._error_response(ERR_INVALID_REQUEST("'audience' is required"))
@@ -620,25 +677,36 @@ class CaaSHandler(BaseHTTPRequestHandler):
             identity, audience=audience, policy=policy,
             scopes=scopes, ttl_hours=ttl_hours,
         )
+        if role:
+            token.role = role
         token_str = token.sign(identity)
 
         self.__class__.grant_store.add(token.grant_id, token_str, token.to_dict())
         self._audit("grant.created", {"grant_id": token.grant_id, "audience": audience, "policy": policy})
         self._fire_webhook("grant.created", {"grant_id": token.grant_id, "audience": audience, "policy": policy})
 
-        self._json_response({
+        resp = {
             "grant_id": token.grant_id,
             "token": token_str,
             "expires_at": token.expires_at,
             "policy": token.policy,
             "scopes": token.scopes,
-        }, status=201)
+        }
+        if role:
+            resp["role"] = role
+        self._json_response(resp, status=201)
 
     def _serve_list_grants(self) -> None:
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
         grants = self.__class__.grant_store.list_all()
         self._json_response({"grants": grants})
 
     def _handle_revoke_grant(self, grant_id: str) -> None:
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
         if self.__class__.grant_store.revoke(grant_id):
             self._audit("grant.revoked", {"grant_id": grant_id})
             self._fire_webhook("grant.revoked", {"grant_id": grant_id})
@@ -828,6 +896,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
     # ── Webhooks ─────────────────────────────────────────────────────
 
     def _handle_create_webhook(self) -> None:
+        token_data = self._authenticate_or_dashboard("webhooks:manage")
+        if token_data is None:
+            return
         body = self._read_body()
         if body is None:
             return
@@ -873,6 +944,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         }, status=201)
 
     def _serve_list_webhooks(self) -> None:
+        token_data = self._authenticate_or_dashboard("webhooks:manage")
+        if token_data is None:
+            return
         registrations = self.__class__.webhook_store.list_all()
         webhooks = []
         for reg in registrations:
@@ -886,15 +960,65 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response({"webhooks": webhooks})
 
     def _handle_delete_webhook(self, webhook_id: str) -> None:
+        token_data = self._authenticate_or_dashboard("webhooks:manage")
+        if token_data is None:
+            return
         if self.__class__.webhook_store.delete(webhook_id):
             self._audit("webhook.deleted", {"webhook_id": webhook_id})
             self._json_response({"deleted": True, "webhook_id": webhook_id})
         else:
             self._error_response(ERR_NOT_FOUND("webhook"))
 
+    # ── Audit endpoints ───────────────────────────────────────────────
+
+    def _serve_audit(self, query: dict) -> None:
+        """GET /audit — paginated, filterable audit entries. Requires grants:manage."""
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
+
+        log = self.__class__.audit_log
+        if log is None or not hasattr(log, 'query'):
+            self._json_response({"entries": []})
+            return
+
+        event_type = query.get("event_type", [None])[0]
+        actor = query.get("actor", [None])[0]
+        limit = min(int(query.get("limit", ["50"])[0]), 1000)
+        offset = int(query.get("offset", ["0"])[0])
+
+        entries = log.query(event_type=event_type, actor=actor, limit=limit, offset=offset)
+        self._json_response({
+            "entries": [e.to_dict() if hasattr(e, 'to_dict') else e for e in entries],
+            "count": len(entries),
+            "limit": limit,
+            "offset": offset,
+        })
+
+    def _serve_audit_verify(self) -> None:
+        """GET /audit/verify — verify hash chain integrity. Requires grants:manage."""
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
+
+        log = self.__class__.audit_log
+        if log is None or not hasattr(log, 'verify'):
+            self._json_response({"valid": True, "entries_checked": 0, "error": ""})
+            return
+
+        valid, checked, error = log.verify()
+        self._json_response({
+            "valid": valid,
+            "entries_checked": checked,
+            "error": error,
+        })
+
     # ── Policies ─────────────────────────────────────────────────
 
     def _serve_list_policies(self) -> None:
+        token_data = self._authenticate_or_dashboard("")
+        if token_data is None:
+            return
         policies = self.__class__.policy_registry.list_all()
         result = []
         for p in policies:
@@ -910,6 +1034,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response({"policies": result})
 
     def _serve_get_policy(self, name: str) -> None:
+        token_data = self._authenticate_or_dashboard("")
+        if token_data is None:
+            return
         policy = self.__class__.policy_registry.get(name)
         if policy is None:
             self._error_response(ERR_NOT_FOUND("policy"))
@@ -925,6 +1052,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         })
 
     def _handle_create_policy(self) -> None:
+        token_data = self._authenticate_or_dashboard("policies:manage")
+        if token_data is None:
+            return
         body = self._read_body()
         if body is None:
             return
@@ -962,6 +1092,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         }, status=201)
 
     def _handle_update_policy(self, name: str) -> None:
+        token_data = self._authenticate_or_dashboard("policies:manage")
+        if token_data is None:
+            return
         if self.__class__.policy_registry.is_builtin(name):
             self._error_response(ERR_POLICY_IMMUTABLE(name))
             return
@@ -999,6 +1132,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         })
 
     def _handle_delete_policy(self, name: str) -> None:
+        token_data = self._authenticate_or_dashboard("policies:manage")
+        if token_data is None:
+            return
         if self.__class__.policy_registry.is_builtin(name):
             self._error_response(ERR_POLICY_IMMUTABLE(name))
             return
@@ -1012,7 +1148,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_create_credential(self) -> None:
         """POST /credentials — issue a self-signed credential."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate("credentials:write")
         if token_data is None:
             return
 
@@ -1065,7 +1201,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _serve_credentials(self, query: dict) -> None:
         """GET /credentials — list credentials, optional ?node_id= filter."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate("credentials:read")
         if token_data is None:
             return
 
@@ -1086,7 +1222,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _serve_credential_detail(self, cred_id: str) -> None:
         """GET /credentials/{id} — get credential by ID."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate("credentials:read")
         if token_data is None:
             return
 
@@ -1120,7 +1256,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_verify_credential(self, cred_id: str) -> None:
         """POST /credentials/{id}/verify — re-verify credential signature."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate("credentials:read")
         if token_data is None:
             return
 
@@ -1180,7 +1316,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     # ── SSE (Server-Sent Events) ─────────────────────────────────────
 
     def _handle_sse(self, query: dict) -> None:
-        """GET /events — SSE endpoint for real-time push."""
+        """GET /events — SSE endpoint for real-time push with replay support."""
         sse = self.__class__.sse_manager
         if sse is None:
             self._respond(503, "application/json",
@@ -1197,6 +1333,17 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if events_param:
             events = set(events_param.split(","))
 
+        # Parse Last-Event-ID for replay
+        last_event_id = 0
+        lei_header = self.headers.get("Last-Event-ID", "")
+        lei_query = query.get("last_event_id", [None])[0]
+        lei_str = lei_header or lei_query or ""
+        if lei_str:
+            try:
+                last_event_id = int(lei_str)
+            except (ValueError, TypeError):
+                last_event_id = 0
+
         grant_id = token_data.get("grant_id", "")
 
         # Send SSE headers
@@ -1206,6 +1353,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
+
+        # Replay buffered events if Last-Event-ID was provided
+        if last_event_id > 0:
+            sse.replay(self.wfile, last_event_id, events=events or None)
 
         # Register subscriber
         subscriber = sse.subscribe(self.wfile, events=events, grant_id=grant_id)
@@ -1601,6 +1752,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._dashboard_api_config()
         elif api_path == "/devices":
             self._serve_devices()
+        elif api_path.startswith("/webhooks/") and api_path.endswith("/health"):
+            webhook_id = api_path[len("/webhooks/"):-len("/health")]
+            self._dashboard_api_webhook_health(webhook_id)
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -1625,6 +1779,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_generate_recovery()
         elif api_path == "/devices":
             self._handle_authorize_device()
+        elif api_path.startswith("/webhooks/") and api_path.endswith("/retry"):
+            webhook_id = api_path[len("/webhooks/"):-len("/retry")]
+            self._dashboard_api_webhook_retry(webhook_id)
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -1785,6 +1942,24 @@ class CaaSHandler(BaseHTTPRequestHandler):
             })
         self._json_response({"webhooks": webhooks})
 
+    def _dashboard_api_webhook_health(self, webhook_id: str) -> None:
+        """GET /dashboard/api/webhooks/:id/health — circuit + dead-letter status."""
+        worker = self.__class__.webhook_worker
+        if worker is None:
+            self._error_response(ERR_NOT_CONFIGURED("Webhook worker not configured"))
+            return
+        health = worker.get_health(webhook_id)
+        self._json_response(health)
+
+    def _dashboard_api_webhook_retry(self, webhook_id: str) -> None:
+        """POST /dashboard/api/webhooks/:id/retry — replay dead-letter events."""
+        worker = self.__class__.webhook_worker
+        if worker is None:
+            self._error_response(ERR_NOT_CONFIGURED("Webhook worker not configured"))
+            return
+        count = worker.retry_dead_letter(webhook_id)
+        self._json_response({"replayed": count, "webhook_id": webhook_id})
+
     def _dashboard_api_config(self) -> None:
         identity = self.__class__.identity
         graph = self.__class__.graph
@@ -1815,10 +1990,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("Empty request body"))
             return None
         if content_length > MAX_BODY_SIZE:
-            self._respond(413, "application/json", json.dumps({
-                "error": {"code": "UPAI-4004", "type": "invalid_request",
-                          "message": "Request body too large", "details": {}}
-            }).encode("utf-8"))
+            self._error_response(ERR_PAYLOAD_TOO_LARGE())
             return None
         try:
             raw = self.rfile.read(content_length)
@@ -1829,10 +2001,24 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _json_response(self, data: Any, status: int = 200) -> None:
         body = json.dumps(data, default=str).encode("utf-8")
-        self._respond(status, "application/json", body)
+
+        # HTTP caching: ETag + conditional 304
+        etag = generate_etag(body)
+        if_none_match = self.headers.get("If-None-Match", "")
+        if status == 200 and if_none_match and check_if_none_match(if_none_match, etag):
+            self._respond(304, "application/json", b"", extra_headers={"ETag": etag})
+            return
+
+        # Cache-Control
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        profile = get_cache_profile(path)
+
+        self._respond(status, "application/json", body,
+                      extra_headers={"ETag": etag, "Cache-Control": profile.to_header()})
 
     def _error_response(self, error: UPAIError) -> None:
-        body = json.dumps(error.to_dict(), default=str).encode("utf-8")
+        body = json.dumps(error.to_dict(request_id=self._request_id), default=str).encode("utf-8")
         self._respond(error.http_status, "application/json", body)
 
     def _respond(
@@ -1854,6 +2040,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
         elif allowed:
             self.send_header("Access-Control-Allow-Origin", next(iter(allowed)))
+
+        # Request correlation
+        if self._request_id:
+            self.send_header("X-Request-ID", self._request_id)
 
         # Security headers
         self.send_header("X-Content-Type-Options", "nosniff")

@@ -170,23 +170,23 @@ class CortexClient:
 
     def list_policies(self) -> list[dict]:
         """GET /policies — list all disclosure policies."""
-        data, _ = self._request("GET", "/policies", auth=False)
+        data, _ = self._request("GET", "/policies")
         return data.get("policies", [])
 
     def create_policy(self, name: str, **kwargs: Any) -> dict:
         """POST /policies — create a custom policy."""
         body = {"name": name, **kwargs}
-        data, _ = self._request("POST", "/policies", body=body, auth=False)
+        data, _ = self._request("POST", "/policies", body=body)
         return data
 
     def get_policy(self, name: str) -> dict:
         """GET /policies/<name> — get a single policy."""
-        data, _ = self._request("GET", f"/policies/{name}", auth=False)
+        data, _ = self._request("GET", f"/policies/{name}")
         return data
 
     def delete_policy(self, name: str) -> dict:
         """DELETE /policies/<name> — delete a custom policy."""
-        data, _ = self._request("DELETE", f"/policies/{name}", auth=False)
+        data, _ = self._request("DELETE", f"/policies/{name}")
         return data
 
     # -----------------------------------------------------------------

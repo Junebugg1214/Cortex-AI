@@ -31,12 +31,24 @@ SCOPE_CONTEXT_READ = "context:read"
 SCOPE_CONTEXT_SUBSCRIBE = "context:subscribe"
 SCOPE_VERSIONS_READ = "versions:read"
 SCOPE_IDENTITY_READ = "identity:read"
+SCOPE_CREDENTIALS_READ = "credentials:read"
+SCOPE_CREDENTIALS_WRITE = "credentials:write"
+SCOPE_WEBHOOKS_MANAGE = "webhooks:manage"
+SCOPE_POLICIES_MANAGE = "policies:manage"
+SCOPE_GRANTS_MANAGE = "grants:manage"
+SCOPE_DEVICES_MANAGE = "devices:manage"
 
 VALID_SCOPES: set[str] = {
     SCOPE_CONTEXT_READ,
     SCOPE_CONTEXT_SUBSCRIBE,
     SCOPE_VERSIONS_READ,
     SCOPE_IDENTITY_READ,
+    SCOPE_CREDENTIALS_READ,
+    SCOPE_CREDENTIALS_WRITE,
+    SCOPE_WEBHOOKS_MANAGE,
+    SCOPE_POLICIES_MANAGE,
+    SCOPE_GRANTS_MANAGE,
+    SCOPE_DEVICES_MANAGE,
 }
 
 DEFAULT_SCOPES: list[str] = [SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ, SCOPE_IDENTITY_READ]
@@ -59,6 +71,7 @@ class GrantToken:
     issued_at: str        # ISO-8601
     expires_at: str       # ISO-8601
     not_before: str = ""  # optional
+    role: str = ""        # optional RBAC role (owner, admin, reader, subscriber)
 
     @classmethod
     def create(
@@ -83,7 +96,7 @@ class GrantToken:
         )
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "grant_id": self.grant_id,
             "subject_did": self.subject_did,
             "issuer_did": self.issuer_did,
@@ -94,6 +107,9 @@ class GrantToken:
             "expires_at": self.expires_at,
             "not_before": self.not_before,
         }
+        if self.role:
+            d["role"] = self.role
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> GrantToken:
@@ -107,6 +123,7 @@ class GrantToken:
             issued_at=d["issued_at"],
             expires_at=d["expires_at"],
             not_before=d.get("not_before", ""),
+            role=d.get("role", ""),
         )
 
     def sign(self, identity: UPAIIdentity) -> str:

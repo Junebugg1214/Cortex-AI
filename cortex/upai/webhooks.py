@@ -94,10 +94,11 @@ def deliver_webhook(
     event: str,
     data: dict,
     timeout: float = 5.0,
-) -> tuple[bool, int]:
+) -> tuple[bool, int, dict[str, str]]:
     """Deliver a webhook payload to the registered URL.
 
-    Returns (success, http_status_code). Status is 0 on connection error.
+    Returns (success, http_status_code, response_headers).
+    Status is 0 and headers empty on connection error.
     """
     payload = json.dumps({
         "event": event,
@@ -117,8 +118,13 @@ def deliver_webhook(
 
     try:
         resp = urlopen(req, timeout=timeout)
-        return True, resp.status
-    except URLError:
-        return False, 0
+        headers = {k: v for k, v in resp.getheaders()}
+        return True, resp.status, headers
+    except URLError as e:
+        # Extract headers from HTTPError responses (e.g. 429)
+        if hasattr(e, 'code') and hasattr(e, 'headers'):
+            headers = {k: v for k, v in e.headers.items()} if e.headers else {}
+            return False, e.code, headers
+        return False, 0, {}
     except Exception:
-        return False, 0
+        return False, 0, {}

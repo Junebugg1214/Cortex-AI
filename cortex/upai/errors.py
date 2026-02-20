@@ -21,8 +21,8 @@ class UPAIError:
     details: dict = field(default_factory=dict)
     http_status: int = 400
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, request_id: str = "") -> dict:
+        d: dict = {
             "error": {
                 "code": self.code,
                 "type": self.error_type,
@@ -30,6 +30,9 @@ class UPAIError:
                 "details": self.details,
             }
         }
+        if request_id:
+            d["error"]["request_id"] = request_id
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -73,11 +76,26 @@ def ERR_POLICY_IMMUTABLE(policy: str = "", **details: object) -> UPAIError:
     msg = f"Cannot modify built-in policy: {policy}" if policy else "Cannot modify built-in policy"
     return UPAIError(code="UPAI-4010", error_type="policy_immutable", message=msg, details=dict(details), http_status=403)
 
+def ERR_CONFLICT(resource: str = "resource", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-4011", error_type="conflict", message=f"{resource} already exists", details=dict(details), http_status=409)
+
+def ERR_GONE(resource: str = "resource", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-4012", error_type="gone", message=f"{resource} has been permanently removed", details=dict(details), http_status=410)
+
+def ERR_PAYLOAD_TOO_LARGE(message: str = "Request payload exceeds size limit", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-4013", error_type="payload_too_large", message=message, details=dict(details), http_status=413)
+
+def ERR_UNSUPPORTED_MEDIA_TYPE(message: str = "Unsupported content type", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-4014", error_type="unsupported_media_type", message=message, details=dict(details), http_status=415)
+
 def ERR_INTERNAL(message: str = "Unexpected server error", **details: object) -> UPAIError:
     return UPAIError(code="UPAI-5001", error_type="internal_error", message=message, details=dict(details), http_status=500)
 
 def ERR_NOT_CONFIGURED(message: str = "Server not fully configured", **details: object) -> UPAIError:
     return UPAIError(code="UPAI-5002", error_type="not_configured", message=message, details=dict(details), http_status=503)
+
+def ERR_SERVICE_UNAVAILABLE(message: str = "Service temporarily unavailable", **details: object) -> UPAIError:
+    return UPAIError(code="UPAI-5003", error_type="service_unavailable", message=message, details=dict(details), http_status=503)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +113,11 @@ ERROR_CODES: dict[str, str] = {
     "UPAI-4008": "replay_detected",
     "UPAI-4009": "rate_limited",
     "UPAI-4010": "policy_immutable",
+    "UPAI-4011": "conflict",
+    "UPAI-4012": "gone",
+    "UPAI-4013": "payload_too_large",
+    "UPAI-4014": "unsupported_media_type",
     "UPAI-5001": "internal_error",
     "UPAI-5002": "not_configured",
+    "UPAI-5003": "service_unavailable",
 }

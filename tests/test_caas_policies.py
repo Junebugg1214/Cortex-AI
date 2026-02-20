@@ -11,7 +11,7 @@ from http.server import HTTPServer
 
 from cortex.graph import CortexGraph, Node, Edge
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken
+from cortex.upai.tokens import GrantToken, VALID_SCOPES
 from cortex.upai.disclosure import PolicyRegistry
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache, ThreadingHTTPServer
 from cortex.caas.storage import JsonWebhookStore
@@ -47,6 +47,11 @@ def _setup_server():
     CaaSHandler.webhook_worker = None
     CaaSHandler.audit_log = None
     CaaSHandler.session_manager = None
+    CaaSHandler.oauth_manager = None
+    CaaSHandler.credential_store = None
+    CaaSHandler.sse_manager = None
+    CaaSHandler.keychain = None
+    CaaSHandler.metrics_registry = None
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
     port = server.server_address[1]
@@ -56,7 +61,7 @@ def _setup_server():
     thread.start()
     time.sleep(0.1)
 
-    token = GrantToken.create(identity, audience="Test")
+    token = GrantToken.create(identity, audience="Test", scopes=list(VALID_SCOPES))
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 
@@ -96,7 +101,7 @@ class TestPoliciesEndpoints:
             self.server.shutdown()
 
     def test_list_policies_returns_builtins(self):
-        data, status = _request(self.port, "GET", "/policies")
+        data, status = _request(self.port, "GET", "/policies", token=self.token)
         assert status == 200
         names = [p["name"] for p in data["policies"]]
         assert "full" in names
@@ -105,20 +110,20 @@ class TestPoliciesEndpoints:
         assert "minimal" in names
 
     def test_list_policies_builtin_flag(self):
-        data, _ = _request(self.port, "GET", "/policies")
+        data, _ = _request(self.port, "GET", "/policies", token=self.token)
         for p in data["policies"]:
             if p["name"] in ("full", "professional", "technical", "minimal"):
                 assert p["builtin"] is True
 
     def test_get_builtin_policy(self):
-        data, status = _request(self.port, "GET", "/policies/professional")
+        data, status = _request(self.port, "GET", "/policies/professional", token=self.token)
         assert status == 200
         assert data["name"] == "professional"
         assert data["builtin"] is True
         assert data["min_confidence"] == 0.6
 
     def test_get_nonexistent_policy(self):
-        data, status = _request(self.port, "GET", "/policies/nope", expect_error=True)
+        data, status = _request(self.port, "GET", "/policies/nope", token=self.token, expect_error=True)
         assert status == 404
 
     def test_create_custom_policy(self):
@@ -127,7 +132,7 @@ class TestPoliciesEndpoints:
             "include_tags": ["identity", "technical_expertise"],
             "min_confidence": 0.7,
         }
-        data, status = _request(self.port, "POST", "/policies", body=body)
+        data, status = _request(self.port, "POST", "/policies", body=body, token=self.token)
         assert status == 201
         assert data["name"] == "my-policy"
         assert data["min_confidence"] == 0.7
@@ -135,15 +140,15 @@ class TestPoliciesEndpoints:
 
     def test_created_policy_appears_in_list(self):
         body = {"name": "listed-policy", "include_tags": ["a"]}
-        _request(self.port, "POST", "/policies", body=body)
-        data, _ = _request(self.port, "GET", "/policies")
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
+        data, _ = _request(self.port, "GET", "/policies", token=self.token)
         names = [p["name"] for p in data["policies"]]
         assert "listed-policy" in names
 
     def test_created_policy_retrievable(self):
         body = {"name": "get-me", "min_confidence": 0.5}
-        _request(self.port, "POST", "/policies", body=body)
-        data, status = _request(self.port, "GET", "/policies/get-me")
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
+        data, status = _request(self.port, "GET", "/policies/get-me", token=self.token)
         assert status == 200
         assert data["name"] == "get-me"
         assert data["min_confidence"] == 0.5
@@ -151,74 +156,74 @@ class TestPoliciesEndpoints:
 
     def test_create_duplicate_fails(self):
         body = {"name": "dup-test"}
-        _request(self.port, "POST", "/policies", body=body)
-        data, status = _request(self.port, "POST", "/policies", body=body, expect_error=True)
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
+        data, status = _request(self.port, "POST", "/policies", body=body, token=self.token, expect_error=True)
         assert status == 400
 
     def test_create_without_name_fails(self):
         body = {"include_tags": ["a"]}
-        data, status = _request(self.port, "POST", "/policies", body=body, expect_error=True)
+        data, status = _request(self.port, "POST", "/policies", body=body, token=self.token, expect_error=True)
         assert status == 400
 
     def test_create_builtin_name_fails(self):
         body = {"name": "full"}
-        data, status = _request(self.port, "POST", "/policies", body=body, expect_error=True)
+        data, status = _request(self.port, "POST", "/policies", body=body, token=self.token, expect_error=True)
         assert status == 400
 
     def test_update_custom_policy(self):
         body = {"name": "updatable", "min_confidence": 0.3}
-        _request(self.port, "POST", "/policies", body=body)
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
 
         update = {"min_confidence": 0.9, "include_tags": ["new-tag"]}
-        data, status = _request(self.port, "PUT", "/policies/updatable", body=update)
+        data, status = _request(self.port, "PUT", "/policies/updatable", body=update, token=self.token)
         assert status == 200
         assert data["min_confidence"] == 0.9
         assert data["include_tags"] == ["new-tag"]
 
     def test_update_builtin_fails(self):
         update = {"min_confidence": 0.1}
-        data, status = _request(self.port, "PUT", "/policies/full", body=update, expect_error=True)
+        data, status = _request(self.port, "PUT", "/policies/full", body=update, token=self.token, expect_error=True)
         assert status == 403
 
     def test_update_nonexistent_fails(self):
         update = {"min_confidence": 0.5}
-        data, status = _request(self.port, "PUT", "/policies/ghost", body=update, expect_error=True)
+        data, status = _request(self.port, "PUT", "/policies/ghost", body=update, token=self.token, expect_error=True)
         assert status == 404
 
     def test_delete_custom_policy(self):
         body = {"name": "deletable"}
-        _request(self.port, "POST", "/policies", body=body)
-        data, status = _request(self.port, "DELETE", "/policies/deletable")
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
+        data, status = _request(self.port, "DELETE", "/policies/deletable", token=self.token)
         assert status == 200
         assert data["deleted"] is True
 
         # Verify it's gone
-        data, status = _request(self.port, "GET", "/policies/deletable", expect_error=True)
+        data, status = _request(self.port, "GET", "/policies/deletable", token=self.token, expect_error=True)
         assert status == 404
 
     def test_delete_builtin_fails(self):
-        data, status = _request(self.port, "DELETE", "/policies/professional", expect_error=True)
+        data, status = _request(self.port, "DELETE", "/policies/professional", token=self.token, expect_error=True)
         assert status == 403
 
     def test_delete_nonexistent_fails(self):
-        data, status = _request(self.port, "DELETE", "/policies/no-such", expect_error=True)
+        data, status = _request(self.port, "DELETE", "/policies/no-such", token=self.token, expect_error=True)
         assert status == 404
 
     def test_custom_policy_in_discovery(self):
         body = {"name": "discovery-visible"}
-        _request(self.port, "POST", "/policies", body=body)
+        _request(self.port, "POST", "/policies", body=body, token=self.token)
         data, status = _request(self.port, "GET", "/.well-known/upai-configuration")
         assert "discovery-visible" in data["supported_policies"]
 
     def test_create_grant_with_custom_policy(self):
         # Create a custom policy first
-        _request(self.port, "POST", "/policies", body={"name": "grant-policy"})
+        _request(self.port, "POST", "/policies", body={"name": "grant-policy"}, token=self.token)
         # Create a grant using the custom policy
         grant_body = {
             "audience": "test-app",
             "policy": "grant-policy",
         }
-        data, status = _request(self.port, "POST", "/grants", body=grant_body)
+        data, status = _request(self.port, "POST", "/grants", body=grant_body, token=self.token)
         assert status == 201
         assert data["policy"] == "grant-policy"
 

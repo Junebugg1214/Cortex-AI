@@ -160,6 +160,15 @@ def _setup_caas_server():
     CaaSHandler.audit_log = None
     CaaSHandler.rate_limiter = None
     CaaSHandler.webhook_worker = worker
+    CaaSHandler.metrics_registry = None
+    CaaSHandler.session_manager = None
+    CaaSHandler.oauth_manager = None
+    CaaSHandler.credential_store = None
+    CaaSHandler.sse_manager = None
+    CaaSHandler.keychain = None
+    CaaSHandler.policy_registry = __import__(
+        "cortex.upai.disclosure", fromlist=["PolicyRegistry"]
+    ).PolicyRegistry()
     CaaSHandler._allowed_origins = set()
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
@@ -170,7 +179,8 @@ def _setup_caas_server():
     thread.start()
     time.sleep(0.1)
 
-    token = GrantToken.create(identity, audience="Test")
+    from cortex.upai.tokens import VALID_SCOPES
+    token = GrantToken.create(identity, audience="Test", scopes=list(VALID_SCOPES))
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 
@@ -232,6 +242,7 @@ class TestServerWebhookFiring:
             # Revoke
             url = f"http://127.0.0.1:{port}/grants/{grant_id}"
             req = urllib.request.Request(url, method="DELETE")
+            req.add_header("Authorization", f"Bearer {token_str}")
             urllib.request.urlopen(req)
 
             time.sleep(1.0)

@@ -50,7 +50,9 @@ def _setup_server():
     thread.start()
 
     # Create a grant token
-    token = GrantToken.create(identity, audience="test", scopes=["context:read", "context:subscribe"])
+    token = GrantToken.create(identity, audience="test", scopes=[
+        "context:read", "context:subscribe", "credentials:read", "credentials:write",
+    ])
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 
