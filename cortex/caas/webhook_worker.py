@@ -148,6 +148,15 @@ class WebhookWorker:
                 error="circuit_open",
                 retry_count=0,
             )
+            try:
+                from cortex.caas.instrumentation import WEBHOOK_DELIVERIES, WEBHOOK_DEAD_LETTERS
+                WEBHOOK_DELIVERIES.inc(webhook_id=registration.webhook_id, status="circuit_open")
+                WEBHOOK_DEAD_LETTERS.set(
+                    float(self._dead_letter.count(registration.webhook_id)),
+                    webhook_id=registration.webhook_id,
+                )
+            except Exception:
+                pass
             return
 
         last_error = ""
@@ -169,6 +178,11 @@ class WebhookWorker:
             if success:
                 cb.record_success()
                 _log.debug("Delivered %s to %s (attempt %d)", event, registration.url, attempt)
+                try:
+                    from cortex.caas.instrumentation import WEBHOOK_DELIVERIES
+                    WEBHOOK_DELIVERIES.inc(webhook_id=registration.webhook_id, status="success")
+                except Exception:
+                    pass
                 return
 
             last_error = f"HTTP {status_code}"
@@ -201,6 +215,15 @@ class WebhookWorker:
             error=last_error,
             retry_count=self._max_retries,
         )
+        try:
+            from cortex.caas.instrumentation import WEBHOOK_DELIVERIES, WEBHOOK_DEAD_LETTERS
+            WEBHOOK_DELIVERIES.inc(webhook_id=registration.webhook_id, status="failure")
+            WEBHOOK_DEAD_LETTERS.set(
+                float(self._dead_letter.count(registration.webhook_id)),
+                webhook_id=registration.webhook_id,
+            )
+        except Exception:
+            pass
 
 
 def _parse_retry_after(headers: dict[str, str] | None) -> float | None:

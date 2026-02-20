@@ -4,7 +4,7 @@ CaaS Configuration — INI file + environment variable overrides.
 Reads configuration from an INI file with sensible defaults. Environment
 variables override file values using the convention CORTEX_<SECTION>_<KEY>.
 
-Sections: server, storage, sse, webhooks, oauth, logging, security.
+Sections: server, storage, sse, webhooks, oauth, logging, security, metrics.
 """
 
 from __future__ import annotations
@@ -53,6 +53,9 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     "security": {
         "csrf_enabled": "true",
         "ssrf_block_private": "true",
+    },
+    "metrics": {
+        "enabled": "false",
     },
 }
 

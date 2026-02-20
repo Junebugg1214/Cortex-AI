@@ -450,6 +450,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         client_ip = self.client_address[0]
         if not limiter.allow(client_ip):
             from cortex.upai.errors import ERR_RATE_LIMITED
+            # Record metric
+            if self.__class__.metrics_registry is not None:
+                try:
+                    from cortex.caas.instrumentation import RATE_LIMIT_REJECTED
+                    RATE_LIMIT_REJECTED.inc()
+                except Exception:
+                    pass
             error = ERR_RATE_LIMITED()
             body = json.dumps(error.to_dict(), default=str).encode("utf-8")
             self._respond(error.http_status, "application/json", body, extra_headers={
@@ -506,7 +513,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._respond(404, "text/plain", b"Metrics not enabled\n")
             return
         # Update domain gauges before collecting
-        from cortex.caas.instrumentation import GRANTS_ACTIVE, GRAPH_NODES, GRAPH_EDGES
+        from cortex.caas.instrumentation import (
+            GRANTS_ACTIVE, GRAPH_NODES, GRAPH_EDGES,
+            CIRCUIT_BREAKER_STATE, AUDIT_ENTRIES,
+            WEBHOOK_DEAD_LETTERS, SSE_SUBSCRIBERS_ACTIVE,
+        )
         graph = self.__class__.graph
         if graph:
             GRAPH_NODES.set(float(len(graph.nodes)))
@@ -514,6 +525,34 @@ class CaaSHandler(BaseHTTPRequestHandler):
         grants = self.__class__.grant_store.list_all()
         active = sum(1 for g in grants if not g.get("revoked"))
         GRANTS_ACTIVE.set(float(active))
+
+        # Phase 8: scrape-time gauge updates
+        try:
+            worker = self.__class__.webhook_worker
+            if worker is not None:
+                from cortex.caas.circuit_breaker import CircuitState
+                state_map = {CircuitState.CLOSED: 0, CircuitState.OPEN: 1, CircuitState.HALF_OPEN: 2}
+                with worker._cb_lock:
+                    for wh_id, cb in worker._circuit_breakers.items():
+                        CIRCUIT_BREAKER_STATE.set(float(state_map.get(cb.state, 0)), webhook_id=wh_id)
+                        WEBHOOK_DEAD_LETTERS.set(float(worker._dead_letter.count(wh_id)), webhook_id=wh_id)
+        except Exception:
+            pass
+
+        try:
+            audit = self.__class__.audit_log
+            if audit is not None and hasattr(audit, "count"):
+                AUDIT_ENTRIES.set(float(audit.count()))
+        except Exception:
+            pass
+
+        try:
+            sse = self.__class__.sse_manager
+            if sse is not None:
+                SSE_SUBSCRIBERS_ACTIVE.set(float(sse.subscriber_count))
+        except Exception:
+            pass
+
         body = registry.collect().encode("utf-8")
         self._respond(200, "text/plain; version=0.0.4; charset=utf-8", body)
 
@@ -2387,8 +2426,23 @@ class CaaSHandler(BaseHTTPRequestHandler):
         etag = generate_etag(body)
         if_none_match = self.headers.get("If-None-Match", "")
         if status == 200 and if_none_match and check_if_none_match(if_none_match, etag):
+            if self.__class__.metrics_registry is not None:
+                try:
+                    from cortex.caas.instrumentation import CACHE_HITS
+                    CACHE_HITS.inc()
+                except Exception:
+                    pass
             self._respond(304, "application/json", b"", extra_headers={"ETag": etag})
             return
+
+        if status == 200 and if_none_match:
+            # Client sent If-None-Match but ETag didn't match
+            if self.__class__.metrics_registry is not None:
+                try:
+                    from cortex.caas.instrumentation import CACHE_MISSES
+                    CACHE_MISSES.inc()
+                except Exception:
+                    pass
 
         # Cache-Control
         parsed = urllib.parse.urlparse(self.path)
@@ -2494,6 +2548,8 @@ def start_caas_server(
                 db_path = _cfg_db
         if not enable_sse:
             enable_sse = config.getbool("sse", "enabled", fallback=False)
+        if not enable_metrics:
+            enable_metrics = config.getbool("metrics", "enabled", fallback=False)
         if store_dir is None:
             _cfg_dir = config.get("storage", "store_dir", fallback="")
             if _cfg_dir:

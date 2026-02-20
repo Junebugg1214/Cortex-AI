@@ -108,6 +108,13 @@ class SSEManager:
         """Send event to all matching subscribers. Returns count of deliveries."""
         payload = json.dumps(data, default=str)
 
+        # Record SSE event metric
+        try:
+            from cortex.caas.instrumentation import SSE_EVENTS
+            SSE_EVENTS.inc(event_type=event_type)
+        except Exception:
+            pass
+
         # Buffer the event for replay
         event_id = self._event_buffer.append(event_type, payload)
 
