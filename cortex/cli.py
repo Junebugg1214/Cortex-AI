@@ -420,10 +420,12 @@ def build_parser():
                     help="Identity/version store directory (default: .cortex)")
     sv.add_argument("--allowed-origins", nargs="*",
                     help="CORS allowed origins")
-    sv.add_argument("--storage", choices=["json", "sqlite"], default="json",
+    sv.add_argument("--storage", choices=["json", "sqlite", "postgres"], default="json",
                     help="Storage backend (default: json)")
     sv.add_argument("--db-path", default=None,
                     help="SQLite database path (default: <store-dir>/cortex.db)")
+    sv.add_argument("--db-url", default=None,
+                    help="PostgreSQL connection string (e.g. 'dbname=cortex_dev')")
     sv.add_argument("--oauth-provider", action="append", nargs=3,
                     metavar=("PROVIDER", "CLIENT_ID", "CLIENT_SECRET"),
                     help="Add OAuth provider (e.g. --oauth-provider google ID SECRET)")
@@ -448,10 +450,12 @@ def build_parser():
                     help="Token TTL in hours (default: 24)")
     gr.add_argument("--store-dir", default=".cortex",
                     help="Identity store directory (default: .cortex)")
-    gr.add_argument("--storage", choices=["json", "sqlite"], default="json",
+    gr.add_argument("--storage", choices=["json", "sqlite", "postgres"], default="json",
                     help="Grant storage backend (default: json)")
     gr.add_argument("--db-path", default=None,
                     help="SQLite database path (default: <store-dir>/cortex.db)")
+    gr.add_argument("--db-url", default=None,
+                    help="PostgreSQL connection string (e.g. 'dbname=cortex_dev')")
 
     # -- policy (custom disclosure policies) --------------------------------
     po = sub.add_parser("policy", help="Manage custom disclosure policies")
@@ -1752,7 +1756,10 @@ def run_serve(args):
 
     grants_path = str(store_dir / "grants.json")
     storage_backend = args.storage
-    db_path = args.db_path or str(store_dir / "cortex.db")
+    if storage_backend == "postgres":
+        db_path = getattr(args, "db_url", None) or args.db_path or "dbname=cortex_dev"
+    else:
+        db_path = args.db_path or str(store_dir / "cortex.db")
 
     # Parse OAuth providers
     oauth_providers = None
@@ -1778,7 +1785,7 @@ def run_serve(args):
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
-    print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend == "sqlite" else ""))
+    print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend in ("sqlite", "postgres") else ""))
     if args.config:
         print(f"Config: {args.config}")
     print(f"Logging: level={log_level}, format={log_format}")
@@ -1843,6 +1850,14 @@ def run_grant(args):
         from cortex.caas.sqlite_store import SqliteGrantStore
         db_path = args.db_path or str(Path(store_dir) / "cortex.db")
         gs = SqliteGrantStore(db_path)
+    elif storage == "postgres":
+        try:
+            from cortex.caas.postgres_store import PostgresGrantStore
+        except ImportError:
+            print('PostgreSQL storage requires psycopg: pip install "psycopg[binary]"')
+            return 1
+        db_url = getattr(args, "db_url", None) or getattr(args, "db_path", None) or "dbname=cortex_dev"
+        gs = PostgresGrantStore(db_url)
     else:
         from cortex.caas.server import GrantStore
         gs = GrantStore(persist_path=str(store_dir / "grants.json"))

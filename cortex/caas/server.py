@@ -2543,9 +2543,14 @@ def start_caas_server(
         if storage_backend == "json":
             storage_backend = config.get("storage", "backend", fallback="json")
         if db_path is None:
-            _cfg_db = config.get("storage", "db_path", fallback="")
-            if _cfg_db:
-                db_path = _cfg_db
+            if storage_backend == "postgres":
+                _cfg_url = config.get("storage", "db_url", fallback="")
+                if _cfg_url:
+                    db_path = _cfg_url
+            else:
+                _cfg_db = config.get("storage", "db_path", fallback="")
+                if _cfg_db:
+                    db_path = _cfg_db
         if not enable_sse:
             enable_sse = config.getbool("sse", "enabled", fallback=False)
         if not enable_metrics:
@@ -2618,6 +2623,33 @@ def start_caas_server(
         CaaSHandler.audit_log = SqliteAuditLog(db_path)
         CaaSHandler.policy_registry = PolicyRegistry(store=SqlitePolicyStore(db_path))
         delivery_log = SqliteDeliveryLog(db_path)
+        from cortex.caas.webhook_worker import WebhookWorker
+        worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
+        worker.start()
+        CaaSHandler.webhook_worker = worker
+    elif storage_backend == "postgres" and db_path:
+        try:
+            from cortex.caas.postgres_store import (
+                PostgresGrantStore, PostgresWebhookStore,
+                PostgresAuditLog, PostgresDeliveryLog, PostgresPolicyStore,
+            )
+        except ImportError:
+            raise RuntimeError(
+                'PostgreSQL storage requires psycopg: pip install "psycopg[binary]"'
+            )
+        _encryptor = None
+        try:
+            from cortex.caas.encryption import FieldEncryptor
+            pk = identity._private_key or identity.did.encode()
+            _encryptor = FieldEncryptor.from_identity_key(pk)
+        except Exception:
+            pass
+        CaaSHandler.grant_store = PostgresGrantStore(db_path, encryptor=_encryptor)
+        webhook_store = PostgresWebhookStore(db_path)
+        CaaSHandler.webhook_store = webhook_store
+        CaaSHandler.audit_log = PostgresAuditLog(db_path)
+        CaaSHandler.policy_registry = PolicyRegistry(store=PostgresPolicyStore(db_path))
+        delivery_log = PostgresDeliveryLog(db_path)
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
         worker.start()

@@ -28,6 +28,7 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     "storage": {
         "backend": "json",
         "db_path": "cortex.db",
+        "db_url": "",
         "store_dir": "",
     },
     "sse": {
