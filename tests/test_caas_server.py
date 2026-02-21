@@ -16,8 +16,9 @@ from http.server import HTTPServer
 
 from cortex.graph import CortexGraph, Node, Edge
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken, SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ
+from cortex.upai.tokens import GrantToken, SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ, VALID_SCOPES
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache, ThreadingHTTPServer
+from cortex.caas.storage import JsonWebhookStore
 
 
 def _build_test_graph() -> CortexGraph:
@@ -46,7 +47,7 @@ def _setup_server():
     CaaSHandler.grant_store = GrantStore()
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.version_store = None
-    CaaSHandler.webhook_store = {}
+    CaaSHandler.webhook_store = JsonWebhookStore()
     CaaSHandler._allowed_origins = set()
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
@@ -57,8 +58,8 @@ def _setup_server():
     thread.start()
     time.sleep(0.1)
 
-    # Create a grant token
-    token = GrantToken.create(identity, audience="Test")
+    # Create a grant token with all scopes (owner-level for testing)
+    token = GrantToken.create(identity, audience="Test", scopes=list(VALID_SCOPES))
     token_str = token.sign(identity)
     CaaSHandler.grant_store.add(token.grant_id, token_str, token.to_dict())
 
@@ -97,10 +98,12 @@ def _post(port, path, data, token=None, expect_error=False):
         raise
 
 
-def _delete(port, path, expect_error=False):
+def _delete(port, path, token=None, expect_error=False):
     """Helper to make DELETE request."""
     url = f"http://127.0.0.1:{port}{path}"
     req = urllib.request.Request(url, method="DELETE")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
     try:
         resp = urllib.request.urlopen(req)
         return json.loads(resp.read()), resp.status
@@ -175,7 +178,7 @@ class TestCaaSGrants:
             data, status = _post(port, "/grants", {
                 "audience": "Claude",
                 "policy": "professional",
-            })
+            }, token=token)
             assert status == 201
             assert "token" in data
             assert "grant_id" in data
@@ -188,7 +191,7 @@ class TestCaaSGrants:
         if server is None:
             return
         try:
-            data, status = _get(port, "/grants")
+            data, status = _get(port, "/grants", token=token)
             assert status == 200
             assert "grants" in data
             assert len(data["grants"]) >= 1  # at least the setup token
@@ -201,12 +204,12 @@ class TestCaaSGrants:
             return
         try:
             # Create a new grant
-            create_data, _ = _post(port, "/grants", {"audience": "RevTest"})
+            create_data, _ = _post(port, "/grants", {"audience": "RevTest"}, token=token)
             grant_id = create_data["grant_id"]
             new_token = create_data["token"]
 
             # Revoke it
-            data, status = _delete(port, f"/grants/{grant_id}")
+            data, status = _delete(port, f"/grants/{grant_id}", token=token)
             assert status == 200
             assert data["revoked"] is True
 
@@ -221,7 +224,7 @@ class TestCaaSGrants:
         if server is None:
             return
         try:
-            data, status = _post(port, "/grants", {"policy": "full"}, expect_error=True)
+            data, status = _post(port, "/grants", {"policy": "full"}, token=token, expect_error=True)
             assert status == 400
         finally:
             server.shutdown()
@@ -233,7 +236,7 @@ class TestCaaSGrants:
         try:
             data, status = _post(port, "/grants", {
                 "audience": "Test", "policy": "nonexistent"
-            }, expect_error=True)
+            }, token=token, expect_error=True)
             assert status == 400
         finally:
             server.shutdown()

@@ -236,6 +236,10 @@ def build_parser():
     ident.add_argument("--show", action="store_true", help="Show current identity")
     ident.add_argument("--store-dir", default=".cortex",
                        help="Identity store directory (default: .cortex)")
+    ident.add_argument("--did-doc", action="store_true",
+                       help="Output W3C DID document JSON")
+    ident.add_argument("--keychain", action="store_true",
+                       help="Show key rotation history and status")
 
     # -- commit (Phase 3) --------------------------------------------------
     cm = sub.add_parser("commit", help="Version a graph snapshot")
@@ -396,15 +400,41 @@ def build_parser():
     cw.add_argument("--interval", type=int, default=30,
                     help="Watch poll interval in seconds (default: 30)")
 
+    # -- pull (import from platform export) --------------------------------
+    pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
+    pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
+    pl.add_argument("--from", dest="from_platform", required=True,
+                    choices=["notion", "gdocs", "claude", "system-prompt"],
+                    help="Source platform adapter")
+    pl.add_argument("--output", "-o", default=None,
+                    help="Output graph JSON path (default: <input>_graph.json)")
+
     # -- serve (CaaS API) -------------------------------------------------
     sv = sub.add_parser("serve", help="Start CaaS API server")
     sv.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    sv.add_argument("--config", "-C", default=None,
+                    help="Path to cortex.ini config file")
     sv.add_argument("--port", "-p", type=int, default=8421,
                     help="Server port (default: 8421)")
     sv.add_argument("--store-dir", default=".cortex",
                     help="Identity/version store directory (default: .cortex)")
     sv.add_argument("--allowed-origins", nargs="*",
                     help="CORS allowed origins")
+    sv.add_argument("--storage", choices=["json", "sqlite", "postgres"], default="json",
+                    help="Storage backend (default: json)")
+    sv.add_argument("--db-path", default=None,
+                    help="SQLite database path (default: <store-dir>/cortex.db)")
+    sv.add_argument("--db-url", default=None,
+                    help="PostgreSQL connection string (e.g. 'dbname=cortex_dev')")
+    sv.add_argument("--oauth-provider", action="append", nargs=3,
+                    metavar=("PROVIDER", "CLIENT_ID", "CLIENT_SECRET"),
+                    help="Add OAuth provider (e.g. --oauth-provider google ID SECRET)")
+    sv.add_argument("--oauth-allowed-email", action="append", metavar="EMAIL",
+                    help="Restrict OAuth login to specific email(s)")
+    sv.add_argument("--enable-sse", action="store_true",
+                    help="Enable Server-Sent Events endpoint (/events)")
+    sv.add_argument("--enable-metrics", action="store_true",
+                    help="Enable Prometheus metrics endpoint (/metrics)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -419,6 +449,30 @@ def build_parser():
     gr.add_argument("--ttl", type=int, default=24,
                     help="Token TTL in hours (default: 24)")
     gr.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
+    gr.add_argument("--storage", choices=["json", "sqlite", "postgres"], default="json",
+                    help="Grant storage backend (default: json)")
+    gr.add_argument("--db-path", default=None,
+                    help="SQLite database path (default: <store-dir>/cortex.db)")
+    gr.add_argument("--db-url", default=None,
+                    help="PostgreSQL connection string (e.g. 'dbname=cortex_dev')")
+
+    # -- policy (custom disclosure policies) --------------------------------
+    po = sub.add_parser("policy", help="Manage custom disclosure policies")
+    po.add_argument("--list", action="store_true", dest="list_policies",
+                    help="List all policies")
+    po.add_argument("--create", action="store_true", help="Create a new policy")
+    po.add_argument("--show", metavar="NAME", help="Show policy details")
+    po.add_argument("--delete", metavar="NAME", help="Delete a custom policy")
+    po.add_argument("--name", help="Policy name for --create")
+    po.add_argument("--include-tags", help="Comma-separated include tags")
+    po.add_argument("--exclude-tags", help="Comma-separated exclude tags")
+    po.add_argument("--min-confidence", type=float, default=0.0,
+                    help="Minimum confidence threshold")
+    po.add_argument("--redact-properties", help="Comma-separated property keys to redact")
+    po.add_argument("--max-nodes", type=int, default=0,
+                    help="Max nodes (0 = unlimited)")
+    po.add_argument("--store-dir", default=".cortex",
                     help="Identity store directory (default: .cortex)")
 
     # -- rotate (key rotation) ---------------------------------------------
@@ -925,7 +979,45 @@ def run_identity(args):
         print(f"Public Key: {identity.public_key_b64[:32]}...")
         return 0
 
-    print("Specify --init or --show")
+    if getattr(args, "did_doc", False):
+        id_path = store_dir / "identity.json"
+        if not id_path.exists():
+            print(f"No identity found in {store_dir}. Use --init to create one.")
+            return 1
+        identity = UPAIIdentity.load(store_dir)
+        doc = identity.to_did_document()
+        print(json.dumps(doc, indent=2))
+        return 0
+
+    if getattr(args, "keychain", False):
+        from cortex.upai.keychain import Keychain
+        id_path = store_dir / "identity.json"
+        if not id_path.exists():
+            print(f"No identity found in {store_dir}. Use --init to create one.")
+            return 1
+        kc = Keychain(store_dir)
+        history = kc.get_history()
+        if not history:
+            print("No key history found.")
+            return 0
+        errors = kc.verify_rotation_chain()
+        chain_status = "VALID" if not errors else "INVALID"
+        print(f"Key Rotation History (chain: {chain_status}):")
+        for record in history:
+            if record.revoked_at:
+                status = f"REVOKED ({record.revocation_reason})"
+                date_info = f"created={record.created_at}, revoked={record.revoked_at}"
+            else:
+                status = "ACTIVE"
+                date_info = f"created={record.created_at}"
+            print(f"  {record.did[:32]}... | {status} | {date_info}")
+        if errors:
+            print(f"\nChain errors:")
+            for err in errors:
+                print(f"  - {err}")
+        return 0
+
+    print("Specify --init, --show, --did-doc, or --keychain")
     return 1
 
 
@@ -1585,6 +1677,34 @@ def run_stats(args):
     return 0
 
 
+def run_pull(args):
+    """Import a platform export file back into a CortexGraph."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    adapter = ADAPTERS.get(args.from_platform)
+    if adapter is None:
+        print(f"Unknown platform: {args.from_platform}")
+        return 1
+
+    try:
+        graph = adapter.pull(input_path)
+    except Exception as e:
+        print(f"Error parsing {input_path}: {e}")
+        return 1
+
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_graph.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+    st = graph.stats()
+    print(f"Imported from {args.from_platform}: {st['node_count']} nodes, {st['edge_count']} edges")
+    print(f"Saved to: {output_path}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CaaS: serve, grant, rotate
 # ---------------------------------------------------------------------------
@@ -1592,6 +1712,23 @@ def run_stats(args):
 def run_serve(args):
     """Start the CaaS API server."""
     from cortex.caas.server import start_caas_server
+    from cortex.caas.config import CortexConfig
+    from cortex.caas.logging_config import setup_logging
+
+    # Load configuration
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            print(f"Config file not found: {config_path}")
+            return 1
+        config = CortexConfig.from_file(str(config_path))
+    else:
+        config = CortexConfig.from_env()
+
+    # Set up structured logging from config
+    log_level = config.get("logging", "level", fallback="INFO")
+    log_format = config.get("logging", "format", fallback="text")
+    setup_logging(level=log_level, fmt=log_format)
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -1618,10 +1755,46 @@ def run_serve(args):
         allowed_origins = set(args.allowed_origins)
 
     grants_path = str(store_dir / "grants.json")
+    storage_backend = args.storage
+    if storage_backend == "postgres":
+        db_path = getattr(args, "db_url", None) or args.db_path or "dbname=cortex_dev"
+    else:
+        db_path = args.db_path or str(store_dir / "cortex.db")
+
+    # Parse OAuth providers
+    oauth_providers = None
+    if args.oauth_provider:
+        oauth_providers = {}
+        for provider_name, client_id, client_secret in args.oauth_provider:
+            oauth_providers[provider_name] = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+
+    oauth_allowed_emails = None
+    if args.oauth_allowed_email:
+        oauth_allowed_emails = set(args.oauth_allowed_email)
+
+    enable_sse = getattr(args, "enable_sse", False)
+    enable_metrics = getattr(args, "enable_metrics", False)
+    # Allow config file to enable metrics
+    if not enable_metrics and config is not None:
+        enable_metrics = config.getbool("metrics", "enabled", fallback=False)
+    cred_store_path = str(store_dir / "credentials.json")
 
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+    print(f"Storage: {storage_backend}" + (f" ({db_path})" if storage_backend in ("sqlite", "postgres") else ""))
+    if args.config:
+        print(f"Config: {args.config}")
+    print(f"Logging: level={log_level}, format={log_format}")
+    if oauth_providers:
+        print(f"OAuth: {', '.join(oauth_providers.keys())}")
+    if enable_sse:
+        print("SSE: enabled (/events)")
+    if enable_metrics:
+        print("Metrics: enabled (/metrics)")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1631,12 +1804,32 @@ def run_serve(args):
         port=args.port,
         allowed_origins=allowed_origins,
         grants_persist_path=grants_path,
+        storage_backend=storage_backend,
+        db_path=db_path,
+        enable_metrics=enable_metrics,
+        oauth_providers=oauth_providers,
+        oauth_allowed_emails=oauth_allowed_emails,
+        credential_store_path=cred_store_path,
+        enable_sse=enable_sse,
+        store_dir=str(store_dir),
+        config=config,
     )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-        server.shutdown()
+
+    # Use ShutdownCoordinator for graceful shutdown if available
+    coordinator = getattr(server, '_shutdown_coordinator', None)
+    if coordinator:
+        coordinator.install_signal_handlers()
+        try:
+            coordinator.wait_for_shutdown()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            server.shutdown()
+    else:
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            server.shutdown()
     return 0
 
 
@@ -1651,6 +1844,24 @@ def run_grant(args):
 
     identity = UPAIIdentity.load(store_dir)
 
+    # Select grant store backend
+    storage = getattr(args, "storage", "json")
+    if storage == "sqlite":
+        from cortex.caas.sqlite_store import SqliteGrantStore
+        db_path = args.db_path or str(Path(store_dir) / "cortex.db")
+        gs = SqliteGrantStore(db_path)
+    elif storage == "postgres":
+        try:
+            from cortex.caas.postgres_store import PostgresGrantStore
+        except ImportError:
+            print('PostgreSQL storage requires psycopg: pip install "psycopg[binary]"')
+            return 1
+        db_url = getattr(args, "db_url", None) or getattr(args, "db_path", None) or "dbname=cortex_dev"
+        gs = PostgresGrantStore(db_url)
+    else:
+        from cortex.caas.server import GrantStore
+        gs = GrantStore(persist_path=str(store_dir / "grants.json"))
+
     if args.create:
         audience = args.audience
         if not audience:
@@ -1662,19 +1873,18 @@ def run_grant(args):
             policy=args.policy, ttl_hours=args.ttl,
         )
         token_str = token.sign(identity)
+        gs.add(token.grant_id, token_str, token.to_dict())
 
         print(f"Grant ID: {token.grant_id}")
         print(f"Audience: {token.audience}")
         print(f"Policy: {token.policy}")
         print(f"Scopes: {', '.join(token.scopes)}")
         print(f"Expires: {token.expires_at}")
+        print(f"Storage: {storage}")
         print(f"\nToken:\n{token_str}")
         return 0
 
     elif args.list_grants:
-        from cortex.caas.server import GrantStore
-        grants_path = str(store_dir / "grants.json")
-        gs = GrantStore(persist_path=grants_path)
         grants = gs.list_all()
         if not grants:
             print("No grants found.")
@@ -1685,9 +1895,6 @@ def run_grant(args):
         return 0
 
     elif args.revoke:
-        from cortex.caas.server import GrantStore
-        grants_path = str(store_dir / "grants.json")
-        gs = GrantStore(persist_path=grants_path)
         if gs.revoke(args.revoke):
             print(f"Revoked grant: {args.revoke}")
         else:
@@ -1698,6 +1905,82 @@ def run_grant(args):
     else:
         print("Specify --create, --list, or --revoke")
         return 1
+
+
+def run_policy(args):
+    """Manage custom disclosure policies."""
+    from cortex.upai.disclosure import DisclosurePolicy, PolicyRegistry, BUILTIN_POLICIES
+
+    if args.list_policies:
+        print("Built-in policies:")
+        for name in BUILTIN_POLICIES:
+            p = BUILTIN_POLICIES[name]
+            print(f"  {name} (builtin) — min_conf={p.min_confidence}, tags={p.include_tags or 'all'}")
+        print("\n(Custom policies require a running CaaS server.)")
+        return 0
+
+    if args.show:
+        name = args.show
+        if name in BUILTIN_POLICIES:
+            p = BUILTIN_POLICIES[name]
+            print(f"Name: {p.name} (builtin)")
+            print(f"  Include tags: {p.include_tags or 'all'}")
+            print(f"  Exclude tags: {p.exclude_tags or 'none'}")
+            print(f"  Min confidence: {p.min_confidence}")
+            print(f"  Redact properties: {p.redact_properties or 'none'}")
+            print(f"  Max nodes: {p.max_nodes or 'unlimited'}")
+            return 0
+        print(f"Policy '{name}' not found in built-in policies.")
+        print("Custom policies require a running CaaS server.")
+        return 1
+
+    if args.create:
+        name = args.name
+        if not name:
+            print("--name is required for --create")
+            return 1
+        include_tags = [t.strip() for t in args.include_tags.split(",")] if args.include_tags else []
+        exclude_tags = [t.strip() for t in args.exclude_tags.split(",")] if args.exclude_tags else []
+        redact_props = [t.strip() for t in args.redact_properties.split(",")] if args.redact_properties else []
+
+        policy = DisclosurePolicy(
+            name=name,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            min_confidence=args.min_confidence,
+            redact_properties=redact_props,
+            max_nodes=args.max_nodes,
+        )
+        print(f"Policy definition for '{name}':")
+        print(f"  Include tags: {policy.include_tags or 'all'}")
+        print(f"  Exclude tags: {policy.exclude_tags or 'none'}")
+        print(f"  Min confidence: {policy.min_confidence}")
+        print(f"  Redact properties: {policy.redact_properties or 'none'}")
+        print(f"  Max nodes: {policy.max_nodes or 'unlimited'}")
+        print("\nTo register on a running server, POST to /policies:")
+        import json as _json
+        body = {
+            "name": name,
+            "include_tags": policy.include_tags,
+            "exclude_tags": policy.exclude_tags,
+            "min_confidence": policy.min_confidence,
+            "redact_properties": policy.redact_properties,
+            "max_nodes": policy.max_nodes,
+        }
+        print(f"  curl -X POST http://localhost:8421/policies -d '{_json.dumps(body)}'")
+        return 0
+
+    if args.delete:
+        name = args.delete
+        if name in BUILTIN_POLICIES:
+            print(f"Cannot delete built-in policy: {name}")
+            return 1
+        print(f"To delete on a running server:")
+        print(f"  curl -X DELETE http://localhost:8421/policies/{name}")
+        return 0
+
+    print("Specify --list, --create, --show <name>, or --delete <name>")
+    return 1
 
 
 def run_rotate(args):
@@ -1712,7 +1995,7 @@ def run_rotate(args):
     identity = UPAIIdentity.load(store_dir)
     kc = Keychain(store_dir)
 
-    new_identity, proof = kc.rotate(identity)
+    new_identity, proof = kc.rotate(identity, reason=args.reason)
     print(f"Old DID: {identity.did}")
     print(f"New DID: {new_identity.did}")
     print(f"Reason: {args.reason}")
@@ -1739,7 +2022,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
-        "serve", "grant", "rotate",
+        "serve", "grant", "rotate", "pull", "policy",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -1794,12 +2077,16 @@ def main(argv=None):
         return run_context_hook(args)
     elif args.subcommand == "context-export":
         return run_context_export(args)
+    elif args.subcommand == "pull":
+        return run_pull(args)
     elif args.subcommand == "serve":
         return run_serve(args)
     elif args.subcommand == "grant":
         return run_grant(args)
     elif args.subcommand == "rotate":
         return run_rotate(args)
+    elif args.subcommand == "policy":
+        return run_policy(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
     else:

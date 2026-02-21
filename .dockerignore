@@ -1,0 +1,9 @@
+.git
+tests
+local
+__pycache__
+*.pyc
+*.egg-info
+.github
+.cortex
+output

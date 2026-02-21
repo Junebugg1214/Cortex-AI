@@ -1,0 +1,35 @@
+[Unit]
+Description=Cortex CaaS Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cortex
+Group=cortex
+WorkingDirectory=/var/lib/cortex
+
+ExecStart=/usr/local/bin/cortex serve /var/lib/cortex/context.json \
+    --config /etc/cortex/cortex.ini \
+    --storage sqlite \
+    --db-path /var/lib/cortex/cortex.db \
+    --store-dir /var/lib/cortex/.cortex
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cortex
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/cortex
+
+[Install]
+WantedBy=multi-user.target

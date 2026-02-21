@@ -150,7 +150,7 @@ class TestWebhookDelivery:
 
         try:
             reg = create_webhook(f"http://127.0.0.1:{port}/webhook", ["context.updated"])
-            success, status = deliver_webhook(reg, "context.updated", {"key": "value"})
+            success, status, _headers = deliver_webhook(reg, "context.updated", {"key": "value"})
 
             assert success
             assert status == 200
@@ -208,6 +208,6 @@ class TestWebhookDelivery:
 
     def test_deliver_connection_error(self):
         reg = create_webhook("http://127.0.0.1:1/nonexistent", ["context.updated"])
-        success, status = deliver_webhook(reg, "context.updated", {}, timeout=1.0)
+        success, status, _headers = deliver_webhook(reg, "context.updated", {}, timeout=1.0)
         assert not success
         assert status == 0

@@ -131,13 +131,30 @@ class TestNotionAdapter:
             for p in paths:
                 assert p.exists()
 
-    def test_pull_not_supported(self):
-        adapter = NotionAdapter()
-        try:
-            adapter.pull(Path("fake.md"))
-            assert False, "Should have raised NotImplementedError"
-        except NotImplementedError:
-            pass
+    def test_pull_json_roundtrip(self):
+        """Push database JSON then pull it back; nodes should survive the round-trip."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adapter = NotionAdapter()
+            adapter.push(_sample_graph(), BUILTIN_POLICIES["full"],
+                        output_dir=Path(tmpdir))
+            db_path = Path(tmpdir) / "notion_database.json"
+            graph = adapter.pull(db_path)
+            assert len(graph.nodes) > 0
+            labels = {n.label for n in graph.nodes.values()}
+            assert "Marc" in labels
+            assert "Python" in labels
+
+    def test_pull_md_roundtrip(self):
+        """Push markdown page then pull it back; nodes should survive the round-trip."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adapter = NotionAdapter()
+            adapter.push(_sample_graph(), BUILTIN_POLICIES["full"],
+                        output_dir=Path(tmpdir))
+            md_path = Path(tmpdir) / "notion_page.md"
+            graph = adapter.pull(md_path)
+            assert len(graph.nodes) > 0
+            labels = {n.label for n in graph.nodes.values()}
+            assert "Marc" in labels
 
 
 class TestGDocsAdapter:
@@ -153,13 +170,18 @@ class TestGDocsAdapter:
             content = paths[0].read_text()
             assert "<html>" in content
 
-    def test_pull_not_supported(self):
-        adapter = GDocsAdapter()
-        try:
-            adapter.pull(Path("fake.html"))
-            assert False, "Should have raised NotImplementedError"
-        except NotImplementedError:
-            pass
+    def test_pull_html_roundtrip(self):
+        """Push HTML then pull it back; nodes should survive the round-trip."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adapter = GDocsAdapter()
+            adapter.push(_sample_graph(), BUILTIN_POLICIES["full"],
+                        output_dir=Path(tmpdir))
+            html_path = Path(tmpdir) / "google_docs.html"
+            graph = adapter.pull(html_path)
+            assert len(graph.nodes) > 0
+            labels = {n.label for n in graph.nodes.values()}
+            assert "Marc" in labels
+            assert "Python" in labels
 
 
 class TestAdapterRegistry:

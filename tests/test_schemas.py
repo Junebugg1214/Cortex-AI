@@ -338,6 +338,7 @@ class TestSchemaRegistry:
         expected = {
             "node", "edge", "graph", "identity", "envelope",
             "grant_token", "disclosure_policy", "version", "did_document",
+            "credential", "credential_proof",
         }
         assert set(SCHEMAS.keys()) == expected
 

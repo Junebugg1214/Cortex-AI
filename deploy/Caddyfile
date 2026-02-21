@@ -1,0 +1,29 @@
+# Cortex CaaS — Caddy reverse proxy
+# Replace your-domain.example.com with your actual domain.
+# Caddy handles TLS automatically via Let's Encrypt.
+#
+# Install: https://caddyserver.com/docs/install
+# Run:     caddy run --config deploy/Caddyfile
+
+your-domain.example.com {
+	# Reverse proxy to CaaS server
+	reverse_proxy 127.0.0.1:8421 {
+		# SSE: disable response buffering
+		flush_interval -1
+	}
+
+	# Security headers
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "default-src 'none'"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# Request body size limit (matches CaaS MAX_BODY_SIZE)
+	request_body {
+		max_size 1MB
+	}
+}

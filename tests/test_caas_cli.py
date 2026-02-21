@@ -158,3 +158,71 @@ class TestRotateCLI:
                 "rotate", "--store-dir", str(Path(tmpdir) / "nonexistent"),
             ])
             assert result == 1
+
+    def test_rotate_passes_reason(self):
+        if not has_crypto():
+            return
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context_path, store_dir = _setup_context(tmpdir)
+            result = main([
+                "rotate", "--store-dir", store_dir, "--reason", "compromised",
+            ])
+            assert result == 0
+
+            # Verify keychain has correct reason
+            from cortex.upai.keychain import Keychain
+            kc = Keychain(Path(store_dir))
+            history = kc.get_history()
+            revoked = [r for r in history if r.revoked_at]
+            assert len(revoked) == 1
+            assert revoked[0].revocation_reason == "compromised"
+
+
+# ============================================================================
+# Grant persistence tests
+# ============================================================================
+
+class TestGrantPersistence:
+
+    def test_grant_create_persists(self):
+        if not has_crypto():
+            return
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context_path, store_dir = _setup_context(tmpdir)
+            result = main([
+                "grant", "--create", "--audience", "PersistTest",
+                "--store-dir", store_dir,
+            ])
+            assert result == 0
+
+            # Verify grants.json was created with the grant
+            grants_path = Path(store_dir) / "grants.json"
+            assert grants_path.exists()
+            data = json.loads(grants_path.read_text())
+            grants = data.get("grants", {})
+            assert len(grants) == 1
+            grant = list(grants.values())[0]
+            assert grant["token_data"]["audience"] == "PersistTest"
+
+
+# ============================================================================
+# Serve parser with storage flags
+# ============================================================================
+
+class TestServeStorageFlags:
+
+    def test_serve_default_storage(self):
+        parser = build_parser()
+        args = parser.parse_args(["serve", "context.json"])
+        assert args.storage == "json"
+        assert args.db_path is None
+
+    def test_serve_sqlite_storage(self):
+        parser = build_parser()
+        args = parser.parse_args(["serve", "context.json", "--storage", "sqlite"])
+        assert args.storage == "sqlite"
+
+    def test_serve_custom_db_path(self):
+        parser = build_parser()
+        args = parser.parse_args(["serve", "context.json", "--storage", "sqlite", "--db-path", "/tmp/test.db"])
+        assert args.db_path == "/tmp/test.db"
