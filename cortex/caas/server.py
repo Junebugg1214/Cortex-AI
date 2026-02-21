@@ -229,6 +229,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     csrf_enabled: bool = False  # Set True to require CSRF tokens on dashboard mutations
     plugin_manager: Any = None  # Optional PluginManager
     tracing_manager: Any = None  # Optional TracingManager
+    federation_manager: Any = None  # Optional FederationManager
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -344,6 +345,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_oauth_authorize(query)
         elif path == "/dashboard/oauth/callback":
             self._handle_oauth_callback(query)
+        # ── Federation routes ─────────────────────────────────────
+        elif path == "/federation/peers":
+            self._serve_federation_peers()
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_get(path, query)
@@ -383,6 +387,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_policy()
         elif path == "/api/token-exchange":
             self._handle_token_exchange()
+        # ── Federation routes ─────────────────────────────────────
+        elif path == "/federation/export":
+            self._handle_federation_export()
+        elif path == "/federation/import":
+            self._handle_federation_import()
         # ── Dashboard routes ──────────────────────────────────────
         elif path == "/dashboard/auth":
             self._handle_dashboard_login()
@@ -2592,6 +2601,58 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._record_metrics(code)
         self._log_request(code)
 
+    # ── Federation endpoints ─────────────────────────────────────────
+
+    def _serve_federation_peers(self) -> None:
+        """GET /federation/peers — return this instance's federation info."""
+        fm = self.__class__.federation_manager
+        if fm is None:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        self._json_response(fm.get_peer_info())
+
+    def _handle_federation_export(self) -> None:
+        """POST /federation/export — export graph as signed bundle."""
+        fm = self.__class__.federation_manager
+        if fm is None:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        policy = body.get("policy", "full")
+        tag_filter = body.get("tag_filter")
+        metadata = body.get("metadata")
+        graph = self.__class__.graph
+        try:
+            bundle = fm.export_bundle(
+                graph, policy=policy, tag_filter=tag_filter, metadata=metadata,
+            )
+            self._json_response(bundle.to_dict())
+        except ValueError as exc:
+            self._json_response({"error": str(exc)}, status=400)
+
+    def _handle_federation_import(self) -> None:
+        """POST /federation/import — import a signed bundle into local graph."""
+        fm = self.__class__.federation_manager
+        if fm is None:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        from cortex.federation import FederationBundle
+
+        try:
+            bundle = FederationBundle.from_dict(body)
+        except (KeyError, TypeError) as exc:
+            self._json_response({"error": f"Invalid bundle: {exc}"}, status=400)
+            return
+        graph = self.__class__.graph
+        result = fm.import_bundle(graph, bundle)
+        status = 200 if result.success else 403
+        self._json_response(result.to_dict(), status=status)
+
     def log_message(self, format: str, *args: Any) -> None:
         """Route BaseHTTPRequestHandler logs through stdlib logging."""
         import logging
@@ -2620,6 +2681,8 @@ def start_caas_server(
     config: Any = None,
     plugin_manager: Any = None,
     tracing_manager: Any = None,
+    enable_federation: bool = False,
+    federation_trusted_dids: list[str] | None = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -2797,6 +2860,25 @@ def start_caas_server(
             f"http://127.0.0.1:{port}",
             f"http://localhost:{port}",
         }
+
+    # Federation setup
+    if enable_federation:
+        from cortex.federation import FederationManager
+
+        trusted = list(federation_trusted_dids or [])
+        if config is not None and not trusted:
+            trusted = config.getlist("federation", "trusted_dids")
+        sign_exports = True
+        bundle_ttl = 3600
+        if config is not None:
+            sign_exports = config.getbool("federation", "sign_exports", fallback=True)
+            bundle_ttl = config.getint("federation", "bundle_ttl", fallback=3600)
+        CaaSHandler.federation_manager = FederationManager(
+            identity=identity,
+            trusted_dids=trusted,
+            sign_exports=sign_exports,
+            bundle_ttl_seconds=bundle_ttl,
+        )
 
     host = "127.0.0.1"
     if config is not None:

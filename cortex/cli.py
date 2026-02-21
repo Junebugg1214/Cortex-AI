@@ -452,6 +452,10 @@ def build_parser():
                     help="Enable distributed tracing (console exporter)")
     sv.add_argument("--tracing-exporter", choices=["console", "otlp_http", "noop"],
                     default="console", help="Tracing exporter (default: console)")
+    sv.add_argument("--enable-federation", action="store_true",
+                    help="Enable federation endpoints (/federation/*)")
+    sv.add_argument("--federation-trusted-did", action="append", metavar="DID",
+                    help="Add a trusted federation peer DID (repeatable)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1851,6 +1855,16 @@ def run_serve(args):
         print(f"Plugins: {', '.join(plugin_manager.loaded_plugins)}")
     if enable_tracing:
         print(f"Tracing: enabled ({getattr(args, 'tracing_exporter', 'console')})")
+
+    # Federation
+    enable_federation = getattr(args, "enable_federation", False)
+    if not enable_federation and config is not None:
+        enable_federation = config.getbool("federation", "enabled", fallback=False)
+    federation_trusted_dids = getattr(args, "federation_trusted_did", None) or []
+    if not federation_trusted_dids and config is not None:
+        federation_trusted_dids = config.getlist("federation", "trusted_dids")
+    if enable_federation:
+        print(f"Federation: enabled ({len(federation_trusted_dids)} trusted peers)")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1871,6 +1885,8 @@ def run_serve(args):
         config=config,
         plugin_manager=plugin_manager,
         tracing_manager=tracing_manager,
+        enable_federation=enable_federation,
+        federation_trusted_dids=federation_trusted_dids,
     )
 
     # Use ShutdownCoordinator for graceful shutdown if available

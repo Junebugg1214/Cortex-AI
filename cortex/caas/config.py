@@ -68,6 +68,12 @@ _DEFAULTS: dict[str, dict[str, str]] = {
         "exporter": "console",
         "endpoint": "",
     },
+    "federation": {
+        "enabled": "false",
+        "sign_exports": "true",
+        "bundle_ttl": "3600",
+        "trusted_dids": "",
+    },
 }
 
 _BOOL_TRUE = {"true", "yes", "1", "on"}
