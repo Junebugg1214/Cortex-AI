@@ -228,6 +228,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     keychain: Any = None  # Optional Keychain
     csrf_enabled: bool = False  # Set True to require CSRF tokens on dashboard mutations
     plugin_manager: Any = None  # Optional PluginManager
+    tracing_manager: Any = None  # Optional TracingManager
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -2618,6 +2619,7 @@ def start_caas_server(
     store_dir: str | None = None,
     config: Any = None,
     plugin_manager: Any = None,
+    tracing_manager: Any = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -2698,6 +2700,9 @@ def start_caas_server(
 
     # Plugin system
     CaaSHandler.plugin_manager = plugin_manager
+
+    # Tracing
+    CaaSHandler.tracing_manager = tracing_manager
 
     if storage_backend == "sqlite" and db_path:
         from cortex.caas.sqlite_store import (

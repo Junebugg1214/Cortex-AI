@@ -448,6 +448,10 @@ def build_parser():
                     help="PostgreSQL connection pool max size (default: 10)")
     sv.add_argument("--plugins", nargs="*", default=None, metavar="MODULE",
                     help="Plugin modules to load (e.g. cortex.plugins.example_logger)")
+    sv.add_argument("--enable-tracing", action="store_true",
+                    help="Enable distributed tracing (console exporter)")
+    sv.add_argument("--tracing-exporter", choices=["console", "otlp_http", "noop"],
+                    default="console", help="Tracing exporter (default: console)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1815,6 +1819,21 @@ def run_serve(args):
         from cortex.plugins import PluginManager
         plugin_manager = PluginManager(modules=plugin_modules)
 
+    # Tracing setup
+    enable_tracing = getattr(args, "enable_tracing", False)
+    if not enable_tracing and config is not None:
+        enable_tracing = config.getbool("tracing", "enabled", fallback=False)
+    tracing_manager = None
+    if enable_tracing:
+        from cortex.caas.tracing import TracingManager
+        tracing_exporter = getattr(args, "tracing_exporter", "console")
+        if config is not None:
+            tracing_exporter = config.get("tracing", "exporter", fallback=tracing_exporter)
+        tracing_endpoint = None
+        if config is not None:
+            tracing_endpoint = config.get("tracing", "endpoint", fallback="") or None
+        tracing_manager = TracingManager(exporter=tracing_exporter, endpoint=tracing_endpoint)
+
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
@@ -1830,6 +1849,8 @@ def run_serve(args):
         print("Metrics: enabled (/metrics)")
     if plugin_manager and plugin_manager.loaded_plugins:
         print(f"Plugins: {', '.join(plugin_manager.loaded_plugins)}")
+    if enable_tracing:
+        print(f"Tracing: enabled ({getattr(args, 'tracing_exporter', 'console')})")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1849,6 +1870,7 @@ def run_serve(args):
         store_dir=str(store_dir),
         config=config,
         plugin_manager=plugin_manager,
+        tracing_manager=tracing_manager,
     )
 
     # Use ShutdownCoordinator for graceful shutdown if available

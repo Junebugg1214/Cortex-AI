@@ -63,6 +63,11 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     "plugins": {
         "modules": "",
     },
+    "tracing": {
+        "enabled": "false",
+        "exporter": "console",
+        "endpoint": "",
+    },
 }
 
 _BOOL_TRUE = {"true", "yes", "1", "on"}
