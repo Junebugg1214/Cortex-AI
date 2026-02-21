@@ -6,13 +6,14 @@
   <a href="https://pypi.org/project/cortex-identity/"><img src="https://img.shields.io/pypi/pyversions/cortex-identity" alt="Python"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
+  <img src="https://img.shields.io/badge/tests-1%2C710%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
 
 **Your ChatGPT knows you. Now Claude does too.**
 
-Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies.
+Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript.
 
 ### Own your memory
 
@@ -55,6 +56,10 @@ cortex viz output/context.json --output graph.html
 | **Portable** | Yes | No | No | No | No |
 | **Knowledge graph** | Yes | Partial | No | No | No |
 | **API-ready** | Yes | No | No | No | No |
+| **Cryptographic identity** | Yes | No | No | No | No |
+| **Role-based access (RBAC)** | Yes | No | No | No | No |
+| **OAuth 2.0 / OIDC** | Yes | No | No | No | No |
+| **SDKs (Python + TypeScript)** | Yes | Partial | No | No | No |
 | **Temporal tracking** | Yes | No | No | No | No |
 | **Works offline** | Yes | No | No | No | No |
 | **Zero dependencies** | Yes | No | No | N/A | N/A |
@@ -76,10 +81,11 @@ Nodes are entities, not category items. "Python" is ONE node with tags `[technic
 ## Installation
 
 ```bash
-pip install cortex-identity          # Core (zero dependencies)
-pip install cortex-identity[crypto]  # + Ed25519 signatures
-pip install cortex-identity[fast]    # + 10x faster graph layout
-pip install cortex-identity[full]    # Everything
+pip install cortex-identity              # Core (zero dependencies)
+pip install cortex-identity[crypto]      # + Ed25519 signatures
+pip install cortex-identity[fast]        # + 10x faster graph layout
+pip install cortex-identity[postgres]    # + PostgreSQL storage backend
+pip install cortex-identity[full]        # Everything
 ```
 
 <details>
@@ -147,6 +153,10 @@ Full protocol specification: [`spec/upai-v1.0.md`](spec/upai-v1.0.md)
 - **Key rotation** — Rotate to a new keypair with a verifiable revocation chain. Old keys get revocation proofs.
 - **Selective disclosure** — Policies control what each platform sees. "Professional" shows job/skills. "Technical" shows your tech stack. "Minimal" shows almost nothing.
 - **Version control** — Git-like commits for your identity. Log, diff, checkout, rollback.
+- **Verifiable credentials** — Issue and verify W3C-style credentials bound to your DID.
+- **Encrypted backup** — AES-256-GCM encrypted identity exports with key-derived encryption.
+- **Service discovery** — `.well-known/upai-configuration` endpoint for automated client bootstrapping.
+- **RBAC** — Role-based access control with 4 roles (owner, admin, editor, viewer) and 10 permission scopes.
 - **JSON Schema validation** — 9 schemas for all data structures, stdlib-only validator.
 - **Structured error codes** — UPAI-4xxx (client) and UPAI-5xxx (server) error registry.
 - **Webhook signing** — HMAC-SHA256 payload signatures for event notifications.
@@ -180,26 +190,226 @@ Serve your context over HTTP so AI platforms can pull it directly. OpenAPI spec:
 # Start the CaaS server
 cortex serve context.json --port 8421
 
+# With PostgreSQL storage
+cortex serve context.json --storage postgres --db-url "dbname=cortex"
+
+# With SSE and Prometheus metrics
+cortex serve context.json --enable-sse --enable-metrics
+
+# With INI config file
+cortex serve context.json --config deploy/cortex.ini
+
 # Create a scoped access token for a platform
 cortex grant --create --audience "Claude" --policy professional
 
 # Revoke or list grants
 cortex grant --list
 cortex grant --revoke <grant_id>
+
+# Manage custom disclosure policies
+cortex policy --list
+cortex policy --create --name "team" --include-tags technical_expertise domain_knowledge
 ```
 
-**18 API endpoints** across 6 groups:
+**40+ API endpoints** across 12 groups:
 
 | Group | Endpoints | Auth |
 |-------|-----------|------|
-| Discovery | `/.well-known/upai-configuration`, `/identity` | None |
+| Discovery | `/.well-known/upai-configuration`, `/identity`, `/health` | None |
 | Grants | `POST/GET/DELETE /grants` | Self-managed |
 | Context | `/context`, `/context/compact`, `/context/nodes`, `/context/edges`, `/context/stats` | `context:read` |
+| Graph Queries | `/context/path/<from>/<to>`, `POST /context/search`, `POST /context/batch` | `context:read` |
+| CRUD | `POST/GET/PATCH/DELETE` on individual nodes and edges | `context:write` |
 | Versions | `/versions`, `/versions/<id>`, `/versions/diff` | `versions:read` |
 | Webhooks | `POST/GET/DELETE /webhooks` | Self-managed |
-| Server | `/` (info) | None |
+| Credentials | `POST/GET/DELETE /credentials`, `/credentials/<id>/verify` | `credentials:*` |
+| Policies | `POST/GET/PATCH/DELETE /policies` | Owner |
+| Audit | `/audit`, `/audit/verify` | Owner |
+| SSE | `/events` (Server-Sent Events, `--enable-sse`) | `context:read` |
+| Dashboard | `/dashboard` (SPA with OAuth login) | Session / OAuth |
 
 **Auth flow:** Platform requests a signed grant token with `cortex grant` -> uses it as `Authorization: Bearer <token>` -> server verifies signature, expiry, and scope -> returns disclosure-filtered context.
+
+</details>
+
+<details>
+<summary><strong>Storage Backends</strong></summary>
+
+Cortex supports three storage backends, selectable via CLI flag:
+
+| Backend | Flag | Use Case |
+|---------|------|----------|
+| JSON | `--storage json` (default) | Single-user, file-based, zero setup |
+| SQLite | `--storage sqlite --db-path cortex.db` | Embedded SQL, concurrent reads, migrations |
+| PostgreSQL | `--storage postgres --db-url "dbname=cortex"` | Production deployments, multi-instance |
+
+```bash
+# JSON (default — just works)
+cortex serve context.json
+
+# SQLite
+cortex serve context.json --storage sqlite --db-path ./data/cortex.db
+
+# PostgreSQL
+cortex serve context.json --storage postgres --db-url "host=localhost dbname=cortex_prod user=cortex"
+```
+
+All backends share the same `StorageBackend` interface. SQLite and PostgreSQL include automatic schema migrations. PostgreSQL requires the optional `psycopg` dependency (`pip install cortex-identity[postgres]`).
+
+</details>
+
+<details>
+<summary><strong>SDKs</strong></summary>
+
+### Python SDK
+
+Built-in Python client for the CaaS API:
+
+```python
+from cortex.sdk.client import CortexClient
+
+client = CortexClient("http://localhost:8421", token="your-grant-token")
+context = client.get_context()
+nodes = client.list_nodes(limit=10)
+stats = client.get_stats()
+```
+
+### TypeScript SDK
+
+Zero-dependency TypeScript/JavaScript client (`@cortex-ai/sdk`):
+
+```typescript
+import { CortexClient } from '@cortex-ai/sdk';
+
+const client = new CortexClient({
+  baseUrl: 'http://localhost:8421',
+  token: 'your-grant-token',
+});
+
+const context = await client.getContext();
+const nodes = await client.listNodes({ limit: 10 });
+const stats = await client.getStats();
+```
+
+- **Zero runtime dependencies** — native `fetch`, no axios/node-fetch
+- **ESM + CJS dual build** — works in Node.js, Deno, Bun, and bundlers
+- **Full TypeScript types** — all request/response types exported
+- **33 tests** via `node:test`
+
+Install: `npm install @cortex-ai/sdk`
+
+</details>
+
+<details>
+<summary><strong>Security & Operations</strong></summary>
+
+### Role-Based Access Control (RBAC)
+
+4 roles with 10 permission scopes:
+
+| Role | Permissions |
+|------|-------------|
+| **owner** | All scopes — full control |
+| **admin** | Manage grants, webhooks, policies, credentials |
+| **editor** | Read + write context and versions |
+| **viewer** | Read-only context and versions |
+
+### OAuth 2.0 / OIDC
+
+```bash
+cortex serve context.json \
+  --oauth-provider google CLIENT_ID CLIENT_SECRET \
+  --oauth-allowed-email you@example.com
+```
+
+Supports any OAuth 2.0 / OpenID Connect provider. Token exchange endpoint converts OAuth tokens into Cortex grant tokens.
+
+### Rate Limiting
+
+Token-bucket rate limiter per client IP. Configurable burst and sustained rates.
+
+### Field-Level Encryption
+
+AES-256-GCM encryption for sensitive node properties at rest. Key management via identity keychain.
+
+### Audit Ledger
+
+Hash-chained SHA-256 audit log. Every mutation is recorded with actor, timestamp, and cryptographic chain integrity. Tamper-evident — `GET /audit/verify` checks the full chain.
+
+### CSRF / SSRF Protection
+
+- CSRF tokens for dashboard session endpoints
+- SSRF guards on webhook delivery (blocks private IP ranges)
+- CORS configuration via `--allowed-origins`
+
+### Prometheus Metrics
+
+```bash
+cortex serve context.json --enable-metrics
+# GET /metrics → Prometheus-format counters
+```
+
+9 custom metrics: request latency histograms, webhook delivery counts, SSE connection gauges, storage operation counters, error rates, and more.
+
+</details>
+
+<details>
+<summary><strong>Deployment</strong></summary>
+
+Production deployment configs included in `deploy/`:
+
+### Docker
+
+```bash
+docker build -t cortex .
+docker run -p 8421:8421 -v cortex-data:/data cortex
+```
+
+### Docker Compose
+
+```bash
+docker compose up -d   # Cortex + PostgreSQL + Caddy
+```
+
+### systemd
+
+```bash
+sudo cp deploy/cortex.service /etc/systemd/system/
+sudo systemctl enable --now cortex
+```
+
+### Reverse Proxy
+
+Caddy and nginx configs included:
+
+```bash
+# Caddy (auto-TLS)
+cp deploy/Caddyfile /etc/caddy/Caddyfile
+
+# nginx
+cp deploy/nginx.conf /etc/nginx/conf.d/cortex.conf
+```
+
+### INI Configuration
+
+```ini
+# deploy/cortex.ini
+[server]
+port = 8421
+storage = postgres
+db_url = host=localhost dbname=cortex_prod
+
+[security]
+allowed_origins = https://yourdomain.com
+enable_sse = true
+enable_metrics = true
+```
+
+```bash
+cortex serve context.json --config deploy/cortex.ini
+```
+
+See [`docs/deployment.md`](docs/deployment.md) for the full deployment guide.
 
 </details>
 
@@ -242,6 +452,8 @@ cortex dashboard context.json --port 8420            # Web dashboard
 cortex watch ~/exports/ --graph context.json         # Auto-extract
 cortex sync-schedule --config sync_config.json       # Scheduled sync
 ```
+
+The CaaS server includes a built-in admin dashboard at `/dashboard` with session-based authentication and optional OAuth login.
 
 </details>
 
@@ -396,7 +608,7 @@ Cortex extracts entities into 17 tag categories:
 </details>
 
 <details>
-<summary><strong>Full CLI Reference (27 commands)</strong></summary>
+<summary><strong>Full CLI Reference (28 commands)</strong></summary>
 
 ### Extract & Import
 
@@ -480,9 +692,14 @@ cortex context-write <graph> --platforms all --policy professional  # Policy ove
 
 ```bash
 cortex serve <graph> --port 8421                 # Start CaaS server
+cortex serve <graph> --storage postgres --db-url "dbname=cortex"  # PostgreSQL backend
+cortex serve <graph> --config deploy/cortex.ini  # INI config file
+cortex serve <graph> --enable-sse --enable-metrics  # SSE + Prometheus
 cortex grant --create --audience <name>          # Create access token
 cortex grant --list                              # List grants
 cortex grant --revoke <grant_id>                 # Revoke grant
+cortex policy --list                             # List disclosure policies
+cortex policy --create --name <name> --include-tags <tags>  # Create custom policy
 cortex rotate                                    # Rotate identity keys
 ```
 
@@ -502,11 +719,33 @@ cortex drift <graph> --compare previous.json    # Identity drift
 ```
 cortex-identity/                    # pip install cortex-identity
 ├── pyproject.toml                  # Package metadata + entry points
+├── Dockerfile                     # Container build
+├── docker-compose.yml             # Multi-service deployment
 ├── spec/
 │   ├── upai-v1.0.md            # UPAI protocol specification (RFC-style)
 │   └── openapi.json            # OpenAPI 3.1 CaaS API specification
-├── cortex/
-│   ├── cli.py                  # CLI entry point (27 subcommands)
+├── deploy/
+│   ├── cortex.ini              # INI configuration template
+│   ├── cortex.service          # systemd unit file
+│   ├── Caddyfile               # Caddy reverse proxy (auto-TLS)
+│   ├── nginx.conf              # nginx reverse proxy
+│   └── .env.example            # Environment variable template
+├── docs/
+│   ├── architecture.md         # System architecture
+│   ├── deployment.md           # Deployment guide
+│   ├── user-guide.md           # User documentation
+│   ├── tutorial.md             # Getting started
+│   └── overview.md             # Project overview
+├── sdk/
+│   └── typescript/             # @cortex-ai/sdk (TypeScript)
+│       ├── src/
+│       │   ├── client.ts       # CaaS API client
+│       │   ├── types.ts        # Request/response types
+│       │   ├── errors.ts       # Error classes
+│       │   └── index.ts        # Public exports
+│       └── package.json        # Zero runtime deps, ESM+CJS
+├── cortex/                        # 75 source files
+│   ├── cli.py                  # CLI entry point (28 subcommands)
 │   ├── extract_memory.py       # Extraction engine (~1400 LOC)
 │   ├── import_memory.py        # Import/export engine (~1000 LOC)
 │   ├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
@@ -514,7 +753,7 @@ cortex-identity/                    # pip install cortex-identity
 │   ├── temporal.py             # Snapshots, drift scoring
 │   ├── contradictions.py       # Contradiction detection
 │   ├── timeline.py             # Timeline views
-│   ├── upai/
+│   ├── upai/                   # Universal Personal AI Protocol (14 files)
 │   │   ├── identity.py         # did:key identity, Ed25519/HMAC, SignedEnvelope
 │   │   ├── disclosure.py       # Selective disclosure policies
 │   │   ├── versioning.py       # Git-like version control
@@ -523,9 +762,39 @@ cortex-identity/                    # pip install cortex-identity
 │   │   ├── keychain.py         # Key rotation & revocation chain
 │   │   ├── errors.py           # Structured error codes (UPAI-4xxx/5xxx)
 │   │   ├── pagination.py       # Cursor-based pagination
-│   │   └── webhooks.py         # HMAC-SHA256 webhook signing
-│   ├── caas/
-│   │   └── server.py           # Context-as-a-Service HTTP API (18 endpoints)
+│   │   ├── webhooks.py         # HMAC-SHA256 webhook signing
+│   │   ├── credentials.py      # Verifiable credentials (W3C-style)
+│   │   ├── discovery.py        # Service discovery endpoint
+│   │   ├── backup.py           # AES-256-GCM encrypted backup
+│   │   └── rbac.py             # Role-based access control
+│   ├── caas/                   # Context-as-a-Service (25 files)
+│   │   ├── server.py           # HTTP API server (40+ endpoints)
+│   │   ├── storage.py          # StorageBackend interface
+│   │   ├── sqlite_store.py     # SQLite backend + migrations
+│   │   ├── postgres_store.py   # PostgreSQL backend
+│   │   ├── config.py           # INI file configuration
+│   │   ├── oauth.py            # OAuth 2.0 / OIDC integration
+│   │   ├── sse.py              # Server-Sent Events
+│   │   ├── event_buffer.py     # SSE replay (Last-Event-ID)
+│   │   ├── rate_limit.py       # Token-bucket rate limiter
+│   │   ├── webhook_worker.py   # Async webhook delivery
+│   │   ├── circuit_breaker.py  # Webhook circuit breaker
+│   │   ├── dead_letter.py      # Dead-letter queue
+│   │   ├── audit_ledger.py     # Hash-chained audit log
+│   │   ├── sqlite_audit_ledger.py
+│   │   ├── postgres_audit_ledger.py
+│   │   ├── caching.py          # HTTP caching (ETags, Cache-Control)
+│   │   ├── correlation.py      # Request correlation IDs
+│   │   ├── encryption.py       # Field-level AES-256-GCM
+│   │   ├── metrics.py          # Prometheus metrics
+│   │   ├── instrumentation.py  # Observability hooks
+│   │   ├── logging_config.py   # Structured logging
+│   │   ├── migrations.py       # Schema migrations
+│   │   ├── shutdown.py         # Graceful shutdown
+│   │   └── dashboard/          # Admin dashboard (auth + static)
+│   ├── sdk/                    # Python SDK client
+│   │   ├── client.py           # CaaS API client
+│   │   └── exceptions.py       # SDK error types
 │   ├── adapters.py             # Claude/SystemPrompt/Notion/GDocs adapters
 │   ├── edge_extraction.py      # Pattern-based + proximity edge discovery
 │   ├── cooccurrence.py         # PMI / frequency co-occurrence
@@ -539,12 +808,12 @@ cortex-identity/                    # pip install cortex-identity
 │   ├── continuous.py           # Real-time session watcher
 │   ├── _hook.py                # cortex-hook entry point
 │   ├── __main__.py             # python -m cortex support
-│   ├── viz/                    # Visualization
+│   ├── viz/                    # Visualization (renderer + layout)
 │   ├── dashboard/              # Local web dashboard
 │   └── sync/                   # File watcher + scheduled sync
 ├── migrate.py                  # Backward-compat stub → cortex.cli
 ├── cortex-hook.py              # Backward-compat stub → cortex._hook
-└── tests/                      # 796 tests across 29 files
+└── tests/                      # 1,710 tests across 62 files
 ```
 
 </details>
@@ -554,6 +823,7 @@ cortex-identity/                    # pip install cortex-identity
 
 | Version | Milestone |
 |---------|-----------|
+| v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex-ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
 | v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
 | v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
 
