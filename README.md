@@ -6,14 +6,15 @@
   <a href="https://pypi.org/project/cortex-identity/"><img src="https://img.shields.io/pypi/pyversions/cortex-identity" alt="Python"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
-  <img src="https://img.shields.io/badge/tests-1%2C710%20passing-brightgreen" alt="Tests">
+  <a href="https://www.npmjs.com/package/@cortex_ai/sdk"><img src="https://img.shields.io/npm/v/@cortex_ai/sdk?color=cb3837&label=npm" alt="npm"></a>
+  <img src="https://img.shields.io/badge/tests-2%2C032%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
 
 **Your ChatGPT knows you. Now Claude does too.**
 
-Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript.
+Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript. Semantic search, plugin system, graph query language, cross-instance federation, Helm charts, Terraform modules, and distributed tracing.
 
 ### Own your memory
 
@@ -60,6 +61,10 @@ cortex viz output/context.json --output graph.html
 | **Role-based access (RBAC)** | Yes | No | No | No | No |
 | **OAuth 2.0 / OIDC** | Yes | No | No | No | No |
 | **SDKs (Python + TypeScript)** | Yes | Partial | No | No | No |
+| **Graph query language** | Yes | No | No | No | No |
+| **Semantic search (TF-IDF)** | Yes | No | No | No | No |
+| **Plugin system** | Yes | No | No | No | No |
+| **Cross-instance federation** | Yes | No | No | No | No |
 | **Temporal tracking** | Yes | No | No | No | No |
 | **Works offline** | Yes | No | No | No | No |
 | **Zero dependencies** | Yes | No | No | N/A | N/A |
@@ -193,6 +198,12 @@ cortex serve context.json --port 8421
 # With PostgreSQL storage
 cortex serve context.json --storage postgres --db-url "dbname=cortex"
 
+# With plugins and tracing
+cortex serve context.json --plugins cortex.plugins.example_logger --enable-tracing
+
+# With federation
+cortex serve context.json --enable-federation --federation-trusted-did did:key:z6Mk...
+
 # With SSE and Prometheus metrics
 cortex serve context.json --enable-sse --enable-metrics
 
@@ -211,7 +222,7 @@ cortex policy --list
 cortex policy --create --name "team" --include-tags technical_expertise domain_knowledge
 ```
 
-**40+ API endpoints** across 12 groups:
+**50+ API endpoints** across 15 groups:
 
 | Group | Endpoints | Auth |
 |-------|-----------|------|
@@ -225,6 +236,9 @@ cortex policy --create --name "team" --include-tags technical_expertise domain_k
 | Credentials | `POST/GET/DELETE /credentials`, `/credentials/<id>/verify` | `credentials:*` |
 | Policies | `POST/GET/PATCH/DELETE /policies` | Owner |
 | Audit | `/audit`, `/audit/verify` | Owner |
+| Query DSL | `POST /context/query` (graph query language) | `context:read` |
+| Federation | `POST /federation/export`, `POST /federation/import`, `GET /federation/peers` | Owner |
+| Docs | `GET /docs` (Swagger UI), `GET /openapi.json` | None |
 | SSE | `/events` (Server-Sent Events, `--enable-sse`) | `context:read` |
 | Dashboard | `/dashboard` (SPA with OAuth login) | Session / OAuth |
 
@@ -263,7 +277,7 @@ All backends share the same `StorageBackend` interface. SQLite and PostgreSQL in
 
 ### Python SDK
 
-Built-in Python client for the CaaS API:
+Built-in Python client for the CaaS API (also available as standalone `cortex-ai-sdk` package):
 
 ```python
 from cortex.sdk.client import CortexClient
@@ -272,7 +286,11 @@ client = CortexClient("http://localhost:8421", token="your-grant-token")
 context = client.get_context()
 nodes = client.list_nodes(limit=10)
 stats = client.get_stats()
+health = client.health()
+metrics = client.metrics()
 ```
+
+Full API coverage: `info()`, `discovery()`, `health()`, `identity()`, `context()`, `nodes()`, `edges()`, `stats()`, `versions()`, `version_diff()`, `create_grant()`, `list_grants()`, `revoke_grant()`, `create_webhook()`, `list_webhooks()`, `delete_webhook()`, `list_policies()`, `create_policy()`, `delete_policy()`, `metrics()`
 
 ### TypeScript SDK
 
@@ -297,6 +315,65 @@ const stats = await client.getStats();
 - **33 tests** via `node:test`
 
 Install: `npm install @cortex_ai/sdk`
+
+</details>
+
+<details>
+<summary><strong>Semantic Search & Query Language</strong></summary>
+
+### TF-IDF Semantic Search
+
+Go beyond substring matching. Semantic search tokenizes node text fields, builds a TF-IDF index, and ranks results by cosine similarity:
+
+```bash
+# Via API
+curl -X POST localhost:8421/context/search \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query": "machine learning", "mode": "semantic", "limit": 10}'
+```
+
+Stdlib-only (no numpy required). Index built lazily on first search, cached, and invalidated on mutations.
+
+### Graph Query Language (DSL)
+
+A simple query language for exploring your knowledge graph:
+
+```
+FIND nodes WHERE tag = "technical_expertise" AND confidence >= 0.8 LIMIT 10
+NEIGHBORS OF "Python"
+PATH FROM "Marc" TO "Healthcare"
+SEARCH "machine learning"
+```
+
+Read-only recursive-descent parser. Available via `POST /context/query` or the Python SDK.
+
+### Plugin System
+
+Hook-based plugin architecture for extending server behavior:
+
+```bash
+cortex serve context.json --plugins cortex.plugins.example_logger cortex.plugins.example_validator
+```
+
+9 hooks: `PRE_NODE_CREATE`, `POST_NODE_CREATE`, `PRE_EDGE_CREATE`, `POST_EDGE_CREATE`, `PRE_NODE_DELETE`, `POST_NODE_DELETE`, `PRE_QUERY`, `POST_QUERY`, `POST_SEARCH`. Errors in plugins are caught and logged — never crash the server.
+
+### Federation
+
+Share context across Cortex instances with Ed25519-signed bundles:
+
+```bash
+cortex serve context.json --enable-federation --federation-trusted-did did:key:z6Mk...
+
+# Export a bundle for a peer
+curl -X POST localhost:8421/federation/export \
+  -d '{"policy": "summary"}' -H "Authorization: Bearer $TOKEN"
+
+# Import a bundle from a trusted peer
+curl -X POST localhost:8421/federation/import \
+  -d @bundle.json -H "Authorization: Bearer $TOKEN"
+```
+
+Export policies (full/summary/minimal), replay protection via nonces, content hash verification, configurable trusted DID lists.
 
 </details>
 
@@ -349,7 +426,18 @@ cortex serve context.json --enable-metrics
 # GET /metrics → Prometheus-format counters
 ```
 
-9 custom metrics: request latency histograms, webhook delivery counts, SSE connection gauges, storage operation counters, error rates, and more.
+17 custom metrics: request latency histograms, webhook delivery counts, SSE connection gauges, storage operation counters, error rates, graph size, cache hit ratios, and more.
+
+### Distributed Tracing
+
+W3C Trace Context compatible spans with two exporters:
+
+```bash
+cortex serve context.json --enable-tracing                          # Console exporter
+cortex serve context.json --enable-tracing --tracing-exporter otlp_http  # OTLP HTTP
+```
+
+Stdlib-only — no OpenTelemetry SDK required. Thread-local span propagation.
 
 </details>
 
@@ -388,6 +476,30 @@ cp deploy/Caddyfile /etc/caddy/Caddyfile
 
 # nginx
 cp deploy/nginx.conf /etc/nginx/conf.d/cortex.conf
+```
+
+### Kubernetes (Helm)
+
+```bash
+helm install cortex deploy/helm/cortex \
+  --set storage.backend=postgres \
+  --set storage.dbUrl="host=postgres dbname=cortex" \
+  --set metrics.enabled=true \
+  --set serviceMonitor.enabled=true
+```
+
+Full Helm chart with ConfigMap, HPA, ServiceMonitor, Ingress, and PVC templates.
+
+### Terraform (AWS / GCP)
+
+```bash
+# AWS — ECS Fargate + ALB
+cd deploy/terraform/aws
+terraform init && terraform apply
+
+# GCP — Cloud Run + optional Cloud SQL
+cd deploy/terraform/gcp
+terraform init && terraform apply -var="project_id=my-project"
 ```
 
 ### INI Configuration
@@ -695,12 +807,16 @@ cortex serve <graph> --port 8421                 # Start CaaS server
 cortex serve <graph> --storage postgres --db-url "dbname=cortex"  # PostgreSQL backend
 cortex serve <graph> --config deploy/cortex.ini  # INI config file
 cortex serve <graph> --enable-sse --enable-metrics  # SSE + Prometheus
+cortex serve <graph> --plugins <module> ...          # Load plugins
+cortex serve <graph> --enable-tracing                # Distributed tracing
+cortex serve <graph> --enable-federation             # Federation endpoints
 cortex grant --create --audience <name>          # Create access token
 cortex grant --list                              # List grants
 cortex grant --revoke <grant_id>                 # Revoke grant
 cortex policy --list                             # List disclosure policies
 cortex policy --create --name <name> --include-tags <tags>  # Create custom policy
 cortex rotate                                    # Rotate identity keys
+cortex completion --shell bash                   # Shell autocomplete
 ```
 
 ### Temporal Analysis
@@ -729,14 +845,23 @@ cortex-identity/                    # pip install cortex-identity
 │   ├── cortex.service          # systemd unit file
 │   ├── Caddyfile               # Caddy reverse proxy (auto-TLS)
 │   ├── nginx.conf              # nginx reverse proxy
-│   └── .env.example            # Environment variable template
+│   ├── .env.example            # Environment variable template
+│   ├── helm/cortex/            # Kubernetes Helm chart
+│   ├── terraform/aws/          # AWS ECS Fargate + ALB
+│   ├── terraform/gcp/          # GCP Cloud Run + Cloud SQL
+│   └── grafana/                # Grafana dashboards (3 JSON)
 ├── docs/
 │   ├── architecture.md         # System architecture
 │   ├── deployment.md           # Deployment guide
 │   ├── user-guide.md           # User documentation
 │   ├── tutorial.md             # Getting started
-│   └── overview.md             # Project overview
+│   ├── overview.md             # Project overview
+│   ├── security.md             # Security architecture
+│   ├── threat-model.md         # STRIDE threat analysis
+│   └── security-checklist.md   # Deployment hardening
 ├── sdk/
+│   ├── python/                 # cortex-ai-sdk (standalone Python SDK)
+│   │   └── cortex_sdk/         # client, types, exceptions, pagination
 │   └── typescript/             # @cortex_ai/sdk (TypeScript)
 │       ├── src/
 │       │   ├── client.ts       # CaaS API client
@@ -744,7 +869,14 @@ cortex-identity/                    # pip install cortex-identity
 │       │   ├── errors.ts       # Error classes
 │       │   └── index.ts        # Public exports
 │       └── package.json        # Zero runtime deps, ESM+CJS
-├── cortex/                        # 75 source files
+├── benchmarks/                    # Locust load testing scenarios
+│   ├── locustfile.py           # Entry point
+│   └── scenarios/              # read_heavy, write_heavy, mixed
+├── examples/                      # Example applications
+│   ├── chatbot-memory/         # End-to-end extract → serve → query
+│   ├── multi-agent/            # Two agents sharing context
+│   └── sdk-quickstart/         # Python SDK usage
+├── cortex/                        # 80+ source files
 │   ├── cli.py                  # CLI entry point (28 subcommands)
 │   ├── extract_memory.py       # Extraction engine (~1400 LOC)
 │   ├── import_memory.py        # Import/export engine (~1000 LOC)
@@ -791,7 +923,15 @@ cortex-identity/                    # pip install cortex-identity
 │   │   ├── logging_config.py   # Structured logging
 │   │   ├── migrations.py       # Schema migrations
 │   │   ├── shutdown.py         # Graceful shutdown
+│   │   ├── tracing.py          # Distributed tracing (W3C Trace Context)
+│   │   ├── swagger.py          # Swagger UI endpoint
+│   │   ├── postgres_pool.py    # PostgreSQL connection pooling
 │   │   └── dashboard/          # Admin dashboard (auth + static)
+│   ├── search.py               # TF-IDF semantic search engine
+│   ├── plugins.py              # Hook-based plugin system
+│   ├── federation.py           # Cross-instance federation (signed bundles)
+│   ├── query_lang.py           # Graph query language (recursive descent)
+│   ├── completion.py           # CLI shell autocomplete
 │   ├── sdk/                    # Python SDK client
 │   │   ├── client.py           # CaaS API client
 │   │   └── exceptions.py       # SDK error types
@@ -813,7 +953,7 @@ cortex-identity/                    # pip install cortex-identity
 │   └── sync/                   # File watcher + scheduled sync
 ├── migrate.py                  # Backward-compat stub → cortex.cli
 ├── cortex-hook.py              # Backward-compat stub → cortex._hook
-└── tests/                      # 1,710 tests across 62 files
+└── tests/                      # 2,032 tests across 75+ files
 ```
 
 </details>
@@ -823,6 +963,7 @@ cortex-identity/                    # pip install cortex-identity
 
 | Version | Milestone |
 |---------|-----------|
+| v1.3.0 | **Advanced Features + Production Readiness** — TF-IDF semantic search (stdlib-only), hook-based plugin system (9 hooks), graph query language DSL (FIND/NEIGHBORS/PATH/SEARCH), cross-instance federation (Ed25519-signed bundles, export policies, replay protection), standalone Python SDK, PostgreSQL connection pooling, Grafana dashboards (3 JSON), CLI shell autocomplete (bash/zsh/fish), Swagger UI (`/docs`), contextual error hints, Kubernetes Helm chart, Locust load testing benchmarks, OpenTelemetry-style distributed tracing (W3C Trace Context), example applications, Terraform modules (AWS ECS + GCP Cloud Run), security audit documentation (STRIDE threat model), community templates. 2,032 tests. |
 | v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex_ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
 | v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
 | v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
