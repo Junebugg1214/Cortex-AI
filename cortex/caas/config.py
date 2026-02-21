@@ -29,6 +29,9 @@ _DEFAULTS: dict[str, dict[str, str]] = {
         "db_path": "cortex.db",
         "db_url": "",
         "store_dir": "",
+        "pool_min": "2",
+        "pool_max": "10",
+        "pool_timeout": "30",
     },
     "sse": {
         "enabled": "false",

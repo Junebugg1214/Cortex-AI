@@ -444,6 +444,8 @@ def build_parser():
                     help="Enable Server-Sent Events endpoint (/events)")
     sv.add_argument("--enable-metrics", action="store_true",
                     help="Enable Prometheus metrics endpoint (/metrics)")
+    sv.add_argument("--pool-size", type=int, default=None, metavar="N",
+                    help="PostgreSQL connection pool max size (default: 10)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
