@@ -276,10 +276,10 @@ stats = client.get_stats()
 
 ### TypeScript SDK
 
-Zero-dependency TypeScript/JavaScript client (`@cortex-ai/sdk`):
+Zero-dependency TypeScript/JavaScript client (`@cortex_ai/sdk`):
 
 ```typescript
-import { CortexClient } from '@cortex-ai/sdk';
+import { CortexClient } from '@cortex_ai/sdk';
 
 const client = new CortexClient({
   baseUrl: 'http://localhost:8421',
@@ -296,7 +296,7 @@ const stats = await client.getStats();
 - **Full TypeScript types** — all request/response types exported
 - **33 tests** via `node:test`
 
-Install: `npm install @cortex-ai/sdk`
+Install: `npm install @cortex_ai/sdk`
 
 </details>
 
@@ -737,7 +737,7 @@ cortex-identity/                    # pip install cortex-identity
 │   ├── tutorial.md             # Getting started
 │   └── overview.md             # Project overview
 ├── sdk/
-│   └── typescript/             # @cortex-ai/sdk (TypeScript)
+│   └── typescript/             # @cortex_ai/sdk (TypeScript)
 │       ├── src/
 │       │   ├── client.ts       # CaaS API client
 │       │   ├── types.ts        # Request/response types
@@ -823,7 +823,7 @@ cortex-identity/                    # pip install cortex-identity
 
 | Version | Milestone |
 |---------|-----------|
-| v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex-ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
+| v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex_ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
 | v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
 | v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
 
