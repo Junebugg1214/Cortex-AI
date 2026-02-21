@@ -446,6 +446,8 @@ def build_parser():
                     help="Enable Prometheus metrics endpoint (/metrics)")
     sv.add_argument("--pool-size", type=int, default=None, metavar="N",
                     help="PostgreSQL connection pool max size (default: 10)")
+    sv.add_argument("--plugins", nargs="*", default=None, metavar="MODULE",
+                    help="Plugin modules to load (e.g. cortex.plugins.example_logger)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1806,6 +1808,13 @@ def run_serve(args):
         enable_metrics = config.getbool("metrics", "enabled", fallback=False)
     cred_store_path = str(store_dir / "credentials.json")
 
+    # Plugin system
+    plugin_manager = None
+    plugin_modules = getattr(args, "plugins", None)
+    if plugin_modules:
+        from cortex.plugins import PluginManager
+        plugin_manager = PluginManager(modules=plugin_modules)
+
     print(f"CaaS API: http://127.0.0.1:{args.port}")
     print(f"Identity: {identity.did}")
     print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
@@ -1819,6 +1828,8 @@ def run_serve(args):
         print("SSE: enabled (/events)")
     if enable_metrics:
         print("Metrics: enabled (/metrics)")
+    if plugin_manager and plugin_manager.loaded_plugins:
+        print(f"Plugins: {', '.join(plugin_manager.loaded_plugins)}")
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1837,6 +1848,7 @@ def run_serve(args):
         enable_sse=enable_sse,
         store_dir=str(store_dir),
         config=config,
+        plugin_manager=plugin_manager,
     )
 
     # Use ShutdownCoordinator for graceful shutdown if available
