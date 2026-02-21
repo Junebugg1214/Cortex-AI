@@ -456,6 +456,8 @@ def build_parser():
                     help="Enable federation endpoints (/federation/*)")
     sv.add_argument("--federation-trusted-did", action="append", metavar="DID",
                     help="Add a trusted federation peer DID (repeatable)")
+    sv.add_argument("--enable-webapp", action="store_true",
+                    help="Enable web UI at /app (Upload, Memory, Share)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1865,6 +1867,14 @@ def run_serve(args):
         federation_trusted_dids = config.getlist("federation", "trusted_dids")
     if enable_federation:
         print(f"Federation: enabled ({len(federation_trusted_dids)} trusted peers)")
+
+    # Webapp
+    enable_webapp = getattr(args, "enable_webapp", False)
+    if not enable_webapp and config is not None:
+        enable_webapp = config.getbool("webapp", "enabled", fallback=False)
+    if enable_webapp:
+        print(f"Web UI: enabled (/app)")
+
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1887,6 +1897,7 @@ def run_serve(args):
         tracing_manager=tracing_manager,
         enable_federation=enable_federation,
         federation_trusted_dids=federation_trusted_dids,
+        enable_webapp=enable_webapp,
     )
 
     # Use ShutdownCoordinator for graceful shutdown if available

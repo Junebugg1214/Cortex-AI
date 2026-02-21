@@ -57,6 +57,7 @@ from cortex.caas.caching import check_if_none_match, generate_etag, get_cache_pr
 from cortex.caas.correlation import parse_request_id
 from cortex.caas.dashboard.auth import DashboardSessionManager
 from cortex.caas.dashboard.static import guess_content_type, resolve_dashboard_path
+from cortex.caas.webapp.static import guess_webapp_content_type, resolve_webapp_path
 from cortex.caas.storage import AbstractAuditLog, AbstractGrantStore, AbstractWebhookStore, JsonWebhookStore
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, PolicyRegistry, apply_disclosure
 from cortex.upai.errors import (
@@ -230,6 +231,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     plugin_manager: Any = None  # Optional PluginManager
     tracing_manager: Any = None  # Optional TracingManager
     federation_manager: Any = None  # Optional FederationManager
+    enable_webapp: bool = False  # Enable /app web UI
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -348,6 +350,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/peers":
             self._serve_federation_peers()
+        # ── Webapp routes ────────────────────────────────────────
+        elif path.startswith("/app"):
+            self._serve_webapp_file(path)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_get(path, query)
@@ -387,6 +392,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_policy()
         elif path == "/api/token-exchange":
             self._handle_token_exchange()
+        elif path == "/api/upload":
+            self._handle_webapp_upload()
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/export":
             self._handle_federation_export()
@@ -2121,6 +2128,220 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "scopes": grant.scopes,
         }, status=201)
 
+    # ── Webapp: static files & upload ────────────────────────────────
+
+    def _serve_webapp_file(self, path: str) -> None:
+        """Serve a static file from the webapp directory."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        resolved = resolve_webapp_path(path)
+        if resolved is None:
+            self._error_response(ERR_NOT_FOUND("webapp file"))
+            return
+        ct = guess_webapp_content_type(resolved)
+        body = resolved.read_bytes()
+        self._respond(200, ct, body, dashboard=True)
+
+    def _handle_webapp_upload(self) -> None:
+        """POST /api/upload — accept a file upload and extract nodes/edges.
+
+        The webapp upload is owner-only: requires a valid dashboard session.
+        Accepts multipart/form-data with a single 'file' field.
+        Parses JSON chat exports to create nodes + edges in the graph.
+        """
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._dashboard_auth_check():
+            return
+
+        content_type = self.headers.get("Content-Type", "")
+        content_length = int(self.headers.get("Content-Length", 0))
+
+        # Size limit: 10 MB for uploads
+        max_upload = 10 * 1024 * 1024
+        if content_length > max_upload:
+            self._error_response(ERR_PAYLOAD_TOO_LARGE())
+            return
+
+        if "multipart/form-data" not in content_type:
+            self._respond(415, "application/json",
+                          json.dumps({"error": "Expected multipart/form-data"}).encode())
+            return
+
+        # Parse multipart boundary
+        boundary = None
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part[len("boundary="):]
+                break
+
+        if not boundary:
+            self._error_response(ERR_INVALID_REQUEST("Missing multipart boundary"))
+            return
+
+        raw = self.rfile.read(content_length)
+        file_data = self._parse_multipart_file(raw, boundary)
+
+        if file_data is None:
+            self._error_response(ERR_INVALID_REQUEST("No file found in upload"))
+            return
+
+        # Try to parse as JSON
+        try:
+            parsed = json.loads(file_data)
+        except (json.JSONDecodeError, ValueError):
+            # Treat as plain text — create a single node
+            text = file_data.decode("utf-8", errors="replace").strip()
+            if not text:
+                self._error_response(ERR_INVALID_REQUEST("Empty file"))
+                return
+            parsed = {"text": text}
+
+        # Extract nodes and edges from the parsed content
+        result = self._extract_from_upload(parsed)
+        self._json_response(result, status=201)
+
+    def _parse_multipart_file(self, raw: bytes, boundary: str) -> bytes | None:
+        """Extract the first file's content from multipart form data."""
+        delimiter = b"--" + boundary.encode()
+        parts = raw.split(delimiter)
+
+        for part in parts:
+            if b"Content-Disposition" not in part:
+                continue
+            # Split headers from body
+            header_end = part.find(b"\r\n\r\n")
+            if header_end < 0:
+                continue
+            headers = part[:header_end].decode("utf-8", errors="replace")
+            if 'name="file"' in headers or "filename=" in headers:
+                body = part[header_end + 4:]
+                # Remove trailing \r\n-- if present
+                if body.endswith(b"\r\n"):
+                    body = body[:-2]
+                if body.endswith(b"--"):
+                    body = body[:-2]
+                if body.endswith(b"\r\n"):
+                    body = body[:-2]
+                return body
+        return None
+
+    def _extract_from_upload(self, parsed: dict | list) -> dict:
+        """Extract nodes and edges from uploaded data and add to graph."""
+        from cortex.graph import Edge, Node, make_edge_id, make_node_id
+
+        graph = self.__class__.graph
+        nodes_created = 0
+        edges_created = 0
+        tag_set = set()
+
+        # Handle different formats
+        items = []
+        if isinstance(parsed, list):
+            items = parsed
+        elif isinstance(parsed, dict):
+            # Common chat export formats
+            if "messages" in parsed:
+                items = parsed["messages"]
+            elif "conversations" in parsed:
+                for conv in parsed["conversations"]:
+                    items.extend(conv.get("messages", []))
+            elif "nodes" in parsed:
+                # Already in graph format — import directly
+                for nd in parsed.get("nodes", []):
+                    label = nd.get("label", nd.get("name", ""))
+                    if not label:
+                        continue
+                    node_id = nd.get("id") or make_node_id(label)
+                    tags = nd.get("tags", [])
+                    node = Node(
+                        id=node_id, label=label, tags=tags,
+                        confidence=nd.get("confidence", 0.5),
+                        brief=nd.get("brief", ""),
+                    )
+                    graph.add_node(node)
+                    nodes_created += 1
+                    tag_set.update(t.lower() for t in tags)
+                for ed in parsed.get("edges", []):
+                    source_id = ed.get("source_id", ed.get("source", ""))
+                    target_id = ed.get("target_id", ed.get("target", ""))
+                    relation = ed.get("relation", "related_to")
+                    if source_id and target_id:
+                        edge_id = ed.get("id") or make_edge_id(source_id, target_id, relation)
+                        edge = Edge(id=edge_id, source_id=source_id, target_id=target_id, relation=relation)
+                        graph.add_edge(edge)
+                        edges_created += 1
+                return {
+                    "nodes_created": nodes_created,
+                    "edges_created": edges_created,
+                    "categories": len(tag_set),
+                }
+            elif "text" in parsed:
+                # Plain text upload — create single node
+                text = parsed["text"]
+                label = text[:100].strip()
+                if "\n" in label:
+                    label = label.split("\n")[0]
+                node_id = make_node_id(label)
+                node = Node(id=node_id, label=label, tags=["import"], confidence=0.5, brief=text[:500])
+                graph.add_node(node)
+                return {"nodes_created": 1, "edges_created": 0, "categories": 1}
+
+        # Process chat messages: extract unique topics/entities
+        seen_labels = {}
+        for msg in items:
+            content = ""
+            if isinstance(msg, str):
+                content = msg
+            elif isinstance(msg, dict):
+                content = msg.get("content", msg.get("text", msg.get("message", "")))
+                if isinstance(content, list):
+                    # Handle multi-part messages (e.g., OpenAI format)
+                    parts = []
+                    for p in content:
+                        if isinstance(p, str):
+                            parts.append(p)
+                        elif isinstance(p, dict) and p.get("type") == "text":
+                            parts.append(p.get("text", ""))
+                    content = " ".join(parts)
+
+            if not content or not isinstance(content, str):
+                continue
+
+            # Simple extraction: split into sentences, create nodes for substantive ones
+            sentences = [s.strip() for s in content.replace("\n", ". ").split(". ") if len(s.strip()) > 20]
+            for sent in sentences[:5]:  # Cap per message
+                label = sent[:100].strip()
+                if label in seen_labels:
+                    continue
+                seen_labels[label] = True
+                node_id = make_node_id(label)
+                tags = ["import"]
+                node = Node(id=node_id, label=label, tags=tags, confidence=0.4, brief=sent[:500])
+                graph.add_node(node)
+                nodes_created += 1
+                tag_set.update(t.lower() for t in tags)
+
+        # Create edges between sequential nodes
+        node_ids = list(seen_labels.keys())
+        for i in range(len(node_ids) - 1):
+            src = make_node_id(node_ids[i])
+            tgt = make_node_id(node_ids[i + 1])
+            rel = "follows"
+            eid = make_edge_id(src, tgt, rel)
+            edge = Edge(id=eid, source_id=src, target_id=tgt, relation=rel)
+            graph.add_edge(edge)
+            edges_created += 1
+
+        return {
+            "nodes_created": nodes_created,
+            "edges_created": edges_created,
+            "categories": len(tag_set),
+        }
+
     # ── Dashboard: static files ─────────────────────────────────────
 
     def _serve_dashboard_file(self, path: str) -> None:
@@ -2683,6 +2904,7 @@ def start_caas_server(
     tracing_manager: Any = None,
     enable_federation: bool = False,
     federation_trusted_dids: list[str] | None = None,
+    enable_webapp: bool = False,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -2718,6 +2940,7 @@ def start_caas_server(
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
+    CaaSHandler.enable_webapp = enable_webapp
     CaaSHandler.policy_registry = PolicyRegistry()
     # CSRF: enable via config
     if config is not None:
