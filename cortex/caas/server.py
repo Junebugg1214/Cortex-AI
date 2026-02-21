@@ -227,6 +227,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     sse_manager: Any = None  # Optional SSEManager
     keychain: Any = None  # Optional Keychain
     csrf_enabled: bool = False  # Set True to require CSRF tokens on dashboard mutations
+    plugin_manager: Any = None  # Optional PluginManager
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -648,6 +649,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if sse is not None:
             sse.broadcast(event, data)
 
+    def _fire_plugin(self, hook: str, context: dict) -> None:
+        """Fire a plugin hook if plugin_manager is configured."""
+        pm = self.__class__.plugin_manager
+        if pm is not None:
+            context.setdefault("hook", hook)
+            pm.fire(hook, context)
+
     # ── Health check ─────────────────────────────────────────────────
 
     def _serve_health(self) -> None:
@@ -962,9 +970,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             brief=body.get("brief", ""),
             full_description=body.get("full_description", ""),
         )
+        self._fire_plugin("PRE_NODE_CREATE", {"node_id": node_id, "label": label})
         graph.add_node(node)
         self._audit("context.node.created", {"node_id": node_id, "label": label})
         self._fire_webhook("context.node.created", {"node_id": node_id, "label": label})
+        self._fire_plugin("POST_NODE_CREATE", {"node_id": node_id, "label": label})
         self._json_response(node.to_dict(), status=201)
 
     def _handle_update_node(self, node_id: str) -> None:
@@ -979,12 +989,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         if body is None:
             return
+        self._fire_plugin("PRE_NODE_UPDATE", {"node_id": node_id})
         node = graph.update_node(node_id, body)
         if node is None:
             self._error_response(ERR_NOT_FOUND("node"))
             return
         self._audit("context.node.updated", {"node_id": node_id})
         self._fire_webhook("context.node.updated", {"node_id": node_id})
+        self._fire_plugin("POST_NODE_UPDATE", {"node_id": node_id})
         self._json_response(node.to_dict())
 
     def _handle_delete_node(self, node_id: str) -> None:
@@ -996,9 +1008,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if graph is None:
             self._error_response(ERR_NOT_CONFIGURED())
             return
+        self._fire_plugin("PRE_NODE_DELETE", {"node_id": node_id})
         if graph.remove_node(node_id):
             self._audit("context.node.deleted", {"node_id": node_id})
             self._fire_webhook("context.node.deleted", {"node_id": node_id})
+            self._fire_plugin("POST_NODE_DELETE", {"node_id": node_id})
             self._json_response({"deleted": True, "node_id": node_id})
         else:
             self._error_response(ERR_NOT_FOUND("node"))
@@ -1037,9 +1051,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             confidence=body.get("confidence", 0.5),
             properties=body.get("properties", {}),
         )
+        self._fire_plugin("PRE_EDGE_CREATE", {"edge_id": edge_id, "relation": relation})
         graph.add_edge(edge)
         self._audit("context.edge.created", {"edge_id": edge_id, "relation": relation})
         self._fire_webhook("context.edge.created", {"edge_id": edge_id})
+        self._fire_plugin("POST_EDGE_CREATE", {"edge_id": edge_id, "relation": relation})
         self._json_response(edge.to_dict(), status=201)
 
     def _handle_delete_edge(self, edge_id: str) -> None:
@@ -1051,9 +1067,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if graph is None:
             self._error_response(ERR_NOT_CONFIGURED())
             return
+        self._fire_plugin("PRE_EDGE_DELETE", {"edge_id": edge_id})
         if graph.remove_edge(edge_id):
             self._audit("context.edge.deleted", {"edge_id": edge_id})
             self._fire_webhook("context.edge.deleted", {"edge_id": edge_id})
+            self._fire_plugin("POST_EDGE_DELETE", {"edge_id": edge_id})
             self._json_response({"deleted": True, "edge_id": edge_id})
         else:
             self._error_response(ERR_NOT_FOUND("edge"))
@@ -1077,6 +1095,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         mode = body.get("mode", "substring")
         limit = body.get("limit", 50)
 
+        self._fire_plugin("PRE_SEARCH", {"query": query, "mode": mode})
         if mode == "semantic":
             raw = graph.semantic_search(query, limit=limit, min_score=body.get("min_score", 0.0))
             results_list = []
@@ -1085,6 +1104,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 d = node.to_dict() if hasattr(node, "to_dict") else dict(node)
                 d["_score"] = r["score"]
                 results_list.append(d)
+            self._fire_plugin("POST_SEARCH", {"query": query, "count": len(results_list), "mode": "semantic"})
             self._json_response({
                 "results": results_list,
                 "count": len(results_list),
@@ -1094,6 +1114,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             fields = body.get("fields")
             min_confidence = body.get("min_confidence", 0.0)
             results = graph.search_nodes(query, fields=fields, min_confidence=min_confidence, limit=limit)
+            self._fire_plugin("POST_SEARCH", {"query": query, "count": len(results), "mode": "substring"})
             self._json_response({
                 "results": [n.to_dict() for n in results],
                 "count": len(results),
@@ -2555,6 +2576,7 @@ def start_caas_server(
     enable_sse: bool = False,
     store_dir: str | None = None,
     config: Any = None,
+    plugin_manager: Any = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -2632,6 +2654,9 @@ def start_caas_server(
         CaaSHandler.metrics_registry = create_default_registry()
     else:
         CaaSHandler.metrics_registry = None
+
+    # Plugin system
+    CaaSHandler.plugin_manager = plugin_manager
 
     if storage_backend == "sqlite" and db_path:
         from cortex.caas.sqlite_store import (

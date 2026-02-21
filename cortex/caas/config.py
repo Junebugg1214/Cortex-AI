@@ -60,6 +60,9 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     "metrics": {
         "enabled": "false",
     },
+    "plugins": {
+        "modules": "",
+    },
 }
 
 _BOOL_TRUE = {"true", "yes", "1", "on"}
