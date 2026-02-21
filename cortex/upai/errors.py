@@ -20,6 +20,7 @@ class UPAIError:
     message: str
     details: dict = field(default_factory=dict)
     http_status: int = 400
+    hint: str = ""
 
     def to_dict(self, request_id: str = "") -> dict:
         d: dict = {
@@ -30,6 +31,8 @@ class UPAIError:
                 "details": self.details,
             }
         }
+        if self.hint:
+            d["error"]["hint"] = self.hint
         if request_id:
             d["error"]["request_id"] = request_id
         return d
