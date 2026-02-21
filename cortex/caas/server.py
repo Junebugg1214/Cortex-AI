@@ -1074,14 +1074,31 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not query:
             self._error_response(ERR_INVALID_REQUEST("'query' is required"))
             return
-        fields = body.get("fields")
-        min_confidence = body.get("min_confidence", 0.0)
+        mode = body.get("mode", "substring")
         limit = body.get("limit", 50)
-        results = graph.search_nodes(query, fields=fields, min_confidence=min_confidence, limit=limit)
-        self._json_response({
-            "results": [n.to_dict() for n in results],
-            "count": len(results),
-        })
+
+        if mode == "semantic":
+            raw = graph.semantic_search(query, limit=limit, min_score=body.get("min_score", 0.0))
+            results_list = []
+            for r in raw:
+                node = r["node"]
+                d = node.to_dict() if hasattr(node, "to_dict") else dict(node)
+                d["_score"] = r["score"]
+                results_list.append(d)
+            self._json_response({
+                "results": results_list,
+                "count": len(results_list),
+                "mode": "semantic",
+            })
+        else:
+            fields = body.get("fields")
+            min_confidence = body.get("min_confidence", 0.0)
+            results = graph.search_nodes(query, fields=fields, min_confidence=min_confidence, limit=limit)
+            self._json_response({
+                "results": [n.to_dict() for n in results],
+                "count": len(results),
+                "mode": "substring",
+            })
 
     def _serve_node_neighbors(self, node_id: str, query: dict) -> None:
         """GET /context/nodes/{id}/neighbors — neighbors with optional relation filter."""
