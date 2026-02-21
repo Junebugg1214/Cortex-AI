@@ -7,14 +7,14 @@
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
   <a href="https://www.npmjs.com/package/@cortex_ai/sdk"><img src="https://img.shields.io/npm/v/@cortex_ai/sdk?color=cb3837&label=npm" alt="npm"></a>
-  <img src="https://img.shields.io/badge/tests-2%2C032%20passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-2%2C063%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
 
 **Your ChatGPT knows you. Now Claude does too.**
 
-Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript. Semantic search, plugin system, graph query language, cross-instance federation, Helm charts, Terraform modules, and distributed tracing.
+Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Includes a consumer web UI for uploading, exploring, and sharing your memory. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript. Semantic search, plugin system, graph query language, cross-instance federation, Helm charts, Terraform modules, and distributed tracing.
 
 ### Own your memory
 
@@ -65,6 +65,7 @@ cortex viz output/context.json --output graph.html
 | **Semantic search (TF-IDF)** | Yes | No | No | No | No |
 | **Plugin system** | Yes | No | No | No | No |
 | **Cross-instance federation** | Yes | No | No | No | No |
+| **Web UI (Upload/Explore/Share)** | Yes | No | No | No | No |
 | **Temporal tracking** | Yes | No | No | No | No |
 | **Works offline** | Yes | No | No | No | No |
 | **Zero dependencies** | Yes | No | No | N/A | N/A |
@@ -207,6 +208,10 @@ cortex serve context.json --enable-federation --federation-trusted-did did:key:z
 # With SSE and Prometheus metrics
 cortex serve context.json --enable-sse --enable-metrics
 
+# With consumer web UI
+cortex serve context.json --enable-webapp
+# → Open http://localhost:8421/app — Upload, explore, and share your memory
+
 # With INI config file
 cortex serve context.json --config deploy/cortex.ini
 
@@ -241,6 +246,7 @@ cortex policy --create --name "team" --include-tags technical_expertise domain_k
 | Docs | `GET /docs` (Swagger UI), `GET /openapi.json` | None |
 | SSE | `/events` (Server-Sent Events, `--enable-sse`) | `context:read` |
 | Dashboard | `/dashboard` (SPA with OAuth login) | Session / OAuth |
+| Web UI | `/app` (Upload, Memory, Share — `--enable-webapp`), `POST /api/upload` | Session |
 
 **Auth flow:** Platform requests a signed grant token with `cortex grant` -> uses it as `Authorization: Bearer <token>` -> server verifies signature, expiry, and scope -> returns disclosure-filtered context.
 
@@ -567,6 +573,8 @@ cortex sync-schedule --config sync_config.json       # Scheduled sync
 
 The CaaS server includes a built-in admin dashboard at `/dashboard` with session-based authentication and optional OAuth login.
 
+The consumer web UI at `/app` (enabled with `--enable-webapp`) provides a simple, non-technical interface for everyday users — upload chat exports, explore an interactive knowledge graph, and export your memory to Claude, Notion, Google Docs, or as a system prompt with configurable privacy levels.
+
 </details>
 
 <details>
@@ -810,6 +818,7 @@ cortex serve <graph> --enable-sse --enable-metrics  # SSE + Prometheus
 cortex serve <graph> --plugins <module> ...          # Load plugins
 cortex serve <graph> --enable-tracing                # Distributed tracing
 cortex serve <graph> --enable-federation             # Federation endpoints
+cortex serve <graph> --enable-webapp                 # Consumer web UI at /app
 cortex grant --create --audience <name>          # Create access token
 cortex grant --list                              # List grants
 cortex grant --revoke <grant_id>                 # Revoke grant
@@ -926,7 +935,8 @@ cortex-identity/                    # pip install cortex-identity
 │   │   ├── tracing.py          # Distributed tracing (W3C Trace Context)
 │   │   ├── swagger.py          # Swagger UI endpoint
 │   │   ├── postgres_pool.py    # PostgreSQL connection pooling
-│   │   └── dashboard/          # Admin dashboard (auth + static)
+│   │   ├── dashboard/          # Admin dashboard (auth + static)
+│   │   └── webapp/             # Consumer web UI (Upload, Memory, Share)
 │   ├── search.py               # TF-IDF semantic search engine
 │   ├── plugins.py              # Hook-based plugin system
 │   ├── federation.py           # Cross-instance federation (signed bundles)
@@ -953,7 +963,7 @@ cortex-identity/                    # pip install cortex-identity
 │   └── sync/                   # File watcher + scheduled sync
 ├── migrate.py                  # Backward-compat stub → cortex.cli
 ├── cortex-hook.py              # Backward-compat stub → cortex._hook
-└── tests/                      # 2,032 tests across 75+ files
+└── tests/                      # 2,063 tests across 75+ files
 ```
 
 </details>
@@ -963,8 +973,10 @@ cortex-identity/                    # pip install cortex-identity
 
 | Version | Milestone |
 |---------|-----------|
+| v1.4.0 | **Consumer Web UI** — Simple, non-technical web interface at `/app` (enabled via `--enable-webapp`). Three pages: **Upload** (drag-drop chat export with auto-detection and extraction), **My Memory** (interactive canvas-based knowledge graph with Fruchterman-Reingold layout, search, tag filters, node detail panel), **Share** (multi-platform export to Claude/Notion/Google Docs/system prompt with 4 privacy levels and live preview). Multipart file upload endpoint (`POST /api/upload`) with support for graph JSON, chat message formats, and plain text. Vanilla HTML/CSS/JS — zero build tools, zero external dependencies. 2,063 tests. |
 | v1.3.0 | **Advanced Features + Production Readiness** — TF-IDF semantic search (stdlib-only), hook-based plugin system (9 hooks), graph query language DSL (FIND/NEIGHBORS/PATH/SEARCH), cross-instance federation (Ed25519-signed bundles, export policies, replay protection), standalone Python SDK, PostgreSQL connection pooling, Grafana dashboards (3 JSON), CLI shell autocomplete (bash/zsh/fish), Swagger UI (`/docs`), contextual error hints, Kubernetes Helm chart, Locust load testing benchmarks, OpenTelemetry-style distributed tracing (W3C Trace Context), example applications, Terraform modules (AWS ECS + GCP Cloud Run), security audit documentation (STRIDE threat model), community templates. 2,032 tests. |
 | v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex_ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
+
 | v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
 | v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
 
