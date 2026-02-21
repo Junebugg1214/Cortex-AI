@@ -484,6 +484,12 @@ def build_parser():
     po.add_argument("--store-dir", default=".cortex",
                     help="Identity store directory (default: .cortex)")
 
+    # -- completion (shell autocomplete) ------------------------------------
+    cp = sub.add_parser("completion", help="Generate shell completion script")
+    cp.add_argument("--shell", "-s", required=True,
+                    choices=["bash", "zsh", "fish"],
+                    help="Shell type (bash, zsh, fish)")
+
     # -- rotate (key rotation) ---------------------------------------------
     ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
     ro.add_argument("--store-dir", default=".cortex",
@@ -2021,6 +2027,16 @@ def run_rotate(args):
     return 0
 
 
+def run_completion(args):
+    """Generate shell completion script."""
+    from cortex.completion import generate_completion
+
+    parser = build_parser()
+    script = generate_completion(parser, args.shell)
+    print(script)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -2038,7 +2054,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
-        "serve", "grant", "rotate", "pull", "policy",
+        "serve", "grant", "rotate", "pull", "policy", "completion",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -2105,6 +2121,8 @@ def main(argv=None):
         return run_policy(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
+    elif args.subcommand == "completion":
+        return run_completion(args)
     else:
         return run_migrate(args)
 
