@@ -332,6 +332,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_audit_verify()
         elif path == "/events":
             self._handle_sse(query)
+        elif path == "/docs":
+            self._serve_swagger_ui()
+        elif path == "/openapi.json":
+            self._serve_openapi_spec()
         # ── OAuth routes ──────────────────────────────────────────
         elif path == "/dashboard/oauth/providers":
             self._serve_oauth_providers()
@@ -669,6 +673,29 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "has_graph": graph is not None,
             "grant_count": grant_count,
         })
+
+    # ── Swagger UI / OpenAPI ────────────────────────────────────────
+
+    def _serve_swagger_ui(self) -> None:
+        """GET /docs — serve Swagger UI HTML page."""
+        from cortex.caas.swagger import swagger_html
+        html = swagger_html("/openapi.json")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        encoded = html.encode("utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+        self._metrics_observe_request("GET", "/docs", 200)
+
+    def _serve_openapi_spec(self) -> None:
+        """GET /openapi.json — serve the bundled OpenAPI spec."""
+        from cortex.caas.swagger import load_openapi_spec
+        spec = load_openapi_spec()
+        if spec is None:
+            self._error_response(ERR_NOT_FOUND("openapi.json"))
+            return
+        self._json_response(spec)
 
     # ── Info / Discovery ─────────────────────────────────────────────
 
