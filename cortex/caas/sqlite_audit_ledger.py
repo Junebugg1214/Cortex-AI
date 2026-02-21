@@ -25,9 +25,9 @@ import threading
 from datetime import datetime, timezone
 
 from cortex.caas.audit_ledger import (
+    GENESIS_HASH,
     AbstractAuditLedger,
     AuditEntry,
-    GENESIS_HASH,
     verify_chain,
 )
 

@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 
 from cortex.graph import CortexGraph, Node, _normalize_label
 
-
 # Tags considered "positive" (non-negation)
 _POSITIVE_TAGS = frozenset({
     "identity", "professional_context", "business_context", "active_priorities",

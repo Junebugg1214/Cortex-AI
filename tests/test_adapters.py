@@ -18,13 +18,16 @@ import json
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity
-from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy
 from cortex.adapters import (
-    ADAPTERS, ClaudeAdapter, SystemPromptAdapter,
-    NotionAdapter, GDocsAdapter,
+    ADAPTERS,
+    ClaudeAdapter,
+    GDocsAdapter,
+    NotionAdapter,
+    SystemPromptAdapter,
 )
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.upai.identity import UPAIIdentity
 
 
 def _sample_graph() -> CortexGraph:

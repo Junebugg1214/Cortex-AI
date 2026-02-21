@@ -12,13 +12,16 @@ Covers:
 import json
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from cortex.upai.webhooks import (
-    WebhookRegistration, create_webhook, sign_payload,
-    verify_webhook_signature, deliver_webhook, VALID_EVENTS,
+    VALID_EVENTS,
+    WebhookRegistration,
+    create_webhook,
+    deliver_webhook,
+    sign_payload,
+    verify_webhook_signature,
 )
-
 
 # ============================================================================
 # Sign / Verify

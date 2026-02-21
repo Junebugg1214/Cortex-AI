@@ -12,9 +12,9 @@ import json
 import tempfile
 from pathlib import Path
 
+from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.cli import build_parser, main
 
 
 def _setup_context(tmpdir):
@@ -84,8 +84,9 @@ class TestCaaSParser:
 
     def test_known_subcommands_includes_new(self):
         """The new subcommands should be in the known_subcommands tuple."""
-        from cortex.cli import main
         import inspect
+
+        from cortex.cli import main
         source = inspect.getsource(main)
         assert '"serve"' in source
         assert '"grant"' in source

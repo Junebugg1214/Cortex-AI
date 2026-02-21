@@ -10,21 +10,19 @@ from http.server import HTTPServer
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken
-from cortex.upai.disclosure import PolicyRegistry
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
 from cortex.caas.storage import JsonWebhookStore
-
+from cortex.graph import CortexGraph, Edge, Node
 from cortex.sdk import CortexClient
 from cortex.sdk.exceptions import (
-    CortexSDKError,
     AuthenticationError,
-    NotFoundError,
-    ValidationError,
+    CortexSDKError,
     ForbiddenError,
+    NotFoundError,
 )
+from cortex.upai.disclosure import PolicyRegistry
+from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.upai.tokens import GrantToken
 
 
 def _build_test_graph() -> CortexGraph:
@@ -271,13 +269,13 @@ class TestSDKImports:
 
     def test_import_exceptions(self):
         from cortex.sdk import (
-            CortexSDKError,
             AuthenticationError,
+            CortexSDKError,
             ForbiddenError,
             NotFoundError,
-            ValidationError,
             RateLimitError,
             ServerError,
+            ValidationError,
         )
         # All should be subclasses of CortexSDKError
         for exc_class in [AuthenticationError, ForbiddenError, NotFoundError,

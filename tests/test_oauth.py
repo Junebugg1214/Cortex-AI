@@ -8,17 +8,16 @@ import base64
 import hashlib
 import re
 import secrets
-import time
 import unittest
 
 from cortex.caas.oauth import (
-    OAuthProviderConfig,
-    OAuthManager,
-    GOOGLE_ENDPOINTS,
     GITHUB_ENDPOINTS,
+    GOOGLE_ENDPOINTS,
     PROVIDER_DEFAULTS,
-    generate_code_verifier,
+    OAuthManager,
+    OAuthProviderConfig,
     generate_code_challenge,
+    generate_code_verifier,
     generate_state,
     validate_state,
 )

@@ -17,7 +17,6 @@ from pathlib import Path
 from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.keychain import Keychain, KeyRecord
 
-
 # ============================================================================
 # Basic operations
 # ============================================================================

@@ -22,7 +22,7 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from cortex.caas.event_buffer import EventBuffer

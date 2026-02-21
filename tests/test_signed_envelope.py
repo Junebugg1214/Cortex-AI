@@ -12,13 +12,13 @@ Covers:
 - to_dict/from_dict
 """
 
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cortex.upai.identity import (
-    UPAIIdentity, SignedEnvelope, has_crypto, _HAS_CRYPTO,
+    SignedEnvelope,
+    UPAIIdentity,
+    has_crypto,
 )
-
 
 # ============================================================================
 # Create and Verify

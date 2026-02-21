@@ -263,11 +263,11 @@ def render_svg(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
         f'width="{width}" height="{height}">'
     )
-    parts.append(f'<style>'
-                 f'text {{ font-family: -apple-system, sans-serif; font-size: 10px; fill: #2c3e50; }}'
-                 f'.edge {{ stroke: #bdc3c7; stroke-width: 1; }}'
-                 f'.title {{ font-size: 16px; font-weight: bold; }}'
-                 f'</style>')
+    parts.append('<style>'
+                 'text { font-family: -apple-system, sans-serif; font-size: 10px; fill: #2c3e50; }'
+                 '.edge { stroke: #bdc3c7; stroke-width: 1; }'
+                 '.title { font-size: 16px; font-weight: bold; }'
+                 '</style>')
 
     # Background
     parts.append(f'<rect width="{width}" height="{height}" fill="#f8f9fa"/>')

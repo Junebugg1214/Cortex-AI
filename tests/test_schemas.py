@@ -12,16 +12,23 @@ import json
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.versioning import VersionStore
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.identity import UPAIIdentity
 from cortex.upai.schemas import (
-    NODE_SCHEMA, EDGE_SCHEMA, GRAPH_SCHEMA, IDENTITY_SCHEMA,
-    ENVELOPE_SCHEMA, GRANT_TOKEN_SCHEMA, DISCLOSURE_POLICY_SCHEMA,
-    VERSION_SCHEMA, DID_DOCUMENT_SCHEMA, SCHEMAS,
-    validate, is_valid,
+    DID_DOCUMENT_SCHEMA,
+    DISCLOSURE_POLICY_SCHEMA,
+    EDGE_SCHEMA,
+    ENVELOPE_SCHEMA,
+    GRANT_TOKEN_SCHEMA,
+    GRAPH_SCHEMA,
+    IDENTITY_SCHEMA,
+    NODE_SCHEMA,
+    SCHEMAS,
+    VERSION_SCHEMA,
+    is_valid,
+    validate,
 )
-
+from cortex.upai.versioning import VersionStore
 
 # ============================================================================
 # Helpers

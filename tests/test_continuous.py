@@ -3,20 +3,14 @@
 import json
 import sys
 import time
-import threading
 from pathlib import Path
-
-import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 
 from cortex.continuous import (
-    _FileState,
     CodingSessionWatcher,
-    watch_coding_sessions,
 )
 from cortex.graph import CortexGraph, Node, make_node_id
-
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic Claude Code JSONL

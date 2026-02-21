@@ -45,33 +45,37 @@ Endpoints:
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time as _time
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import TYPE_CHECKING, Any
 
+from cortex.caas.caching import check_if_none_match, generate_etag, get_cache_profile
+from cortex.caas.correlation import parse_request_id
+from cortex.caas.dashboard.auth import DashboardSessionManager
+from cortex.caas.dashboard.static import guess_content_type, resolve_dashboard_path
+from cortex.caas.storage import AbstractAuditLog, AbstractGrantStore, AbstractWebhookStore, JsonWebhookStore
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, PolicyRegistry, apply_disclosure
 from cortex.upai.errors import (
-    UPAIError,
-    ERR_INVALID_TOKEN, ERR_INSUFFICIENT_SCOPE, ERR_NOT_FOUND,
-    ERR_INVALID_REQUEST, ERR_INVALID_POLICY, ERR_POLICY_IMMUTABLE, ERR_INTERNAL, ERR_NOT_CONFIGURED,
+    ERR_INSUFFICIENT_SCOPE,
+    ERR_INTERNAL,
+    ERR_INVALID_POLICY,
+    ERR_INVALID_REQUEST,
+    ERR_INVALID_TOKEN,
+    ERR_NOT_CONFIGURED,
+    ERR_NOT_FOUND,
     ERR_PAYLOAD_TOO_LARGE,
+    ERR_POLICY_IMMUTABLE,
+    UPAIError,
 )
-from cortex.caas.correlation import parse_request_id
-from cortex.caas.caching import generate_etag, check_if_none_match, get_cache_profile
 from cortex.upai.pagination import paginate
-from cortex.caas.storage import AbstractGrantStore, AbstractWebhookStore, AbstractAuditLog, JsonWebhookStore
-from cortex.caas.dashboard.static import resolve_dashboard_path, guess_content_type
-from cortex.caas.dashboard.auth import DashboardSessionManager
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
     from cortex.upai.identity import UPAIIdentity
-    from cortex.upai.versioning import VersionStore
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +500,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         registry = self.__class__.metrics_registry
         if registry is None:
             return
-        from cortex.caas.instrumentation import HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
+        from cortex.caas.instrumentation import HTTP_REQUEST_DURATION, HTTP_REQUESTS_TOTAL
         parsed = urllib.parse.urlparse(self.path)
         path = self._metrics_path(parsed.path.rstrip("/") or "/")
         method = self.command or "GET"
@@ -514,9 +518,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
         # Update domain gauges before collecting
         from cortex.caas.instrumentation import (
-            GRANTS_ACTIVE, GRAPH_NODES, GRAPH_EDGES,
-            CIRCUIT_BREAKER_STATE, AUDIT_ENTRIES,
-            WEBHOOK_DEAD_LETTERS, SSE_SUBSCRIBERS_ACTIVE,
+            AUDIT_ENTRIES,
+            CIRCUIT_BREAKER_STATE,
+            GRANTS_ACTIVE,
+            GRAPH_EDGES,
+            GRAPH_NODES,
+            SSE_SUBSCRIBERS_ACTIVE,
+            WEBHOOK_DEAD_LETTERS,
         )
         graph = self.__class__.graph
         if graph:
@@ -705,8 +713,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
     # ── Grants ───────────────────────────────────────────────────────
 
     def _handle_create_grant(self) -> None:
+        from cortex.upai.rbac import VALID_ROLES, scopes_for_role
         from cortex.upai.tokens import GrantToken
-        from cortex.upai.rbac import scopes_for_role, VALID_ROLES
 
         # Auth: grants:manage or dashboard
         token_data = self._authenticate_or_dashboard("grants:manage")
@@ -1122,7 +1130,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_batch_mutations(self) -> None:
         """POST /context/batch — batch create/update/delete. Requires context:write."""
-        from cortex.graph import Node, Edge, make_node_id, make_edge_id
+        from cortex.graph import Edge, Node, make_edge_id, make_node_id
         token_data = self._authenticate_or_dashboard("context:write")
         if token_data is None:
             return
@@ -1292,7 +1300,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             pass  # If security module unavailable, skip check
 
         try:
-            from cortex.upai.webhooks import create_webhook, VALID_EVENTS
+            from cortex.upai.webhooks import VALID_EVENTS, create_webhook
         except ImportError:
             self._error_response(ERR_INTERNAL("Webhook module not available"))
             return
@@ -1949,8 +1957,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_token_exchange(self) -> None:
         """POST /api/token-exchange — validate external token, create UPAI grant."""
+        from cortex.caas.oauth import validate_github_token, validate_google_id_token
         from cortex.upai.tokens import GrantToken
-        from cortex.caas.oauth import validate_google_id_token, validate_github_token
 
         om = self.__class__.oauth_manager
         if om is None or not om.enabled:
@@ -2248,7 +2256,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         filtered = apply_disclosure(graph, policy)
 
         from cortex.viz.layout import fruchterman_reingold
-        from cortex.viz.renderer import _tag_color, _node_radius
+        from cortex.viz.renderer import _node_radius, _tag_color
 
         layout = fruchterman_reingold(filtered, iterations=50, max_nodes=200)
 
@@ -2575,7 +2583,8 @@ def start_caas_server(
     # OAuth setup
     if oauth_providers:
         import hashlib as _hl
-        from cortex.caas.oauth import OAuthManager, OAuthProviderConfig, PROVIDER_DEFAULTS
+
+        from cortex.caas.oauth import PROVIDER_DEFAULTS, OAuthManager, OAuthProviderConfig
         providers = {}
         for name, creds in oauth_providers.items():
             defaults = PROVIDER_DEFAULTS.get(name, {})
@@ -2608,7 +2617,13 @@ def start_caas_server(
         CaaSHandler.metrics_registry = None
 
     if storage_backend == "sqlite" and db_path:
-        from cortex.caas.sqlite_store import SqliteGrantStore, SqliteWebhookStore, SqliteAuditLog, SqliteDeliveryLog, SqlitePolicyStore
+        from cortex.caas.sqlite_store import (
+            SqliteAuditLog,
+            SqliteDeliveryLog,
+            SqliteGrantStore,
+            SqlitePolicyStore,
+            SqliteWebhookStore,
+        )
         # Set up field encryption for grant tokens
         _encryptor = None
         try:
@@ -2630,8 +2645,11 @@ def start_caas_server(
     elif storage_backend == "postgres" and db_path:
         try:
             from cortex.caas.postgres_store import (
-                PostgresGrantStore, PostgresWebhookStore,
-                PostgresAuditLog, PostgresDeliveryLog, PostgresPolicyStore,
+                PostgresAuditLog,
+                PostgresDeliveryLog,
+                PostgresGrantStore,
+                PostgresPolicyStore,
+                PostgresWebhookStore,
             )
         except ImportError:
             raise RuntimeError(

@@ -13,15 +13,14 @@ import sys
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge
 from cortex.cooccurrence import (
     count_cooccurrences,
+    discover_edges,
+    frequency_edges,
     label_message_counts,
     pmi_edges,
-    frequency_edges,
-    discover_edges,
 )
-
+from cortex.graph import CortexGraph, Edge, Node
 
 # ============================================================================
 # Counting

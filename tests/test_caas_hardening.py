@@ -5,20 +5,18 @@ Uses the same server setup pattern as test_caas_server.py.
 """
 
 import json
-import tempfile
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from http.server import HTTPServer
-from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken, VALID_SCOPES
-from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
-from cortex.caas.storage import JsonWebhookStore, InMemoryAuditLog
 from cortex.caas.rate_limit import RateLimiter
+from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
+from cortex.caas.storage import InMemoryAuditLog, JsonWebhookStore
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.upai.tokens import VALID_SCOPES, GrantToken
 
 
 def _build_test_graph():

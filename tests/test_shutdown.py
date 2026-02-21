@@ -6,10 +6,7 @@ import signal
 import threading
 import time
 
-import pytest
-
 from cortex.caas.shutdown import ShutdownCoordinator
-
 
 # ---------------------------------------------------------------------------
 # TestRegistration

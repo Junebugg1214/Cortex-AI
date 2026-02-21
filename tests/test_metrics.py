@@ -6,7 +6,6 @@ import threading
 
 from cortex.caas.metrics import Counter, Gauge, Histogram, MetricsRegistry
 
-
 # ---------------------------------------------------------------------------
 # Counter tests
 # ---------------------------------------------------------------------------

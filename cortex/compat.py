@@ -8,17 +8,16 @@ Roundtrip guarantees:
 
 from __future__ import annotations
 
-from cortex.extract_memory import normalize_text, are_similar
-
+from cortex.extract_memory import are_similar
 from cortex.graph import (
-    CortexGraph,
-    Node,
-    Edge,
     CATEGORY_ORDER,
+    CortexGraph,
+    Edge,
+    Node,
+    _normalize_label,
+    make_edge_id,
     make_node_id,
     make_node_id_with_tag,
-    make_edge_id,
-    _normalize_label,
 )
 
 

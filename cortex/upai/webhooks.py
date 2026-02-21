@@ -18,9 +18,8 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from urllib.request import Request, urlopen
 from urllib.error import URLError
-
+from urllib.request import Request, urlopen
 
 VALID_EVENTS: set[str] = {
     "context.updated",

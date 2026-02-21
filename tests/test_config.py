@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from cortex.caas.config import CortexConfig, _DEFAULTS
-
+from cortex.caas.config import _DEFAULTS, CortexConfig
 
 # ---------------------------------------------------------------------------
 # Helpers

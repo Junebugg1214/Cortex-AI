@@ -16,12 +16,13 @@ Covers:
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto, _HAS_CRYPTO
+from cortex.graph import CortexGraph, Edge, Node
 from cortex.upai.disclosure import (
-    DisclosurePolicy, BUILTIN_POLICIES, apply_disclosure,
+    BUILTIN_POLICIES,
+    DisclosurePolicy,
+    apply_disclosure,
 )
-
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 # ============================================================================
 # Identity

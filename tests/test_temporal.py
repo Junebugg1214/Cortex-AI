@@ -15,16 +15,17 @@ Covers:
 """
 from __future__ import annotations
 
-import json
 import sys
 
-from cortex.graph import CortexGraph, Node, Edge, make_node_id, make_edge_id
+from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 from cortex.temporal import (
-    Snapshot, create_snapshot_dict, snapshot_from_dict,
-    drift_score, _hash_dict, _hash_str, _weighted_jaccard,
-    DRIFT_WEIGHTS,
+    _hash_dict,
+    _hash_str,
+    _weighted_jaccard,
+    create_snapshot_dict,
+    drift_score,
+    snapshot_from_dict,
 )
-
 
 # ============================================================================
 # Helpers

@@ -19,9 +19,9 @@ Covers:
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
+from cortex.graph import CortexGraph, Edge, Node
 from cortex.upai.identity import UPAIIdentity
-from cortex.upai.versioning import VersionStore, ContextVersion
+from cortex.upai.versioning import ContextVersion, VersionStore
 
 
 def _sample_graph(label_suffix: str = "") -> CortexGraph:

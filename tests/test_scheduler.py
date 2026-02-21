@@ -11,14 +11,11 @@ Covers:
 
 import json
 import sys
-import tempfile
 import time
-from pathlib import Path
 
 import pytest
 
 from cortex.sync.scheduler import SyncConfig, SyncSchedule, SyncScheduler
-
 
 # ============================================================================
 # SyncSchedule

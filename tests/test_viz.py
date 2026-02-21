@@ -11,15 +11,20 @@ import sys
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge, CATEGORY_ORDER
+from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.viz.layout import (
-    fruchterman_reingold, _layout_cache_key, _fr_pure, _build_adjacency,
+    _build_adjacency,
+    _layout_cache_key,
+    fruchterman_reingold,
 )
 from cortex.viz.renderer import (
-    render_html, render_svg, _tag_color, _node_radius, TAG_COLORS,
+    TAG_COLORS,
     _html_escape,
+    _node_radius,
+    _tag_color,
+    render_html,
+    render_svg,
 )
-
 
 # ============================================================================
 # Layout cache key

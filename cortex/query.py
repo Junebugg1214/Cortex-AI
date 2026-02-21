@@ -13,7 +13,7 @@ import re
 from collections import deque
 from typing import TYPE_CHECKING
 
-from cortex.graph import Node, _normalize_label
+from cortex.graph import Node
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph

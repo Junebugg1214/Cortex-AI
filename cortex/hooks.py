@@ -11,13 +11,12 @@ from __future__ import annotations
 import json
 import shlex
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from cortex.graph import CortexGraph, CATEGORY_ORDER
 from cortex.compat import upgrade_v4_to_v5
-from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
-
+from cortex.graph import CortexGraph
+from cortex.upai.disclosure import BUILTIN_POLICIES, apply_disclosure
 
 # ---------------------------------------------------------------------------
 # Default paths

@@ -16,21 +16,20 @@ import sys
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge, make_edge_id
-from cortex.edge_extraction import (
-    ExtractionRule,
-    CATEGORY_PAIR_RULES,
-    extract_edges_by_rules,
-    extract_edges_by_proximity,
-    discover_all_edges,
-)
 from cortex.centrality import (
+    apply_centrality_boost,
+    compute_centrality,
     compute_degree_centrality,
     compute_pagerank,
-    compute_centrality,
-    apply_centrality_boost,
 )
-
+from cortex.edge_extraction import (
+    CATEGORY_PAIR_RULES,
+    ExtractionRule,
+    discover_all_edges,
+    extract_edges_by_proximity,
+    extract_edges_by_rules,
+)
+from cortex.graph import CortexGraph, Edge, Node, make_edge_id
 
 # ============================================================================
 # ExtractionRule

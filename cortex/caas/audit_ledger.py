@@ -18,9 +18,8 @@ import abc
 import hashlib
 import json
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 # Genesis hash — the prev_hash for the first entry
 GENESIS_HASH = "0" * 64

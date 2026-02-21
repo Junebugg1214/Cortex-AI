@@ -15,8 +15,6 @@ import ipaddress
 import socket
 import time
 import urllib.parse
-from typing import Sequence
-
 
 # ---------------------------------------------------------------------------
 # CSRF Protection

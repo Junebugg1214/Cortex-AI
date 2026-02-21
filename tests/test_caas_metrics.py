@@ -6,21 +6,19 @@ make requests, scrape /metrics, verify Prometheus output.
 import json
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from http.server import HTTPServer
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken
-from cortex.upai.disclosure import PolicyRegistry
-from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
-from cortex.caas.storage import JsonWebhookStore
 from cortex.caas.instrumentation import (
     create_default_registry,
-    HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION, HTTP_IN_FLIGHT,
-    GRANTS_ACTIVE, GRAPH_NODES, GRAPH_EDGES, BUILD_INFO, ERRORS_TOTAL,
 )
+from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
+from cortex.caas.storage import JsonWebhookStore
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.disclosure import PolicyRegistry
+from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.upai.tokens import GrantToken
 
 
 def _build_test_graph() -> CortexGraph:

@@ -8,7 +8,6 @@ label-based collection and Prometheus text exposition format output.
 from __future__ import annotations
 
 import threading
-import time
 from typing import Sequence
 
 

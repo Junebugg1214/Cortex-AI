@@ -15,13 +15,16 @@ import tempfile
 from pathlib import Path
 
 from cortex.upai.identity import (
-    UPAIIdentity, has_crypto,
-    _base58btc_encode, _base58btc_decode,
-    _base64url_encode, _base64url_decode,
-    _public_key_to_did_key, _did_key_to_public_key,
-    _ED25519_MULTICODEC_PREFIX, _HAS_CRYPTO,
+    _ED25519_MULTICODEC_PREFIX,
+    UPAIIdentity,
+    _base58btc_decode,
+    _base58btc_encode,
+    _base64url_decode,
+    _base64url_encode,
+    _did_key_to_public_key,
+    _public_key_to_did_key,
+    has_crypto,
 )
-
 
 # ============================================================================
 # Base58btc
@@ -292,8 +295,9 @@ class TestMigrateDid:
         assert new_did == identity.did
 
     def test_migrate_hmac_raises(self):
-        import cortex.upai.identity as id_mod
         import pytest
+
+        import cortex.upai.identity as id_mod
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:

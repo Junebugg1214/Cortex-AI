@@ -15,34 +15,25 @@ Covers:
 import json
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
 from cortex.coding import (
-    BASH_TOOL_PATTERNS,
-    CONFIG_FILE_PATTERNS,
-    EXTENSION_MAP,
     CodingSession,
     ProjectMetadata,
+    _detect_license,
+    _frequency_confidence,
+    _is_test_file,
+    _parse_readme_first_paragraph,
+    _parse_ts,
+    _toml_value,
     aggregate_sessions,
     enrich_project,
     enrich_session,
     is_claude_code_jsonl,
-    load_claude_code_session,
     parse_claude_code_session,
     session_to_context,
-    _detect_license,
-    _extract_readme_summary,
-    _frequency_confidence,
-    _is_test_file,
-    _parse_bash_command,
-    _parse_readme_first_paragraph,
-    _parse_ts,
-    _toml_value,
-    _track_file,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build synthetic Claude Code JSONL records

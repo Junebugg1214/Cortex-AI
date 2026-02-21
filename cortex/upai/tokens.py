@@ -10,14 +10,14 @@ from __future__ import annotations
 import base64
 import json
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from cortex.upai.identity import (
     UPAIIdentity,
-    _base64url_encode,
     _base64url_decode,
+    _base64url_encode,
 )
 
 if TYPE_CHECKING:

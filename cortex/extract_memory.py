@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Chatbot Memory Extractor v4.0
 
@@ -14,19 +15,18 @@ Usage:
     python extract_memory_v4.py <export_file> [options]
 """
 
+import argparse
+import difflib
 import json
 import os
 import re
-import argparse
-import zipfile
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import Any
-from dataclasses import dataclass, field
-from collections import defaultdict
-import difflib
 import unicodedata
-
+import zipfile
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 # ============================================================================
 # CONFIGURATION
@@ -429,7 +429,7 @@ class ExtractedTopic:
     last_seen: datetime | None = None
     mention_timestamps: list[datetime] = field(default_factory=list)
     relationship_type: str = ""  # partner, mentor, advisor, investor, client, competitor
-    
+
     def apply_boosts(self, reference_time: datetime | None = None):
         mention_boost = 0.0
         for threshold, b in sorted(MENTION_COUNT_BOOST.items()):
@@ -437,7 +437,7 @@ class ExtractedTopic:
                 mention_boost = b
         decay = get_time_decay_multiplier(self.last_seen, reference_time)
         self.confidence = min(0.95, self.confidence + (mention_boost * decay))
-    
+
     def merge_with(self, other: 'ExtractedTopic'):
         self.mention_count += other.mention_count
         self.confidence = max(self.confidence, other.confidence)
@@ -454,7 +454,7 @@ class ExtractedTopic:
             self.first_seen = other.first_seen
         if other.last_seen and (self.last_seen is None or other.last_seen > self.last_seen):
             self.last_seen = other.last_seen
-    
+
     def to_dict(self) -> dict:
         result = {
             "topic": self.topic,
@@ -481,7 +481,7 @@ class ExtractionContext:
     extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     conflicts: list[dict] = field(default_factory=list)
     redaction_summary: dict | None = field(default=None)
-    
+
     def add_topic(self, category: str, topic: str, brief: str = "", full_description: str = "",
                   confidence: float = None, extraction_method: str = "mentioned",
                   metrics: list[str] = None, relationships: list[str] = None,
@@ -529,7 +529,7 @@ class ExtractionContext:
                 mention_timestamps=[timestamp] if timestamp else [],
                 relationship_type=relationship_type
             )
-    
+
     def merge_similar_topics(self):
         for category in MERGEABLE_CATEGORIES:
             if category not in self.topics:
@@ -554,7 +554,7 @@ class ExtractionContext:
             for key in merged:
                 if key in self.topics[category]:
                     del self.topics[category][key]
-    
+
     def apply_time_decay(self):
         for topics in self.topics.values():
             for topic in topics.values():
@@ -626,7 +626,7 @@ class ExtractionContext:
         if self.redaction_summary is not None:
             output["redaction_summary"] = self.redaction_summary
         return output
-    
+
     def stats(self) -> dict:
         total = sum(len(t) for t in self.topics.values())
         by_category = {cat: len(topics) for cat, topics in self.topics.items()}
@@ -655,7 +655,7 @@ class AggressiveExtractor:
         self.all_user_text = []
         self._negated_items = set()  # Track negated items for cross-category filtering
         self._redactor = redactor
-    
+
     def extract_from_text(self, text: str, timestamp: datetime | None = None):
         if not text or len(text.strip()) < 10:
             return
@@ -678,7 +678,7 @@ class AggressiveExtractor:
         self._extract_corrections(text, timestamp)
         self._extract_entities_generic(text, timestamp)
         self._extract_temporal(text, timestamp)
-    
+
     def _extract_identity(self, text: str, timestamp: datetime | None = None):
         for pattern in IDENTITY_PATTERNS:
             for match in re.finditer(pattern, text):
@@ -688,7 +688,7 @@ class AggressiveExtractor:
         for pattern in [r'\b(MD|PhD|JD|MBA|CPA|RN|DO|DDS|DVM|PE|PMP|FACS|FACP)\b']:
             for match in re.finditer(pattern, text):
                 self.context.add_topic("identity", match.group(1), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_roles(self, text: str, timestamp: datetime | None = None):
         for pattern in ROLE_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
@@ -697,7 +697,7 @@ class AggressiveExtractor:
                     self.context.add_topic("professional_context", role, brief=role, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
         for match in re.finditer(r'\b(CEO|CTO|CFO|COO|CMO|CIO|CISO|VP|SVP|EVP|Director|Manager|Lead|Head|Chief|Principal|Senior|Junior|Staff)\s+(?:of\s+)?([A-Za-z\s]+?)(?:\s+at|\s+for|,|\.|$)', text, re.IGNORECASE):
             self.context.add_topic("professional_context", f"{match.group(1)} {match.group(2)}".strip(), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_companies(self, text: str, timestamp: datetime | None = None):
         for pattern in COMPANY_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
@@ -708,7 +708,7 @@ class AggressiveExtractor:
             thing = match.group(2).strip()
             cat = "business_context" if match.group(1) in ["company", "startup", "business", "organization"] else "active_priorities"
             self.context.add_topic(cat, thing, extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_projects(self, text: str, timestamp: datetime | None = None):
         for pattern in PROJECT_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
@@ -720,7 +720,7 @@ class AggressiveExtractor:
                 focus = match.group(1).strip()
                 if 5 < len(focus) < 200:
                     self.context.add_topic("active_priorities", focus, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_technical(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
         for category, keywords in TECH_KEYWORDS.items():
@@ -734,7 +734,7 @@ class AggressiveExtractor:
                     continue
                 method = "self_reference" if any(p in lower for p in ["i use", "i prefer", "we use", "our stack", "i work with", "tech stack"]) else "mentioned"
                 self.context.add_topic("technical_expertise", keyword.title() if len(keyword) > 3 else keyword.upper(), brief=f"{category}: {keyword}", extraction_method=method, source_quote=extract_with_context(text, keyword, 30), timestamp=timestamp)
-    
+
     def _extract_domains(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
         for domain, keywords in DOMAIN_KEYWORDS.items():
@@ -744,7 +744,7 @@ class AggressiveExtractor:
                     self.context.add_topic("domain_knowledge", kw.title(), brief=f"{domain}: {kw}", extraction_method="contextual", source_quote=extract_with_context(text, kw, 50), timestamp=timestamp)
                 if len(matches) >= 2:
                     self.context.add_topic("domain_knowledge", domain.replace("_", " ").title(), extraction_method="inferred", timestamp=timestamp)
-    
+
     def _extract_relationships(self, text: str, timestamp: datetime | None = None):
         """Extract relationships with type classification"""
         extracted = {}  # Track what we've extracted to avoid duplicates
@@ -808,7 +808,7 @@ class AggressiveExtractor:
                 competitor = match.group(1).strip()
                 if len(competitor) > 3:
                     self.context.add_topic("market_context", competitor, brief=f"Competitor/reference: {competitor}", extraction_method="mentioned", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_values(self, text: str, timestamp: datetime | None = None):
         for pattern in VALUE_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
@@ -820,27 +820,27 @@ class AggressiveExtractor:
                 pref = clean_extracted_text(match.group(1))
                 if 5 < len(pref) < 100:
                     self.context.add_topic("communication_preferences", pref, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_priorities(self, text: str, timestamp: datetime | None = None):
         for pattern in [r'(?:my|our)\s+(?:goal|target|objective|priority|plan)\s+(?:is\s+)?(?:to\s+)?([^.,]+)', r'(?:trying to|aiming to|planning to|hoping to|want to|need to)\s+([^.,]+)', r'(?:preparing for|getting ready for|working towards)\s+([^.,]+)']:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 priority = match.group(1).strip()
                 if 5 < len(priority) < 200:
                     self.context.add_topic("active_priorities", priority, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
-    
+
     def _extract_metrics(self, text: str, timestamp: datetime | None = None):
         for num in extract_numbers(text):
             context_text = extract_with_context(text, num, 50)
             cat = "business_context" if any(kw in context_text.lower() for kw in ["funding", "raise", "revenue", "cost", "price", "budget", "investment"]) else "metrics"
             self.context.add_topic(cat, num, brief=context_text[:100], extraction_method="contextual", source_quote=context_text, timestamp=timestamp)
-    
+
     def _extract_entities_generic(self, text: str, timestamp: datetime | None = None):
         for entity, entity_type in extract_entities(text):
             if entity.lower() in SKIP_WORDS | NOISE_WORDS or len(entity) < 3:
                 continue
             if not any(find_best_match(normalize_text(entity), topics, threshold=0.8) for cat, topics in self.context.topics.items() if cat != "mentions"):
                 self.context.add_topic("mentions", entity, brief=extract_with_context(text, entity, 30)[:100] or entity, extraction_method="mentioned", source_quote=extract_with_context(text, entity, 30), timestamp=timestamp)
-    
+
     def _extract_temporal(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
         is_current = any(ind in lower for ind in CURRENT_INDICATORS)
@@ -1046,7 +1046,7 @@ class AggressiveExtractor:
             for key in to_remove:
                 if key in self.context.topics["mentions"]:
                     del self.context.topics["mentions"][key]
-    
+
     def process_openai_export(self, data: list | dict) -> dict:
         conversations = data if isinstance(data, list) else data.get("conversations", data.get("items", []))
         for conv in conversations:
@@ -1058,14 +1058,14 @@ class AggressiveExtractor:
                     self.extract_from_text(get_message_text(message), parse_timestamp(message.get("create_time")))
         self.post_process()
         return self.context.export()
-    
+
     def process_messages_list(self, messages: list) -> dict:
         for message in messages:
             if is_user_message(message):
                 self.extract_from_text(get_message_text(message), parse_timestamp(message.get("timestamp", message.get("created_at"))))
         self.post_process()
         return self.context.export()
-    
+
     def process_plain_text(self, text: str) -> dict:
         for chunk in text.split('\n\n'):
             if len(chunk.strip()) > 20:
@@ -1394,16 +1394,16 @@ def main():
             result = extractor.process_messages_list(data["messages"])
         else:
             result = extractor.process_plain_text(json.dumps(data))
-    
+
     stats = extractor.context.stats()
     print(f"✅ Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
     print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
-    
+
     if args.stats or args.verbose:
         print("\n📊 By category:")
         for cat, count in sorted(stats['by_category'].items(), key=lambda x: -x[1]):
             print(f"   {cat}: {count}")
-    
+
     if args.verbose:
         print("\n🔎 Sample extractions:")
         for cat, topics in list(result["categories"].items())[:5]:
@@ -1426,7 +1426,7 @@ def main():
         if args.verbose and summary["by_type"]:
             for pii_type, count in sorted(summary["by_type"].items()):
                 print(f"   {pii_type}: {count}")
-    
+
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=2)

@@ -4,24 +4,19 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 _ROOT = Path(__file__).resolve().parent.parent
 
 from cortex.context import (
     CONTEXT_TARGETS,
-    CORTEX_START,
     CORTEX_END,
-    PlatformTarget,
-    _format_plain,
+    CORTEX_START,
     _format_cursor_mdc,
-    _write_non_destructive,
+    _format_plain,
     _resolve_path,
-    write_context,
+    _write_non_destructive,
     watch_and_refresh,
+    write_context,
 )
-from cortex.graph import CortexGraph, Node, make_node_id
-
 
 # ---------------------------------------------------------------------------
 # Helpers

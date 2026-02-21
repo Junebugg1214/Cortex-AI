@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import time
 from unittest.mock import patch
-
-import pytest
 
 from cortex.caas.security import (
     CSRFProtection,
     is_private_ip,
-    validate_webhook_url,
     require_json_content_type,
+    validate_webhook_url,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestCSRF

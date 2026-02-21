@@ -10,15 +10,15 @@ Follows tests/test_dashboard.py pattern:
 import json
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from http.server import HTTPServer
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.tokens import GrantToken, SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ, VALID_SCOPES
-from cortex.caas.server import CaaSHandler, GrantStore, NonceCache, ThreadingHTTPServer
+from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
 from cortex.caas.storage import JsonWebhookStore
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.upai.tokens import VALID_SCOPES, GrantToken
 
 
 def _build_test_graph() -> CortexGraph:

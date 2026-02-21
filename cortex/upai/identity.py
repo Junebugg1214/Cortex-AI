@@ -17,7 +17,6 @@ import json
 import os
 import secrets
 import sys
-import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,8 +26,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 try:
-    import nacl.signing
     import nacl.encoding
+    import nacl.signing
     _HAS_CRYPTO = True
 except ImportError:
     _HAS_CRYPTO = False
@@ -131,7 +130,7 @@ def _did_key_to_public_key(did: str) -> bytes:
     multibase_value = did[len("did:key:z"):]
     decoded = _base58btc_decode(multibase_value)
     if not decoded.startswith(_ED25519_MULTICODEC_PREFIX):
-        raise ValueError(f"Not an Ed25519 did:key (wrong multicodec prefix)")
+        raise ValueError("Not an Ed25519 did:key (wrong multicodec prefix)")
     return decoded[len(_ED25519_MULTICODEC_PREFIX):]
 
 

@@ -19,7 +19,6 @@ import sys
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.timeline import TimelineGenerator
 
-
 # ============================================================================
 # Helpers
 # ============================================================================

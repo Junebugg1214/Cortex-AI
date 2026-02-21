@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import json
 import threading
-from http.server import HTTPServer
-from io import BytesIO
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge, make_node_id, make_edge_id
-
+from cortex.graph import CortexGraph, Edge, Node
 
 # ---------------------------------------------------------------------------
 # Graph search / traversal unit tests (no HTTP)
@@ -229,8 +224,8 @@ class TestUpdateNode:
 
 def _start_test_server(graph=None, identity=None, port=0):
     """Start a CaaS test server on a random port."""
-    from cortex.upai.identity import UPAIIdentity
     from cortex.caas.server import start_caas_server
+    from cortex.upai.identity import UPAIIdentity
 
     if identity is None:
         identity = UPAIIdentity.generate("test-identity")

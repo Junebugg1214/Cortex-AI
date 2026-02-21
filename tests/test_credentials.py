@@ -1,20 +1,19 @@
 """Tests for cortex.upai.credentials — Verifiable Credentials."""
 
-import json
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.credentials import (
-    VerifiableCredential,
-    CredentialIssuer,
-    CredentialVerifier,
-    CredentialStore,
     W3C_CREDENTIALS_V1,
+    CredentialIssuer,
+    CredentialStore,
+    CredentialVerifier,
+    VerifiableCredential,
 )
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 
 @unittest.skipUnless(has_crypto(), "Ed25519 (PyNaCl) not available")

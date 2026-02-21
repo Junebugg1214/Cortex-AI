@@ -8,15 +8,12 @@ Uses non-destructive section markers to coexist with user content.
 from __future__ import annotations
 
 import os
-import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from cortex.hooks import generate_compact_context, HookConfig, _load_graph
-from cortex.upai.disclosure import BUILTIN_POLICIES
-
+from cortex.hooks import HookConfig, generate_compact_context
 
 # ---------------------------------------------------------------------------
 # Section markers for non-destructive writes
@@ -246,7 +243,7 @@ def write_context(
         try:
             status = _write_non_destructive(file_path, formatted, dry_run=dry_run)
             results.append((platform_name, file_path, status))
-        except (OSError, PermissionError) as e:
+        except (OSError, PermissionError):
             results.append((platform_name, file_path, "error"))
 
     return results

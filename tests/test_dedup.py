@@ -11,15 +11,14 @@ Covers:
 
 import sys
 
-from cortex.graph import CortexGraph, Node, Edge
 from cortex.dedup import (
-    text_similarity,
-    neighbor_overlap,
     combined_similarity,
-    find_duplicates,
     deduplicate,
+    find_duplicates,
+    neighbor_overlap,
+    text_similarity,
 )
-
+from cortex.graph import CortexGraph, Edge, Node
 
 # ============================================================================
 # Text Similarity

@@ -7,10 +7,10 @@ Pure Python stdlib — no external dependencies.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from cortex.graph import Node, CATEGORY_ORDER, _normalize_label
+from cortex.graph import CATEGORY_ORDER, Node, _normalize_label
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
@@ -145,11 +145,11 @@ class InsightGenerator:
 
     def digest(self, current: CortexGraph, previous: CortexGraph) -> dict:
         """Compare current vs previous graph. Returns diff dict."""
-        from cortex.temporal import drift_score
-        from cortex.contradictions import ContradictionEngine
-
         # Build label → node list maps (handle multiple nodes with same label)
         from collections import defaultdict as _defaultdict
+
+        from cortex.contradictions import ContradictionEngine
+        from cortex.temporal import drift_score
         _cur_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in current.nodes.values():
             _cur_multi[_normalize_label(node.label)].append(node)

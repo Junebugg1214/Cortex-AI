@@ -12,22 +12,19 @@ Covers:
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-import threading
 import http.client
+import json
+import threading
 
 import pytest
 
 from cortex.caas.audit_ledger import (
+    GENESIS_HASH,
     AuditEntry,
     InMemoryAuditLedger,
-    GENESIS_HASH,
     verify_chain,
 )
 from cortex.caas.sqlite_audit_ledger import SqliteAuditLedger
-
 
 # ── AuditEntry ───────────────────────────────────────────────────────────
 
@@ -323,12 +320,12 @@ class TestChainVerification:
 class TestAuditAPIEndpoints:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph
-        from cortex.upai.tokens import GrantToken, VALID_SCOPES
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
+        from cortex.upai.tokens import VALID_SCOPES, GrantToken
 
         self.identity = UPAIIdentity.generate(name="test-audit")
         graph = CortexGraph()

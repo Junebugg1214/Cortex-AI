@@ -3,11 +3,11 @@
 import json
 import threading
 import unittest
-import urllib.request
 import urllib.error
+import urllib.request
 
-from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.discovery import DIDResolver, UPAIConfiguration
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 
 @unittest.skipUnless(has_crypto(), "Ed25519 (PyNaCl) not available")
@@ -136,13 +136,12 @@ def _setup_server():
     if not has_crypto():
         return None, None, None, None
 
-    from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, NonceCache, JsonGrantStore
-    from cortex.caas.storage import JsonWebhookStore
     from cortex.caas.dashboard.auth import DashboardSessionManager
-    from cortex.upai.disclosure import PolicyRegistry
-    from cortex.upai.tokens import GrantToken
-    from cortex.upai.credentials import CredentialStore
+    from cortex.caas.server import CaaSHandler, JsonGrantStore, NonceCache, ThreadingHTTPServer
+    from cortex.caas.storage import JsonWebhookStore
     from cortex.graph import CortexGraph
+    from cortex.upai.credentials import CredentialStore
+    from cortex.upai.disclosure import PolicyRegistry
 
     identity = UPAIIdentity.generate("Discovery Test")
     graph = CortexGraph()

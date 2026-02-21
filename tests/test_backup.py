@@ -3,13 +3,13 @@
 import json
 import unittest
 
-from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.backup import (
     KeyBackup,
     RecoveryCodeGenerator,
     _generate_keystream,
     _xor_bytes,
 )
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 
 @unittest.skipUnless(has_crypto(), "Ed25519 (PyNaCl) not available")
