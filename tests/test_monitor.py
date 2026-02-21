@@ -8,16 +8,12 @@ Covers:
 - Monitor start/stop lifecycle
 """
 
-import json
 import sys
-import tempfile
 import time
-from pathlib import Path
 
 import pytest
 
-from cortex.sync.monitor import ExportMonitor, EXPORT_PATTERNS
-
+from cortex.sync.monitor import ExportMonitor
 
 # ============================================================================
 # Exportable file patterns

@@ -13,24 +13,33 @@ import json
 import sys
 from pathlib import Path
 
+from cortex.adapters import ADAPTERS
+from cortex.compat import upgrade_v4_to_v5
+from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
-    AggressiveExtractor, load_file, merge_contexts, PIIRedactor,
-)
-from cortex.import_memory import (
-    NormalizedContext, CONFIDENCE_THRESHOLDS,
-    export_claude_preferences, export_claude_memories,
-    export_system_prompt, export_notion, export_notion_database_json,
-    export_google_docs, export_summary, export_full_json,
+    AggressiveExtractor,
+    PIIRedactor,
+    load_file,
+    merge_contexts,
 )
 from cortex.graph import CortexGraph
-from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4
+from cortex.import_memory import (
+    CONFIDENCE_THRESHOLDS,
+    NormalizedContext,
+    export_claude_memories,
+    export_claude_preferences,
+    export_full_json,
+    export_google_docs,
+    export_notion,
+    export_notion_database_json,
+    export_summary,
+    export_system_prompt,
+)
 from cortex.temporal import drift_score
-from cortex.contradictions import ContradictionEngine
 from cortex.timeline import TimelineGenerator
-from cortex.upai.identity import UPAIIdentity
 from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.upai.identity import UPAIIdentity
 from cortex.upai.versioning import VersionStore
-from cortex.adapters import ADAPTERS
 
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
@@ -639,10 +648,10 @@ def run_migrate(args):
 
         # --- Smart edge discovery (Phase 4, opt-in) ---
         if getattr(args, "discover_edges", False):
-            from cortex.edge_extraction import discover_all_edges
+            from cortex.centrality import apply_centrality_boost, compute_centrality
             from cortex.cooccurrence import discover_edges as discover_cooccurrence
-            from cortex.centrality import compute_centrality, apply_centrality_boost
             from cortex.dedup import deduplicate
+            from cortex.edge_extraction import discover_all_edges
 
             messages = getattr(extractor, "all_user_text", None)
 
@@ -708,7 +717,7 @@ def run_migrate(args):
     outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
 
     print(f"\nExported {len(outputs) + 1} files to {output_dir}/:")
-    print(f"   context: context.json")
+    print("   context: context.json")
     for key, path in outputs:
         print(f"   {key}: {path.name}")
     return 0
@@ -756,11 +765,12 @@ def run_query(args):
         return 0
 
     # --- Phase 5 queries (QueryEngine) ---
-    from cortex.query import (
-        QueryEngine, shortest_path, connected_components,
-        betweenness_centrality, parse_nl_query,
-    )
     from cortex.intelligence import GapAnalyzer
+    from cortex.query import (
+        QueryEngine,
+        connected_components,
+        parse_nl_query,
+    )
 
     engine = QueryEngine(graph)
 
@@ -1012,7 +1022,7 @@ def run_identity(args):
                 date_info = f"created={record.created_at}"
             print(f"  {record.did[:32]}... | {status} | {date_info}")
         if errors:
-            print(f"\nChain errors:")
+            print("\nChain errors:")
             for err in errors:
                 print(f"  - {err}")
         return 0
@@ -1047,7 +1057,7 @@ def run_commit(args):
     if version.parent_id:
         print(f"  Parent: {version.parent_id}")
     if version.signature:
-        print(f"  Signed: yes")
+        print("  Signed: yes")
     return 0
 
 
@@ -1401,8 +1411,11 @@ def run_extract_coding(args):
         return 0
 
     from cortex.coding import (
-        discover_claude_code_sessions, load_claude_code_session,
-        parse_claude_code_session, aggregate_sessions, session_to_context,
+        aggregate_sessions,
+        discover_claude_code_sessions,
+        load_claude_code_session,
+        parse_claude_code_session,
+        session_to_context,
     )
 
     # Collect session files
@@ -1449,7 +1462,7 @@ def run_extract_coding(args):
 
     # Stats
     if args.stats or args.verbose:
-        print(f"\nCoding Session Summary:")
+        print("\nCoding Session Summary:")
         print(f"  Sessions:     {len(sessions)}")
         print(f"  Files touched: {len(combined.files_touched)}")
         print(f"  Technologies: {', '.join(t for t, _ in combined.technologies.most_common(10))}")
@@ -1505,8 +1518,11 @@ def run_extract_coding(args):
 def run_context_hook(args):
     """Install/manage Cortex context hook for Claude Code."""
     from cortex.hooks import (
-        install_hook, uninstall_hook, hook_status,
-        generate_compact_context, HookConfig, load_hook_config,
+        generate_compact_context,
+        hook_status,
+        install_hook,
+        load_hook_config,
+        uninstall_hook,
     )
 
     if args.action == "install":
@@ -1523,11 +1539,11 @@ def run_context_hook(args):
             policy=args.policy,
             max_chars=args.max_chars,
         )
-        print(f"Cortex hook installed:")
+        print("Cortex hook installed:")
         print(f"  Config:   {cfg_path}")
         print(f"  Settings: {settings_path}")
         print(f"  Policy:   {args.policy}")
-        print(f"\nRestart Claude Code for the hook to take effect.")
+        print("\nRestart Claude Code for the hook to take effect.")
         return 0
 
     elif args.action == "uninstall":
@@ -1570,7 +1586,7 @@ def run_context_hook(args):
 
 def run_context_export(args):
     """Export compact context markdown to stdout."""
-    from cortex.hooks import generate_compact_context, HookConfig
+    from cortex.hooks import HookConfig, generate_compact_context
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -1593,7 +1609,7 @@ def run_context_export(args):
 
 def run_context_write(args):
     """Write identity context to AI coding tool config files."""
-    from cortex.context import write_context, watch_and_refresh, CONTEXT_TARGETS
+    from cortex.context import CONTEXT_TARGETS, watch_and_refresh, write_context
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -1711,9 +1727,9 @@ def run_pull(args):
 
 def run_serve(args):
     """Start the CaaS API server."""
-    from cortex.caas.server import start_caas_server
     from cortex.caas.config import CortexConfig
     from cortex.caas.logging_config import setup_logging
+    from cortex.caas.server import start_caas_server
 
     # Load configuration
     if args.config:
@@ -1909,7 +1925,7 @@ def run_grant(args):
 
 def run_policy(args):
     """Manage custom disclosure policies."""
-    from cortex.upai.disclosure import DisclosurePolicy, PolicyRegistry, BUILTIN_POLICIES
+    from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy
 
     if args.list_policies:
         print("Built-in policies:")
@@ -1975,7 +1991,7 @@ def run_policy(args):
         if name in BUILTIN_POLICIES:
             print(f"Cannot delete built-in policy: {name}")
             return 1
-        print(f"To delete on a running server:")
+        print("To delete on a running server:")
         print(f"  curl -X DELETE http://localhost:8421/policies/{name}")
         return 0
 

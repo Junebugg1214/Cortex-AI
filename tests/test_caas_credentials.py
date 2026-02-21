@@ -3,13 +3,12 @@
 import json
 import threading
 import unittest
-import urllib.request
 import urllib.error
-from http.server import HTTPServer
+import urllib.request
 
+from cortex.upai.credentials import CredentialStore
 from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.tokens import GrantToken
-from cortex.upai.credentials import CredentialStore
 
 
 def _setup_server():
@@ -17,11 +16,11 @@ def _setup_server():
     if not has_crypto():
         return None, None, None, None
 
-    from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, NonceCache, JsonGrantStore
-    from cortex.caas.storage import JsonWebhookStore
     from cortex.caas.dashboard.auth import DashboardSessionManager
-    from cortex.upai.disclosure import PolicyRegistry
+    from cortex.caas.server import CaaSHandler, JsonGrantStore, NonceCache, ThreadingHTTPServer
+    from cortex.caas.storage import JsonWebhookStore
     from cortex.graph import CortexGraph
+    from cortex.upai.disclosure import PolicyRegistry
 
     identity = UPAIIdentity.generate("Cred Test")
     graph = CortexGraph()

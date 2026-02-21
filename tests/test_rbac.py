@@ -13,35 +13,32 @@ Covers:
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
-import time
-import http.client
 
 import pytest
 
 from cortex.upai.rbac import (
     ALL_SCOPES,
-    ROLE_SCOPES,
     VALID_ROLES,
-    scopes_for_role,
-    role_has_scope,
     infer_role,
+    role_has_scope,
+    scopes_for_role,
 )
 from cortex.upai.tokens import (
-    GrantToken,
-    VALID_SCOPES,
     SCOPE_CONTEXT_READ,
-    SCOPE_VERSIONS_READ,
-    SCOPE_IDENTITY_READ,
     SCOPE_CREDENTIALS_READ,
     SCOPE_CREDENTIALS_WRITE,
-    SCOPE_WEBHOOKS_MANAGE,
-    SCOPE_POLICIES_MANAGE,
-    SCOPE_GRANTS_MANAGE,
     SCOPE_DEVICES_MANAGE,
+    SCOPE_GRANTS_MANAGE,
+    SCOPE_IDENTITY_READ,
+    SCOPE_POLICIES_MANAGE,
+    SCOPE_VERSIONS_READ,
+    SCOPE_WEBHOOKS_MANAGE,
+    VALID_SCOPES,
+    GrantToken,
 )
-
 
 # ── Role definitions ─────────────────────────────────────────────────────
 
@@ -185,11 +182,11 @@ class TestRouteEnforcement:
 
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
 
         self.identity = UPAIIdentity.generate(name="test-rbac")
         graph = CortexGraph()
@@ -360,11 +357,11 @@ class TestRouteEnforcement:
 class TestGrantCreationWithRole:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
 
         self.identity = UPAIIdentity.generate(name="test-role-grant")
         graph = CortexGraph()
@@ -476,11 +473,11 @@ class TestBackwardCompatibility:
 class TestDiscoveryScopes:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
 
         identity = UPAIIdentity.generate(name="test-disc")
         graph = CortexGraph()

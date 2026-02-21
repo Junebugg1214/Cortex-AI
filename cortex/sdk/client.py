@@ -8,18 +8,18 @@ Supports auto-paginating generators for list endpoints.
 from __future__ import annotations
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any, Iterator
 
 from cortex.sdk.exceptions import (
-    CortexSDKError,
     AuthenticationError,
+    CortexSDKError,
     ForbiddenError,
     NotFoundError,
-    ValidationError,
     RateLimitError,
     ServerError,
+    ValidationError,
 )
 
 

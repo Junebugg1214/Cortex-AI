@@ -8,13 +8,12 @@ Covers:
 """
 
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge, CATEGORY_ORDER
+from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.intelligence import GapAnalyzer, InsightGenerator
-
 
 # ============================================================================
 # GapAnalyzer.category_gaps

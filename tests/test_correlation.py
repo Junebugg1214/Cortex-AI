@@ -13,39 +13,25 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from http.server import HTTPServer
-from unittest.mock import patch
 
 import pytest
 
 from cortex.caas.correlation import (
+    MAX_REQUEST_ID_LENGTH,
     RequestContext,
     generate_request_id,
     parse_request_id,
-    MAX_REQUEST_ID_LENGTH,
 )
 from cortex.upai.errors import (
-    ERROR_CODES,
-    UPAIError,
     ERR_CONFLICT,
     ERR_GONE,
-    ERR_PAYLOAD_TOO_LARGE,
-    ERR_UNSUPPORTED_MEDIA_TYPE,
-    ERR_SERVICE_UNAVAILABLE,
-    ERR_INVALID_TOKEN,
-    ERR_INSUFFICIENT_SCOPE,
-    ERR_NOT_FOUND,
     ERR_INVALID_REQUEST,
-    ERR_INVALID_POLICY,
-    ERR_RATE_LIMITED,
-    ERR_POLICY_IMMUTABLE,
-    ERR_INTERNAL,
-    ERR_NOT_CONFIGURED,
-    ERR_SCHEMA_VALIDATION,
-    ERR_REVOKED_KEY,
-    ERR_REPLAY_DETECTED,
+    ERR_NOT_FOUND,
+    ERR_PAYLOAD_TOO_LARGE,
+    ERR_SERVICE_UNAVAILABLE,
+    ERR_UNSUPPORTED_MEDIA_TYPE,
+    ERROR_CODES,
 )
-
 
 # ── Request ID generation ────────────────────────────────────────────────
 
@@ -235,9 +221,9 @@ class TestServerRequestIdIntegration:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
         """Start a minimal CaaS server for testing."""
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph
         from cortex.caas.server import CaaSHandler, ThreadingHTTPServer
+        from cortex.graph import CortexGraph
+        from cortex.upai.identity import UPAIIdentity
 
         identity = UPAIIdentity.generate(name="test-correlation")
         graph = CortexGraph()

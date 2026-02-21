@@ -20,17 +20,18 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from datetime import datetime, timezone
 
+from cortex.compat import downgrade_v5_to_v4, roundtrip_v4, upgrade_v4_to_v5
+from cortex.extract_memory import AggressiveExtractor, ExtractionContext
 from cortex.graph import (
-    CortexGraph, Node, Edge,
-    make_node_id, make_edge_id, make_node_id_with_tag,
-    _normalize_label, CATEGORY_ORDER,
+    CortexGraph,
+    Edge,
+    Node,
+    make_edge_id,
+    make_node_id,
+    make_node_id_with_tag,
 )
-from cortex.compat import upgrade_v4_to_v5, downgrade_v5_to_v4, roundtrip_v4
-from cortex.extract_memory import AggressiveExtractor, ExtractionContext, ExtractedTopic
 from cortex.import_memory import NormalizedContext
-
 
 # ============================================================================
 # Node / Edge CRUD

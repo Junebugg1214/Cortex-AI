@@ -10,19 +10,17 @@ Covers:
 
 from __future__ import annotations
 
-import json
-import threading
 import http.client
+import threading
 
 import pytest
 
 from cortex.caas.caching import (
     CacheProfile,
-    generate_etag,
     check_if_none_match,
+    generate_etag,
     get_cache_profile,
 )
-
 
 # ── ETag generation ──────────────────────────────────────────────────────
 
@@ -141,12 +139,12 @@ class TestCacheProfileHeader:
 class TestCachingIntegration:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph, Node
-        from cortex.upai.tokens import GrantToken, VALID_SCOPES
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph, Node
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
+        from cortex.upai.tokens import VALID_SCOPES, GrantToken
 
         self.identity = UPAIIdentity.generate(name="test-caching")
         graph = CortexGraph()

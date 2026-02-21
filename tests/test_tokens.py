@@ -11,14 +11,17 @@ Covers:
 - Decode without verification
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cortex.upai.identity import UPAIIdentity, has_crypto
 from cortex.upai.tokens import (
-    GrantToken, SCOPE_CONTEXT_READ, SCOPE_VERSIONS_READ,
-    SCOPE_IDENTITY_READ, VALID_SCOPES, DEFAULT_SCOPES,
+    DEFAULT_SCOPES,
+    SCOPE_CONTEXT_READ,
+    SCOPE_IDENTITY_READ,
+    SCOPE_VERSIONS_READ,
+    VALID_SCOPES,
+    GrantToken,
 )
-
 
 # ============================================================================
 # Create and Verify

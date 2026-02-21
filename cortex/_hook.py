@@ -7,7 +7,7 @@ for Claude Code SessionStart injection.
 import json
 import sys
 
-from cortex.hooks import load_hook_config, handle_session_start
+from cortex.hooks import handle_session_start, load_hook_config
 
 
 def main():

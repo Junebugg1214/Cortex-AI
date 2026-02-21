@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import json
 import os
-import time
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-
 
 # ---------------------------------------------------------------------------
 # Per-file state tracking
@@ -210,9 +209,9 @@ class CodingSessionWatcher:
         """Full extraction pipeline for a single JSONL file."""
         # Lazy imports to avoid circular deps and keep startup fast
         from cortex.coding import (
+            enrich_session,
             load_claude_code_session,
             parse_claude_code_session,
-            enrich_session,
             session_to_context,
         )
         from cortex.compat import upgrade_v4_to_v5
@@ -277,8 +276,8 @@ class CodingSessionWatcher:
 
     def _load_or_create_graph(self):
         """Load existing graph from graph_path, or create empty."""
-        from cortex.graph import CortexGraph
         from cortex.compat import upgrade_v4_to_v5
+        from cortex.graph import CortexGraph
 
         if self.graph_path.exists():
             try:

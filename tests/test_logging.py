@@ -6,18 +6,15 @@ import json
 import logging
 from io import StringIO
 
-import pytest
-
 from cortex.caas.logging_config import (
     JsonFormatter,
-    TextFormatter,
     RequestLogFilter,
-    setup_logging,
-    set_request_id,
-    get_request_id,
+    TextFormatter,
     clear_request_context,
+    get_request_id,
+    set_request_id,
+    setup_logging,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from cortex.caas.migrations import Migration, MigrationRunner, _MIGRATIONS, register_migration
-
+from cortex.caas.migrations import _MIGRATIONS, Migration, MigrationRunner
 
 # ---------------------------------------------------------------------------
 # Helpers

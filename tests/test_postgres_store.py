@@ -5,7 +5,6 @@ installed or the ``cortex_test`` database is not available.
 Each test class truncates its tables in setUp/tearDown to ensure isolation.
 """
 
-import json
 import os
 import unittest
 

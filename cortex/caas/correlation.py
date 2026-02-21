@@ -8,8 +8,7 @@ The ID is included in all audit entries and error responses for traceability.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 MAX_REQUEST_ID_LENGTH = 128
 

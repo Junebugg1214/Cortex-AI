@@ -3,22 +3,19 @@
 import json
 from pathlib import Path
 
-import pytest
-
+from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.hooks import (
     HookConfig,
-    load_hook_config,
-    save_hook_config,
+    _format_compact_markdown,
+    _load_graph,
     generate_compact_context,
     handle_session_start,
-    install_hook,
-    uninstall_hook,
     hook_status,
-    _load_graph,
-    _format_compact_markdown,
+    install_hook,
+    load_hook_config,
+    save_hook_config,
+    uninstall_hook,
 )
-from cortex.graph import CortexGraph, Node, Edge, make_node_id, make_edge_id
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -14,26 +14,22 @@ Verifies:
 
 from __future__ import annotations
 
-import io
-import json
-import textwrap
 import unittest
 from unittest.mock import MagicMock, patch
 
-from cortex.caas.metrics import Counter, Gauge, MetricsRegistry
 from cortex.caas.instrumentation import (
-    create_default_registry,
-    RATE_LIMIT_REJECTED,
-    WEBHOOK_DELIVERIES,
-    WEBHOOK_DEAD_LETTERS,
-    CIRCUIT_BREAKER_STATE,
     AUDIT_ENTRIES,
     CACHE_HITS,
     CACHE_MISSES,
-    SSE_SUBSCRIBERS_ACTIVE,
+    CIRCUIT_BREAKER_STATE,
+    RATE_LIMIT_REJECTED,
     SSE_EVENTS,
+    SSE_SUBSCRIBERS_ACTIVE,
+    WEBHOOK_DEAD_LETTERS,
+    WEBHOOK_DELIVERIES,
+    create_default_registry,
 )
-
+from cortex.caas.metrics import Counter, Gauge
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -290,8 +286,9 @@ class TestMetricsConfigFlag(unittest.TestCase):
         self.assertFalse(config.getbool("metrics", "enabled", fallback=False))
 
     def test_config_metrics_enabled_true(self):
-        from cortex.caas.config import CortexConfig
         import configparser
+
+        from cortex.caas.config import CortexConfig
         parser = configparser.ConfigParser()
         parser["metrics"] = {"enabled": "true"}
         config = CortexConfig(parser)
@@ -311,8 +308,8 @@ class TestWebhookWorkerMetricsIntegration(unittest.TestCase):
 
     def test_circuit_open_records_metric(self):
         """When circuit is open, delivery records circuit_open metric."""
-        from cortex.caas.webhook_worker import WebhookWorker
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.caas.webhook_worker import WebhookWorker
 
         store = JsonWebhookStore()
         worker = WebhookWorker(store, max_retries=1)
@@ -337,8 +334,8 @@ class TestWebhookWorkerMetricsIntegration(unittest.TestCase):
 
     def test_successful_delivery_records_metric(self):
         """When delivery succeeds, records success metric."""
-        from cortex.caas.webhook_worker import WebhookWorker
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.caas.webhook_worker import WebhookWorker
 
         store = JsonWebhookStore()
         worker = WebhookWorker(store, max_retries=1)
@@ -357,8 +354,8 @@ class TestWebhookWorkerMetricsIntegration(unittest.TestCase):
 
     def test_exhausted_retries_records_failure(self):
         """When all retries fail, records failure metric + dead-letter gauge."""
-        from cortex.caas.webhook_worker import WebhookWorker
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.caas.webhook_worker import WebhookWorker
 
         store = JsonWebhookStore()
         worker = WebhookWorker(store, max_retries=1, backoff_base=0.001)

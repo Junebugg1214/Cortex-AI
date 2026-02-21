@@ -12,11 +12,10 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable
 
-from cortex.graph import CortexGraph
 from cortex.compat import upgrade_v4_to_v5
-
+from cortex.graph import CortexGraph
 
 # ---------------------------------------------------------------------------
 # Exportable file patterns

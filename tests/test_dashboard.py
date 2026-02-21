@@ -12,13 +12,11 @@ import sys
 import threading
 import urllib.request
 from http.server import HTTPServer
-from pathlib import Path
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge
 from cortex.dashboard.server import DashboardHandler, _build_dashboard_html
-
+from cortex.graph import CortexGraph, Edge, Node
 
 # ============================================================================
 # Dashboard HTML generation

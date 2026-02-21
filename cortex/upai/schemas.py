@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Schema definitions (JSON Schema draft-07 style)
 # ---------------------------------------------------------------------------

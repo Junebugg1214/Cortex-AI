@@ -12,7 +12,7 @@ import json
 import threading
 import time as _time
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -183,7 +183,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _serve_graph_json(self) -> None:
         from cortex.viz.layout import fruchterman_reingold
-        from cortex.viz.renderer import _tag_color, _node_radius
+        from cortex.viz.renderer import _node_radius, _tag_color
 
         graph = getattr(self.__class__, "graph", None)
         if graph is None:
@@ -320,8 +320,8 @@ def start_dashboard(
     import sys
     print("WARNING: Dashboard running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
     if open_browser:
-        import webbrowser
         import threading as _threading
+        import webbrowser
         # Open browser after a short delay so serve_forever() is running
         _threading.Timer(0.5, webbrowser.open, args=(f"http://127.0.0.1:{port}",)).start()
     server.serve_forever()

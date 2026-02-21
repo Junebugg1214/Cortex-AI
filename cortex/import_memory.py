@@ -24,16 +24,14 @@ Usage:
     python import_memory_v4.py context.json -f gdocs -c high
 """
 
+import argparse
 import html as _html_mod
 import json
 import re
-import argparse
-from pathlib import Path
-from datetime import datetime, timezone
-from dataclasses import dataclass, field
-from typing import Any
 from collections import defaultdict
-
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 
 # ============================================================================
 # CONFIGURATION
@@ -76,7 +74,7 @@ CATEGORY_ORDER = [
 # Notion colors for different confidence levels
 NOTION_COLORS = {
     "high": "green",
-    "medium": "yellow", 
+    "medium": "yellow",
     "low": "gray"
 }
 
@@ -118,7 +116,7 @@ class TopicDetail:
             last_seen=data.get("last_seen", ""),
             relationship_type=data.get("relationship_type", "")
         )
-    
+
     def get_detail_level(self) -> str:
         if self.confidence >= 0.8:
             return "full"
@@ -126,7 +124,7 @@ class TopicDetail:
             return "moderate"
         else:
             return "minimal"
-    
+
     def format_full(self) -> str:
         parts = [self.full_description or self.brief or self.topic]
         if self.metrics:
@@ -136,13 +134,13 @@ class TopicDetail:
         if self.timeline:
             parts.append(f"Timeline: {', '.join(self.timeline)}")
         return " | ".join(parts)
-    
+
     def format_moderate(self) -> str:
         return self.brief or self.topic
-    
+
     def format_minimal(self) -> str:
         return f"Mentioned: {self.topic}"
-    
+
     def format_by_confidence(self, min_threshold: float = 0.4) -> str:
         if self.confidence < min_threshold:
             return ""
@@ -159,7 +157,7 @@ class TopicDetail:
 class NormalizedContext:
     categories: dict[str, list[TopicDetail]] = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
-    
+
     @classmethod
     def from_v4(cls, data: dict) -> 'NormalizedContext':
         ctx = cls()
@@ -167,17 +165,17 @@ class NormalizedContext:
         for category, topics in data.get("categories", {}).items():
             ctx.categories[category] = [TopicDetail.from_dict(t, category) for t in topics]
         return ctx
-    
+
     @classmethod
     def from_v3(cls, data: dict) -> 'NormalizedContext':
         return cls.from_v4(data)  # Same structure
-    
+
     @classmethod
     def from_openai(cls, data: dict) -> 'NormalizedContext':
         """Parse OpenAI context export format"""
         ctx = cls()
         ctx.meta = {"source": "openai", "generated_at": datetime.now(timezone.utc).isoformat()}
-        
+
         mappings = {
             "identity": ["identity", "name", "who_i_am"],
             "professional_context": ["professional_roles", "job", "occupation", "role"],
@@ -190,7 +188,7 @@ class NormalizedContext:
             "relationships": ["relationships", "partnerships", "collaborations"],
             "market_context": ["market", "competitors", "industry"],
         }
-        
+
         for target_cat, source_keys in mappings.items():
             topics = []
             for key in source_keys:
@@ -212,7 +210,7 @@ class NormalizedContext:
                                 ))
             if topics:
                 ctx.categories[target_cat] = topics
-        
+
         return ctx
 
     @classmethod
@@ -340,7 +338,7 @@ class NormalizedContext:
             return cls.from_v4(data)
         else:
             return cls.from_openai(data)
-    
+
     def get_topics_by_confidence(self, min_confidence: float = 0.4) -> dict[str, list[TopicDetail]]:
         result = {}
         for cat in CATEGORY_ORDER:
@@ -349,7 +347,7 @@ class NormalizedContext:
                 if filtered:
                     result[cat] = sorted(filtered, key=lambda t: -t.confidence)
         return result
-    
+
     def stats(self, min_confidence: float = 0.0) -> dict:
         topics = self.get_topics_by_confidence(min_confidence)
         total = sum(len(t) for t in topics.values())
@@ -371,57 +369,57 @@ def export_claude_preferences(ctx: NormalizedContext, min_confidence: float = 0.
     """Generate natural language for Claude Settings > Profile"""
     lines = []
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     # Identity
     if "identity" in topics:
         names = [t.topic for t in topics["identity"]]
         lines.append(f"I am {'; '.join(names)}.")
-    
+
     # Professional
     if "professional_context" in topics:
         roles = [t.format_by_confidence(min_confidence) for t in topics["professional_context"]]
         lines.append(f"Role: {'; '.join(filter(None, roles))}")
-    
+
     # Business
     if "business_context" in topics:
         biz = [t.format_by_confidence(min_confidence) for t in topics["business_context"]]
         lines.append(f"Business: {'; '.join(filter(None, biz))}")
-    
+
     # Focus
     if "active_priorities" in topics:
         focus = [t.format_by_confidence(min_confidence) for t in topics["active_priorities"][:5]]
         lines.append(f"Currently focused on: {'; '.join(filter(None, focus))}")
-    
+
     # Technical
     if "technical_expertise" in topics:
         tech = [t.brief for t in topics["technical_expertise"]]
         lines.append(f"Technical: {'; '.join(tech[:10])}")
-    
+
     # Domain
     if "domain_knowledge" in topics:
         domains = [t.brief for t in topics["domain_knowledge"]]
         lines.append(f"Domain expertise: {'; '.join(domains[:10])}")
-    
+
     # Values
     if "values" in topics:
         vals = [t.topic for t in topics["values"]]
         lines.append(f"Values: {'; '.join(vals)}")
-    
+
     # Communication
     if "communication_preferences" in topics:
         prefs = [t.topic for t in topics["communication_preferences"]]
         lines.append(f"Communication: {'; '.join(prefs)}")
-    
+
     # Relationships
     if "relationships" in topics:
         rels = [t.format_by_confidence(min_confidence) for t in topics["relationships"][:5]]
         lines.append(f"Key relationships: {'; '.join(filter(None, rels))}")
-    
+
     # Market
     if "market_context" in topics:
         market = [t.brief for t in topics["market_context"]]
         lines.append(f"Market context: {'; '.join(market)}")
-    
+
     # Metrics
     if "metrics" in topics:
         metrics = [t.brief for t in topics["metrics"][:5]]
@@ -454,22 +452,22 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
     """Generate memories for Claude memory_user_edits tool"""
     memories = []
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     priority_order = ["identity", "business_context", "professional_context", "active_priorities",
                       "relationships", "technical_expertise", "domain_knowledge", "market_context",
                       "metrics", "constraints", "values", "negations", "user_preferences",
                       "communication_preferences", "correction_history", "mentions"]
-    
+
     for category in priority_order:
         if category not in topics:
             continue
-        
+
         for topic in topics[category]:
             if len(memories) >= max_items:
                 break
-            
+
             level = topic.get_detail_level()
-            
+
             if category == "identity":
                 text = f"User is {topic.topic}"
             elif category == "business_context":
@@ -506,20 +504,20 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
                 text = f"User clarified: {topic.brief}"
             else:
                 text = f"Mentioned: {topic.brief}"
-            
+
             # Truncate to fit Claude memory limits
             if len(text) > 200:
                 text = text[:197] + "..."
-            
+
             memories.append({
                 "text": text,
                 "confidence": topic.confidence,
                 "category": category
             })
-        
+
         if len(memories) >= max_items:
             break
-    
+
     return memories
 
 
@@ -617,26 +615,26 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
     lines.append(f"> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     lines.append(f"> Confidence threshold: {min_confidence}")
     lines.append("")
-    
+
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     # Summary callout
     stats = ctx.stats(min_confidence)
     lines.append("## 📊 Summary")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Total Topics | {stats['total']} |")
     lines.append(f"| High Confidence | {stats['by_confidence']['high']} |")
     lines.append(f"| Medium Confidence | {stats['by_confidence']['medium']} |")
     lines.append(f"| Low Confidence | {stats['by_confidence']['low']} |")
     lines.append("")
-    
+
     # Categories
     for category in CATEGORY_ORDER:
         if category not in topics:
             continue
-        
+
         label = CATEGORY_LABELS.get(category, category)
         emoji = {
             "identity": "👤", "professional_context": "💼", "business_context": "🏢",
@@ -646,14 +644,14 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
             "user_preferences": "⚙️", "communication_preferences": "💬",
             "correction_history": "✏️", "mentions": "📌"
         }.get(category, "•")
-        
+
         lines.append(f"## {emoji} {label}")
         lines.append("")
-        
+
         for topic in topics[category]:
             level = topic.get_detail_level()
             conf_badge = {"full": "🟢", "moderate": "🟡", "minimal": "🟠"}.get(level, "⚪")
-            
+
             if level == "full":
                 lines.append(f"### {conf_badge} {topic.topic}")
                 if topic.full_description:
@@ -671,9 +669,9 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
                 lines.append(f"- {conf_badge} **{topic.topic}**: {topic.brief}")
             else:
                 lines.append(f"- {conf_badge} {topic.topic}")
-        
+
         lines.append("")
-    
+
     # Database template
     lines.append("---")
     lines.append("## 📋 Database Template")
@@ -689,7 +687,7 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
     lines.append("| Brief | Text | Short description |")
     lines.append("| Metrics | Multi-select | Associated metrics |")
     lines.append("")
-    
+
     return "\n".join(lines)
 
 
@@ -697,11 +695,11 @@ def export_notion_database_json(ctx: NormalizedContext, min_confidence: float = 
     """Generate JSON for Notion database import"""
     rows = []
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     for category in CATEGORY_ORDER:
         if category not in topics:
             continue
-        
+
         for topic in topics[category]:
             rows.append({
                 "Topic": topic.topic,
@@ -715,7 +713,7 @@ def export_notion_database_json(ctx: NormalizedContext, min_confidence: float = 
                 "Timeline": ", ".join(topic.timeline) if topic.timeline else "",
                 "Mention Count": topic.mention_count
             })
-    
+
     return rows
 
 
@@ -749,10 +747,10 @@ def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> s
         "<h1>User Context Profile</h1>",
         f"<p><em>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</em></p>",
     ]
-    
+
     topics = ctx.get_topics_by_confidence(min_confidence)
     stats = ctx.stats(min_confidence)
-    
+
     # Summary table
     lines.append("<h2>Summary</h2>")
     lines.append("<table>")
@@ -762,15 +760,15 @@ def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> s
     lines.append(f"<tr><td>Medium Confidence</td><td class='medium'>{stats['by_confidence']['medium']}</td></tr>")
     lines.append(f"<tr><td>Low Confidence</td><td class='low'>{stats['by_confidence']['low']}</td></tr>")
     lines.append("</table>")
-    
+
     # Categories
     for category in CATEGORY_ORDER:
         if category not in topics:
             continue
-        
+
         label = CATEGORY_LABELS.get(category, category)
         lines.append(f"<h2>{label}</h2>")
-        
+
         _esc = _html_mod.escape
         for topic in topics[category]:
             level = topic.get_detail_level()
@@ -795,55 +793,55 @@ def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> s
                 lines.append(f"<p><strong>{_esc(topic.topic)}</strong> <span class='badge {badge_class}'>Medium</span>: {_esc(topic.brief)}</p>")
             else:
                 lines.append(f"<p class='low'>{_esc(topic.topic)} <span class='badge {badge_class}'>Low</span></p>")
-    
+
     lines.append("</body>")
     lines.append("</html>")
-    
+
     return "\n".join(lines)
 
 
 def export_summary(ctx: NormalizedContext, min_confidence: float = 0.4) -> str:
     """Generate markdown summary with confidence indicators"""
     lines = ["# User Context Summary", ""]
-    
+
     topics = ctx.get_topics_by_confidence(min_confidence)
     stats = ctx.stats(min_confidence)
-    
+
     lines.append(f"**Total:** {stats['total']} topics")
     lines.append(f"- 🟢 High confidence: {stats['by_confidence']['high']}")
     lines.append(f"- 🟡 Medium confidence: {stats['by_confidence']['medium']}")
     lines.append(f"- 🟠 Low confidence: {stats['by_confidence']['low']}")
     lines.append("")
-    
+
     for category in CATEGORY_ORDER:
         if category not in topics:
             continue
-        
+
         label = CATEGORY_LABELS.get(category, category)
         lines.append(f"## {label}")
         lines.append("")
-        
+
         # Group by detail level
         full_items = [t for t in topics[category] if t.get_detail_level() == "full"]
         mod_items = [t for t in topics[category] if t.get_detail_level() == "moderate"]
         min_items = [t for t in topics[category] if t.get_detail_level() == "minimal"]
-        
+
         for item in full_items:
             lines.append(f"- 🟢 **{item.topic}**: {item.format_full()}")
         for item in mod_items:
             lines.append(f"- 🟡 {item.topic}: {item.brief}")
         for item in min_items:
             lines.append(f"- 🟠 {item.topic}")
-        
+
         lines.append("")
-    
+
     return "\n".join(lines)
 
 
 def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dict:
     """Export full lossless JSON"""
     topics = ctx.get_topics_by_confidence(min_confidence)
-    
+
     return {
         "schema_version": "4.0",
         "meta": {
@@ -897,40 +895,40 @@ def main():
         help="Minimum confidence level"
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing files")
-    
+
     args = parser.parse_args()
     input_path = Path(args.input_file)
     output_dir = Path(args.output)
-    
+
     if not input_path.exists():
         print(f"❌ File not found: {input_path}")
         return 1
-    
+
     print(f"📂 Loading: {input_path}")
     ctx = NormalizedContext.load(input_path)
-    
+
     min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
     stats = ctx.stats(min_conf)
-    
+
     print(f"📊 Loaded {stats['total']} topics across {len(stats['by_category'])} categories")
     print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
     print(f"✅ Exporting {stats['total']} items (confidence >= {min_conf})")
-    
+
     formats_to_export = []
     if args.format == "all":
         formats_to_export = ["claude-preferences", "claude-memories", "system-prompt", "notion", "notion-db", "gdocs", "summary", "full"]
     else:
         formats_to_export = [args.format]
-    
+
     if args.dry_run:
         print("\n" + "=" * 60)
         print("🔍 DRY RUN PREVIEW")
         print("=" * 60)
-        
+
         if "claude-preferences" in formats_to_export:
             print("\n--- Claude Preferences ---")
             print(export_claude_preferences(ctx, min_conf))
-        
+
         if "claude-memories" in formats_to_export:
             print("\n--- Claude Memories (first 10) ---")
             memories = export_claude_memories(ctx, min_conf)
@@ -938,67 +936,67 @@ def main():
                 print(f"  {i}. {m['text']}")
             if len(memories) > 10:
                 print(f"  ... and {len(memories) - 10} more")
-        
+
         if "summary" in formats_to_export:
             print("\n--- Summary ---")
             summary = export_summary(ctx, min_conf)
             # Show first 50 lines
             for line in summary.split('\n')[:50]:
                 print(line)
-        
+
         return 0
-    
+
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     outputs = []
-    
+
     if "claude-preferences" in formats_to_export:
         path = output_dir / "claude_preferences.txt"
         path.write_text(export_claude_preferences(ctx, min_conf))
         outputs.append(("Claude Preferences", path))
-    
+
     if "claude-memories" in formats_to_export:
         path = output_dir / "claude_memories.json"
         memories = export_claude_memories(ctx, min_conf)
         path.write_text(json.dumps(memories, indent=2))
         outputs.append((f"Claude Memories ({len(memories)} items)", path))
-    
+
     if "system-prompt" in formats_to_export:
         path = output_dir / "system_prompt.txt"
         path.write_text(export_system_prompt(ctx, min_conf))
         outputs.append(("System Prompt", path))
-    
+
     if "notion" in formats_to_export:
         path = output_dir / "notion_page.md"
         path.write_text(export_notion(ctx, min_conf))
         outputs.append(("Notion Page (Markdown)", path))
-    
+
     if "notion-db" in formats_to_export:
         path = output_dir / "notion_database.json"
         rows = export_notion_database_json(ctx, min_conf)
         path.write_text(json.dumps(rows, indent=2))
         outputs.append((f"Notion Database ({len(rows)} rows)", path))
-    
+
     if "gdocs" in formats_to_export:
         path = output_dir / "google_docs.html"
         path.write_text(export_google_docs(ctx, min_conf))
         outputs.append(("Google Docs (HTML)", path))
-    
+
     if "summary" in formats_to_export:
         path = output_dir / "summary.md"
         path.write_text(export_summary(ctx, min_conf))
         outputs.append(("Summary", path))
-    
+
     if "full" in formats_to_export:
         path = output_dir / "full_export.json"
         path.write_text(json.dumps(export_full_json(ctx, min_conf), indent=2))
         outputs.append(("Full JSON", path))
-    
+
     print(f"\n💾 Exported {len(outputs)} files to {output_dir}/:")
     for name, path in outputs:
         print(f"   ✓ {name}: {path.name}")
-    
+
     return 0
 
 

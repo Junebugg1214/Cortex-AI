@@ -6,24 +6,24 @@ OAuth provider calls are mocked (no network required).
 """
 
 import json
-import secrets
 import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
 from http.server import HTTPServer
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
-from cortex.caas.storage import JsonWebhookStore
 from cortex.caas.dashboard.auth import DashboardSessionManager
 from cortex.caas.oauth import (
-    OAuthManager, OAuthProviderConfig,
-    GOOGLE_ENDPOINTS, GITHUB_ENDPOINTS,
+    GOOGLE_ENDPOINTS,
+    OAuthManager,
+    OAuthProviderConfig,
 )
+from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
+from cortex.caas.storage import JsonWebhookStore
+from cortex.graph import CortexGraph, Node
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 SKIP_REASON = "Ed25519 crypto not available"
 

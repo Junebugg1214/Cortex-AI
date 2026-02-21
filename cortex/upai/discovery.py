@@ -12,19 +12,16 @@ from __future__ import annotations
 
 import base64
 import json
-import urllib.request
 import urllib.error
-from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+import urllib.request
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from cortex.upai.identity import (
+    _ED25519_MULTICODEC_PREFIX,
     UPAIIdentity,
     _base58btc_decode,
     _base58btc_encode,
-    _base64url_encode,
-    _base64url_decode,
-    _ED25519_MULTICODEC_PREFIX,
-    _public_key_to_did_key,
 )
 
 if TYPE_CHECKING:

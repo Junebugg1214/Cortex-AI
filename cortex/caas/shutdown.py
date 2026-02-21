@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-import time
 from typing import Callable
 
 _log = logging.getLogger("caas.shutdown")

@@ -2,15 +2,14 @@
 Tests for custom disclosure policies — PolicyRegistry, JsonPolicyStore, SqlitePolicyStore.
 """
 
-import threading
-import tempfile
 import os
+import tempfile
+import threading
 
 import pytest
 
-from cortex.upai.disclosure import DisclosurePolicy, PolicyRegistry, BUILTIN_POLICIES
 from cortex.caas.storage import JsonPolicyStore
-
+from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, PolicyRegistry
 
 # ---------------------------------------------------------------------------
 # PolicyRegistry unit tests

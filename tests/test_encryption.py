@@ -6,8 +6,7 @@ import os
 
 import pytest
 
-from cortex.caas.encryption import FieldEncryptor, _PREFIX
-
+from cortex.caas.encryption import _PREFIX, FieldEncryptor
 
 # ---------------------------------------------------------------------------
 # Helpers

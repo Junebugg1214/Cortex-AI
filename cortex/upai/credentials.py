@@ -13,17 +13,15 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 from cortex.upai.identity import (
     UPAIIdentity,
-    _base64url_encode,
     _base64url_decode,
+    _base64url_encode,
 )
-
 
 # ---------------------------------------------------------------------------
 # W3C VC context

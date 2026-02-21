@@ -7,17 +7,17 @@ Uses the same HTTPServer-on-random-port pattern as test_caas_server.py.
 import json
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from http.server import HTTPServer
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, Edge
-from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.caas.dashboard.auth import DashboardSessionManager
+from cortex.caas.dashboard.static import guess_content_type, resolve_dashboard_path
 from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
 from cortex.caas.storage import JsonWebhookStore
-from cortex.caas.dashboard.auth import DashboardSessionManager
-from cortex.caas.dashboard.static import resolve_dashboard_path, guess_content_type
+from cortex.graph import CortexGraph, Edge, Node
+from cortex.upai.identity import UPAIIdentity, has_crypto
 
 
 def _build_test_graph() -> CortexGraph:

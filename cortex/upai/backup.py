@@ -17,12 +17,8 @@ import hmac as _hmac
 import json
 import os
 import secrets
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 from cortex.upai.identity import UPAIIdentity
-
 
 # ---------------------------------------------------------------------------
 # XOR keystream cipher (stdlib-only)

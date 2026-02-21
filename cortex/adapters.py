@@ -14,19 +14,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cortex.graph import CortexGraph
 from cortex.compat import downgrade_v5_to_v4
-from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
-
+from cortex.graph import CortexGraph
 from cortex.import_memory import (
     NormalizedContext,
-    export_claude_preferences,
     export_claude_memories,
-    export_system_prompt,
+    export_claude_preferences,
+    export_google_docs,
     export_notion,
     export_notion_database_json,
-    export_google_docs,
+    export_system_prompt,
 )
+from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
 
 if TYPE_CHECKING:
     from cortex.upai.identity import UPAIIdentity
@@ -191,7 +190,6 @@ class SystemPromptAdapter(BaseAdapter):
 
     def pull(self, file_path: Path) -> CortexGraph:
         """Parse XML system prompt back into a CortexGraph (basic)."""
-        from cortex.graph import Node, make_node_id
         from cortex.compat import upgrade_v4_to_v5
 
         text = file_path.read_text(encoding="utf-8")

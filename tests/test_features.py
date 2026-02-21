@@ -10,13 +10,16 @@ Tests for the 4 medium-priority features:
 import json
 import sys
 import tempfile
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 from cortex.extract_memory import (
-    AggressiveExtractor, ExtractionContext, ExtractedTopic,
-    are_similar, normalize_text, merge_contexts, parse_timestamp,
-    RELATIONSHIP_TYPE_PATTERNS, PIIRedactor, PII_PATTERNS
+    RELATIONSHIP_TYPE_PATTERNS,
+    AggressiveExtractor,
+    ExtractedTopic,
+    ExtractionContext,
+    PIIRedactor,
+    merge_contexts,
 )
 from cortex.import_memory import NormalizedContext, TopicDetail
 

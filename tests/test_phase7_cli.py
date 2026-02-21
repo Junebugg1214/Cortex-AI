@@ -14,11 +14,11 @@ Covers:
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.cli import build_parser, main
 
 
 def _setup_context(tmpdir):

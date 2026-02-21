@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import json
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -81,8 +80,8 @@ class SyncConfig:
 
 def _load_graph_from_path(path: Path):
     """Load a v4 or v5 JSON file and return a CortexGraph."""
-    from cortex.graph import CortexGraph
     from cortex.compat import upgrade_v4_to_v5
+    from cortex.graph import CortexGraph
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)

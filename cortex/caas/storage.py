@@ -15,11 +15,9 @@ from __future__ import annotations
 import abc
 import threading
 from datetime import datetime, timezone
-from typing import Any
 
-from cortex.upai.webhooks import WebhookRegistration
 from cortex.upai.disclosure import DisclosurePolicy
-
+from cortex.upai.webhooks import WebhookRegistration
 
 # ---------------------------------------------------------------------------
 # Abstract interfaces

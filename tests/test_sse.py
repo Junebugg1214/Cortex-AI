@@ -5,10 +5,10 @@ import json
 import threading
 import time
 import unittest
-import urllib.request
 import urllib.error
+import urllib.request
 
-from cortex.caas.sse import SSEManager, SSESubscriber
+from cortex.caas.sse import SSEManager
 from cortex.upai.identity import UPAIIdentity, has_crypto
 
 
@@ -180,13 +180,13 @@ def _setup_server(enable_sse=True):
     if not has_crypto():
         return None, None, None, None
 
-    from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, NonceCache, JsonGrantStore
-    from cortex.caas.storage import JsonWebhookStore
     from cortex.caas.dashboard.auth import DashboardSessionManager
+    from cortex.caas.server import CaaSHandler, JsonGrantStore, NonceCache, ThreadingHTTPServer
+    from cortex.caas.storage import JsonWebhookStore
+    from cortex.graph import CortexGraph
+    from cortex.upai.credentials import CredentialStore
     from cortex.upai.disclosure import PolicyRegistry
     from cortex.upai.tokens import GrantToken
-    from cortex.upai.credentials import CredentialStore
-    from cortex.graph import CortexGraph
 
     identity = UPAIIdentity.generate("SSE Test")
     graph = CortexGraph()

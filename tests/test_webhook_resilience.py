@@ -12,21 +12,19 @@ Covers:
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import time
-import http.client
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from unittest.mock import patch
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
 from cortex.caas.circuit_breaker import CircuitBreaker, CircuitState
-from cortex.caas.dead_letter import DeadLetterQueue, SqliteDeadLetterQueue, DeadLetterEntry
+from cortex.caas.dead_letter import DeadLetterEntry, DeadLetterQueue, SqliteDeadLetterQueue
+from cortex.caas.storage import JsonWebhookStore
 from cortex.caas.webhook_worker import WebhookWorker, _jitter, _parse_retry_after
 from cortex.upai.webhooks import create_webhook, deliver_webhook
-from cortex.caas.storage import JsonWebhookStore
-
 
 # ── Circuit Breaker ─────────────────────────────────────────────────────
 
@@ -589,12 +587,11 @@ class Test429Handling:
 class TestWebhookHealthAPI:
     @pytest.fixture(autouse=True)
     def _setup_server(self):
-        from cortex.upai.identity import UPAIIdentity
-        from cortex.graph import CortexGraph, Node
-        from cortex.upai.tokens import GrantToken, VALID_SCOPES
-        from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, JsonGrantStore
+        from cortex.caas.server import CaaSHandler, JsonGrantStore, ThreadingHTTPServer
         from cortex.caas.storage import JsonWebhookStore
+        from cortex.graph import CortexGraph, Node
         from cortex.upai.disclosure import PolicyRegistry
+        from cortex.upai.identity import UPAIIdentity
 
         self.identity = UPAIIdentity.generate(name="test-webhook-health")
         graph = CortexGraph()

@@ -12,15 +12,14 @@ import sys
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, Edge
+from cortex.graph import CortexGraph, Edge, Node
 from cortex.query import (
     QueryEngine,
-    shortest_path,
-    connected_components,
     betweenness_centrality,
+    connected_components,
     parse_nl_query,
+    shortest_path,
 )
-
 
 # ============================================================================
 # Helpers

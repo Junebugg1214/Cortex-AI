@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Category ordering (used for v4 downgrade primary-tag selection)
@@ -504,7 +502,7 @@ class CortexGraph:
 
     def apply_centrality_boost(self) -> dict[str, float]:
         """Compute centrality and boost top-decile node confidence."""
-        from cortex.centrality import compute_centrality, apply_centrality_boost
+        from cortex.centrality import apply_centrality_boost, compute_centrality
         scores = compute_centrality(self)
         apply_centrality_boost(self, scores)
         return scores

@@ -4,12 +4,12 @@ import json
 import tempfile
 import threading
 import unittest
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 from cortex.upai.identity import UPAIIdentity, has_crypto
-from cortex.upai.keychain import Keychain, DeviceRecord
+from cortex.upai.keychain import DeviceRecord, Keychain
 
 
 @unittest.skipUnless(has_crypto(), "Ed25519 (PyNaCl) not available")
@@ -130,12 +130,12 @@ def _setup_server():
     if not has_crypto():
         return None, None, None, None
 
-    from cortex.caas.server import CaaSHandler, ThreadingHTTPServer, NonceCache, JsonGrantStore
-    from cortex.caas.storage import JsonWebhookStore
     from cortex.caas.dashboard.auth import DashboardSessionManager
-    from cortex.upai.disclosure import PolicyRegistry
-    from cortex.upai.credentials import CredentialStore
+    from cortex.caas.server import CaaSHandler, JsonGrantStore, NonceCache, ThreadingHTTPServer
+    from cortex.caas.storage import JsonWebhookStore
     from cortex.graph import CortexGraph
+    from cortex.upai.credentials import CredentialStore
+    from cortex.upai.disclosure import PolicyRegistry
 
     tmpdir = tempfile.mkdtemp()
     store_dir = Path(tmpdir)

@@ -2,13 +2,13 @@
 
 from cortex.sdk.client import CortexClient
 from cortex.sdk.exceptions import (
-    CortexSDKError,
     AuthenticationError,
+    CortexSDKError,
     ForbiddenError,
     NotFoundError,
-    ValidationError,
     RateLimitError,
     ServerError,
+    ValidationError,
 )
 
 __all__ = [

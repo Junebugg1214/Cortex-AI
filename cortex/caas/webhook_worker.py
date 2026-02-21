@@ -16,15 +16,15 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from cortex.upai.webhooks import deliver_webhook
-from cortex.caas.circuit_breaker import CircuitBreaker, CircuitState
+from cortex.caas.circuit_breaker import CircuitBreaker
 from cortex.caas.dead_letter import DeadLetterQueue
+from cortex.upai.webhooks import deliver_webhook
 
 _log = logging.getLogger("caas.webhooks")
 
 if TYPE_CHECKING:
-    from cortex.caas.storage import AbstractWebhookStore
     from cortex.caas.sqlite_store import SqliteDeliveryLog
+    from cortex.caas.storage import AbstractWebhookStore
 
 
 def _jitter(base_delay: float, attempt: int, max_delay: float = 300.0) -> float:
@@ -149,7 +149,7 @@ class WebhookWorker:
                 retry_count=0,
             )
             try:
-                from cortex.caas.instrumentation import WEBHOOK_DELIVERIES, WEBHOOK_DEAD_LETTERS
+                from cortex.caas.instrumentation import WEBHOOK_DEAD_LETTERS, WEBHOOK_DELIVERIES
                 WEBHOOK_DELIVERIES.inc(webhook_id=registration.webhook_id, status="circuit_open")
                 WEBHOOK_DEAD_LETTERS.set(
                     float(self._dead_letter.count(registration.webhook_id)),
@@ -216,7 +216,7 @@ class WebhookWorker:
             retry_count=self._max_retries,
         )
         try:
-            from cortex.caas.instrumentation import WEBHOOK_DELIVERIES, WEBHOOK_DEAD_LETTERS
+            from cortex.caas.instrumentation import WEBHOOK_DEAD_LETTERS, WEBHOOK_DELIVERIES
             WEBHOOK_DELIVERIES.inc(webhook_id=registration.webhook_id, status="failure")
             WEBHOOK_DEAD_LETTERS.set(
                 float(self._dead_letter.count(registration.webhook_id)),
