@@ -850,6 +850,12 @@ cortex-identity/                    # pip install cortex-identity
 
 ---
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on setting up a development environment, running tests, and submitting pull requests. Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+
+---
+
 ## License
 
 MIT — See [LICENSE](LICENSE)
