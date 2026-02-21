@@ -1,7 +1,9 @@
 {
   "name": "@cortex-ai/sdk",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "TypeScript SDK for the Cortex CaaS API",
+  "author": "Junebugg1214",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
@@ -14,14 +16,39 @@
     }
   },
   "files": [
-    "dist/"
+    "dist/",
+    "README.md",
+    "LICENSE"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Junebugg1214/Cortex-AI.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://github.com/Junebugg1214/Cortex-AI#typescript-sdk",
+  "bugs": {
+    "url": "https://github.com/Junebugg1214/Cortex-AI/issues"
+  },
+  "keywords": [
+    "cortex",
+    "ai-identity",
+    "caas",
+    "context-as-a-service",
+    "knowledge-graph",
+    "ai-memory",
+    "did",
+    "verifiable-credentials"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build:esm": "tsc -p tsconfig.json",
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build": "npm run build:esm && npm run build:cjs",
     "test": "node --test dist/esm/tests/client.test.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
@@ -29,6 +56,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "license": "MIT"
+  }
 }
