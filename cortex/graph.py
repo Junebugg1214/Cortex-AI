@@ -168,6 +168,7 @@ class CortexGraph:
 
     def add_node(self, node: Node) -> str:
         self.nodes[node.id] = node
+        self._invalidate_search_index()
         return node.id
 
     def add_edge(self, edge: Edge) -> str:
@@ -191,6 +192,7 @@ class CortexGraph:
         ]
         for eid in to_remove:
             del self.edges[eid]
+        self._invalidate_search_index()
         return True
 
     def remove_edge(self, edge_id: str) -> bool:
@@ -323,6 +325,7 @@ class CortexGraph:
             if key in allowed and hasattr(node, key):
                 setattr(node, key, value)
         node.last_seen = datetime.now(timezone.utc).isoformat()
+        self._invalidate_search_index()
         return node
 
     # ── Search ─────────────────────────────────────────────────────────
@@ -365,6 +368,36 @@ class CortexGraph:
                 if len(results) >= limit:
                     break
         return results
+
+    def semantic_search(
+        self,
+        query: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> list[dict]:
+        """TF-IDF relevance-ranked search across node text fields.
+
+        Returns list of ``{"node": <Node>, "score": <float>}`` sorted by
+        descending relevance.  The index is built lazily on first call and
+        cached until a mutation invalidates it.
+        """
+        from cortex.search import TFIDFIndex
+
+        if not hasattr(self, "_search_index") or not self._search_index.is_built:
+            self._search_index = TFIDFIndex()
+            self._search_index.build(self.nodes.values())
+        results = self._search_index.search(query, limit=limit, min_score=min_score)
+        # Replace node dicts with actual Node objects where available
+        for r in results:
+            node_id = r["node"].get("id", "")
+            if node_id in self.nodes:
+                r["node"] = self.nodes[node_id]
+        return results
+
+    def _invalidate_search_index(self) -> None:
+        """Clear the cached search index after graph mutations."""
+        if hasattr(self, "_search_index"):
+            self._search_index.clear()
 
     # ── Graph traversal ────────────────────────────────────────────────
 
