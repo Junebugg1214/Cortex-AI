@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cortex
+description: Cortex-AI — Context-as-a-Service for AI platforms
+type: application
+version: 1.3.0
+appVersion: "1.3.0"
+keywords:
+  - cortex
+  - ai
+  - context
+  - knowledge-graph
+  - caas
+home: https://github.com/Junebugg1214/Cortex-AI
+sources:
+  - https://github.com/Junebugg1214/Cortex-AI
+maintainers:
+  - name: Cortex-AI Team

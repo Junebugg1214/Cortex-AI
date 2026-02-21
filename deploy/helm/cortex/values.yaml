@@ -1,0 +1,103 @@
+# Default values for cortex Helm chart.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/junebugg1214/cortex-ai
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to Chart.appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+# -- CaaS server configuration
+server:
+  port: 8421
+  contextFile: /data/context.json
+  storeDir: /data/store
+
+# -- Storage configuration
+storage:
+  backend: json  # json | sqlite | postgres
+  dbPath: /data/cortex.db
+  dbUrl: ""  # PostgreSQL connection string
+
+# -- SSE configuration
+sse:
+  enabled: false
+  heartbeatInterval: 30
+  bufferSize: 1000
+
+# -- Webhooks
+webhooks:
+  maxRetries: 3
+  backoffBase: 5.0
+
+# -- Metrics
+metrics:
+  enabled: false
+
+# -- Logging
+logging:
+  level: INFO
+  format: text
+
+# -- Security
+security:
+  csrfEnabled: true
+  ssrfBlockPrivate: true
+
+# -- Plugins
+plugins:
+  modules: []
+
+service:
+  type: ClusterIP
+  port: 8421
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: cortex.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Persistent volume for context data
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+# -- Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
