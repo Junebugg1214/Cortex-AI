@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cortex.fullname" . }}-config
+  labels:
+    {{- include "cortex.labels" . | nindent 4 }}
+data:
+  cortex.ini: |
+    [server]
+    host = 0.0.0.0
+    port = {{ .Values.server.port }}
+
+    [storage]
+    backend = {{ .Values.storage.backend }}
+    db_path = {{ .Values.storage.dbPath }}
+    {{- if .Values.storage.dbUrl }}
+    db_url = {{ .Values.storage.dbUrl }}
+    {{- end }}
+
+    [sse]
+    enabled = {{ .Values.sse.enabled }}
+    heartbeat_interval = {{ .Values.sse.heartbeatInterval }}
+    buffer_size = {{ .Values.sse.bufferSize }}
+
+    [webhooks]
+    max_retries = {{ .Values.webhooks.maxRetries }}
+    backoff_base = {{ .Values.webhooks.backoffBase }}
+
+    [metrics]
+    enabled = {{ .Values.metrics.enabled }}
+
+    [logging]
+    level = {{ .Values.logging.level }}
+    format = {{ .Values.logging.format }}
+
+    [security]
+    csrf_enabled = {{ .Values.security.csrfEnabled }}
+    ssrf_block_private = {{ .Values.security.ssrfBlockPrivate }}
