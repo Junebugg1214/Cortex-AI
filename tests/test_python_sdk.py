@@ -13,8 +13,8 @@ SDK_DIR = Path(__file__).resolve().parent.parent / "sdk" / "python"
 if str(SDK_DIR) not in sys.path:
     sys.path.insert(0, str(SDK_DIR))
 
-from cortex_sdk import CortexClient
-from cortex_sdk.exceptions import (
+from cortex_sdk import CortexClient  # noqa: E402
+from cortex_sdk.exceptions import (  # noqa: E402
     AuthenticationError,
     CortexSDKError,
     ForbiddenError,
@@ -23,8 +23,6 @@ from cortex_sdk.exceptions import (
     ServerError,
     ValidationError,
 )
-from cortex_sdk.pagination import PaginatedIterator
-
 
 # ---------------------------------------------------------------------------
 # Mock HTTP server
@@ -373,14 +371,7 @@ class TestImports:
 
     def test_all_exceptions_importable(self):
         from cortex_sdk import (
-            AuthenticationError,
             CortexClient,
-            CortexSDKError,
-            ForbiddenError,
-            NotFoundError,
-            RateLimitError,
-            ServerError,
-            ValidationError,
         )
         assert CortexClient is not None
 

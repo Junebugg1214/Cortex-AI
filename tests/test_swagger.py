@@ -8,7 +8,6 @@ import pytest
 
 from cortex.caas.swagger import _SPEC_PATH, load_openapi_spec, swagger_html
 
-
 # ---------------------------------------------------------------------------
 # swagger_html tests
 # ---------------------------------------------------------------------------

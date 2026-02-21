@@ -116,6 +116,7 @@ class TestPostgresGrantStore(unittest.TestCase):
             self.skipTest("FieldEncryptor not available")
         enc = FieldEncryptor.from_identity_key(b"test-key-32-bytes-long-00000000")
         _truncate_tables(_PG_CONNINFO, ["grants"])
+        from cortex.caas.postgres_store import PostgresGrantStore
         store = PostgresGrantStore(_PG_CONNINFO, encryptor=enc)
         try:
             store.add("g-enc", "secret-token", _make_token_data())

@@ -136,17 +136,17 @@ class TestMetricsEndpoint:
         assert "cortex_graph_nodes" in body
         assert "cortex_graph_edges" in body
         lines = body.split("\n")
-        node_lines = [l for l in lines if l.startswith("cortex_graph_nodes ")]
-        edge_lines = [l for l in lines if l.startswith("cortex_graph_edges ")]
-        assert any("2.0" in l for l in node_lines)
-        assert any("1.0" in l for l in edge_lines)
+        node_lines = [line for line in lines if line.startswith("cortex_graph_nodes ")]
+        edge_lines = [line for line in lines if line.startswith("cortex_graph_edges ")]
+        assert any("2.0" in line for line in node_lines)
+        assert any("1.0" in line for line in edge_lines)
 
     def test_metrics_grants_gauge(self):
         body, _ = _get(self.port, "/metrics")
         assert "cortex_grants_active" in body
         lines = body.split("\n")
-        grant_lines = [l for l in lines if l.startswith("cortex_grants_active ")]
-        assert any("1.0" in l for l in grant_lines)
+        grant_lines = [line for line in lines if line.startswith("cortex_grants_active ")]
+        assert any("1.0" in line for line in grant_lines)
 
     def test_metrics_duration_histogram(self):
         _get(self.port, "/health")

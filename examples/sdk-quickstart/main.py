@@ -56,7 +56,6 @@ def sync_example():
 def pagination_example():
     """Demonstrate paginated iteration."""
     from cortex_sdk import CortexClient
-    from cortex_sdk.pagination import PaginatedIterator
 
     client = CortexClient(base_url="http://localhost:8421", token="YOUR_TOKEN")
 

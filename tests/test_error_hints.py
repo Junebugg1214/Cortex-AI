@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cortex.upai.error_hints import (
     enrich_error,
     hint_for_insufficient_scope,
@@ -13,8 +11,7 @@ from cortex.upai.error_hints import (
     hint_for_role,
     hint_for_scope,
 )
-from cortex.upai.errors import ERR_INSUFFICIENT_SCOPE, ERR_INVALID_POLICY, ERR_INVALID_TOKEN, UPAIError
-
+from cortex.upai.errors import ERR_INVALID_POLICY, ERR_INVALID_TOKEN, UPAIError
 
 # ---------------------------------------------------------------------------
 # hint_for_scope

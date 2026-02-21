@@ -1,9 +1,9 @@
 """Tests for cortex.search — TF-IDF semantic search engine."""
 
 import pytest
+
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.search import STOP_WORDS, TFIDFIndex, tokenize
-
 
 # ---------------------------------------------------------------------------
 # Tokenizer tests

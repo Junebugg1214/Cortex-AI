@@ -29,7 +29,6 @@ from cortex.caas.webapp.static import (
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.upai.identity import UPAIIdentity, has_crypto
 
-
 # ============================================================================
 # Static file resolution (unit tests — no server needed)
 # ============================================================================
@@ -253,15 +252,14 @@ class TestWebappDisabled:
 
     def test_upload_returns_404_when_disabled(self):
         url = f"http://127.0.0.1:{self.port}/api/upload"
-        boundary = "----TestBoundary"
         file_content = json.dumps({"nodes": [{"label": "Test", "tags": ["test"]}]}).encode()
         body = (
-            f"------TestBoundary\r\n"
-            f'Content-Disposition: form-data; name="file"; filename="test.json"\r\n'
-            f"Content-Type: application/json\r\n\r\n"
+            "------TestBoundary\r\n"
+            'Content-Disposition: form-data; name="file"; filename="test.json"\r\n'
+            "Content-Type: application/json\r\n\r\n"
         ).encode() + file_content + b"\r\n------TestBoundary--\r\n"
         req = urllib.request.Request(url, data=body, method="POST")
-        req.add_header("Content-Type", f"multipart/form-data; boundary=----TestBoundary")
+        req.add_header("Content-Type", "multipart/form-data; boundary=----TestBoundary")
         try:
             urllib.request.urlopen(req)
             assert False, "Expected HTTPError"
@@ -283,9 +281,8 @@ class TestWebappUpload:
     def _upload(self, file_content, filename="test.json", cookie=None):
         """Helper to upload a file via multipart form data."""
         url = f"http://127.0.0.1:{self.port}/api/upload"
-        boundary = "----TestBoundary123"
         body_parts = [
-            f"------TestBoundary123\r\n".encode(),
+            "------TestBoundary123\r\n".encode(),
             f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
             b"Content-Type: application/octet-stream\r\n\r\n",
             file_content if isinstance(file_content, bytes) else file_content.encode(),
@@ -293,7 +290,7 @@ class TestWebappUpload:
         ]
         body = b"".join(body_parts)
         req = urllib.request.Request(url, data=body, method="POST")
-        req.add_header("Content-Type", f"multipart/form-data; boundary=----TestBoundary123")
+        req.add_header("Content-Type", "multipart/form-data; boundary=----TestBoundary123")
         if cookie:
             req.add_header("Cookie", cookie)
         try:

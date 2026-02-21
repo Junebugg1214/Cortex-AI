@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 import pytest
@@ -12,12 +11,10 @@ from cortex.caas.tracing import (
     NoopExporter,
     OTLPHttpExporter,
     Span,
-    SpanExporter,
     TracingManager,
     _set_current_span,
     current_span,
 )
-
 
 # ---------------------------------------------------------------------------
 # Span tests

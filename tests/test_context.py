@@ -6,7 +6,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-from cortex.context import (
+from cortex.context import (  # noqa: E402
     CONTEXT_TARGETS,
     CORTEX_END,
     CORTEX_START,

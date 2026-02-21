@@ -138,14 +138,14 @@ class TestHistogram:
         h.observe(15.0)  # none
         lines = h.collect()
         # Bucket cumulative: le=1.0 -> 1, le=5.0 -> 2, le=10.0 -> 3, +Inf -> 4
-        bucket_lines = [l for l in lines if "test_hist_bucket" in l]
-        assert any('le="1.0"' in l and " 1" in l for l in bucket_lines)
+        bucket_lines = [line for line in lines if "test_hist_bucket" in line]
+        assert any('le="1.0"' in line and " 1" in line for line in bucket_lines)
         # Find the actual values from the bucket lines
         bucket_map = {}
-        for l in bucket_lines:
+        for line in bucket_lines:
             for le in ["1.0", "5.0", "10.0", "+Inf"]:
-                if f'le="{le}"' in l:
-                    val = l.strip().split()[-1]
+                if f'le="{le}"' in line:
+                    val = line.strip().split()[-1]
                     bucket_map[le] = int(val)
         assert bucket_map.get("1.0") == 1
         assert bucket_map.get("5.0") == 2

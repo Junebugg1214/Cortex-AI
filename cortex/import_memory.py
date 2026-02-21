@@ -13,13 +13,13 @@ EXPORTS TO:
 
 Usage:
     python import_memory_v4.py <context_file> [options]
-    
+
     # All formats
     python import_memory_v4.py context.json -f all -o ./output
-    
+
     # Just Notion export
     python import_memory_v4.py context.json -f notion -c medium
-    
+
     # Google Docs with high confidence only
     python import_memory_v4.py context.json -f gdocs -c high
 """
@@ -466,7 +466,7 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
             if len(memories) >= max_items:
                 break
 
-            level = topic.get_detail_level()
+            topic.get_detail_level()
 
             if category == "identity":
                 text = f"User is {topic.topic}"
@@ -535,7 +535,7 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
         if category not in topics:
             continue
 
-        label = CATEGORY_LABELS.get(category, category)
+        CATEGORY_LABELS.get(category, category)
 
         # Special treatment for constraints
         if category == "constraints":

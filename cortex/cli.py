@@ -1873,7 +1873,7 @@ def run_serve(args):
     if not enable_webapp and config is not None:
         enable_webapp = config.getbool("webapp", "enabled", fallback=False)
     if enable_webapp:
-        print(f"Web UI: enabled (/app)")
+        print("Web UI: enabled (/app)")
 
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 

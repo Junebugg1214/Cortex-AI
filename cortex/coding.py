@@ -369,7 +369,7 @@ def enrich_project(project_path: str) -> ProjectMetadata:
 
     # Validate project path: reject path traversal (#34)
     try:
-        resolved = root.resolve()
+        root.resolve()
         if ".." in str(project_path):
             return meta
     except (OSError, ValueError):

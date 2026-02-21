@@ -216,7 +216,7 @@ class TestCachingIntegration:
 
         # Request a different endpoint — different ETag
         resp2 = self._get("/", headers={"If-None-Match": etag})
-        body = resp2.read()
+        resp2.read()
         # Different data should return 200 (etag won't match)
         assert resp2.status == 200
 

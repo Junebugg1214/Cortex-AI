@@ -63,8 +63,8 @@ class TestClaudeAdapter:
         with tempfile.TemporaryDirectory() as tmpdir:
             adapter = ClaudeAdapter()
             # Minimal policy: only identity + communication_preferences, conf >= 0.8
-            paths = adapter.push(_sample_graph(), BUILTIN_POLICIES["minimal"],
-                                output_dir=Path(tmpdir))
+            adapter.push(_sample_graph(), BUILTIN_POLICIES["minimal"],
+                         output_dir=Path(tmpdir))
             prefs_path = Path(tmpdir) / "claude_preferences.txt"
             prefs = prefs_path.read_text()
             # Should contain Marc (identity) and Direct style (communication)

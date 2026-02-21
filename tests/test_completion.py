@@ -1,6 +1,7 @@
 """Tests for cortex.completion — shell completion script generation."""
 
 import pytest
+
 from cortex.cli import build_parser
 from cortex.completion import (
     GENERATORS,

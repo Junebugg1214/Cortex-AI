@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from typing import Iterable, Sequence
+from typing import Iterable
 
 # ---------------------------------------------------------------------------
 # Stop words — common English words to exclude from indexing

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import difflib
 
-from cortex.upai.rbac import ALL_SCOPES, ROLE_SCOPES, VALID_ROLES
+from cortex.upai.rbac import ALL_SCOPES, VALID_ROLES
 
 # ---------------------------------------------------------------------------
 # Known values

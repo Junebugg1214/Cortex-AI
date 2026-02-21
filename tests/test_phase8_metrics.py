@@ -112,7 +112,7 @@ class TestRateLimitMetrics(unittest.TestCase):
     def test_produces_output(self):
         RATE_LIMIT_REJECTED.inc()
         lines = RATE_LIMIT_REJECTED.collect()
-        self.assertTrue(any("cortex_rate_limit_rejected_total 1" in l for l in lines))
+        self.assertTrue(any("cortex_rate_limit_rejected_total 1" in line for line in lines))
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ class TestAuditLedgerMetrics(unittest.TestCase):
     def test_produces_output(self):
         AUDIT_ENTRIES.set(5.0)
         lines = AUDIT_ENTRIES.collect()
-        self.assertTrue(any("cortex_audit_entries_total 5" in l for l in lines))
+        self.assertTrue(any("cortex_audit_entries_total 5" in line for line in lines))
 
 
 # ---------------------------------------------------------------------------

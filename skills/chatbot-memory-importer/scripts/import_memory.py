@@ -15,8 +15,8 @@ _ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from cortex.import_memory import *  # noqa: F401,F403
-from cortex.import_memory import main  # noqa: F811
+from cortex.import_memory import *  # noqa: E402,F401,F403
+from cortex.import_memory import main  # noqa: E402,F811
 
 if __name__ == "__main__":
     exit(main())

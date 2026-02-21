@@ -84,7 +84,7 @@ class DIDResolver:
             if len(pub_bytes) != 32:
                 return None
 
-            public_key_b64 = base64.b64encode(pub_bytes).decode("ascii")
+            base64.b64encode(pub_bytes).decode("ascii")
 
             # Reconstruct multibase for the document
             multibase = "z" + _base58btc_encode(_ED25519_MULTICODEC_PREFIX + pub_bytes)

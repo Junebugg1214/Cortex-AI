@@ -16,7 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
@@ -62,8 +61,8 @@ def main():
     print(f"   Has context:write? {verified_b.has_scope('context:write')}")
 
     print("\nDone! In production, agents would use these tokens with:")
-    print(f"  Authorization: Bearer <token>")
-    print(f"  against the CaaS API at http://127.0.0.1:8421")
+    print("  Authorization: Bearer <token>")
+    print("  against the CaaS API at http://127.0.0.1:8421")
 
 
 if __name__ == "__main__":

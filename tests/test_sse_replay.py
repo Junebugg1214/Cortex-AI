@@ -246,8 +246,8 @@ class TestSSEReplay:
     def test_replay_only_since_id(self):
         mgr = SSEManager()
         id1 = mgr.event_buffer.append("ev.a", '{"a": 1}')
-        id2 = mgr.event_buffer.append("ev.b", '{"b": 2}')
-        id3 = mgr.event_buffer.append("ev.c", '{"c": 3}')
+        mgr.event_buffer.append("ev.b", '{"b": 2}')
+        mgr.event_buffer.append("ev.c", '{"c": 3}')
 
         wfile = MockWfile()
         count = mgr.replay(wfile, since_id=id1)

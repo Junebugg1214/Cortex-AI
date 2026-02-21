@@ -7,10 +7,10 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-from cortex.continuous import (
+from cortex.continuous import (  # noqa: E402
     CodingSessionWatcher,
 )
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph import CortexGraph, Node, make_node_id  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic Claude Code JSONL

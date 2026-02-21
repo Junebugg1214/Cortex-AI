@@ -201,7 +201,7 @@ class TestSqliteAuditLedger:
 
     def test_chain_survives_restart(self, db_path):
         ledger1 = SqliteAuditLedger(db_path)
-        e1 = ledger1.append("event.1")
+        ledger1.append("event.1")
         e2 = ledger1.append("event.2")
 
         # "Restart" with new instance

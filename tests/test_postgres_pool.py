@@ -7,8 +7,6 @@ import threading
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestConnectionPoolFallback:
     """Test the fallback (single-connection) path when psycopg_pool is not available."""
@@ -19,7 +17,7 @@ class TestConnectionPoolFallback:
         mock_conn.execute = MagicMock()
 
         with patch.dict("sys.modules", {"psycopg_pool": None}):
-            with patch("psycopg.connect", return_value=mock_conn) as mock_connect:
+            with patch("psycopg.connect", return_value=mock_conn):
                 # Importing with psycopg_pool failing
                 from cortex.caas.postgres_pool import ConnectionPool
 
@@ -201,7 +199,7 @@ class TestPostgresBasePoolIntegration:
         mock_pool = MagicMock()
         mock_pool.connection = mock_connection
 
-        with patch("psycopg.connect") as mock_connect:
+        with patch("psycopg.connect"):
             from cortex.caas.postgres_store import _PostgresBase
 
             base = _PostgresBase.__new__(_PostgresBase)

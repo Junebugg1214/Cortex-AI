@@ -10,7 +10,7 @@ Scenarios are imported from benchmarks/scenarios/.
 
 from __future__ import annotations
 
-from locust import HttpUser, between, task
+from locust import HttpUser, between
 
 from benchmarks.scenarios.mixed import MixedScenario
 from benchmarks.scenarios.read_heavy import ReadHeavyScenario

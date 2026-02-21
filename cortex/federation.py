@@ -26,7 +26,7 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph

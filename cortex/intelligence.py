@@ -172,27 +172,27 @@ class InsightGenerator:
 
         # New nodes
         new_nodes = [
-            {"label": cur_by_label[l].label, "tags": list(cur_by_label[l].tags),
-             "confidence": cur_by_label[l].confidence}
-            for l in sorted(cur_labels - prev_labels)
+            {"label": cur_by_label[lbl].label, "tags": list(cur_by_label[lbl].tags),
+             "confidence": cur_by_label[lbl].confidence}
+            for lbl in sorted(cur_labels - prev_labels)
         ]
 
         # Removed nodes
         removed_nodes = [
-            {"label": prev_by_label[l].label, "tags": list(prev_by_label[l].tags),
-             "confidence": prev_by_label[l].confidence}
-            for l in sorted(prev_labels - cur_labels)
+            {"label": prev_by_label[lbl].label, "tags": list(prev_by_label[lbl].tags),
+             "confidence": prev_by_label[lbl].confidence}
+            for lbl in sorted(prev_labels - cur_labels)
         ]
 
         # Confidence changes > 0.2
         confidence_changes: list[dict] = []
-        for l in cur_labels & prev_labels:
-            cur_conf = cur_by_label[l].confidence
-            prev_conf = prev_by_label[l].confidence
+        for lbl in cur_labels & prev_labels:
+            cur_conf = cur_by_label[lbl].confidence
+            prev_conf = prev_by_label[lbl].confidence
             delta = cur_conf - prev_conf
             if abs(delta) > 0.2:
                 confidence_changes.append({
-                    "label": cur_by_label[l].label,
+                    "label": cur_by_label[lbl].label,
                     "previous": prev_conf,
                     "current": cur_conf,
                     "delta": round(delta, 4),

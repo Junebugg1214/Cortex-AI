@@ -5,8 +5,6 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-import pytest
-
 BENCHMARKS_DIR = Path(__file__).resolve().parent.parent / "benchmarks"
 
 

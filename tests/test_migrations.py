@@ -27,7 +27,7 @@ def _fresh_conn(tmp_path: Path | None = None) -> sqlite3.Connection:
 class TestMigrationRunner:
     def test_creates_version_table(self):
         conn = _fresh_conn()
-        runner = MigrationRunner(conn)
+        MigrationRunner(conn)  # side-effect: creates schema_versions table
         # Should have schema_versions table
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_versions'"

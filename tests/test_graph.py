@@ -803,7 +803,7 @@ class TestMigrateSubcommands:
     def test_known_subcommands_routing(self):
         """query and stats are not routed to migrate."""
         mod = self._import_migrate()
-        parser = mod.build_parser()
+        mod.build_parser()
         # query should NOT be treated as a file path
         argv = ["query", "file.json", "--node", "X"]
         # The main function routes known subcommands directly

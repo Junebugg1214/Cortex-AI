@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import importlib
 import types
 
 import pytest
 
-from cortex.plugins import HOOKS, HookCallback, PluginManager, PluginRegistry
-
+from cortex.plugins import HOOKS, PluginManager, PluginRegistry
 
 # ---------------------------------------------------------------------------
 # PluginRegistry tests
