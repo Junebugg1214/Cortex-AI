@@ -369,7 +369,7 @@ class TestPaginatedIterator:
 class TestImports:
     def test_package_version(self):
         import cortex_sdk
-        assert cortex_sdk.__version__ == "1.3.0"
+        assert cortex_sdk.__version__ == "1.4.0"
 
     def test_all_exceptions_importable(self):
         from cortex_sdk import (
