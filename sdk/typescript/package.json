@@ -1,5 +1,5 @@
 {
-  "name": "@cortex-ai/sdk",
+  "name": "@cortex_ai/sdk",
   "version": "1.2.1",
   "description": "TypeScript SDK for the Cortex CaaS API",
   "author": "Junebugg1214",

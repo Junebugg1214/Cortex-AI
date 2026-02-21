@@ -1,4 +1,4 @@
-# @cortex-ai/sdk
+# @cortex_ai/sdk
 
 TypeScript SDK for the [Cortex CaaS](https://github.com/Junebugg1214/Cortex-AI) (Context-as-a-Service) API.
 
@@ -7,13 +7,13 @@ Zero runtime dependencies. Works with Node.js 18+ using native `fetch`.
 ## Install
 
 ```bash
-npm install @cortex-ai/sdk
+npm install @cortex_ai/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { CortexClient } from "@cortex-ai/sdk";
+import { CortexClient } from "@cortex_ai/sdk";
 
 const client = new CortexClient("http://localhost:8100", {
   bearer: "your-token",
