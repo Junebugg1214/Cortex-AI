@@ -578,7 +578,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         auth_header = self.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             self._audit("auth.failed", {"reason": "missing_or_malformed_header"})
-            self._error_response(ERR_INVALID_TOKEN("Missing or malformed Authorization header"))
+            err = ERR_INVALID_TOKEN("Missing or malformed Authorization header")
+            from cortex.upai.error_hints import hint_for_invalid_token
+            err.hint = hint_for_invalid_token()
+            self._error_response(err)
             return None
 
         token_str = auth_header[len("Bearer "):]
@@ -604,7 +607,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         # Check scope
         if required_scope and not token.has_scope(required_scope):
-            self._error_response(ERR_INSUFFICIENT_SCOPE(required_scope))
+            err = ERR_INSUFFICIENT_SCOPE(required_scope)
+            from cortex.upai.error_hints import hint_for_insufficient_scope
+            err.hint = hint_for_insufficient_scope(required_scope)
+            self._error_response(err)
             return None
 
         return token.to_dict()
@@ -788,7 +794,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         if self.__class__.policy_registry.get(policy) is None:
-            self._error_response(ERR_INVALID_POLICY(policy))
+            err = ERR_INVALID_POLICY(policy)
+            from cortex.upai.error_hints import hint_for_policy
+            known = [p.name for p in self.__class__.policy_registry.list_all()]
+            err.hint = hint_for_policy(policy, known)
+            self._error_response(err)
             return
 
         # Validate ttl_hours range
@@ -2316,7 +2326,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
         policy_name = query.get("policy", ["full"])[0]
         policy = self.__class__.policy_registry.get(policy_name)
         if policy is None:
-            self._error_response(ERR_INVALID_POLICY(policy_name))
+            err = ERR_INVALID_POLICY(policy_name)
+            from cortex.upai.error_hints import hint_for_policy
+            known = [p.name for p in self.__class__.policy_registry.list_all()]
+            err.hint = hint_for_policy(policy_name, known)
+            self._error_response(err)
             return
         filtered = apply_disclosure(graph, policy)
 
