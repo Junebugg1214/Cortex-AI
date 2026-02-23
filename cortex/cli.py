@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
 from cortex.adapters import ADAPTERS
@@ -1900,15 +1901,20 @@ def run_serve(args):
         enable_webapp=enable_webapp,
     )
 
+    if enable_webapp:
+        print(f"Web UI password: {server.RequestHandlerClass.session_manager.password}")
+
     # Use ShutdownCoordinator for graceful shutdown if available
     coordinator = getattr(server, '_shutdown_coordinator', None)
     if coordinator:
         coordinator.install_signal_handlers()
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
         try:
             coordinator.wait_for_shutdown()
         except KeyboardInterrupt:
             print("\nShutting down...")
-            server.shutdown()
+            coordinator.shutdown()
     else:
         try:
             server.serve_forever()
