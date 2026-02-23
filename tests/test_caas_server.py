@@ -49,6 +49,8 @@ def _setup_server():
     CaaSHandler.version_store = None
     CaaSHandler.webhook_store = JsonWebhookStore()
     CaaSHandler._allowed_origins = set()
+    CaaSHandler.session_manager = None
+    CaaSHandler.enable_webapp = False
 
     server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
     port = server.server_address[1]

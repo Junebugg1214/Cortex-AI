@@ -703,6 +703,63 @@ body {
 .tag-preferences { background: #e0e7ff; color: #3730a3; }
 .tag-default { background: #f1f5f9; color: #475569; }
 
+/* ── Login Overlay ───────────────────────────────────────────── */
+
+.login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.login-modal {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    padding: 40px 36px;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: var(--shadow-lg);
+    text-align: center;
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin-bottom: 32px;
+}
+
+.login-input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    font-family: var(--font-sans);
+    outline: none;
+    margin-bottom: 14px;
+    transition: border-color 0.15s;
+}
+
+.login-input:focus {
+    border-color: var(--color-primary);
+}
+
+.login-error {
+    color: var(--color-danger);
+    font-size: 13px;
+    margin-top: 12px;
+    min-height: 20px;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 
 @media (max-width: 768px) {

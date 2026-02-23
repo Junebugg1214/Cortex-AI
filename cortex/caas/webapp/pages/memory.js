@@ -133,14 +133,34 @@
         canvas.addEventListener('touchend', function () { dragging = false; }, { passive: true });
     }
 
+    function normalizeGraphData(data) {
+        // The API returns v6 format: {graph: {nodes: {id: {...}}, edges: {id: {...}}}}
+        // The UI expects flat arrays: {nodes: [...], edges: [...]}
+        if (data && data.graph) {
+            var g = data.graph;
+            var nodes = g.nodes || {};
+            var edges = g.edges || {};
+            return {
+                nodes: Array.isArray(nodes) ? nodes : Object.values(nodes),
+                edges: Array.isArray(edges) ? edges : Object.values(edges),
+            };
+        }
+        // Already in flat format or unknown — normalize arrays
+        return {
+            nodes: Array.isArray(data.nodes) ? data.nodes : (data.nodes ? Object.values(data.nodes) : []),
+            edges: Array.isArray(data.edges) ? data.edges : (data.edges ? Object.values(data.edges) : []),
+        };
+    }
+
     function loadData() {
         C.api('/context?policy=full').then(function (data) {
-            graphData = data;
+            graphData = normalizeGraphData(data);
             processGraph();
             renderFilters();
             renderStats();
             draw();
         }).catch(function (err) {
+            if (err.message === 'unauthorized') return;
             C.showToast('Failed to load memory: ' + err.message, 'error');
         });
     }

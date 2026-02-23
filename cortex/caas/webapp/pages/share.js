@@ -101,17 +101,32 @@
         });
     }
 
+    function normalizeGraphData(data) {
+        if (data && data.graph) {
+            var g = data.graph;
+            var nodes = g.nodes || {};
+            var edges = g.edges || {};
+            return {
+                nodes: Array.isArray(nodes) ? nodes : Object.values(nodes),
+                edges: Array.isArray(edges) ? edges : Object.values(edges),
+            };
+        }
+        return data;
+    }
+
     function loadPreview() {
         C.api('/context/compact?policy=' + selectedPolicy).then(function (data) {
             contextData = data;
             updatePreview();
-        }).catch(function () {
+        }).catch(function (err) {
+            if (err.message === 'unauthorized') return;
             // Fallback: try full context
             C.api('/context?policy=' + selectedPolicy).then(function (data) {
-                contextData = data;
+                contextData = normalizeGraphData(data);
                 updatePreview();
-            }).catch(function (err) {
-                document.getElementById('preview-content').textContent = 'Could not load preview: ' + err.message;
+            }).catch(function (err2) {
+                if (err2.message === 'unauthorized') return;
+                document.getElementById('preview-content').textContent = 'Could not load preview: ' + err2.message;
             });
         });
     }

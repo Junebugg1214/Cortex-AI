@@ -5,8 +5,13 @@
     // ── API helper ──────────────────────────────────────────────
     function api(path, opts) {
         opts = opts || {};
+        opts.credentials = 'same-origin';
         opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
         return fetch(path, opts).then(function (resp) {
+            if (resp.status === 401) {
+                showLogin();
+                throw new Error('unauthorized');
+            }
             if (!resp.ok) {
                 return resp.json().then(function (d) {
                     var msg = (d.error && d.error.message) || d.error || 'Request failed';
@@ -21,7 +26,9 @@
     }
 
     function apiRaw(path, opts) {
-        return fetch(path, opts || {});
+        opts = opts || {};
+        opts.credentials = 'same-origin';
+        return fetch(path, opts);
     }
 
     // ── Router ──────────────────────────────────────────────────
@@ -101,6 +108,72 @@
         }
     }
 
+    // ── Login / Logout ──────────────────────────────────────────
+    function showLogin() {
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('logout-btn').style.display = 'none';
+        document.getElementById('login-error').textContent = '';
+        document.getElementById('login-password').value = '';
+    }
+
+    function hideLogin() {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('logout-btn').style.display = '';
+    }
+
+    function setupAuth() {
+        var form = document.getElementById('login-form');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var pw = document.getElementById('login-password').value;
+                fetch('/app/auth', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pw }),
+                }).then(function (resp) {
+                    if (!resp.ok) {
+                        document.getElementById('login-error').textContent = 'Invalid password';
+                        return;
+                    }
+                    hideLogin();
+                    currentPage = null;
+                    route();
+                }).catch(function () {
+                    document.getElementById('login-error').textContent = 'Connection error';
+                });
+            });
+        }
+
+        var logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', function () {
+                fetch('/app/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                }).then(function () {
+                    currentPage = null;
+                    showLogin();
+                });
+            });
+        }
+    }
+
+    function bootCheck() {
+        fetch('/context/stats', { credentials: 'same-origin' }).then(function (resp) {
+            if (resp.status === 401) {
+                showLogin();
+            } else {
+                hideLogin();
+                route();
+            }
+        }).catch(function () {
+            hideLogin();
+            route();
+        });
+    }
+
     // ── Exports ─────────────────────────────────────────────────
     window.CortexApp = {
         api: api,
@@ -110,8 +183,10 @@
         escapeHtml: escapeHtml,
         debounce: debounce,
         copyToClipboard: copyToClipboard,
+        showLogin: showLogin,
     };
 
     // Boot
-    route();
+    setupAuth();
+    bootCheck();
 })();
