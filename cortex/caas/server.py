@@ -919,7 +919,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_CONFIGURED())
             return
 
-        policy_name = self._get_policy_for_token(token_data)
+        # Owner sessions (webapp/dashboard) honor the ?policy= query param
+        if token_data.get("_webapp") or token_data.get("_dashboard"):
+            policy_name = query.get("policy", ["full"])[0]
+        else:
+            policy_name = self._get_policy_for_token(token_data)
         policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
         data = filtered.export_v5()
@@ -936,7 +940,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_CONFIGURED())
             return
 
-        policy_name = self._get_policy_for_token(token_data)
+        if token_data.get("_webapp") or token_data.get("_dashboard"):
+            policy_name = query.get("policy", ["full"])[0]
+        else:
+            policy_name = self._get_policy_for_token(token_data)
         policy = self.__class__.policy_registry.get(policy_name) or BUILTIN_POLICIES["professional"]
         filtered = apply_disclosure(graph, policy)
 
