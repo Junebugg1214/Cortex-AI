@@ -9,11 +9,13 @@ Covers:
 - Webapp disabled by default behavior
 """
 
+import io
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from http.server import HTTPServer
 from pathlib import Path
 
@@ -362,6 +364,91 @@ class TestWebappUpload:
         data, status = self._upload(b"", filename="empty.txt", cookie=cookie)
         # Empty JSON parse will fail, empty text is also rejected
         assert status in (400, 404, 201)  # Depends on parsing path
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestUploadZip:
+    """Test POST /api/upload with zip archives."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def _upload(self, file_content, filename="test.zip", cookie=None):
+        """Helper to upload a file via multipart form data."""
+        url = f"http://127.0.0.1:{self.port}/api/upload"
+        body_parts = [
+            b"------TestBoundary123\r\n",
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            file_content if isinstance(file_content, bytes) else file_content.encode(),
+            b"\r\n------TestBoundary123--\r\n",
+        ]
+        body = b"".join(body_parts)
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "multipart/form-data; boundary=----TestBoundary123")
+        if cookie:
+            req.add_header("Cookie", cookie)
+        try:
+            resp = urllib.request.urlopen(req)
+            return json.loads(resp.read()), resp.status
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            try:
+                return json.loads(body), e.code
+            except (json.JSONDecodeError, ValueError):
+                return {"raw": body.decode("utf-8", errors="replace")}, e.code
+
+    @staticmethod
+    def _make_zip(files: dict[str, bytes]) -> bytes:
+        """Create an in-memory zip archive from a dict of {filename: content}."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, content in files.items():
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_upload_zip_with_conversations_json(self):
+        """Upload zip containing conversations.json (OpenAI format) → 201, nodes created."""
+        cookie = _login(self.port, self.identity)
+        conversations = json.dumps({
+            "conversations": [
+                {
+                    "title": "Test Chat",
+                    "messages": [
+                        {"content": "I love working with Python and machine learning"},
+                        {"content": "My favorite library is scikit-learn for classification"},
+                    ],
+                }
+            ]
+        }).encode()
+        zip_bytes = self._make_zip({"conversations.json": conversations})
+        data, status = self._upload(zip_bytes, filename="export.zip", cookie=cookie)
+        assert status == 201
+        assert data["nodes_created"] >= 1
+
+    def test_upload_zip_with_generic_json(self):
+        """Upload zip containing a generic data.json with messages → 201."""
+        cookie = _login(self.port, self.identity)
+        content = json.dumps({
+            "messages": [
+                {"content": "I enjoy hiking and photography in the mountains"},
+            ]
+        }).encode()
+        zip_bytes = self._make_zip({"data.json": content})
+        data, status = self._upload(zip_bytes, filename="backup.zip", cookie=cookie)
+        assert status == 201
+        assert data["nodes_created"] >= 1
+
+    def test_upload_zip_no_json_rejected(self):
+        """Upload zip with no JSON files → 400."""
+        cookie = _login(self.port, self.identity)
+        zip_bytes = self._make_zip({"readme.txt": b"Hello world"})
+        data, status = self._upload(zip_bytes, filename="nojson.zip", cookie=cookie)
+        assert status == 400
 
 
 # ============================================================================

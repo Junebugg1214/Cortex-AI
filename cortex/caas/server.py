@@ -2195,8 +2195,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         content_length = int(self.headers.get("Content-Length", 0))
 
-        # Size limit: 10 MB for uploads
-        max_upload = 10 * 1024 * 1024
+        # Size limit: 100 MB for uploads
+        max_upload = 100 * 1024 * 1024
         if content_length > max_upload:
             self._error_response(ERR_PAYLOAD_TOO_LARGE())
             return
@@ -2225,16 +2225,26 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("No file found in upload"))
             return
 
-        # Try to parse as JSON
-        try:
-            parsed = json.loads(file_data)
-        except (json.JSONDecodeError, ValueError):
-            # Treat as plain text — create a single node
-            text = file_data.decode("utf-8", errors="replace").strip()
-            if not text:
-                self._error_response(ERR_INVALID_REQUEST("Empty file"))
+        # If the file is a zip archive, extract JSON from it
+        import io
+        import zipfile
+
+        if zipfile.is_zipfile(io.BytesIO(file_data)):
+            parsed = self._parse_zip_upload(file_data)
+            if parsed is None:
+                self._error_response(ERR_INVALID_REQUEST("No JSON file found in zip archive"))
                 return
-            parsed = {"text": text}
+        else:
+            # Try to parse as JSON
+            try:
+                parsed = json.loads(file_data)
+            except (json.JSONDecodeError, ValueError):
+                # Treat as plain text — create a single node
+                text = file_data.decode("utf-8", errors="replace").strip()
+                if not text:
+                    self._error_response(ERR_INVALID_REQUEST("Empty file"))
+                    return
+                parsed = {"text": text}
 
         # Extract nodes and edges from the parsed content
         result = self._extract_from_upload(parsed)
@@ -2263,6 +2273,33 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 if body.endswith(b"\r\n"):
                     body = body[:-2]
                 return body
+        return None
+
+    def _parse_zip_upload(self, data: bytes) -> dict | list | None:
+        """Extract and parse JSON content from a zip archive.
+
+        Looks for conversations.json first (OpenAI export format),
+        then tries each .json file until one parses successfully.
+        """
+        import io
+        import zipfile
+
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = zf.namelist()
+            # Prefer conversations.json (OpenAI export format)
+            for name in names:
+                if name.endswith("conversations.json"):
+                    try:
+                        return json.loads(zf.read(name))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+            # Fall back to any .json file
+            for name in names:
+                if name.lower().endswith(".json"):
+                    try:
+                        return json.loads(zf.read(name))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
         return None
 
     def _extract_from_upload(self, parsed: dict | list) -> dict:

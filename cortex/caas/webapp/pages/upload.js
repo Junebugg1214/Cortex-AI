@@ -27,8 +27,8 @@
             '      </svg>' +
             '    </div>' +
             '    <h2>Drop your chat export here</h2>' +
-            '    <p>Or click to browse. Supports JSON and text files.</p>' +
-            '    <input type="file" id="file-input" class="upload-hidden-input" accept=".json,.txt,.md,.csv">' +
+            '    <p>Or click to browse. Supports JSON, text, and zip files.</p>' +
+            '    <input type="file" id="file-input" class="upload-hidden-input" accept=".json,.txt,.md,.csv,.zip">' +
             '    <div class="platform-icons">' +
             '      <div class="platform-icon">' +
             '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 10.42c-.2-.14-.42-.22-.65-.22H14.6l2.24-6.41c.16-.48-.05-1-.5-1.22a.99.99 0 00-1.17.25L5.32 13.58c-.18.2-.28.46-.28.73 0 .58.47 1.05 1.05 1.05h7.03l-2.24 6.41c-.16.48.05 1 .5 1.22.14.07.3.1.45.1.33 0 .64-.15.85-.42l9.85-10.76c.18-.2.28-.46.28-.73a1.03 1.03 0 00-.53-.76z"/></svg>' +
@@ -80,9 +80,9 @@
     }
 
     function handleFile(file) {
-        // Size check: 10 MB max
-        if (file.size > 10 * 1024 * 1024) {
-            C.showToast('File too large. Maximum size is 10 MB.', 'error');
+        // Size check: 100 MB max
+        if (file.size > 100 * 1024 * 1024) {
+            C.showToast('File too large. Maximum size is 100 MB.', 'error');
             return;
         }
 
