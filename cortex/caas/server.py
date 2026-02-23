@@ -232,6 +232,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     tracing_manager: Any = None  # Optional TracingManager
     federation_manager: Any = None  # Optional FederationManager
     enable_webapp: bool = False  # Enable /app web UI
+    api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -350,6 +351,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/peers":
             self._serve_federation_peers()
+        # ── API key routes ──────────────────────────────────────
+        elif path == "/api/keys":
+            self._handle_list_api_keys()
+        elif path.startswith("/api/memory/"):
+            self._handle_public_memory(path)
         # ── Webapp routes ────────────────────────────────────────
         elif path.startswith("/app"):
             self._serve_webapp_file(path)
@@ -394,6 +400,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_token_exchange()
         elif path == "/api/upload":
             self._handle_webapp_upload()
+        elif path == "/api/import/github":
+            self._handle_github_import()
+        elif path == "/api/import/linkedin":
+            self._handle_linkedin_import()
+        elif path == "/api/keys":
+            self._handle_create_api_key()
         # ── Webapp auth routes ────────────────────────────────────
         elif path == "/app/auth":
             self._handle_webapp_login()
@@ -440,6 +452,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._handle_delete_policy(policy_name)
+        elif path.startswith("/api/keys/"):
+            key_id = path[len("/api/keys/"):]
+            self._handle_revoke_api_key(key_id)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_delete(path)
@@ -2225,7 +2240,46 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST("No file found in upload"))
             return
 
-        # If the file is a zip archive, extract JSON from it
+        # Detect file type and route accordingly
+        from cortex.caas.importers import (
+            detect_file_type,
+            extract_text_from_docx,
+            extract_text_from_pdf,
+            parse_linkedin_export,
+            parse_resume_text,
+        )
+
+        # Extract filename from multipart headers (best effort)
+        filename = self._extract_multipart_filename(raw, boundary) or "upload"
+        ftype = detect_file_type(filename, file_data)
+
+        if ftype == "resume_pdf":
+            text = extract_text_from_pdf(file_data)
+            if not text.strip():
+                self._error_response(ERR_INVALID_REQUEST("Could not extract text from PDF"))
+                return
+            import_result = parse_resume_text(text)
+            result = self._import_nodes_edges(import_result)
+            self._json_response(result, status=201)
+            return
+
+        if ftype == "resume_docx":
+            text = extract_text_from_docx(file_data)
+            if not text.strip():
+                self._error_response(ERR_INVALID_REQUEST("Could not extract text from DOCX"))
+                return
+            import_result = parse_resume_text(text)
+            result = self._import_nodes_edges(import_result)
+            self._json_response(result, status=201)
+            return
+
+        if ftype == "linkedin_export":
+            import_result = parse_linkedin_export(file_data)
+            result = self._import_nodes_edges(import_result)
+            self._json_response(result, status=201)
+            return
+
+        # Existing path: zip or JSON/text chat exports
         import io
         import zipfile
 
@@ -2414,6 +2468,220 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "edges_created": edges_created,
             "categories": len(tag_set),
         }
+
+    # ── Import helpers ──────────────────────────────────────────────
+
+    def _extract_multipart_filename(self, raw: bytes, boundary: str) -> str | None:
+        """Extract the filename from multipart form headers."""
+        delimiter = b"--" + boundary.encode()
+        parts = raw.split(delimiter)
+        for part in parts:
+            if b"Content-Disposition" not in part:
+                continue
+            header_end = part.find(b"\r\n\r\n")
+            if header_end < 0:
+                continue
+            headers = part[:header_end].decode("utf-8", errors="replace")
+            import re
+            m = re.search(r'filename="([^"]*)"', headers)
+            if m:
+                return m.group(1)
+        return None
+
+    def _import_nodes_edges(self, import_result: dict) -> dict:
+        """Import nodes/edges from an import result dict into the graph."""
+        from cortex.graph import Edge, Node, make_edge_id, make_node_id
+
+        graph = self.__class__.graph
+        nodes_created = 0
+        edges_created = 0
+        tag_set: set[str] = set()
+
+        for nd in import_result.get("nodes", []):
+            label = nd.get("label", "")
+            if not label:
+                continue
+            node_id = nd.get("id") or make_node_id(label)
+            tags = nd.get("tags", [])
+            node = Node(
+                id=node_id, label=label, tags=tags,
+                confidence=nd.get("confidence", 0.5),
+                brief=nd.get("brief", ""),
+            )
+            graph.add_node(node)
+            nodes_created += 1
+            tag_set.update(t.lower() for t in tags)
+
+        for ed in import_result.get("edges", []):
+            source_id = ed.get("source_id", "")
+            target_id = ed.get("target_id", "")
+            relation = ed.get("relation", "related_to")
+            if source_id and target_id:
+                edge_id = ed.get("id") or make_edge_id(source_id, target_id, relation)
+                edge = Edge(id=edge_id, source_id=source_id,
+                            target_id=target_id, relation=relation)
+                graph.add_edge(edge)
+                edges_created += 1
+
+        return {
+            "nodes_created": nodes_created,
+            "edges_created": edges_created,
+            "categories": len(tag_set),
+            "source_type": import_result.get("source_type", "import"),
+        }
+
+    # ── GitHub / LinkedIn import endpoints ───────────────────────────
+
+    def _handle_github_import(self) -> None:
+        """POST /api/import/github — import a GitHub repository."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        url = body.get("url", "")
+        if not url:
+            self._error_response(ERR_INVALID_REQUEST("Missing 'url' field"))
+            return
+
+        token = body.get("token") or None
+
+        from cortex.caas.importers import fetch_github_repo
+        import_result = fetch_github_repo(url, token=token)
+
+        if "error" in import_result and not import_result.get("nodes"):
+            self._error_response(ERR_INVALID_REQUEST(import_result["error"]))
+            return
+
+        result = self._import_nodes_edges(import_result)
+        self._json_response(result, status=201)
+
+    def _handle_linkedin_import(self) -> None:
+        """POST /api/import/linkedin — import from a LinkedIn profile URL."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        url = body.get("url", "")
+        if not url:
+            self._error_response(ERR_INVALID_REQUEST("Missing 'url' field"))
+            return
+
+        from cortex.caas.importers import fetch_linkedin_profile
+        import_result = fetch_linkedin_profile(url)
+
+        if "error" in import_result and not import_result.get("nodes"):
+            self._error_response(ERR_INVALID_REQUEST(import_result["error"]))
+            return
+
+        result = self._import_nodes_edges(import_result)
+        if import_result.get("limited"):
+            result["limited"] = True
+            result["hint"] = ("LinkedIn blocks most scraping. "
+                              "For richer data, use a LinkedIn data export (Settings > Get a copy of your data).")
+        self._json_response(result, status=201)
+
+    # ── API Key endpoints ────────────────────────────────────────────
+
+    def _get_api_key_store(self):
+        """Lazy-init the API key store."""
+        if self.__class__.api_key_store is None:
+            from cortex.caas.api_keys import ApiKeyStore
+            store_path = Path(".cortex") / "api_keys.json"
+            self.__class__.api_key_store = ApiKeyStore(store_path)
+        return self.__class__.api_key_store
+
+    def _handle_create_api_key(self) -> None:
+        """POST /api/keys — create a new shareable memory API key."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        label = body.get("label", "Untitled Key")
+        policy = body.get("policy", "full")
+        tags = body.get("tags")
+        fmt = body.get("format", "json")
+
+        valid_policies = {"full", "professional", "technical", "minimal", "custom"}
+        if policy not in valid_policies:
+            self._error_response(ERR_INVALID_REQUEST(
+                f"Invalid policy. Must be one of: {', '.join(sorted(valid_policies))}"))
+            return
+
+        valid_formats = {"json", "claude_xml", "system_prompt", "markdown"}
+        if fmt not in valid_formats:
+            self._error_response(ERR_INVALID_REQUEST(
+                f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"))
+            return
+
+        store = self._get_api_key_store()
+        key_info = store.create(label, policy, tags=tags, fmt=fmt)
+        self._json_response(key_info, status=201)
+
+    def _handle_list_api_keys(self) -> None:
+        """GET /api/keys — list all API keys (secrets masked)."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self._get_api_key_store()
+        self._json_response(store.list_keys())
+
+    def _handle_revoke_api_key(self, key_id: str) -> None:
+        """DELETE /api/keys/{key_id} — revoke an API key."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self._get_api_key_store()
+        if store.revoke(key_id):
+            self._json_response({"revoked": True, "key_id": key_id})
+        else:
+            self._error_response(ERR_NOT_FOUND("api_key"))
+
+    def _handle_public_memory(self, path: str) -> None:
+        """GET /api/memory/{key} — public endpoint, no auth required."""
+        key_secret = path[len("/api/memory/"):]
+        if not key_secret:
+            self._error_response(ERR_NOT_FOUND("api_key"))
+            return
+
+        store = self._get_api_key_store()
+        key_info = store.get_by_secret(key_secret)
+        if key_info is None:
+            self._error_response(ERR_NOT_FOUND("api_key"))
+            return
+
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        from cortex.caas.api_keys import render_memory
+        content, content_type = render_memory(
+            graph, key_info["policy"], key_info.get("tags"), key_info["format"])
+        self._respond(200, content_type, content.encode("utf-8"))
 
     # ── Dashboard: static files ─────────────────────────────────────
 

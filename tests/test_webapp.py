@@ -136,6 +136,7 @@ def _setup_webapp_server(enable_webapp=True):
     CaaSHandler.oauth_manager = None
     CaaSHandler.credential_store = None
     CaaSHandler.csrf_enabled = False
+    CaaSHandler.api_key_store = None
 
     from cortex.caas.dashboard.auth import DashboardSessionManager
     CaaSHandler.session_manager = DashboardSessionManager(identity)
@@ -585,3 +586,232 @@ class TestWebappAuth:
             assert False, "Expected HTTPError"
         except urllib.error.HTTPError as e:
             assert e.code == 404
+
+
+# ============================================================================
+# Import endpoint integration tests
+# ============================================================================
+
+
+def _post_json(port, path, body, cookie=None):
+    """POST JSON to a path, return (parsed_json, status)."""
+    url = f"http://127.0.0.1:{port}{path}"
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if cookie:
+        req.add_header("Cookie", cookie)
+    try:
+        resp = urllib.request.urlopen(req)
+        return json.loads(resp.read()), resp.status
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return json.loads(raw), e.code
+        except (json.JSONDecodeError, ValueError):
+            return {"raw": raw.decode("utf-8", errors="replace")}, e.code
+
+
+def _delete_req(port, path, cookie=None):
+    """DELETE request, return (parsed_json, status)."""
+    url = f"http://127.0.0.1:{port}{path}"
+    req = urllib.request.Request(url, method="DELETE")
+    if cookie:
+        req.add_header("Cookie", cookie)
+    try:
+        resp = urllib.request.urlopen(req)
+        return json.loads(resp.read()), resp.status
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return json.loads(raw), e.code
+        except (json.JSONDecodeError, ValueError):
+            return {"raw": raw.decode("utf-8", errors="replace")}, e.code
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappImportEndpoints:
+    """Test POST /api/import/github and /api/import/linkedin."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def test_github_import_requires_auth(self):
+        data, status = _post_json(self.port, "/api/import/github", {"url": "https://github.com/user/repo"})
+        assert status == 401
+
+    def test_github_import_missing_url(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/import/github", {}, cookie=cookie)
+        assert status == 400
+
+    def test_github_import_invalid_url(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/import/github",
+                                  {"url": "https://example.com/notgithub"}, cookie=cookie)
+        assert status == 400
+
+    def test_linkedin_import_requires_auth(self):
+        data, status = _post_json(self.port, "/api/import/linkedin", {"url": "https://linkedin.com/in/test"})
+        assert status == 401
+
+    def test_linkedin_import_missing_url(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/import/linkedin", {}, cookie=cookie)
+        assert status == 400
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappResumeUpload:
+    """Test uploading PDF/DOCX resumes via /api/upload."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def _upload(self, file_content, filename="test.json", cookie=None):
+        url = f"http://127.0.0.1:{self.port}/api/upload"
+        body_parts = [
+            "------TestBoundary123\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            file_content if isinstance(file_content, bytes) else file_content.encode(),
+            b"\r\n------TestBoundary123--\r\n",
+        ]
+        body = b"".join(body_parts)
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "multipart/form-data; boundary=----TestBoundary123")
+        if cookie:
+            req.add_header("Cookie", cookie)
+        try:
+            resp = urllib.request.urlopen(req)
+            return json.loads(resp.read()), resp.status
+        except urllib.error.HTTPError as e:
+            raw = e.read()
+            try:
+                return json.loads(raw), e.code
+            except (json.JSONDecodeError, ValueError):
+                return {"raw": raw.decode("utf-8", errors="replace")}, e.code
+
+    def test_upload_pdf_resume(self):
+        """Upload a simple PDF and get nodes back."""
+        cookie = _login(self.port, self.identity)
+        pdf = (
+            b"%PDF-1.0\n"
+            b"BT\n(John Smith is a Senior Software Engineer at Google) Tj\nET\n"
+            b"BT\n(He specializes in Python and Kubernetes) Tj\nET\n"
+            b"%%EOF\n"
+        )
+        data, status = self._upload(pdf, filename="resume.pdf", cookie=cookie)
+        assert status == 201
+        assert data["source_type"] == "resume"
+        assert data["nodes_created"] >= 1
+
+    def test_upload_docx_resume(self):
+        """Upload a DOCX file and get nodes back."""
+        cookie = _login(self.port, self.identity)
+        ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        xml = (
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<w:document xmlns:w="{ns}"><w:body>'
+            f'<w:p><w:r><w:t>Jane Doe is a Data Scientist at Meta</w:t></w:r></w:p>'
+            f'<w:p><w:r><w:t>She uses Python and TensorFlow for machine learning</w:t></w:r></w:p>'
+            f'</w:body></w:document>'
+        )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("word/document.xml", xml)
+        docx_bytes = buf.getvalue()
+
+        data, status = self._upload(docx_bytes, filename="resume.docx", cookie=cookie)
+        assert status == 201
+        assert data["source_type"] == "resume"
+        assert data["nodes_created"] >= 1
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappApiKeys:
+    """Test API key CRUD and public memory endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        CaaSHandler.api_key_store = None
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def test_create_key_requires_auth(self):
+        data, status = _post_json(self.port, "/api/keys", {"label": "Test"})
+        assert status == 401
+
+    def test_create_and_list_keys(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "My Key", "policy": "full", "format": "json"},
+                                  cookie=cookie)
+        assert status == 201
+        assert data["key_secret"].startswith("cmk_")
+
+        body, status, ct = _get_raw(self.port, "/api/keys", cookie=cookie)
+        assert status == 200
+        keys = json.loads(body)
+        assert len(keys) >= 1
+        assert "..." in keys[0]["key_secret"]
+
+    def test_revoke_key(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "Revoke Me", "policy": "full", "format": "json"},
+                                  cookie=cookie)
+        key_id = data["key_id"]
+        key_secret = data["key_secret"]
+
+        data, status = _delete_req(self.port, f"/api/keys/{key_id}", cookie=cookie)
+        assert status == 200
+        assert data["revoked"] is True
+
+        body, status, ct = _get_raw(self.port, f"/api/memory/{key_secret}")
+        assert status == 404
+
+    def test_public_memory_endpoint(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "Public Key", "policy": "full", "format": "json"},
+                                  cookie=cookie)
+        key_secret = data["key_secret"]
+
+        body, status, ct = _get_raw(self.port, f"/api/memory/{key_secret}")
+        assert status == 200
+        result = json.loads(body)
+        assert "graph" in result
+        assert "nodes" in result["graph"]
+
+    def test_public_memory_invalid_key(self):
+        body, status, ct = _get_raw(self.port, "/api/memory/cmk_fake_invalid_key")
+        assert status == 404
+
+    def test_create_key_invalid_policy(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "Bad", "policy": "nonexistent"},
+                                  cookie=cookie)
+        assert status == 400
+
+    def test_public_memory_claude_xml(self):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "XML Key", "policy": "full", "format": "claude_xml"},
+                                  cookie=cookie)
+        key_secret = data["key_secret"]
+        body, status, ct = _get_raw(self.port, f"/api/memory/{key_secret}")
+        assert status == 200
+        text = body.decode("utf-8", errors="replace")
+        assert "<user-context>" in text
