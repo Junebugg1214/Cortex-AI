@@ -394,6 +394,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_token_exchange()
         elif path == "/api/upload":
             self._handle_webapp_upload()
+        # ── Webapp auth routes ────────────────────────────────────
+        elif path == "/app/auth":
+            self._handle_webapp_login()
+        elif path == "/app/logout":
+            self._handle_webapp_logout()
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/export":
             self._handle_federation_export()
@@ -633,19 +638,43 @@ class CaaSHandler(BaseHTTPRequestHandler):
         return token.to_dict()
 
     def _authenticate_or_dashboard(self, required_scope: str = "") -> dict | None:
-        """Authenticate via Bearer token OR dashboard session cookie.
+        """Authenticate via Bearer token, webapp session cookie, or dashboard session.
 
         For routes that accept either. Returns token_data dict (or synthetic
-        owner dict for dashboard sessions), or None (error already sent).
+        owner dict for dashboard/webapp sessions), or None (error already sent).
         """
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return self._authenticate(required_scope)
 
-        # Fall back to dashboard session
-        if self._dashboard_auth_check():
-            # Dashboard sessions get implicit owner privileges
-            return {"_dashboard": True, "scopes": list(VALID_SCOPES)}
+        sm = self.__class__.session_manager
+        cookie_header = self.headers.get("Cookie", "")
+
+        # Check webapp session cookie (cortex_app_session)
+        if getattr(self.__class__, "enable_webapp", False) and sm is not None:
+            for part in cookie_header.split(";"):
+                part = part.strip()
+                if part.startswith("cortex_app_session="):
+                    token = part[len("cortex_app_session="):]
+                    if token and sm.validate(token):
+                        return {"_webapp": True, "scopes": list(VALID_SCOPES)}
+                    break
+
+        # Check dashboard session cookie (cortex_session)
+        if sm is not None:
+            for part in cookie_header.split(";"):
+                part = part.strip()
+                if part.startswith("cortex_session="):
+                    token = part[len("cortex_session="):]
+                    if token and sm.validate(token):
+                        return {"_dashboard": True, "scopes": list(VALID_SCOPES)}
+                    break
+
+        # No valid auth found — send proper UPAI error
+        from cortex.upai.error_hints import hint_for_invalid_token
+        err = ERR_INVALID_TOKEN("Missing or malformed Authorization header")
+        err.hint = hint_for_invalid_token()
+        self._error_response(err)
         return None
 
     # ── Audit helper ─────────────────────────────────────────────────
@@ -880,7 +909,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         return token_data.get("policy", "professional")
 
     def _serve_context(self, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -898,7 +927,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response(data)
 
     def _serve_context_compact(self, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -919,7 +948,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._respond(200, "text/markdown; charset=utf-8", "\n".join(lines).encode("utf-8"))
 
     def _serve_context_nodes(self, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -941,7 +970,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response(page.to_dict())
 
     def _serve_context_node(self, node_id: str, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -962,7 +991,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response(node.to_dict())
 
     def _serve_context_edges(self, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -984,7 +1013,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response(page.to_dict())
 
     def _serve_context_stats(self, query: dict) -> None:
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
 
@@ -1132,7 +1161,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_search_nodes(self) -> None:
         """POST /context/search — full-text search. Requires context:read."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
         graph = self.__class__.graph
@@ -1177,7 +1206,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _serve_node_neighbors(self, node_id: str, query: dict) -> None:
         """GET /context/nodes/{id}/neighbors — neighbors with optional relation filter."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
         graph = self.__class__.graph
@@ -1200,7 +1229,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _serve_shortest_path(self, rest: str) -> None:
         """GET /context/path/{source_id}/{target_id} — shortest path."""
-        token_data = self._authenticate("context:read")
+        token_data = self._authenticate_or_dashboard("context:read")
         if token_data is None:
             return
         graph = self.__class__.graph
@@ -2153,7 +2182,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._dashboard_auth_check():
+        if not self._webapp_auth_check():
             return
 
         content_type = self.headers.get("Content-Type", "")
@@ -2353,6 +2382,90 @@ class CaaSHandler(BaseHTTPRequestHandler):
         ct = guess_content_type(resolved)
         body = resolved.read_bytes()
         self._respond(200, ct, body, dashboard=True)
+
+    # ── Webapp: session auth ────────────────────────────────────
+
+    def _webapp_auth_check(self) -> bool:
+        """Validate webapp session cookie (cortex_app_session) or fall back to dashboard session.
+
+        Returns True if valid, sends 401 otherwise.
+        """
+        sm = self.__class__.session_manager
+        if sm is None:
+            self._respond(401, "application/json",
+                          json.dumps({"error": "unauthorized"}).encode(),
+                          dashboard=True)
+            return False
+
+        cookie_header = self.headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_app_session="):
+                token = part[len("cortex_app_session="):]
+                if token and sm.validate(token):
+                    return True
+                self._respond(401, "application/json",
+                              json.dumps({"error": "unauthorized"}).encode(),
+                              dashboard=True)
+                return False
+
+        # Fall back to dashboard session cookie
+        return self._dashboard_auth_check()
+
+    def _handle_webapp_login(self) -> None:
+        """POST /app/auth — authenticate webapp with derived password."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+
+        sm = self.__class__.session_manager
+        if sm is None:
+            self._error_response(ERR_NOT_CONFIGURED("Webapp not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        password = body.get("password", "")
+        token = sm.authenticate(password)
+        if token is None:
+            self._audit("webapp.login_failed", {})
+            self._respond(401, "application/json",
+                          json.dumps({"error": "invalid_password"}).encode(),
+                          dashboard=True)
+            return
+
+        self._audit("webapp.login", {})
+        resp_body = json.dumps({"ok": True}).encode()
+        self._respond(200, "application/json", resp_body, dashboard=True,
+                      extra_headers={
+                          "Set-Cookie": f"cortex_app_session={token}; HttpOnly; SameSite=Strict; Path=/",
+                      })
+
+    def _handle_webapp_logout(self) -> None:
+        """POST /app/logout — revoke webapp session."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+
+        sm = self.__class__.session_manager
+        if sm is not None:
+            cookie_header = self.headers.get("Cookie", "")
+            for part in cookie_header.split(";"):
+                part = part.strip()
+                if part.startswith("cortex_app_session="):
+                    token = part[len("cortex_app_session="):]
+                    if token:
+                        sm.revoke(token)
+                    break
+
+        self._audit("webapp.logout", {})
+        resp_body = json.dumps({"ok": True}).encode()
+        self._respond(200, "application/json", resp_body, dashboard=True,
+                      extra_headers={
+                          "Set-Cookie": "cortex_app_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                      })
 
     # ── Dashboard: session auth ──────────────────────────────────
 

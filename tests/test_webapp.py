@@ -362,3 +362,139 @@ class TestWebappUpload:
         data, status = self._upload(b"", filename="empty.txt", cookie=cookie)
         # Empty JSON parse will fail, empty text is also rejected
         assert status in (400, 404, 201)  # Depends on parsing path
+
+
+# ============================================================================
+# Webapp auth helpers
+# ============================================================================
+
+
+def _webapp_login(port, password):
+    """Log in via /app/auth, return cortex_app_session cookie string."""
+    url = f"http://127.0.0.1:{port}/app/auth"
+    body = json.dumps({"password": password}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        resp = urllib.request.urlopen(req)
+        cookie_header = resp.headers.get("Set-Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_app_session="):
+                return part
+        return ""
+    except urllib.error.HTTPError:
+        return ""
+
+
+def _webapp_logout(port, cookie):
+    """Log out via /app/logout."""
+    url = f"http://127.0.0.1:{port}/app/logout"
+    req = urllib.request.Request(url, method="POST", data=b"")
+    req.add_header("Content-Type", "application/json")
+    if cookie:
+        req.add_header("Cookie", cookie)
+    try:
+        resp = urllib.request.urlopen(req)
+        return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+# ============================================================================
+# Webapp auth tests
+# ============================================================================
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappAuth:
+    """Test webapp authentication flow (POST /app/auth, /app/logout, cookie-based access)."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        self.password = CaaSHandler.session_manager.password
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def test_webapp_login_success(self):
+        """POST /app/auth with correct password returns 200 and sets cortex_app_session cookie."""
+        cookie = _webapp_login(self.port, self.password)
+        assert cookie.startswith("cortex_app_session=")
+        assert len(cookie) > len("cortex_app_session=")
+
+    def test_webapp_login_wrong_password(self):
+        """POST /app/auth with wrong password returns 401."""
+        url = f"http://127.0.0.1:{self.port}/app/auth"
+        body = json.dumps({"password": "wrong"}).encode()
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            urllib.request.urlopen(req)
+            assert False, "Expected HTTPError"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+    def test_context_without_cookie_returns_401(self):
+        """GET /context without any cookie returns 401 (insecure bypass removed)."""
+        body, status, ct = _get_raw(self.port, "/context")
+        assert status == 401
+
+    def test_context_with_webapp_cookie_returns_200(self):
+        """GET /context with valid cortex_app_session cookie returns 200."""
+        cookie = _webapp_login(self.port, self.password)
+        body, status, ct = _get_raw(self.port, "/context", cookie=cookie)
+        assert status == 200
+        data = json.loads(body)
+        assert "graph" in data or "nodes" in data
+
+    def test_logout_revokes_session(self):
+        """POST /app/logout revokes the session; subsequent requests get 401."""
+        cookie = _webapp_login(self.port, self.password)
+        # Verify session works
+        _, status, _ = _get_raw(self.port, "/context/stats", cookie=cookie)
+        assert status == 200
+        # Logout
+        logout_status = _webapp_logout(self.port, cookie)
+        assert logout_status == 200
+        # Session should be revoked
+        _, status, _ = _get_raw(self.port, "/context/stats", cookie=cookie)
+        assert status == 401
+
+    def test_upload_with_webapp_cookie(self):
+        """POST /api/upload with cortex_app_session cookie returns 201."""
+        cookie = _webapp_login(self.port, self.password)
+        content = json.dumps({
+            "nodes": [{"label": "AuthTest", "tags": ["test"], "confidence": 0.9}],
+        })
+        url = f"http://127.0.0.1:{self.port}/api/upload"
+        body_parts = [
+            b"------TestBoundary123\r\n",
+            b'Content-Disposition: form-data; name="file"; filename="test.json"\r\n',
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            content.encode(),
+            b"\r\n------TestBoundary123--\r\n",
+        ]
+        body = b"".join(body_parts)
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "multipart/form-data; boundary=----TestBoundary123")
+        req.add_header("Cookie", cookie)
+        resp = urllib.request.urlopen(req)
+        data = json.loads(resp.read())
+        assert resp.status == 201
+        assert data["nodes_created"] == 1
+
+    def test_webapp_auth_returns_404_when_disabled(self):
+        """POST /app/auth returns 404 when enable_webapp=False."""
+        self.server.shutdown()
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=False)
+        url = f"http://127.0.0.1:{self.port}/app/auth"
+        body = json.dumps({"password": "anything"}).encode()
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            urllib.request.urlopen(req)
+            assert False, "Expected HTTPError"
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
