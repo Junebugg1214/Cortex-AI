@@ -815,3 +815,183 @@ class TestWebappApiKeys:
         assert status == 200
         text = body.decode("utf-8", errors="replace")
         assert "<user-context>" in text
+
+
+# ============================================================================
+# Public memory query endpoint
+# ============================================================================
+
+def _setup_query_server():
+    """Set up a CaaS test server with a graph containing diverse tags."""
+    if not has_crypto():
+        return None, None, None
+
+    identity = UPAIIdentity.generate("Query User")
+    graph = CortexGraph()
+    graph.add_node(Node(
+        id="n1", label="Python", tags=["technical_expertise"],
+        confidence=0.9, brief="Programming language",
+    ))
+    graph.add_node(Node(
+        id="n2", label="John Doe", tags=["identity"],
+        confidence=0.95, brief="Full name",
+    ))
+    graph.add_node(Node(
+        id="n3", label="Machine Learning", tags=["domain_knowledge"],
+        confidence=0.8, brief="Research area",
+    ))
+    graph.add_node(Node(
+        id="n4", label="Low Confidence", tags=["technical_expertise"],
+        confidence=0.3, brief="Barely known topic",
+    ))
+    graph.add_edge(Edge(id="e1", source_id="n1", target_id="n3", relation="related_to"))
+
+    CaaSHandler.graph = graph
+    CaaSHandler.identity = identity
+    CaaSHandler.grant_store = GrantStore()
+    CaaSHandler.nonce_cache = NonceCache()
+    CaaSHandler.version_store = None
+    CaaSHandler.webhook_store = JsonWebhookStore()
+    CaaSHandler._allowed_origins = set()
+    CaaSHandler.enable_webapp = True
+    CaaSHandler.session_manager = None
+    CaaSHandler.plugin_manager = None
+    CaaSHandler.tracing_manager = None
+    CaaSHandler.federation_manager = None
+    CaaSHandler.metrics_registry = None
+    CaaSHandler.rate_limiter = None
+    CaaSHandler.webhook_worker = None
+    CaaSHandler.sse_manager = None
+    CaaSHandler.oauth_manager = None
+    CaaSHandler.credential_store = None
+    CaaSHandler.csrf_enabled = False
+    CaaSHandler.api_key_store = None
+
+    from cortex.caas.dashboard.auth import DashboardSessionManager
+    CaaSHandler.session_manager = DashboardSessionManager(identity)
+
+    server = HTTPServer(("127.0.0.1", 0), CaaSHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.1)
+
+    return server, port, identity
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappMemoryQuery:
+    """Test search/query parameters on the public memory endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_query_server()
+        CaaSHandler.api_key_store = None
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def _create_key(self, policy="full", fmt="json"):
+        cookie = _login(self.port, self.identity)
+        data, status = _post_json(self.port, "/api/keys",
+                                  {"label": "Q", "policy": policy, "format": fmt},
+                                  cookie=cookie)
+        assert status == 201
+        return data["key_secret"]
+
+    # ── DSL query ──────────────────────────────────────────────────
+
+    def test_q_find_identity_nodes(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f'/api/memory/{secret}?q=FIND+nodes+WHERE+tag+%3D+"identity"')
+        assert status == 200
+        data = json.loads(body)
+        assert data["count"] >= 1
+        assert data["policy"] == "full"
+        # Should contain John Doe
+        labels = [n["label"] for n in data["results"]["nodes"]]
+        assert "John Doe" in labels
+
+    def test_q_parse_error_returns_400(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?q=INVALID+GIBBERISH")
+        assert status == 400
+        data = json.loads(body)
+        assert "error" in data
+        assert "hint" in data["error"]
+        assert "FIND" in data["error"]["hint"]
+
+    # ── search= shorthand ──────────────────────────────────────────
+
+    def test_search_python(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?search=Python")
+        assert status == 200
+        data = json.loads(body)
+        assert data["count"] >= 1
+        labels = [n["label"] for n in data["results"]]
+        assert "Python" in labels
+
+    # ── tags= filter ───────────────────────────────────────────────
+
+    def test_tags_identity(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?tags=identity")
+        assert status == 200
+        data = json.loads(body)
+        labels = [n["label"] for n in data["results"]]
+        assert "John Doe" in labels
+        assert "Python" not in labels
+
+    def test_tags_with_limit(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?tags=identity,technical_expertise&limit=1")
+        assert status == 200
+        data = json.loads(body)
+        assert data["count"] == 1
+
+    # ── min_confidence ─────────────────────────────────────────────
+
+    def test_min_confidence_filter(self):
+        secret = self._create_key()
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?min_confidence=0.85")
+        assert status == 200
+        data = json.loads(body)
+        # Only Python (0.9) and John Doe (0.95) should pass
+        labels = [n["label"] for n in data["results"]]
+        assert "Low Confidence" not in labels
+        assert "Machine Learning" not in labels  # 0.8 < 0.85
+
+    # ── No query params → unchanged format output (regression) ─────
+
+    def test_no_params_returns_format_output(self):
+        secret = self._create_key(fmt="claude_xml")
+        body, status, ct = _get_raw(self.port, f"/api/memory/{secret}")
+        assert status == 200
+        text = body.decode("utf-8", errors="replace")
+        assert "<user-context>" in text
+
+    # ── Policy security: technical key excludes identity ────────────
+
+    def test_query_respects_policy(self):
+        """Technical policy key + FIND query must NOT expose identity nodes."""
+        secret = self._create_key(policy="technical")
+        body, status, ct = _get_raw(
+            self.port,
+            f"/api/memory/{secret}?q=FIND+nodes")
+        assert status == 200
+        data = json.loads(body)
+        labels = [n["label"] for n in data["results"]["nodes"]]
+        assert "John Doe" not in labels
