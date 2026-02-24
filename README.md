@@ -1,5 +1,5 @@
 <h1 align="center">Cortex</h1>
-<p align="center"><strong>Own your AI memory. Take it everywhere.</strong></p>
+<p align="center"><strong>A personal memory system for AI. Own it. Take it everywhere.</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/cortex-identity/"><img src="https://img.shields.io/pypi/v/cortex-identity?color=blue&label=PyPI" alt="PyPI"></a>
@@ -7,82 +7,88 @@
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
   <a href="https://www.npmjs.com/package/@cortex_ai/sdk"><img src="https://img.shields.io/npm/v/@cortex_ai/sdk?color=cb3837&label=npm" alt="npm"></a>
-  <img src="https://img.shields.io/badge/tests-2%2C063%20passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-2%2C138%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
 
-**Your ChatGPT knows you. Now Claude does too.**
+## The Problem
 
-Cortex extracts your context from ChatGPT, Claude, Gemini, Perplexity, and coding tools (Claude Code, Cursor, Copilot) — builds a portable knowledge graph you own — and pushes it to any platform or serves it over HTTP as an API. Includes a consumer web UI for uploading, exploring, and sharing your memory. Cryptographically signed. Version controlled. Protocol-grade. Zero dependencies. Multiple storage backends (SQLite, PostgreSQL). SDKs for Python and TypeScript. Semantic search, plugin system, graph query language, cross-instance federation, Helm charts, Terraform modules, and distributed tracing.
+Every time you talk to ChatGPT, Claude, or any AI assistant, you start from scratch. The AI doesn't know who you are, what you do, what tools you use, or what you care about. You repeat yourself constantly. Your history is scattered across platforms you don't control.
 
-### Own your memory
+## What Cortex Does
 
-<p align="center">
-  <img src="assets/demo-own.gif" alt="Extract and query your AI memory" width="800">
-</p>
+Cortex watches your conversations, reads your resumes, pulls from your LinkedIn and GitHub, and builds a **knowledge graph** — a structured map of everything about you: your skills, your job history, your projects, the technologies you use, your preferences, your goals.
 
-### Share it how you want
+Then it makes that context available to any AI tool you use, so they all just *know* you.
 
-<p align="center">
-  <img src="assets/demo-share.gif" alt="Disclosure policies control what each platform sees" width="800">
-</p>
+### How it works
 
-### Serve it as an API
+1. **You feed it data** — Drop in your ChatGPT exports, upload your resume, connect your GitHub, import your LinkedIn. It reads everything and extracts the important stuff automatically.
 
-<p align="center">
-  <img src="assets/demo-api.gif" alt="CaaS server with grant tokens and HTTP access" width="800">
-</p>
+2. **It builds a map of you** — Not just a list of facts, but a connected graph. "You know Python" connects to "You work at Company X" connects to "You're building a machine learning project." It tracks confidence levels, detects contradictions, and updates over time.
+
+3. **It shares your context with AI tools** — Generate an API key, pick what you want to share (everything, just professional stuff, just technical skills), and give that URL to any AI assistant. Now Claude, Cursor, Copilot, or your custom chatbot knows who you are without you explaining.
+
+```
+Chat Exports (ChatGPT, Claude, Gemini, Perplexity)
+  + Resumes (PDF, DOCX) + LinkedIn + GitHub
+        |
+   Extract --> Knowledge Graph --> Sign & Version --+--> Push to any AI tool
+                                                    +--> Serve via API
+                                                    +--> Web UI (explore & share)
+```
+
+Everything runs on your machine. No cloud service has your data. You own your identity, you control who sees what.
+
+---
+
+## Use Cases
+
+### Make every AI conversation smarter from the start
+Instead of telling Claude "I'm a backend engineer who uses Python and Kubernetes and works at Acme Corp" every session, it already knows. Your coding assistant gives you answers in your stack. Your writing assistant matches your style.
+
+### Feed your resume to AI recruiters and agents
+Upload your PDF resume, and Cortex extracts your skills, companies, roles, and education into structured data. Generate a shareable API key and any recruiting bot or career tool can pull your professional profile in a machine-readable format.
+
+### Keep coding assistants in sync
+Use Cursor at work and Claude Code at home? Cortex writes your context into all of them simultaneously — Claude Code's MEMORY.md, Cursor's rules, Copilot's instructions, Windsurf, Gemini CLI. One source of truth, everywhere.
+
+### Team knowledge sharing with access control
+Share your "technical" profile (just skills and projects, no personal info) with a junior dev's AI assistant so it gives advice consistent with your team's stack. Disclosure policies control exactly what gets exposed.
+
+### Build AI agents that know their users
+Building a chatbot or agent? Instead of asking users 20 onboarding questions, give them a Cortex memory URL. Your agent calls `GET /api/memory/{key}` and instantly has structured context — expertise level, preferences, domain knowledge — in whatever format you need (JSON, XML, markdown).
+
+### Track how your knowledge evolves
+Cortex versions your graph like git versions code. Diff two snapshots, see what skills you picked up last month, detect when your priorities shifted, get a weekly digest of how your profile is changing.
+
+### Personal knowledge base from chat history
+You've had thousands of AI conversations across ChatGPT, Claude, and Gemini. Drop all those exports into Cortex and it extracts every project, tool, technique, and preference you've ever mentioned — things you've forgotten you know.
+
+### Self-host your own AI identity
+No cloud service required. You own your DID (decentralized identifier), you sign your own credentials, you control who sees what. Portable and private.
+
+---
 
 ## Quick Start
 
 ```bash
 pip install cortex-identity
 
-# Migrate ChatGPT → Claude in one command
+# Extract your ChatGPT history into a knowledge graph
 cortex chatgpt-export.zip --to claude -o ./output
 
-# See what it extracted
+# See what it found
 cortex stats output/context.json
 
-# Visualize your knowledge graph
+# Visualize it
 cortex viz output/context.json --output graph.html
+
+# Serve it as an API
+cortex serve output/context.json --enable-webapp --port 8421
+# Open http://localhost:8421/app to upload, explore, and share
 ```
-
-## What Makes This Different
-
-| | Cortex | Mem0 | Letta | ChatGPT Memory | Claude Memory |
-|---|:-:|:-:|:-:|:-:|:-:|
-| **You own it** | Yes | No | No | No | No |
-| **Portable** | Yes | No | No | No | No |
-| **Knowledge graph** | Yes | Partial | No | No | No |
-| **API-ready** | Yes | No | No | No | No |
-| **Cryptographic identity** | Yes | No | No | No | No |
-| **Role-based access (RBAC)** | Yes | No | No | No | No |
-| **OAuth 2.0 / OIDC** | Yes | No | No | No | No |
-| **SDKs (Python + TypeScript)** | Yes | Partial | No | No | No |
-| **Graph query language** | Yes | No | No | No | No |
-| **Semantic search (TF-IDF)** | Yes | No | No | No | No |
-| **Plugin system** | Yes | No | No | No | No |
-| **Cross-instance federation** | Yes | No | No | No | No |
-| **Web UI (Upload/Explore/Share)** | Yes | No | No | No | No |
-| **Temporal tracking** | Yes | No | No | No | No |
-| **Works offline** | Yes | No | No | No | No |
-| **Zero dependencies** | Yes | No | No | N/A | N/A |
-
-> Mem0, Letta, and built-in AI memories are **agent memory** — owned by the platform. Cortex is **your memory**, under **your control**.
-
-## How It Works
-
-```
-Chat Exports (ChatGPT, Claude, Gemini, Perplexity)
-  + Coding Sessions (Claude Code, Cursor, Copilot)
-        |
-   Extract ──→ Knowledge Graph ──→ Sign & Version ──┬──→ Push Anywhere
-                                                     └──→ Serve via API (CaaS)
-```
-
-Nodes are entities, not category items. "Python" is ONE node with tags `[technical_expertise, domain_knowledge]` — not duplicated across categories. Edges capture typed relationships: `Python --applied_in--> Healthcare`.
 
 ## Installation
 
@@ -109,181 +115,179 @@ Requires Python 3.10+ (macOS, Linux, Windows). No external packages required for
 
 ---
 
+## What Makes This Different
+
+| | Cortex | Mem0 | Letta | ChatGPT Memory | Claude Memory |
+|---|:-:|:-:|:-:|:-:|:-:|
+| **You own it** | Yes | No | No | No | No |
+| **Portable** | Yes | No | No | No | No |
+| **Knowledge graph** | Yes | Partial | No | No | No |
+| **API-ready** | Yes | No | No | No | No |
+| **Cryptographic identity** | Yes | No | No | No | No |
+| **Web UI** | Yes | No | No | No | No |
+| **Shareable memory API** | Yes | No | No | No | No |
+| **Resume / LinkedIn / GitHub import** | Yes | No | No | No | No |
+| **Role-based access (RBAC)** | Yes | No | No | No | No |
+| **SDKs (Python + TypeScript)** | Yes | Partial | No | No | No |
+| **Graph query language** | Yes | No | No | No | No |
+| **Semantic search** | Yes | No | No | No | No |
+| **Plugin system** | Yes | No | No | No | No |
+| **Cross-instance federation** | Yes | No | No | No | No |
+| **Works offline** | Yes | No | No | No | No |
+| **Zero dependencies** | Yes | No | No | N/A | N/A |
+
+> Mem0, Letta, and built-in AI memories are **agent memory** — owned by the platform. Cortex is **your memory**, under **your control**.
+
+---
+
 ## Features
 
-<details>
-<summary><strong>Knowledge Graph Engine</strong></summary>
+### Data Import
 
-### Graph Foundation
+Drop files into the web UI or use the CLI. Cortex auto-detects the format and extracts structured facts.
 
-Everything is nodes and edges. Nodes have tags (not fixed categories), confidence scores, temporal metadata, and extensible properties. The graph is backward compatible — v4 flat-category JSON converts losslessly.
+| Source | How | What You Get |
+|--------|-----|-------------|
+| **ChatGPT** | Upload `.zip` export | Skills, projects, preferences, relationships from all your conversations |
+| **Claude** | Upload `.json` export | Same — full extraction across all message formats |
+| **Gemini / Perplexity** | Upload `.json` export | Auto-detected format, same extraction pipeline |
+| **PDF Resume** | Upload or drag-drop | Identity, roles, companies, skills, education — structured and tagged |
+| **DOCX Resume** | Upload or drag-drop | Same as PDF, parsed from Word XML (no dependencies) |
+| **LinkedIn Data Export** | Upload `.zip` from Settings > Get a copy of your data | Profile, positions, skills, education, languages, certifications with relationship edges |
+| **LinkedIn URL** | Paste profile URL | Limited OG meta data (LinkedIn blocks scraping) — data export recommended |
+| **GitHub Repo** | Paste repo URL + optional token | Languages (with %), topics, stars, forks, README content |
+| **Claude Code** | Auto-discovered `.jsonl` sessions | Technologies, tools, commands, projects from actual coding behavior |
+| **Plain Text** | Upload `.txt` or `.md` | Single-pass extraction of whatever's there |
 
-```bash
-cortex query context.json --node "Python"
-cortex query context.json --neighbors "Python"
-cortex stats context.json
-```
+### Shareable Memory API
 
-### Smart Edges
-
-Automatic relationship discovery:
-
-- **Pattern rules** — `technical_expertise` + `active_priorities` = `used_in` edge
-- **Co-occurrence** — entities appearing together in messages get linked (PMI for large datasets, frequency thresholds for small)
-- **Centrality** — identifies your most important nodes (degree centrality, PageRank for 200+ nodes)
-- **Graph-aware dedup** — merges near-duplicates using 70% text similarity + 30% neighbor overlap
-
-### Query + Intelligence
+Generate API keys so external chatbots, agents, and coding tools can access your memory over HTTP.
 
 ```bash
-cortex query context.json --category technical_expertise
-cortex query context.json --strongest 10
-cortex query context.json --isolated
-cortex query context.json --path "Python" "Mayo Clinic"
-cortex query context.json --components
-cortex gaps context.json
-cortex digest context.json --previous last_week.json
+# From the web UI: click "Generate API Key", pick a policy and format
+# Or via API:
+curl -X POST localhost:8421/api/keys \
+  -H "Cookie: cortex_app_session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"label": "My Claude context", "policy": "professional", "format": "claude_xml"}'
+
+# Anyone with the key can fetch your memory (no auth needed):
+curl localhost:8421/api/memory/cmk_a1b2c3d4_e5f6...
 ```
 
-</details>
+| Policy | What's Shared |
+|--------|--------------|
+| `full` | Everything in your graph |
+| `professional` | Identity, work history, skills, priorities |
+| `technical` | Tech stack, domain knowledge, active projects |
+| `minimal` | Just your name and communication preferences |
+| `custom` | You pick exactly which tags to include |
 
-<details>
-<summary><strong>UPAI Protocol (Cryptographic Identity)</strong></summary>
+| Format | Best For |
+|--------|---------|
+| `json` | Programmatic access, SDKs, custom integrations |
+| `claude_xml` | Claude system prompts (`<user-context>` tags) |
+| `system_prompt` | Any LLM's system prompt (plain text) |
+| `markdown` | Documentation, Notion, human-readable |
 
-Full protocol specification: [`spec/upai-v1.0.md`](spec/upai-v1.0.md)
+### Knowledge Graph Engine
 
-- **W3C `did:key` identity** — Ed25519 multicodec + base58btc. Interoperable with the decentralized identity ecosystem.
-- **Cryptographic signing** — SHA-256 integrity (always). Ed25519 signatures (with `pynacl`). Proves the graph is yours and untampered.
-- **Signed envelopes** — Three-part `header.payload.signature` format with replay protection (nonce, iat, exp, audience binding).
-- **Signed grant tokens** — Scoped access tokens (`context:read`, `versions:read`) with Ed25519 signatures and expiration.
-- **Key rotation** — Rotate to a new keypair with a verifiable revocation chain. Old keys get revocation proofs.
-- **Selective disclosure** — Policies control what each platform sees. "Professional" shows job/skills. "Technical" shows your tech stack. "Minimal" shows almost nothing.
-- **Version control** — Git-like commits for your identity. Log, diff, checkout, rollback.
-- **Verifiable credentials** — Issue and verify W3C-style credentials bound to your DID.
-- **Encrypted backup** — AES-256-GCM encrypted identity exports with key-derived encryption.
-- **Service discovery** — `.well-known/upai-configuration` endpoint for automated client bootstrapping.
-- **RBAC** — Role-based access control with 4 roles (owner, admin, editor, viewer) and 10 permission scopes.
-- **JSON Schema validation** — 9 schemas for all data structures, stdlib-only validator.
-- **Structured error codes** — UPAI-4xxx (client) and UPAI-5xxx (server) error registry.
-- **Webhook signing** — HMAC-SHA256 payload signatures for event notifications.
+Everything is nodes and edges. Nodes have tags (not rigid categories), confidence scores, temporal metadata, and properties.
+
+- **16+ extraction methods** — identity, roles, companies, projects, skills, domains, relationships, values, priorities, metrics, negations, preferences, constraints, corrections, temporal context
+- **Smart edges** — pattern rules, co-occurrence (PMI), centrality (PageRank), graph-aware dedup
+- **Semantic search** — TF-IDF ranked search across all node fields (stdlib-only)
+- **Query language** — `FIND tag=technical_expertise confidence>=0.8`, `NEIGHBORS "Python"`, `PATH "Python" TO "Healthcare"`, `SEARCH "web development"`
+- **Intelligence** — gap analysis (5 detectors), weekly digest, contradiction detection (4 types), temporal drift scoring
+- **17 tag categories** — identity, professional_context, technical_expertise, domain_knowledge, active_priorities, relationships, business_context, metrics, constraints, values, negations, education, and more
+
+### Web UI
+
+Start the server with `--enable-webapp` and open `http://localhost:8421/app`.
+
+- **Upload page** — Drag-and-drop files (JSON, PDF, DOCX, zip), GitHub and LinkedIn URL import cards, API key management with policy/format configuration
+- **My Memory page** — Interactive canvas graph with force-directed layout, zoom/pan, click-to-select, tag-colored nodes, search and filters
+- **Share page** — Export to Claude, Notion, Google Docs, or system prompt format with privacy level selection and live preview
+
+### Admin Dashboard
+
+Available at `/dashboard` with session-based auth (password derived from your identity key).
+
+- **Overview** — Stats, tag distribution, audit log
+- **Graph Explorer** — Interactive canvas with policy filter
+- **Grants** — Create/revoke access tokens with scope checkboxes and TTL
+- **Versions** — Timeline + side-by-side diff
+- **Settings** — Server config, OAuth, webhooks, policies, graph export
+
+### UPAI Protocol (Cryptographic Identity)
+
+Full spec: [`spec/upai-v1.0.md`](spec/upai-v1.0.md)
+
+- **W3C DID identity** (`did:cortex:`) with Ed25519 signing
+- **Grant tokens** — JWT-like, Ed25519-signed, 11 scopes, expiration
+- **RBAC** — 5 roles (owner/admin/editor/reader/subscriber) mapped to scope subsets
+- **Key rotation** — Multi-key management with revocation chain and grace periods
+- **Disclosure policies** — 4 builtin + custom tag-based filtering
+- **Verifiable credentials** — W3C VC 1.1 issuance and verification
+- **Version control** — Git-like commits, diff, revert for your identity graph
+- **Encrypted backup** — PBKDF2 + XOR cipher + HMAC integrity, 6 recovery codes
+- **Service discovery** — `.well-known/upai-configuration`
 
 ```bash
 cortex identity --init --name "Your Name"
 cortex commit context.json -m "Added June ChatGPT export"
 cortex log
-cortex identity --show
 cortex sync context.json --to claude --policy professional -o ./output
-cortex rotate                                    # Rotate identity keys
 ```
 
-**Built-in disclosure policies:**
+### Context-as-a-Service (CaaS) API
 
-| Policy | What's Shared | Min Confidence |
-|--------|---------------|----------------|
-| `full` | Everything | 0.0 |
-| `professional` | Identity, work, skills, priorities | 0.6 |
-| `technical` | Tech stack, domain knowledge, priorities | 0.5 |
-| `minimal` | Identity, communication preferences only | 0.8 |
-
-</details>
-
-<details>
-<summary><strong>Context-as-a-Service (CaaS) API</strong></summary>
-
-Serve your context over HTTP so AI platforms can pull it directly. OpenAPI spec: [`spec/openapi.json`](spec/openapi.json)
+50+ REST endpoints. OpenAPI spec: [`spec/openapi.json`](spec/openapi.json). Interactive docs at `/docs`.
 
 ```bash
-# Start the CaaS server
-cortex serve context.json --port 8421
-
-# With PostgreSQL storage
-cortex serve context.json --storage postgres --db-url "dbname=cortex"
-
-# With plugins and tracing
-cortex serve context.json --plugins cortex.plugins.example_logger --enable-tracing
-
-# With federation
-cortex serve context.json --enable-federation --federation-trusted-did did:key:z6Mk...
-
-# With SSE and Prometheus metrics
-cortex serve context.json --enable-sse --enable-metrics
-
-# With consumer web UI
-cortex serve context.json --enable-webapp
-# → Open http://localhost:8421/app — Upload, explore, and share your memory
-
-# With INI config file
-cortex serve context.json --config deploy/cortex.ini
-
-# Create a scoped access token for a platform
-cortex grant --create --audience "Claude" --policy professional
-
-# Revoke or list grants
-cortex grant --list
-cortex grant --revoke <grant_id>
-
-# Manage custom disclosure policies
-cortex policy --list
-cortex policy --create --name "team" --include-tags technical_expertise domain_knowledge
+cortex serve context.json --port 8421 --enable-webapp --enable-sse --enable-metrics
 ```
 
-**50+ API endpoints** across 15 groups:
+| Group | Endpoints |
+|-------|-----------|
+| Discovery | `/.well-known/upai-configuration`, `/identity`, `/health`, `/docs` |
+| Context | `/context`, `/context/compact`, `/context/nodes`, `/context/edges`, `/context/stats`, `/context/search`, `/context/query` |
+| Grants | `POST/GET/DELETE /grants` |
+| Versions | `/versions`, `/versions/<id>`, `/versions/diff` |
+| Webhooks | `POST/GET/DELETE /webhooks` |
+| Credentials | `POST/GET/DELETE /credentials` |
+| Policies | `POST/GET/PATCH/DELETE /policies` |
+| Audit | `/audit`, `/audit/verify` |
+| Import | `POST /api/upload`, `POST /api/import/github`, `POST /api/import/linkedin` |
+| Memory API | `POST/GET /api/keys`, `DELETE /api/keys/{id}`, `GET /api/memory/{key}` (public) |
+| Federation | `/federation/export`, `/federation/import`, `/federation/peers` |
+| Events | `/events` (SSE with Last-Event-ID replay) |
+| Metrics | `/metrics` (Prometheus format, 17 metrics) |
+| Web UI | `/app` (Upload, Memory, Share) |
+| Dashboard | `/dashboard` (Overview, Graph, Grants, Versions, Settings) |
 
-| Group | Endpoints | Auth |
-|-------|-----------|------|
-| Discovery | `/.well-known/upai-configuration`, `/identity`, `/health` | None |
-| Grants | `POST/GET/DELETE /grants` | Self-managed |
-| Context | `/context`, `/context/compact`, `/context/nodes`, `/context/edges`, `/context/stats` | `context:read` |
-| Graph Queries | `/context/path/<from>/<to>`, `POST /context/search`, `POST /context/batch` | `context:read` |
-| CRUD | `POST/GET/PATCH/DELETE` on individual nodes and edges | `context:write` |
-| Versions | `/versions`, `/versions/<id>`, `/versions/diff` | `versions:read` |
-| Webhooks | `POST/GET/DELETE /webhooks` | Self-managed |
-| Credentials | `POST/GET/DELETE /credentials`, `/credentials/<id>/verify` | `credentials:*` |
-| Policies | `POST/GET/PATCH/DELETE /policies` | Owner |
-| Audit | `/audit`, `/audit/verify` | Owner |
-| Query DSL | `POST /context/query` (graph query language) | `context:read` |
-| Federation | `POST /federation/export`, `POST /federation/import`, `GET /federation/peers` | Owner |
-| Docs | `GET /docs` (Swagger UI), `GET /openapi.json` | None |
-| SSE | `/events` (Server-Sent Events, `--enable-sse`) | `context:read` |
-| Dashboard | `/dashboard` (SPA with OAuth login) | Session / OAuth |
-| Web UI | `/app` (Upload, Memory, Share — `--enable-webapp`), `POST /api/upload` | Session |
+### Cross-Platform Context Writer
 
-**Auth flow:** Platform requests a signed grant token with `cortex grant` -> uses it as `Authorization: Bearer <token>` -> server verifies signature, expiry, and scope -> returns disclosure-filtered context.
-
-</details>
-
-<details>
-<summary><strong>Storage Backends</strong></summary>
-
-Cortex supports three storage backends, selectable via CLI flag:
-
-| Backend | Flag | Use Case |
-|---------|------|----------|
-| JSON | `--storage json` (default) | Single-user, file-based, zero setup |
-| SQLite | `--storage sqlite --db-path cortex.db` | Embedded SQL, concurrent reads, migrations |
-| PostgreSQL | `--storage postgres --db-url "dbname=cortex"` | Production deployments, multi-instance |
+Write your Cortex identity into every AI coding tool simultaneously:
 
 ```bash
-# JSON (default — just works)
-cortex serve context.json
-
-# SQLite
-cortex serve context.json --storage sqlite --db-path ./data/cortex.db
-
-# PostgreSQL
-cortex serve context.json --storage postgres --db-url "host=localhost dbname=cortex_prod user=cortex"
+cortex context-write graph.json --platforms all --project ~/myproject
 ```
 
-All backends share the same `StorageBackend` interface. SQLite and PostgreSQL include automatic schema migrations. PostgreSQL requires the optional `psycopg` dependency (`pip install cortex-identity[postgres]`).
+| Platform | Config File |
+|----------|------------|
+| Claude Code | `~/.claude/MEMORY.md` (global) |
+| Claude Code | `{project}/.claude/MEMORY.md` (per-project) |
+| Cursor | `{project}/.cursor/rules/cortex.mdc` |
+| GitHub Copilot | `{project}/.github/copilot-instructions.md` |
+| Windsurf | `{project}/.windsurfrules` |
+| Gemini CLI | `{project}/GEMINI.md` |
 
-</details>
+Uses `<!-- CORTEX:START -->` / `<!-- CORTEX:END -->` markers — your hand-written rules are never overwritten.
 
-<details>
-<summary><strong>SDKs</strong></summary>
+### SDKs
 
-### Python SDK
-
-Built-in Python client for the CaaS API (also available as standalone `cortex-ai-sdk` package):
+**Python** (stdlib-only, zero dependencies):
 
 ```python
 from cortex.sdk.client import CortexClient
@@ -291,715 +295,165 @@ from cortex.sdk.client import CortexClient
 client = CortexClient("http://localhost:8421", token="your-grant-token")
 context = client.get_context()
 nodes = client.list_nodes(limit=10)
-stats = client.get_stats()
-health = client.health()
-metrics = client.metrics()
 ```
 
-Full API coverage: `info()`, `discovery()`, `health()`, `identity()`, `context()`, `nodes()`, `edges()`, `stats()`, `versions()`, `version_diff()`, `create_grant()`, `list_grants()`, `revoke_grant()`, `create_webhook()`, `list_webhooks()`, `delete_webhook()`, `list_policies()`, `create_policy()`, `delete_policy()`, `metrics()`
-
-### TypeScript SDK
-
-Zero-dependency TypeScript/JavaScript client (`@cortex_ai/sdk`):
+**TypeScript** (zero runtime dependencies, `@cortex_ai/sdk`):
 
 ```typescript
 import { CortexClient } from '@cortex_ai/sdk';
 
-const client = new CortexClient({
-  baseUrl: 'http://localhost:8421',
-  token: 'your-grant-token',
-});
-
+const client = new CortexClient({ baseUrl: 'http://localhost:8421', token: 'your-grant-token' });
 const context = await client.getContext();
-const nodes = await client.listNodes({ limit: 10 });
-const stats = await client.getStats();
 ```
 
-- **Zero runtime dependencies** — native `fetch`, no axios/node-fetch
-- **ESM + CJS dual build** — works in Node.js, Deno, Bun, and bundlers
-- **Full TypeScript types** — all request/response types exported
-- **33 tests** via `node:test`
+Install: `npm install @cortex_ai/sdk` — ESM + CJS dual build, full TypeScript types.
 
-Install: `npm install @cortex_ai/sdk`
+### Storage Backends
 
-</details>
+| Backend | Flag | Use Case |
+|---------|------|----------|
+| JSON | `--storage json` (default) | Single-user, file-based, zero setup |
+| SQLite | `--storage sqlite --db-path cortex.db` | Embedded SQL, concurrent reads, migrations |
+| PostgreSQL | `--storage postgres --db-url "dbname=cortex"` | Production deployments, multi-instance |
 
-<details>
-<summary><strong>Semantic Search & Query Language</strong></summary>
+### Security & Operations
 
-### TF-IDF Semantic Search
+- **Rate limiting** — Sliding-window per-IP (default 60 req/60s)
+- **OAuth 2.0 / OIDC** — Google and GitHub providers with PKCE
+- **Webhook delivery** — Background worker with exponential backoff, circuit breaker, dead-letter queue
+- **Audit ledger** — Hash-chained SHA-256 (tamper-evident)
+- **HTTP caching** — ETags + Cache-Control + 304 Not Modified
+- **Field encryption** — PBKDF2 + XOR + HMAC at rest
+- **CSRF / SSRF protection** — Stateless HMAC tokens; DNS + IP range blocking
+- **Distributed tracing** — W3C Trace Context spans with OTLP export
+- **Prometheus metrics** — 17 metrics on `/metrics` (stdlib-only)
+- **Plugin system** — 12 hooks for extending server behavior
 
-Go beyond substring matching. Semantic search tokenizes node text fields, builds a TF-IDF index, and ranks results by cosine similarity:
+### Deployment
+
+Production configs included in `deploy/`:
 
 ```bash
-# Via API
-curl -X POST localhost:8421/context/search \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"query": "machine learning", "mode": "semantic", "limit": 10}'
+# Docker
+docker build -t cortex . && docker run -p 8421:8421 cortex
+
+# Kubernetes (Helm)
+helm install cortex deploy/helm/cortex --set storage.backend=postgres
+
+# AWS (Terraform — ECS Fargate + ALB)
+cd deploy/terraform/aws && terraform apply
+
+# GCP (Terraform — Cloud Run)
+cd deploy/terraform/gcp && terraform apply
+
+# systemd
+sudo cp deploy/cortex.service /etc/systemd/system/ && sudo systemctl enable --now cortex
 ```
 
-Stdlib-only (no numpy required). Index built lazily on first search, cached, and invalidated on mutations.
-
-### Graph Query Language (DSL)
-
-A simple query language for exploring your knowledge graph:
-
-```
-FIND nodes WHERE tag = "technical_expertise" AND confidence >= 0.8 LIMIT 10
-NEIGHBORS OF "Python"
-PATH FROM "Marc" TO "Healthcare"
-SEARCH "machine learning"
-```
-
-Read-only recursive-descent parser. Available via `POST /context/query` or the Python SDK.
-
-### Plugin System
-
-Hook-based plugin architecture for extending server behavior:
-
-```bash
-cortex serve context.json --plugins cortex.plugins.example_logger cortex.plugins.example_validator
-```
-
-9 hooks: `PRE_NODE_CREATE`, `POST_NODE_CREATE`, `PRE_EDGE_CREATE`, `POST_EDGE_CREATE`, `PRE_NODE_DELETE`, `POST_NODE_DELETE`, `PRE_QUERY`, `POST_QUERY`, `POST_SEARCH`. Errors in plugins are caught and logged — never crash the server.
-
-### Federation
-
-Share context across Cortex instances with Ed25519-signed bundles:
-
-```bash
-cortex serve context.json --enable-federation --federation-trusted-did did:key:z6Mk...
-
-# Export a bundle for a peer
-curl -X POST localhost:8421/federation/export \
-  -d '{"policy": "summary"}' -H "Authorization: Bearer $TOKEN"
-
-# Import a bundle from a trusted peer
-curl -X POST localhost:8421/federation/import \
-  -d @bundle.json -H "Authorization: Bearer $TOKEN"
-```
-
-Export policies (full/summary/minimal), replay protection via nonces, content hash verification, configurable trusted DID lists.
-
-</details>
-
-<details>
-<summary><strong>Security & Operations</strong></summary>
-
-### Role-Based Access Control (RBAC)
-
-4 roles with 10 permission scopes:
-
-| Role | Permissions |
-|------|-------------|
-| **owner** | All scopes — full control |
-| **admin** | Manage grants, webhooks, policies, credentials |
-| **editor** | Read + write context and versions |
-| **viewer** | Read-only context and versions |
-
-### OAuth 2.0 / OIDC
-
-```bash
-cortex serve context.json \
-  --oauth-provider google CLIENT_ID CLIENT_SECRET \
-  --oauth-allowed-email you@example.com
-```
-
-Supports any OAuth 2.0 / OpenID Connect provider. Token exchange endpoint converts OAuth tokens into Cortex grant tokens.
-
-### Rate Limiting
-
-Token-bucket rate limiter per client IP. Configurable burst and sustained rates.
-
-### Field-Level Encryption
-
-AES-256-GCM encryption for sensitive node properties at rest. Key management via identity keychain.
-
-### Audit Ledger
-
-Hash-chained SHA-256 audit log. Every mutation is recorded with actor, timestamp, and cryptographic chain integrity. Tamper-evident — `GET /audit/verify` checks the full chain.
-
-### CSRF / SSRF Protection
-
-- CSRF tokens for dashboard session endpoints
-- SSRF guards on webhook delivery (blocks private IP ranges)
-- CORS configuration via `--allowed-origins`
-
-### Prometheus Metrics
-
-```bash
-cortex serve context.json --enable-metrics
-# GET /metrics → Prometheus-format counters
-```
-
-17 custom metrics: request latency histograms, webhook delivery counts, SSE connection gauges, storage operation counters, error rates, graph size, cache hit ratios, and more.
-
-### Distributed Tracing
-
-W3C Trace Context compatible spans with two exporters:
-
-```bash
-cortex serve context.json --enable-tracing                          # Console exporter
-cortex serve context.json --enable-tracing --tracing-exporter otlp_http  # OTLP HTTP
-```
-
-Stdlib-only — no OpenTelemetry SDK required. Thread-local span propagation.
-
-</details>
-
-<details>
-<summary><strong>Deployment</strong></summary>
-
-Production deployment configs included in `deploy/`:
-
-### Docker
-
-```bash
-docker build -t cortex .
-docker run -p 8421:8421 -v cortex-data:/data cortex
-```
-
-### Docker Compose
-
-```bash
-docker compose up -d   # Cortex + PostgreSQL + Caddy
-```
-
-### systemd
-
-```bash
-sudo cp deploy/cortex.service /etc/systemd/system/
-sudo systemctl enable --now cortex
-```
-
-### Reverse Proxy
-
-Caddy and nginx configs included:
-
-```bash
-# Caddy (auto-TLS)
-cp deploy/Caddyfile /etc/caddy/Caddyfile
-
-# nginx
-cp deploy/nginx.conf /etc/nginx/conf.d/cortex.conf
-```
-
-### Kubernetes (Helm)
-
-```bash
-helm install cortex deploy/helm/cortex \
-  --set storage.backend=postgres \
-  --set storage.dbUrl="host=postgres dbname=cortex" \
-  --set metrics.enabled=true \
-  --set serviceMonitor.enabled=true
-```
-
-Full Helm chart with ConfigMap, HPA, ServiceMonitor, Ingress, and PVC templates.
-
-### Terraform (AWS / GCP)
-
-```bash
-# AWS — ECS Fargate + ALB
-cd deploy/terraform/aws
-terraform init && terraform apply
-
-# GCP — Cloud Run + optional Cloud SQL
-cd deploy/terraform/gcp
-terraform init && terraform apply -var="project_id=my-project"
-```
-
-### INI Configuration
-
-```ini
-# deploy/cortex.ini
-[server]
-port = 8421
-storage = postgres
-db_url = host=localhost dbname=cortex_prod
-
-[security]
-allowed_origins = https://yourdomain.com
-enable_sse = true
-enable_metrics = true
-```
-
-```bash
-cortex serve context.json --config deploy/cortex.ini
-```
-
-See [`docs/deployment.md`](docs/deployment.md) for the full deployment guide.
-
-</details>
-
-<details>
-<summary><strong>Temporal Tracking & Contradictions</strong></summary>
-
-Every extraction snapshots each node's state. Cortex tracks how your identity evolves, detects contradictions ("said X in January, not-X in March"), and computes drift scores across time windows.
-
-```bash
-cortex timeline context.json --format html
-cortex contradictions context.json --severity 0.5
-cortex drift context.json --compare previous.json
-```
-
-### Conflict Detection
-
-```
-Input: "I use Python daily" + "I don't use Python anymore"
-Result: negation_conflict detected, resolution: prefer_negation (more recent)
-```
-
-### Typed Relationships
-
-```
-Input: "We partner with Mayo Clinic. Dr. Smith is my mentor."
-Result: Mayo Clinic (partner), Dr. Smith (mentor)
-```
-
-Supported types: `partner`, `mentor`, `advisor`, `investor`, `client`, `competitor`
-
-</details>
-
-<details>
-<summary><strong>Visualization & Dashboard</strong></summary>
-
-```bash
-cortex viz context.json --output graph.html          # Interactive HTML
-cortex viz context.json --output graph.svg --format svg  # Static SVG
-cortex dashboard context.json --port 8420            # Web dashboard
-cortex watch ~/exports/ --graph context.json         # Auto-extract
-cortex sync-schedule --config sync_config.json       # Scheduled sync
-```
-
-The CaaS server includes a built-in admin dashboard at `/dashboard` with session-based authentication and optional OAuth login.
-
-The consumer web UI at `/app` (enabled with `--enable-webapp`) provides a simple, non-technical interface for everyday users — upload chat exports, explore an interactive knowledge graph, and export your memory to Claude, Notion, Google Docs, or as a system prompt with configurable privacy levels.
-
-</details>
-
-<details>
-<summary><strong>Coding Tool Extraction</strong></summary>
-
-Extract identity from what you *actually do*, not just what you say. Coding sessions reveal your real tech stack, tools, and workflow through behavior:
-
-```bash
-cortex extract-coding --discover -o coding_context.json
-cortex extract-coding --discover --project chatbot-memory
-cortex extract-coding --discover --merge context.json -o context.json
-cortex extract-coding --discover --enrich --stats
-```
-
-| Signal | How | Example |
-|--------|-----|---------|
-| Languages | File extensions | Editing `.py` files -> Python |
-| Frameworks | Config files | `package.json` -> Node.js |
-| CLI tools | Bash commands | Running `pytest` -> Pytest |
-| Projects | Working directory | `/home/user/myapp` -> myapp |
-| Patterns | Tool sequence | Uses plan mode before coding |
-
-**Project enrichment** (`--enrich`): Reads README, package manifests, and LICENSE files to extract project metadata. Detects CI/CD and Docker presence.
-
-Currently supports **Claude Code** (JSONL transcripts). Cursor and Copilot parsers planned.
-
-</details>
-
-<details>
-<summary><strong>Auto-Inject & Cross-Platform Context</strong></summary>
-
-### Auto-Inject into Claude Code
-
-Every new session automatically gets your Cortex identity injected:
-
-```bash
-cortex context-hook install context.json
-cortex context-hook test
-cortex context-export context.json --policy technical
-```
-
-### Cross-Platform Context Writer
-
-Write persistent Cortex identity to every AI coding tool:
-
-```bash
-cortex context-write graph.json --platforms all --project ~/myproject
-cortex context-write graph.json --platforms cursor copilot windsurf
-cortex context-write graph.json --platforms all --dry-run
-cortex context-write graph.json --platforms all --watch
-```
-
-| Platform | Config File | Scope |
-|----------|------------|-------|
-| Claude Code | `~/.claude/MEMORY.md` | Global |
-| Claude Code (project) | `{project}/.claude/MEMORY.md` | Project |
-| Cursor | `{project}/.cursor/rules/cortex.mdc` | Project |
-| GitHub Copilot | `{project}/.github/copilot-instructions.md` | Project |
-| Windsurf | `{project}/.windsurfrules` | Project |
-| Gemini CLI | `{project}/GEMINI.md` | Project |
-
-Uses `<!-- CORTEX:START -->` / `<!-- CORTEX:END -->` markers — your hand-written rules are never overwritten.
-
-</details>
-
-<details>
-<summary><strong>Continuous Extraction</strong></summary>
-
-Watch Claude Code sessions in real-time. Auto-extract behavioral signals as you code:
-
-```bash
-cortex extract-coding --watch -o coding_context.json
-cortex extract-coding --watch -o ctx.json --context-refresh claude-code cursor copilot
-cortex extract-coding --watch --project chatbot-memory -o ctx.json
-cortex extract-coding --watch --interval 15 --settle 10 -o ctx.json
-```
-
-Polls for session changes, debounces active writes, and incrementally merges nodes.
-
-</details>
-
-<details>
-<summary><strong>PII Redaction</strong></summary>
-
-Strip sensitive data before extraction:
-
-```bash
-cortex chatgpt-export.zip --to claude --redact
-cortex chatgpt-export.zip --to claude --redact --redact-patterns custom.json
-```
-
-Redacts: emails, phones, SSNs, credit cards, API keys, IP addresses, street addresses.
-
-</details>
+Also includes: Caddy and nginx reverse proxy configs, Grafana dashboards (3 JSON), Locust load testing, INI config template, `.env.example`.
 
 ---
 
-<details>
-<summary><strong>Supported Platforms</strong></summary>
-
-### Input (Extract From)
-
-| Platform | File Type | Auto-Detected |
-|----------|-----------|---------------|
-| ChatGPT | `.zip` with `conversations.json` | Yes |
-| Claude | `.json` with messages array | Yes |
-| Claude Memories | `.json` array with `text` field | Yes |
-| Gemini / AI Studio | `.json` with conversations/turns | Yes |
-| Perplexity | `.json` with threads | Yes |
-| API Logs | `.json` with requests array | Yes |
-| JSONL | `.jsonl` (one message per line) | Yes |
-| Claude Code | `.jsonl` session transcripts | Yes |
-| Plain Text | `.txt`, `.md` | Yes |
-
-### Output (Export To)
-
-| Format | Output | Use Case |
-|--------|--------|----------|
-| Claude Preferences | `claude_preferences.txt` | Settings > Profile |
-| Claude Memories | `claude_memories.json` | memory_user_edits |
-| System Prompt | `system_prompt.txt` | Any LLM API |
-| Notion Page | `notion_page.md` | Notion import |
-| Notion Database | `notion_database.json` | Notion DB rows |
-| Google Docs | `google_docs.html` | Google Docs paste |
-| Summary | `summary.md` | Human overview |
-| Full JSON | `full_export.json` | Lossless backup |
-
-### Extraction Categories
-
-Cortex extracts entities into 17 tag categories:
-
-| Category | Examples |
-|----------|----------|
-| Identity | Name, credentials (MD, PhD) |
-| Professional Context | Role, title, company |
-| Business Context | Company, products, metrics |
-| Active Priorities | Current projects, goals |
-| Relationships | Partners, clients, collaborators |
-| Technical Expertise | Languages, frameworks, tools |
-| Domain Knowledge | Healthcare, finance, AI/ML |
-| Market Context | Competitors, industry trends |
-| Metrics | Revenue, users, timelines |
-| Constraints | Budget, timeline, team size |
-| Values | Principles, beliefs |
-| Negations | What you explicitly avoid |
-| User Preferences | Style and tool preferences |
-| Communication Preferences | Response style preferences |
-| Correction History | Self-corrections |
-| Mentions | Catch-all for other entities |
-
-</details>
-
-<details>
-<summary><strong>Full CLI Reference (28 commands)</strong></summary>
-
-### Extract & Import
+## CLI Reference
 
 ```bash
-cortex <export> --to <platform> -o ./output    # One-step migrate
-cortex extract <export> -o context.json         # Extract only
-cortex import context.json --to <platform>      # Import only
-cortex extract new.json --merge old.json -o merged.json  # Merge contexts
+# Extract & Import
+cortex <export> --to <platform> -o ./output      # One-step migrate
+cortex extract <export> -o context.json           # Extract only
+cortex import context.json --to <platform>        # Import only
+
+# Query & Intelligence
+cortex stats context.json                         # Graph statistics
+cortex search context.json "machine learning"     # Semantic search
+cortex query context.json --neighbors "Python"    # Graph traversal
+cortex gaps context.json                          # Gap analysis
+cortex digest context.json --previous old.json    # Weekly digest
+
+# Identity & Versioning
+cortex identity --init --name "Your Name"         # Create identity
+cortex commit context.json -m "message"           # Version commit
+cortex log                                        # Version history
+cortex diff context.json --compare old.json       # Diff two versions
+
+# Server
+cortex serve context.json --enable-webapp         # Start with web UI
+cortex grant --create --audience "Claude"          # Create access token
+cortex policy --list                              # List disclosure policies
+
+# Coding Tools
+cortex extract-coding --discover -o coding.json   # Extract from Claude Code sessions
+cortex context-write graph.json --platforms all    # Write to all AI tools
+cortex context-hook install graph.json            # Auto-inject into Claude Code
+
+# Visualization
+cortex viz context.json --output graph.html       # Interactive HTML graph
+cortex timeline context.json --format html        # Chronological timeline
 ```
 
-### Query & Intelligence
+30+ subcommands total. Run `cortex --help` for the full list, or `cortex completion --shell bash` for shell autocomplete.
 
-```bash
-cortex query <graph> --node <label>             # Find node
-cortex query <graph> --neighbors <label>        # Find neighbors
-cortex query <graph> --category <tag>           # Filter by tag
-cortex query <graph> --path <from> <to>         # Shortest path
-cortex query <graph> --strongest <n>            # Top N nodes
-cortex query <graph> --weakest <n>              # Bottom N nodes
-cortex query <graph> --isolated                 # Unconnected nodes
-cortex query <graph> --components               # Connected clusters
-cortex gaps <graph>                             # Gap analysis
-cortex digest <graph> --previous <old>          # Weekly digest
-cortex stats <graph>                            # Graph statistics
-```
+---
 
-### Identity & Sync
-
-```bash
-cortex identity --init --name <name>             # Create identity
-cortex commit <graph> -m <message>               # Version commit
-cortex log                                       # Version history
-cortex identity --show                           # Show identity
-cortex sync <graph> --to <platform> --policy <name>  # Push to platform
-```
-
-### Visualization & Flywheel
-
-```bash
-cortex viz <graph> --output graph.html          # Interactive HTML
-cortex viz <graph> --output graph.svg --format svg  # Static SVG
-cortex dashboard <graph> --port 8420            # Web dashboard
-cortex watch <dir> --graph <graph>              # Auto-extract
-cortex sync-schedule --config <config.json>     # Scheduled sync
-```
-
-### Coding Tool Extraction
-
-```bash
-cortex extract-coding <session.jsonl>           # From specific file
-cortex extract-coding --discover                # Auto-find sessions
-cortex extract-coding --discover -p <project>   # Filter by project
-cortex extract-coding --discover -m <context>   # Merge with existing
-cortex extract-coding --discover --stats        # Show session stats
-cortex extract-coding --discover --enrich       # Enrich with project files
-cortex extract-coding --watch -o ctx.json       # Watch mode (continuous)
-cortex extract-coding --watch --context-refresh claude-code cursor  # Watch + auto-refresh
-```
-
-### Context Hook (Auto-Inject)
-
-```bash
-cortex context-hook install <graph> --policy technical  # Install hook
-cortex context-hook uninstall                   # Remove hook
-cortex context-hook test                        # Preview injection
-cortex context-hook status                      # Check status
-cortex context-export <graph> --policy technical  # One-shot export
-```
-
-### Cross-Platform Context Writer
-
-```bash
-cortex context-write <graph> --platforms all --project <dir>  # All platforms
-cortex context-write <graph> --platforms cursor copilot       # Specific platforms
-cortex context-write <graph> --platforms all --dry-run        # Preview
-cortex context-write <graph> --platforms all --watch          # Auto-refresh
-cortex context-write <graph> --platforms all --policy professional  # Policy override
-```
-
-### Context-as-a-Service (CaaS)
-
-```bash
-cortex serve <graph> --port 8421                 # Start CaaS server
-cortex serve <graph> --storage postgres --db-url "dbname=cortex"  # PostgreSQL backend
-cortex serve <graph> --config deploy/cortex.ini  # INI config file
-cortex serve <graph> --enable-sse --enable-metrics  # SSE + Prometheus
-cortex serve <graph> --plugins <module> ...          # Load plugins
-cortex serve <graph> --enable-tracing                # Distributed tracing
-cortex serve <graph> --enable-federation             # Federation endpoints
-cortex serve <graph> --enable-webapp                 # Consumer web UI at /app
-cortex grant --create --audience <name>          # Create access token
-cortex grant --list                              # List grants
-cortex grant --revoke <grant_id>                 # Revoke grant
-cortex policy --list                             # List disclosure policies
-cortex policy --create --name <name> --include-tags <tags>  # Create custom policy
-cortex rotate                                    # Rotate identity keys
-cortex completion --shell bash                   # Shell autocomplete
-```
-
-### Temporal Analysis
-
-```bash
-cortex timeline <graph> --format html           # Timeline view
-cortex contradictions <graph> --severity 0.5    # Find conflicts
-cortex drift <graph> --compare previous.json    # Identity drift
-```
-
-</details>
-
-<details>
-<summary><strong>Architecture</strong></summary>
+## Architecture
 
 ```
-cortex-identity/                    # pip install cortex-identity
-├── pyproject.toml                  # Package metadata + entry points
-├── Dockerfile                     # Container build
-├── docker-compose.yml             # Multi-service deployment
-├── spec/
-│   ├── upai-v1.0.md            # UPAI protocol specification (RFC-style)
-│   └── openapi.json            # OpenAPI 3.1 CaaS API specification
-├── deploy/
-│   ├── cortex.ini              # INI configuration template
-│   ├── cortex.service          # systemd unit file
-│   ├── Caddyfile               # Caddy reverse proxy (auto-TLS)
-│   ├── nginx.conf              # nginx reverse proxy
-│   ├── .env.example            # Environment variable template
-│   ├── helm/cortex/            # Kubernetes Helm chart
-│   ├── terraform/aws/          # AWS ECS Fargate + ALB
-│   ├── terraform/gcp/          # GCP Cloud Run + Cloud SQL
-│   └── grafana/                # Grafana dashboards (3 JSON)
-├── docs/
-│   ├── architecture.md         # System architecture
-│   ├── deployment.md           # Deployment guide
-│   ├── user-guide.md           # User documentation
-│   ├── tutorial.md             # Getting started
-│   ├── overview.md             # Project overview
-│   ├── security.md             # Security architecture
-│   ├── threat-model.md         # STRIDE threat analysis
-│   └── security-checklist.md   # Deployment hardening
-├── sdk/
-│   ├── python/                 # cortex-ai-sdk (standalone Python SDK)
-│   │   └── cortex_sdk/         # client, types, exceptions, pagination
-│   └── typescript/             # @cortex_ai/sdk (TypeScript)
-│       ├── src/
-│       │   ├── client.ts       # CaaS API client
-│       │   ├── types.ts        # Request/response types
-│       │   ├── errors.ts       # Error classes
-│       │   └── index.ts        # Public exports
-│       └── package.json        # Zero runtime deps, ESM+CJS
-├── benchmarks/                    # Locust load testing scenarios
-│   ├── locustfile.py           # Entry point
-│   └── scenarios/              # read_heavy, write_heavy, mixed
-├── examples/                      # Example applications
-│   ├── chatbot-memory/         # End-to-end extract → serve → query
-│   ├── multi-agent/            # Two agents sharing context
-│   └── sdk-quickstart/         # Python SDK usage
-├── cortex/                        # 80+ source files
-│   ├── cli.py                  # CLI entry point (28 subcommands)
-│   ├── extract_memory.py       # Extraction engine (~1400 LOC)
-│   ├── import_memory.py        # Import/export engine (~1000 LOC)
-│   ├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
-│   ├── compat.py               # v4 <-> v5 conversion
-│   ├── temporal.py             # Snapshots, drift scoring
-│   ├── contradictions.py       # Contradiction detection
-│   ├── timeline.py             # Timeline views
-│   ├── upai/                   # Universal Personal AI Protocol (14 files)
-│   │   ├── identity.py         # did:key identity, Ed25519/HMAC, SignedEnvelope
-│   │   ├── disclosure.py       # Selective disclosure policies
-│   │   ├── versioning.py       # Git-like version control
-│   │   ├── schemas.py          # JSON Schema validation (stdlib-only)
-│   │   ├── tokens.py           # Signed grant tokens (Ed25519)
-│   │   ├── keychain.py         # Key rotation & revocation chain
-│   │   ├── errors.py           # Structured error codes (UPAI-4xxx/5xxx)
-│   │   ├── pagination.py       # Cursor-based pagination
-│   │   ├── webhooks.py         # HMAC-SHA256 webhook signing
-│   │   ├── credentials.py      # Verifiable credentials (W3C-style)
-│   │   ├── discovery.py        # Service discovery endpoint
-│   │   ├── backup.py           # AES-256-GCM encrypted backup
-│   │   └── rbac.py             # Role-based access control
-│   ├── caas/                   # Context-as-a-Service (25 files)
-│   │   ├── server.py           # HTTP API server (40+ endpoints)
-│   │   ├── storage.py          # StorageBackend interface
-│   │   ├── sqlite_store.py     # SQLite backend + migrations
-│   │   ├── postgres_store.py   # PostgreSQL backend
-│   │   ├── config.py           # INI file configuration
-│   │   ├── oauth.py            # OAuth 2.0 / OIDC integration
-│   │   ├── sse.py              # Server-Sent Events
-│   │   ├── event_buffer.py     # SSE replay (Last-Event-ID)
-│   │   ├── rate_limit.py       # Token-bucket rate limiter
-│   │   ├── webhook_worker.py   # Async webhook delivery
-│   │   ├── circuit_breaker.py  # Webhook circuit breaker
-│   │   ├── dead_letter.py      # Dead-letter queue
-│   │   ├── audit_ledger.py     # Hash-chained audit log
-│   │   ├── sqlite_audit_ledger.py
-│   │   ├── postgres_audit_ledger.py
-│   │   ├── caching.py          # HTTP caching (ETags, Cache-Control)
-│   │   ├── correlation.py      # Request correlation IDs
-│   │   ├── encryption.py       # Field-level AES-256-GCM
-│   │   ├── metrics.py          # Prometheus metrics
-│   │   ├── instrumentation.py  # Observability hooks
-│   │   ├── logging_config.py   # Structured logging
-│   │   ├── migrations.py       # Schema migrations
-│   │   ├── shutdown.py         # Graceful shutdown
-│   │   ├── tracing.py          # Distributed tracing (W3C Trace Context)
-│   │   ├── swagger.py          # Swagger UI endpoint
-│   │   ├── postgres_pool.py    # PostgreSQL connection pooling
-│   │   ├── dashboard/          # Admin dashboard (auth + static)
-│   │   └── webapp/             # Consumer web UI (Upload, Memory, Share)
-│   ├── search.py               # TF-IDF semantic search engine
-│   ├── plugins.py              # Hook-based plugin system
-│   ├── federation.py           # Cross-instance federation (signed bundles)
-│   ├── query_lang.py           # Graph query language (recursive descent)
-│   ├── completion.py           # CLI shell autocomplete
-│   ├── sdk/                    # Python SDK client
-│   │   ├── client.py           # CaaS API client
-│   │   └── exceptions.py       # SDK error types
-│   ├── adapters.py             # Claude/SystemPrompt/Notion/GDocs adapters
-│   ├── edge_extraction.py      # Pattern-based + proximity edge discovery
-│   ├── cooccurrence.py         # PMI / frequency co-occurrence
-│   ├── dedup.py                # Graph-aware deduplication
-│   ├── centrality.py           # Degree centrality + PageRank
-│   ├── query.py                # QueryEngine + graph algorithms
-│   ├── intelligence.py         # Gap analysis + weekly digest
-│   ├── coding.py               # Coding session behavioral extraction
-│   ├── hooks.py                # Auto-inject context into Claude Code
-│   ├── context.py              # Cross-platform context writer (6 platforms)
-│   ├── continuous.py           # Real-time session watcher
-│   ├── _hook.py                # cortex-hook entry point
-│   ├── __main__.py             # python -m cortex support
-│   ├── viz/                    # Visualization (renderer + layout)
-│   ├── dashboard/              # Local web dashboard
-│   └── sync/                   # File watcher + scheduled sync
-├── migrate.py                  # Backward-compat stub → cortex.cli
-├── cortex-hook.py              # Backward-compat stub → cortex._hook
-└── tests/                      # 2,063 tests across 75+ files
+cortex/
+├── cli.py                  # 30+ CLI subcommands
+├── extract_memory.py       # 16+ extraction methods (~1400 LOC)
+├── import_memory.py        # 7 export formats (~1000 LOC)
+├── graph.py                # Node, Edge, CortexGraph (schema 6.0)
+├── upai/                   # Cryptographic identity protocol (14 modules)
+├── caas/                   # HTTP API server (25+ modules)
+│   ├── server.py           # 50+ REST endpoints
+│   ├── importers.py        # PDF, DOCX, LinkedIn, GitHub import
+│   ├── api_keys.py         # Shareable memory API keys
+│   ├── webapp/             # Consumer web UI (Upload, Memory, Share)
+│   └── dashboard/          # Admin dashboard (5 pages)
+├── search.py               # TF-IDF semantic search
+├── query_lang.py           # Graph query language (DSL)
+├── federation.py           # Cross-instance sharing
+├── plugins/                # Hook-based plugin system
+├── viz/                    # Force-directed graph visualization
+├── adapters.py             # Claude/Notion/GDocs platform adapters
+├── context.py              # Cross-platform context writer (6 tools)
+├── intelligence.py         # Gap analysis + weekly digest
+├── contradictions.py       # Contradiction detection (4 types)
+└── coding.py               # Coding session behavioral extraction
+
+sdk/
+├── python/                 # Python SDK (stdlib-only)
+└── typescript/             # TypeScript SDK (@cortex_ai/sdk, zero deps)
+
+deploy/
+├── helm/                   # Kubernetes Helm chart
+├── terraform/              # AWS (ECS) + GCP (Cloud Run) modules
+├── grafana/                # 3 Grafana dashboards
+├── Caddyfile + nginx.conf  # Reverse proxy configs
+└── cortex.service          # systemd unit
+
+spec/
+├── upai-v1.0.md            # Protocol specification
+└── openapi.json            # OpenAPI 3.1 API spec
+
+tests/                      # 2,138 tests across 75+ files
 ```
 
-</details>
+**Zero required external dependencies.** All crypto (Ed25519, HMAC-SHA256, PBKDF2, base58btc), HTTP serving, search (TF-IDF), graph layout (Fruchterman-Reingold), metrics (Prometheus text format), and tracing (W3C Trace Context) use Python stdlib only.
 
-<details>
-<summary><strong>Version History</strong></summary>
+**Optional:** `psycopg` (PostgreSQL), `psycopg_pool` (connection pool), `numpy` (10x faster layout), `pypdf` (better PDF extraction), `locust` (load testing).
 
-| Version | Milestone |
-|---------|-----------|
-| v1.4.0 | **Consumer Web UI** — Simple, non-technical web interface at `/app` (enabled via `--enable-webapp`). Three pages: **Upload** (drag-drop chat export with auto-detection and extraction), **My Memory** (interactive canvas-based knowledge graph with Fruchterman-Reingold layout, search, tag filters, node detail panel), **Share** (multi-platform export to Claude/Notion/Google Docs/system prompt with 4 privacy levels and live preview). Multipart file upload endpoint (`POST /api/upload`) with support for graph JSON, chat message formats, and plain text. Vanilla HTML/CSS/JS — zero build tools, zero external dependencies. 2,063 tests. |
-| v1.3.0 | **Advanced Features + Production Readiness** — TF-IDF semantic search (stdlib-only), hook-based plugin system (9 hooks), graph query language DSL (FIND/NEIGHBORS/PATH/SEARCH), cross-instance federation (Ed25519-signed bundles, export policies, replay protection), standalone Python SDK, PostgreSQL connection pooling, Grafana dashboards (3 JSON), CLI shell autocomplete (bash/zsh/fish), Swagger UI (`/docs`), contextual error hints, Kubernetes Helm chart, Locust load testing benchmarks, OpenTelemetry-style distributed tracing (W3C Trace Context), example applications, Terraform modules (AWS ECS + GCP Cloud Run), security audit documentation (STRIDE threat model), community templates. 2,032 tests. |
-| v1.2.0 | **Production Hardening + SDKs + PostgreSQL** — RBAC (4 roles, 10 scopes), hash-chained audit ledger, HTTP caching (ETags), webhook resilience (circuit breaker, dead-letter queue), SSE with replay, OAuth 2.0/OIDC, field-level encryption, rate limiting, CSRF/SSRF protection, structured logging, graceful shutdown, verifiable credentials, encrypted backup, service discovery, custom disclosure policies, graph CRUD API, admin dashboard, Docker/systemd/Caddy/nginx deployment, INI config, SQLite storage backend, PostgreSQL storage backend, Python SDK, TypeScript SDK (`@cortex_ai/sdk`), Prometheus metrics (9 custom metrics). 28 CLI commands. 1,710 tests. |
+---
 
-| v1.1.0 | **UPAI Open Standard + CaaS API** — W3C `did:key` identity, signed envelopes with replay protection, signed grant tokens, key rotation chain, Context-as-a-Service HTTP API (18 endpoints), JSON Schema validation, structured error codes, cursor-based pagination, webhook signing, OpenAPI 3.1 spec, RFC-style protocol spec. 27 CLI commands. 796 tests. |
-| v1.0.0 | **First public release** — 24 CLI commands, knowledge graph, UPAI protocol, temporal tracking, coding extraction, cross-platform context, continuous extraction, visualization, dashboard. 618 tests. Zero required dependencies. |
+## Version History
 
-<details>
-<summary>Pre-release development history</summary>
-
-| Internal | Milestone |
-|----------|-----------|
-| v6.4 (dev) | pip packaging, continuous extraction, production hardening |
-| v6.3 (dev) | Cross-platform context writer |
-| v6.2 (dev) | Auto-inject context |
-| v6.1 (dev) | Coding tool extraction |
-| v6.0 (dev) | Visualization, dashboard, file monitor, sync scheduler |
-| v5.4 (dev) | Query engine, gap analysis, weekly digest |
-| v5.3 (dev) | Smart edge extraction, co-occurrence, centrality, dedup |
-| v5.2 (dev) | UPAI Protocol — cryptographic signing, selective disclosure, version control |
-| v5.1 (dev) | Temporal snapshots, contradiction engine, drift scoring |
-| v5.0 (dev) | Graph foundation — category-agnostic nodes, edges |
-| v4.x (dev) | PII redaction, typed relationships, Notion/Google Docs, semantic dedup |
-
-</details>
-
-</details>
+| Version | What Changed |
+|---------|-------------|
+| v1.4.1 | **Data Import + Shareable Memory API** — PDF/DOCX resume upload, LinkedIn data export + URL import, GitHub repo import, shareable memory API with 4 policies and 4 formats, public `GET /api/memory/{key}` endpoint. 2,138 tests. |
+| v1.4.0 | **Consumer Web UI** — Upload (drag-drop with auto-detection), My Memory (interactive canvas graph), Share (multi-platform export with privacy levels). 2,063 tests. |
+| v1.3.0 | **Advanced Features** — Semantic search, plugin system, query language, federation, Python SDK, Grafana dashboards, Helm chart, Terraform, tracing, Swagger UI, error hints, load testing, examples. 2,032 tests. |
+| v1.2.0 | **Production Hardening** — RBAC, audit ledger, HTTP caching, webhook resilience, SSE, OAuth, encryption, rate limiting, CSRF/SSRF, SQLite + PostgreSQL backends, Python + TypeScript SDKs, Prometheus metrics, admin dashboard. 1,710 tests. |
+| v1.1.0 | **UPAI Protocol + CaaS API** — DID identity, signed tokens, key rotation, 18 HTTP endpoints, JSON Schema validation, OpenAPI spec. 796 tests. |
+| v1.0.0 | **First release** — Knowledge graph, temporal tracking, coding extraction, cross-platform context, visualization. 618 tests. |
 
 ---
 
