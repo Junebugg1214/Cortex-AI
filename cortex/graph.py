@@ -20,6 +20,7 @@ from typing import Any
 
 CATEGORY_ORDER = [
     "identity", "professional_context", "business_context", "active_priorities",
+    "work_history", "education_history",
     "relationships", "technical_expertise", "domain_knowledge", "market_context",
     "metrics", "constraints", "values", "negations", "user_preferences",
     "communication_preferences", "correction_history", "history", "mentions",

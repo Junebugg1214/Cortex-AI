@@ -346,6 +346,9 @@ class TestSchemaRegistry:
             "node", "edge", "graph", "identity", "envelope",
             "grant_token", "disclosure_policy", "version", "did_document",
             "credential", "credential_proof",
+            "work_history_properties", "education_history_properties",
+            "attestation_request", "employment_attestation_claims",
+            "skill_endorsement_claims", "reference_attestation_claims",
         }
         assert set(SCHEMAS.keys()) == expected
 

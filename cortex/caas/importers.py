@@ -9,6 +9,7 @@ import re
 import urllib.request
 import urllib.error
 import zipfile
+from datetime import datetime
 from typing import Any
 
 
@@ -130,6 +131,27 @@ def parse_resume_text(text: str) -> dict:
 
 # ── LinkedIn data export (zip with CSVs) ────────────────────────────
 
+def _linkedin_date(raw: str) -> str:
+    """Convert LinkedIn date strings (e.g. 'Jan 2020', '2020') to ISO date YYYY-MM-DD."""
+    if not raw or not raw.strip():
+        return ""
+    raw = raw.strip()
+    # Try "Mon YYYY" format
+    for fmt in ("%b %Y", "%B %Y"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    # Try bare year
+    if re.match(r"^\d{4}$", raw):
+        return f"{raw}-01-01"
+    # Try ISO date passthrough
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+        return raw
+    return ""
+
+
 _LINKEDIN_CSV_MAP = {
     "Profile.csv": "profile",
     "Positions.csv": "positions",
@@ -211,6 +233,35 @@ def parse_linkedin_export(zip_data: bytes) -> dict:
             edges.append({"id": eid, "source_id": src, "target_id": tgt,
                           "relation": "worked_at"})
 
+        # Also create work_history node with dates
+        if title and company:
+            wh_label = f"{title} at {company}"
+            wh_nid = make_node_id_with_tag(wh_label, "work_history")
+            start_date = _linkedin_date(row.get("Started On", ""))
+            end_date = _linkedin_date(row.get("Finished On", ""))
+            desc = row.get("Description", "")
+            location = row.get("Location", "")
+            wh_props = {
+                "employer": company,
+                "role": title,
+                "start_date": start_date,
+                "end_date": end_date,
+                "current": end_date == "",
+                "location": location,
+                "description": desc,
+                "achievements": [],
+                "employment_type": "full-time",
+            }
+            brief = f"{title} at {company}"
+            if start_date:
+                brief += f" ({start_date} - {'present' if not end_date else end_date})"
+            nodes.append({
+                "id": wh_nid, "label": wh_label,
+                "tags": ["work_history"],
+                "confidence": 0.9, "brief": brief,
+                "properties": wh_props,
+            })
+
     # Skills → technical_expertise nodes + has_skill edges
     for row in csvs.get("Skills.csv", []):
         skill = row.get("Name", row.get("Skill", ""))
@@ -241,6 +292,34 @@ def parse_linkedin_export(zip_data: bytes) -> dict:
             eid = make_edge_id(src, tgt, "studied_at")
             edges.append({"id": eid, "source_id": src, "target_id": tgt,
                           "relation": "studied_at"})
+
+        # Also create education_history node with dates
+        if school and degree:
+            eh_label = f"{degree} at {school}"
+            eh_nid = make_node_id_with_tag(eh_label, "education_history")
+            fos = row.get("Notes", "")
+            start_date = _linkedin_date(row.get("Start Date", ""))
+            end_date = _linkedin_date(row.get("End Date", ""))
+            eh_props = {
+                "institution": school,
+                "degree": degree,
+                "field_of_study": fos,
+                "start_date": start_date,
+                "end_date": end_date,
+                "current": end_date == "",
+                "gpa": "",
+                "achievements": [],
+                "courses": [],
+            }
+            brief = f"{degree} at {school}"
+            if start_date:
+                brief += f" ({start_date} - {'present' if not end_date else end_date})"
+            nodes.append({
+                "id": eh_nid, "label": eh_label,
+                "tags": ["education_history"],
+                "confidence": 0.9, "brief": brief,
+                "properties": eh_props,
+            })
 
     # Certifications
     for row in csvs.get("Certifications.csv", []):

@@ -26,6 +26,8 @@ TAG_COLORS: dict[str, str] = {
     "professional_context":       "#3498db",
     "business_context":           "#2ecc71",
     "active_priorities":          "#f39c12",
+    "work_history":               "#2c3e50",
+    "education_history":          "#8e44ad",
     "relationships":              "#9b59b6",
     "technical_expertise":        "#1abc9c",
     "domain_knowledge":           "#e67e22",
