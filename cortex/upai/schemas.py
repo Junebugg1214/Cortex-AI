@@ -261,6 +261,97 @@ CREDENTIAL_SCHEMA: dict = {
 }
 
 
+WORK_HISTORY_PROPERTIES_SCHEMA: dict = {
+    "type": "object",
+    "required": ["employer", "role", "start_date"],
+    "properties": {
+        "employer": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "start_date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "end_date": {"type": "string"},
+        "current": {"type": "boolean"},
+        "location": {"type": "string"},
+        "description": {"type": "string"},
+        "achievements": {"type": "array", "items": {"type": "string"}},
+        "employment_type": {
+            "type": "string",
+            "enum": ["full-time", "part-time", "contract", "internship", "freelance"],
+        },
+    },
+}
+
+EDUCATION_HISTORY_PROPERTIES_SCHEMA: dict = {
+    "type": "object",
+    "required": ["institution", "degree"],
+    "properties": {
+        "institution": {"type": "string", "minLength": 1},
+        "degree": {"type": "string", "minLength": 1},
+        "field_of_study": {"type": "string"},
+        "start_date": {"type": "string"},
+        "end_date": {"type": "string"},
+        "current": {"type": "boolean"},
+        "gpa": {"type": "string"},
+        "achievements": {"type": "array", "items": {"type": "string"}},
+        "courses": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+ATTESTATION_REQUEST_SCHEMA: dict = {
+    "type": "object",
+    "required": ["request_id", "subject_did", "attestor_did", "attestation_type", "proposed_claims"],
+    "properties": {
+        "request_id": {"type": "string", "minLength": 1},
+        "subject_did": {"type": "string", "pattern": r"^did:"},
+        "attestor_did": {"type": "string", "pattern": r"^did:"},
+        "attestation_type": {
+            "type": "string",
+            "enum": ["EmploymentAttestation", "SkillEndorsement", "ReferenceAttestation"],
+        },
+        "bound_node_id": {"type": "string"},
+        "proposed_claims": {"type": "object"},
+        "created_at": {"type": "string"},
+    },
+}
+
+EMPLOYMENT_ATTESTATION_CLAIMS_SCHEMA: dict = {
+    "type": "object",
+    "required": ["subject_name", "employer", "role", "relationship"],
+    "properties": {
+        "subject_name": {"type": "string", "minLength": 1},
+        "employer": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "relationship": {"type": "string", "minLength": 1},
+        "start_date": {"type": "string"},
+        "end_date": {"type": "string"},
+        "description": {"type": "string"},
+    },
+}
+
+SKILL_ENDORSEMENT_CLAIMS_SCHEMA: dict = {
+    "type": "object",
+    "required": ["subject_name", "skill", "proficiency_level"],
+    "properties": {
+        "subject_name": {"type": "string", "minLength": 1},
+        "skill": {"type": "string", "minLength": 1},
+        "proficiency_level": {"type": "string", "minLength": 1},
+        "context": {"type": "string"},
+        "years_experience": {"type": "string"},
+    },
+}
+
+REFERENCE_ATTESTATION_CLAIMS_SCHEMA: dict = {
+    "type": "object",
+    "required": ["subject_name", "relationship", "reference_text"],
+    "properties": {
+        "subject_name": {"type": "string", "minLength": 1},
+        "relationship": {"type": "string", "minLength": 1},
+        "reference_text": {"type": "string", "minLength": 1},
+        "employer": {"type": "string"},
+        "duration": {"type": "string"},
+    },
+}
+
+
 # Schema registry
 SCHEMAS: dict[str, dict] = {
     "node": NODE_SCHEMA,
@@ -274,6 +365,12 @@ SCHEMAS: dict[str, dict] = {
     "did_document": DID_DOCUMENT_SCHEMA,
     "credential": CREDENTIAL_SCHEMA,
     "credential_proof": CREDENTIAL_PROOF_SCHEMA,
+    "work_history_properties": WORK_HISTORY_PROPERTIES_SCHEMA,
+    "education_history_properties": EDUCATION_HISTORY_PROPERTIES_SCHEMA,
+    "attestation_request": ATTESTATION_REQUEST_SCHEMA,
+    "employment_attestation_claims": EMPLOYMENT_ATTESTATION_CLAIMS_SCHEMA,
+    "skill_endorsement_claims": SKILL_ENDORSEMENT_CLAIMS_SCHEMA,
+    "reference_attestation_claims": REFERENCE_ATTESTATION_CLAIMS_SCHEMA,
 }
 
 

@@ -19,6 +19,7 @@ POLICY_TAGS: dict[str, list[str] | None] = {
     "professional": [
         "identity", "professional_context", "business_context",
         "technical_expertise", "active_priorities",
+        "work_history", "education_history",
     ],
     "technical": [
         "technical_expertise", "domain_knowledge", "active_priorities",
@@ -168,6 +169,10 @@ def render_memory(graph: CortexGraph, policy_name: str,
         return _render_system_prompt(filtered), "text/plain"
     elif fmt == "markdown":
         return _render_markdown(filtered), "text/markdown"
+    elif fmt == "jsonresume":
+        from cortex.caas.jsonresume import graph_to_jsonresume
+        resume = graph_to_jsonresume(filtered)
+        return json.dumps(resume, indent=2, default=str), "application/json"
     else:
         return json.dumps(filtered.export_v5(), indent=2, default=str), "application/json"
 

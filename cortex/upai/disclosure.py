@@ -41,6 +41,7 @@ BUILTIN_POLICIES = {
         include_tags=[
             "identity", "professional_context", "business_context",
             "technical_expertise", "active_priorities",
+            "work_history", "education_history",
         ],
         exclude_tags=["negations", "correction_history"],
         min_confidence=0.6,

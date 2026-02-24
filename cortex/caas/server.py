@@ -233,6 +233,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     federation_manager: Any = None  # Optional FederationManager
     enable_webapp: bool = False  # Enable /app web UI
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
+    profile_store: Any = None  # Optional ProfileStore for public profiles
 
     _request_id: str = ""
     _logger = None  # lazily set
@@ -351,11 +352,32 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/peers":
             self._serve_federation_peers()
+        # ── Profile routes ─────────────────────────────────────
+        elif path == "/api/profile":
+            self._handle_get_profile()
+        elif path == "/api/profile/preview":
+            self._handle_profile_preview()
+        elif path.startswith("/p/"):
+            handle = path[len("/p/"):]
+            self._serve_profile_page(handle)
+        # ── Attestation routes ─────────────────────────────────
+        elif path == "/api/attestations":
+            self._handle_list_attestations()
+        elif path.startswith("/api/attestations/"):
+            node_id = path[len("/api/attestations/"):]
+            self._handle_get_attestations_for_node(node_id)
+        # ── Timeline routes ────────────────────────────────────
+        elif path == "/api/timeline":
+            self._handle_get_timeline()
+        elif path.startswith("/api/timeline/"):
+            self._handle_get_timeline_node(path[len("/api/timeline/"):])
         # ── API key routes ──────────────────────────────────────
         elif path == "/api/keys":
             self._handle_list_api_keys()
         elif path.startswith("/api/memory/"):
             self._handle_public_memory(path, query)
+        elif path.startswith("/api/resume/"):
+            self._handle_public_resume(path)
         # ── Webapp routes ────────────────────────────────────────
         elif path.startswith("/app"):
             self._serve_webapp_file(path)
@@ -404,6 +426,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_github_import()
         elif path == "/api/import/linkedin":
             self._handle_linkedin_import()
+        elif path == "/api/profile":
+            self._handle_save_profile()
+        elif path == "/api/attestations/request":
+            self._handle_create_attestation_request()
+        elif path == "/api/attestations/sign":
+            self._handle_sign_attestation()
+        elif path == "/api/timeline":
+            self._handle_create_timeline_entry()
         elif path == "/api/keys":
             self._handle_create_api_key()
         # ── Webapp auth routes ────────────────────────────────────
@@ -452,6 +482,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._handle_delete_policy(policy_name)
+        elif path.startswith("/api/attestations/"):
+            cred_id = path[len("/api/attestations/"):]
+            self._handle_delete_attestation(cred_id)
+        elif path.startswith("/api/timeline/"):
+            node_id = path[len("/api/timeline/"):]
+            self._handle_delete_timeline_entry(node_id)
         elif path.startswith("/api/keys/"):
             key_id = path[len("/api/keys/"):]
             self._handle_revoke_api_key(key_id)
@@ -471,7 +507,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
 
-        if path.startswith("/context/nodes/"):
+        if path.startswith("/api/timeline/"):
+            node_id = path[len("/api/timeline/"):]
+            self._handle_update_timeline_entry(node_id)
+        elif path.startswith("/context/nodes/"):
             node_id = path[len("/context/nodes/"):]
             self._handle_update_node(node_id)
         elif path.startswith("/policies/"):
@@ -2592,6 +2631,454 @@ class CaaSHandler(BaseHTTPRequestHandler):
                               "For richer data, use a LinkedIn data export (Settings > Get a copy of your data).")
         self._json_response(result, status=201)
 
+    # ── Profile endpoints ─────────────────────────────────────────────
+
+    def _get_profile_store(self):
+        """Lazy-init the profile store."""
+        if self.__class__.profile_store is None:
+            from cortex.caas.profile import ProfileStore
+            store_path = Path(".cortex") / "profiles.json"
+            self.__class__.profile_store = ProfileStore(store_path)
+        return self.__class__.profile_store
+
+    def _handle_get_profile(self) -> None:
+        """GET /api/profile — get the current profile config."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self._get_profile_store()
+        profiles = store.list_all()
+        if profiles:
+            self._json_response(profiles[0].to_dict())
+        else:
+            self._json_response({})
+
+    def _handle_save_profile(self) -> None:
+        """POST /api/profile — create or update profile config."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        handle = body.get("handle", "")
+
+        from cortex.caas.profile import ProfileConfig, validate_handle
+
+        store = self._get_profile_store()
+
+        # Check if profile already exists
+        existing = store.get(handle)
+        if existing:
+            # Update
+            updated = store.update(handle, body)
+            if updated:
+                self._json_response(updated.to_dict())
+            else:
+                self._error_response(ERR_NOT_FOUND("profile"))
+        else:
+            # Create
+            errors = validate_handle(handle)
+            if errors:
+                self._error_response(ERR_INVALID_REQUEST("; ".join(errors)))
+                return
+            config = ProfileConfig(
+                handle=handle,
+                display_name=body.get("display_name", ""),
+                headline=body.get("headline", ""),
+                bio=body.get("bio", ""),
+                avatar_url=body.get("avatar_url", ""),
+                policy=body.get("policy", "professional"),
+                sections=body.get("sections", [
+                    "about", "experience", "skills", "education",
+                    "projects", "endorsements",
+                ]),
+                custom_tags=body.get("custom_tags", []),
+            )
+            try:
+                created = store.create(config)
+                self._json_response(created.to_dict(), status=201)
+            except ValueError as exc:
+                self._error_response(ERR_INVALID_REQUEST(str(exc)))
+
+    def _handle_profile_preview(self) -> None:
+        """GET /api/profile/preview — preview the profile page HTML."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self._get_profile_store()
+        profiles = store.list_all()
+        if not profiles:
+            self._respond(200, "text/html", b"<p>No profile configured.</p>")
+            return
+
+        config = profiles[0]
+        graph = self.__class__.graph
+        if graph is None:
+            self._respond(200, "text/html", b"<p>No graph data.</p>")
+            return
+
+        from cortex.caas.api_keys import get_disclosed_graph
+        from cortex.caas.profile import render_profile_html
+
+        filtered = get_disclosed_graph(graph, config.policy, config.custom_tags or None)
+        page_html = render_profile_html(filtered, config, self.__class__.credential_store)
+        self._respond(200, "text/html", page_html.encode("utf-8"))
+
+    def _serve_profile_page(self, handle: str) -> None:
+        """GET /p/{handle} — serve the public profile page."""
+        store = self._get_profile_store()
+        config = store.get(handle)
+        if config is None:
+            self._error_response(ERR_NOT_FOUND("profile"))
+            return
+
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        from cortex.caas.api_keys import get_disclosed_graph
+        from cortex.caas.profile import render_profile_html
+
+        filtered = get_disclosed_graph(graph, config.policy, config.custom_tags or None)
+        page_html = render_profile_html(filtered, config, self.__class__.credential_store)
+        self._respond(200, "text/html", page_html.encode("utf-8"))
+
+    # ── Attestation endpoints ─────────────────────────────────────────
+
+    def _handle_list_attestations(self) -> None:
+        """GET /api/attestations — list all attestation credentials."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self.__class__.credential_store
+        if store is None:
+            self._json_response({"attestations": [], "count": 0})
+            return
+
+        from cortex.upai.attestations import ATTESTATION_TYPES
+        attest_types = set(ATTESTATION_TYPES.keys())
+        creds = store.list_all()
+        attestations = [
+            c.to_dict() for c in creds
+            if attest_types.intersection(set(c.credential_type))
+        ]
+        self._json_response({"attestations": attestations, "count": len(attestations)})
+
+    def _handle_get_attestations_for_node(self, node_id: str) -> None:
+        """GET /api/attestations/{node_id} — get attestations for a node."""
+        # Allow both authenticated and API key access
+        store = self.__class__.credential_store
+        if store is None:
+            self._json_response({"attestations": [], "count": 0})
+            return
+
+        from cortex.upai.attestations import get_attestations_for_node, get_attestation_summary
+        creds = get_attestations_for_node(store, node_id)
+        summary = get_attestation_summary(store, node_id)
+        self._json_response({
+            "attestations": [c.to_dict() for c in creds],
+            "summary": summary,
+        })
+
+    def _handle_create_attestation_request(self) -> None:
+        """POST /api/attestations/request — create an attestation request."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        identity = self.__class__.identity
+        if identity is None:
+            self._error_response(ERR_NOT_CONFIGURED("No identity configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        attestor_did = body.get("attestor_did", "")
+        attestation_type = body.get("attestation_type", "")
+        proposed_claims = body.get("proposed_claims", {})
+        bound_node_id = body.get("bound_node_id", "")
+
+        if not attestor_did:
+            self._error_response(ERR_INVALID_REQUEST("attestor_did required"))
+            return
+
+        from cortex.upai.attestations import (
+            ATTESTATION_TYPES,
+            create_attestation_request,
+            validate_attestation_claims,
+        )
+
+        if attestation_type not in ATTESTATION_TYPES:
+            self._error_response(ERR_INVALID_REQUEST(
+                f"Invalid attestation_type. Must be one of: {', '.join(sorted(ATTESTATION_TYPES))}"))
+            return
+
+        errors = validate_attestation_claims(attestation_type, proposed_claims)
+        if errors:
+            self._error_response(ERR_INVALID_REQUEST("; ".join(errors)))
+            return
+
+        request, envelope = create_attestation_request(
+            identity, attestor_did, attestation_type,
+            proposed_claims, bound_node_id,
+        )
+        self._json_response({
+            "request_id": request.request_id,
+            "envelope": envelope.serialize() if hasattr(envelope, 'serialize') else str(envelope),
+        }, status=201)
+
+    def _handle_sign_attestation(self) -> None:
+        """POST /api/attestations/sign — sign an attestation (public, self-authenticating)."""
+        body = self._read_body()
+        if body is None:
+            return
+
+        request_data = body.get("request", {})
+        claims = body.get("claims", {})
+        ttl_days = body.get("ttl_days", 365)
+
+        # The attestor provides their signed credential directly
+        credential_dict = body.get("credential")
+        if credential_dict:
+            # Store a pre-signed credential
+            store = self.__class__.credential_store
+            if store is None:
+                self._error_response(ERR_NOT_CONFIGURED("credential_store"))
+                return
+            from cortex.upai.credentials import VerifiableCredential
+            cred = VerifiableCredential.from_dict(credential_dict)
+            store.add(cred)
+            self._json_response({
+                "stored": True,
+                "credential_id": cred.credential_id,
+            }, status=201)
+            return
+
+        # Otherwise require request data for local signing
+        self._error_response(ERR_INVALID_REQUEST(
+            "Provide 'credential' (pre-signed VerifiableCredential dict)"))
+
+    def _handle_delete_attestation(self, credential_id: str) -> None:
+        """DELETE /api/attestations/{credential_id} — delete an attestation."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        store = self.__class__.credential_store
+        if store is None:
+            self._error_response(ERR_NOT_FOUND("credential"))
+            return
+
+        if store.delete(credential_id):
+            self._json_response({"deleted": True})
+        else:
+            self._error_response(ERR_NOT_FOUND("credential"))
+
+    # ── JSON Resume endpoint ─────────────────────────────────────────
+
+    def _handle_public_resume(self, path: str) -> None:
+        """GET /api/resume/{key} — public JSON Resume export via API key."""
+        key_secret = path[len("/api/resume/"):]
+        if not key_secret:
+            self._error_response(ERR_NOT_FOUND("api_key"))
+            return
+
+        store = self._get_api_key_store()
+        key_info = store.get_by_secret(key_secret)
+        if key_info is None:
+            self._error_response(ERR_NOT_FOUND("api_key"))
+            return
+
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        from cortex.caas.api_keys import get_disclosed_graph
+        filtered = get_disclosed_graph(graph, key_info["policy"], key_info.get("tags"))
+
+        from cortex.caas.jsonresume import graph_to_jsonresume
+        resume = graph_to_jsonresume(filtered, self.__class__.credential_store)
+        import json as _json
+        body = _json.dumps(resume, indent=2, default=str).encode("utf-8")
+        self._respond(200, "application/json", body)
+
+    # ── Timeline endpoints ────────────────────────────────────────────
+
+    def _handle_get_timeline(self) -> None:
+        """GET /api/timeline — list all work and education history entries."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+        from cortex.professional_timeline import get_timeline
+        entries = get_timeline(graph)
+        self._json_response({
+            "timeline": [n.to_dict() for n in entries],
+            "count": len(entries),
+        })
+
+    def _handle_get_timeline_node(self, node_id: str) -> None:
+        """GET /api/timeline/{node_id} — get a single timeline entry."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+        node = graph.get_node(node_id)
+        if node is None or not any(t in node.tags for t in ("work_history", "education_history")):
+            self._error_response(ERR_NOT_FOUND("timeline_entry"))
+            return
+        self._json_response({"node": node.to_dict()})
+
+    def _handle_create_timeline_entry(self) -> None:
+        """POST /api/timeline — create a new timeline entry."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        entry_type = body.get("type", "")
+        properties = body.get("properties", {})
+
+        if entry_type not in ("work_history", "education_history"):
+            self._error_response(ERR_INVALID_REQUEST(
+                "type must be 'work_history' or 'education_history'"))
+            return
+
+        from cortex.professional_timeline import (
+            WorkHistoryEntry, EducationHistoryEntry,
+            create_work_history_node, create_education_node,
+            validate_work_history_properties, validate_education_properties,
+        )
+
+        if entry_type == "work_history":
+            errors = validate_work_history_properties(properties)
+            if errors:
+                self._error_response(ERR_INVALID_REQUEST("; ".join(errors)))
+                return
+            entry = WorkHistoryEntry.from_properties(properties)
+            node = create_work_history_node(entry)
+        else:
+            errors = validate_education_properties(properties)
+            if errors:
+                self._error_response(ERR_INVALID_REQUEST("; ".join(errors)))
+                return
+            entry = EducationHistoryEntry.from_properties(properties)
+            node = create_education_node(entry)
+
+        graph.add_node(node)
+        self._json_response({"node": node.to_dict(), "id": node.id}, status=201)
+
+    def _handle_update_timeline_entry(self, node_id: str) -> None:
+        """PUT /api/timeline/{node_id} — update a timeline entry."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        node = graph.get_node(node_id)
+        if node is None or not any(t in node.tags for t in ("work_history", "education_history")):
+            self._error_response(ERR_NOT_FOUND("timeline_entry"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        properties = body.get("properties", {})
+        if not properties:
+            self._error_response(ERR_INVALID_REQUEST("properties required"))
+            return
+
+        # Merge properties
+        merged = dict(node.properties)
+        merged.update(properties)
+
+        # Validate merged result
+        from cortex.professional_timeline import (
+            validate_work_history_properties, validate_education_properties,
+        )
+        if "work_history" in node.tags:
+            errors = validate_work_history_properties(merged)
+        else:
+            errors = validate_education_properties(merged)
+
+        if errors:
+            self._error_response(ERR_INVALID_REQUEST("; ".join(errors)))
+            return
+
+        # Derive current flag
+        merged["current"] = merged.get("end_date", "") == ""
+
+        graph.update_node(node_id, {"properties": merged})
+        updated = graph.get_node(node_id)
+        self._json_response({"node": updated.to_dict()})
+
+    def _handle_delete_timeline_entry(self, node_id: str) -> None:
+        """DELETE /api/timeline/{node_id} — delete a timeline entry."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED("graph"))
+            return
+
+        node = graph.get_node(node_id)
+        if node is None or not any(t in node.tags for t in ("work_history", "education_history")):
+            self._error_response(ERR_NOT_FOUND("timeline_entry"))
+            return
+
+        graph.remove_node(node_id)
+        self._json_response({"deleted": True})
+
     # ── API Key endpoints ────────────────────────────────────────────
 
     def _get_api_key_store(self):
@@ -2625,7 +3112,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 f"Invalid policy. Must be one of: {', '.join(sorted(valid_policies))}"))
             return
 
-        valid_formats = {"json", "claude_xml", "system_prompt", "markdown"}
+        valid_formats = {"json", "claude_xml", "system_prompt", "markdown", "jsonresume"}
         if fmt not in valid_formats:
             self._error_response(ERR_INVALID_REQUEST(
                 f"Invalid format. Must be one of: {', '.join(sorted(valid_formats))}"))
