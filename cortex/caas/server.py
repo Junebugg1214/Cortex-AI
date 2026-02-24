@@ -355,7 +355,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path == "/api/keys":
             self._handle_list_api_keys()
         elif path.startswith("/api/memory/"):
-            self._handle_public_memory(path)
+            self._handle_public_memory(path, query)
         # ── Webapp routes ────────────────────────────────────────
         elif path.startswith("/app"):
             self._serve_webapp_file(path)
@@ -2660,8 +2660,18 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(ERR_NOT_FOUND("api_key"))
 
-    def _handle_public_memory(self, path: str) -> None:
-        """GET /api/memory/{key} — public endpoint, no auth required."""
+    def _handle_public_memory(self, path: str, query: dict | None = None) -> None:
+        """GET /api/memory/{key} — public endpoint, no auth required.
+
+        Supports optional query parameters for filtering/searching:
+        - ``?q=``              Full DSL query (FIND, SEARCH, NEIGHBORS, PATH)
+        - ``?search=``         Shorthand full-text search
+        - ``?tags=``           Comma-separated tag filter
+        - ``?min_confidence=`` Confidence floor (0.0-1.0)
+        - ``?limit=``          Max results (1-1000, default 100)
+        """
+        query = query or {}
+
         key_secret = path[len("/api/memory/"):]
         if not key_secret:
             self._error_response(ERR_NOT_FOUND("api_key"))
@@ -2678,10 +2688,120 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_CONFIGURED("graph"))
             return
 
-        from cortex.caas.api_keys import render_memory
-        content, content_type = render_memory(
-            graph, key_info["policy"], key_info.get("tags"), key_info["format"])
-        self._respond(200, content_type, content.encode("utf-8"))
+        # ── Check for query params ──────────────────────────────────
+        q_dsl = query.get("q", [""])[0] if "q" in query else ""
+        search_text = query.get("search", [""])[0] if "search" in query else ""
+        tags_param = query.get("tags", [""])[0] if "tags" in query else ""
+        min_conf_raw = query.get("min_confidence", [""])[0] if "min_confidence" in query else ""
+        limit_raw = query.get("limit", [""])[0] if "limit" in query else ""
+
+        has_query = q_dsl or search_text or tags_param or min_conf_raw or limit_raw
+
+        if not has_query:
+            # No query params → existing behaviour: render in key's format
+            from cortex.caas.api_keys import render_memory
+            content, content_type = render_memory(
+                graph, key_info["policy"], key_info.get("tags"), key_info["format"])
+            self._respond(200, content_type, content.encode("utf-8"))
+            return
+
+        # ── Parse limit / min_confidence ────────────────────────────
+        limit = 100
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+                if limit < 1 or limit > 1000:
+                    raise ValueError
+            except (ValueError, TypeError):
+                self._error_response(ERR_INVALID_REQUEST(
+                    "limit must be an integer between 1 and 1000"))
+                return
+
+        min_confidence = 0.0
+        if min_conf_raw:
+            try:
+                min_confidence = float(min_conf_raw)
+                if not (0.0 <= min_confidence <= 1.0):
+                    raise ValueError
+            except (ValueError, TypeError):
+                self._error_response(ERR_INVALID_REQUEST(
+                    "min_confidence must be a number between 0.0 and 1.0"))
+                return
+
+        # ── Security boundary: apply disclosure policy ──────────────
+        from cortex.caas.api_keys import get_disclosed_graph
+        filtered = get_disclosed_graph(
+            graph, key_info["policy"], key_info.get("tags"))
+
+        policy_name = key_info["policy"]
+
+        # ── Execute query (precedence: q > search > tags > bare) ────
+        _SYNTAX_HINT = (
+            'Supported syntax: FIND nodes WHERE <field> <op> <value> LIMIT N | '
+            'SEARCH "<text>" | NEIGHBORS OF "<label>" | PATH FROM "<a>" TO "<b>"'
+        )
+
+        if q_dsl:
+            from cortex.query_lang import ParseError, execute_query
+            try:
+                result = execute_query(filtered, q_dsl)
+            except ParseError as exc:
+                err = ERR_INVALID_REQUEST(f"Query parse error: {exc}")
+                err.hint = _SYNTAX_HINT
+                self._error_response(err)
+                return
+            self._json_response({
+                "query": q_dsl,
+                "results": result,
+                "count": result.get("count", len(result.get("nodes", result.get("results", [])))),
+                "policy": policy_name,
+            })
+            return
+
+        if search_text:
+            nodes = filtered.search_nodes(
+                search_text, limit=limit, min_confidence=min_confidence)
+            results = [n.to_dict() for n in nodes]
+            self._json_response({
+                "query": f'SEARCH "{search_text}"',
+                "results": results,
+                "count": len(results),
+                "policy": policy_name,
+            })
+            return
+
+        if tags_param:
+            tag_set = {t.strip() for t in tags_param.split(",") if t.strip()}
+            results = []
+            for node in filtered.nodes.values():
+                if node.confidence < min_confidence:
+                    continue
+                if tag_set.intersection(set(node.tags)):
+                    results.append(node.to_dict())
+                    if len(results) >= limit:
+                        break
+            self._json_response({
+                "query": f"tags={tags_param}",
+                "results": results,
+                "count": len(results),
+                "policy": policy_name,
+            })
+            return
+
+        # Bare min_confidence / limit only
+        results = []
+        for node in filtered.nodes.values():
+            if node.confidence < min_confidence:
+                continue
+            results.append(node.to_dict())
+            if len(results) >= limit:
+                break
+        self._json_response({
+            "query": f"min_confidence={min_confidence}&limit={limit}",
+            "results": results,
+            "count": len(results),
+            "policy": policy_name,
+        })
 
     # ── Dashboard: static files ─────────────────────────────────────
 

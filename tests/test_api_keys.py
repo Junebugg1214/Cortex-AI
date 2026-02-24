@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from cortex.caas.api_keys import ApiKeyStore, render_memory
+from cortex.caas.api_keys import ApiKeyStore, get_disclosed_graph, render_memory
 
 
 # ── ApiKeyStore ──────────────────────────────────────────────────────
@@ -179,3 +179,53 @@ class TestRenderMemory:
         assert "John Doe" in labels
         # technical_expertise nodes should be excluded
         assert "Python" not in labels
+
+
+# ── get_disclosed_graph ─────────────────────────────────────────────
+
+class TestGetDisclosedGraph:
+    """Test the get_disclosed_graph() helper returns correctly filtered graphs."""
+
+    def setup_method(self):
+        from cortex.graph import CortexGraph, Node
+
+        self.graph = CortexGraph()
+        self.graph.add_node(Node(
+            id="n1", label="Python", tags=["technical_expertise"],
+            confidence=0.9, brief="Programming language",
+        ))
+        self.graph.add_node(Node(
+            id="n2", label="John Doe", tags=["identity"],
+            confidence=0.95, brief="Full name",
+        ))
+        self.graph.add_node(Node(
+            id="n3", label="Machine Learning", tags=["domain_knowledge"],
+            confidence=0.8, brief="Research area",
+        ))
+
+    def test_technical_policy_includes_correct_nodes(self):
+        filtered = get_disclosed_graph(self.graph, "technical", None)
+        labels = [n.label for n in filtered.nodes.values()]
+        assert "Python" in labels
+        assert "Machine Learning" in labels
+
+    def test_technical_policy_excludes_identity(self):
+        filtered = get_disclosed_graph(self.graph, "technical", None)
+        labels = [n.label for n in filtered.nodes.values()]
+        assert "John Doe" not in labels
+
+    def test_custom_tags_filtering(self):
+        filtered = get_disclosed_graph(self.graph, "custom", ["identity"])
+        labels = [n.label for n in filtered.nodes.values()]
+        assert "John Doe" in labels
+        assert "Python" not in labels
+
+    def test_render_memory_unchanged_after_refactor(self):
+        """Regression: render_memory still produces the same output via get_disclosed_graph."""
+        content, ct = render_memory(self.graph, "full", None, "json")
+        data = json.loads(content)
+        labels = [n["label"] for n in data["graph"]["nodes"].values()]
+        assert "Python" in labels
+        assert "John Doe" in labels
+        assert "Machine Learning" in labels
+        assert ct == "application/json"

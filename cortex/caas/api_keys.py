@@ -114,15 +114,15 @@ class ApiKeyStore:
 
 # ── Memory rendering ─────────────────────────────────────────────────
 
-def render_memory(graph: CortexGraph, policy_name: str,
-                  tags: list[str] | None, fmt: str) -> tuple[str, str]:
-    """Filter graph by policy/tags and render in the requested format.
+def get_disclosed_graph(graph: CortexGraph, policy_name: str,
+                        tags: list[str] | None) -> CortexGraph:
+    """Apply disclosure policy to *graph* and return the filtered copy.
 
-    Returns ``(content_string, content_type_header)``.
+    This is the security boundary — all public endpoints should call this
+    before exposing any graph data.
     """
     from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
 
-    # Build a DisclosurePolicy
     if policy_name == "custom" and tags:
         policy = DisclosurePolicy(
             name="custom",
@@ -141,7 +141,6 @@ def render_memory(graph: CortexGraph, policy_name: str,
             redact_properties=[],
         )
     else:
-        # Fallback to full
         policy = DisclosurePolicy(
             name="full",
             include_tags=[],
@@ -150,7 +149,16 @@ def render_memory(graph: CortexGraph, policy_name: str,
             redact_properties=[],
         )
 
-    filtered = apply_disclosure(graph, policy)
+    return apply_disclosure(graph, policy)
+
+
+def render_memory(graph: CortexGraph, policy_name: str,
+                  tags: list[str] | None, fmt: str) -> tuple[str, str]:
+    """Filter graph by policy/tags and render in the requested format.
+
+    Returns ``(content_string, content_type_header)``.
+    """
+    filtered = get_disclosed_graph(graph, policy_name, tags)
 
     if fmt == "json":
         return json.dumps(filtered.export_v5(), indent=2, default=str), "application/json"
