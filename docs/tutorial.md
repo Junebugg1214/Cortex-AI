@@ -50,6 +50,21 @@ Storage: sqlite (.cortex/cortex.db)
 Dashboard password: a1b2c3d4e5f6...
 ```
 
+## Step 3b: Use the Web UI (Alternative)
+
+Instead of the dashboard, you can use the consumer web app for a friendlier experience:
+
+```bash
+python3 -m cortex.cli serve my-context/context.json --storage sqlite --enable-webapp
+```
+
+Open `http://localhost:8421/app` in your browser:
+
+- **Upload** — Drag-and-drop files, import from GitHub/LinkedIn URLs
+- **My Memory** — Interactive graph visualization with search and filters
+- **Share** — Export to any platform with privacy level selection
+- **Profile** — Create and manage public profiles
+
 ## Step 4: Explore Your Graph
 
 Open `http://localhost:8421/dashboard` and log in with the displayed password.
@@ -97,6 +112,35 @@ python3 -m cortex.cli pull my-context/notion_page.md --from notion -o roundtrip.
 ```
 
 This creates a new graph from the Notion export, verifying the round-trip.
+
+## Step 8: Create a Public Profile
+
+Share your professional identity with a public URL:
+
+1. Start the server with `--enable-webapp`:
+   ```bash
+   python3 -m cortex.cli serve my-context/context.json --storage sqlite --enable-webapp
+   ```
+
+2. Open `http://localhost:8421/app` and navigate to the **Profile** page
+
+3. Create a profile:
+   - Choose a handle (e.g., `yourname`)
+   - Select a disclosure policy (`professional` or `technical`)
+   - Add a brief bio
+
+4. Share it:
+   - Your public profile is available at `http://localhost:8421/p/yourname`
+   - Click **Generate QR Code** to create a scannable code for the URL
+   - Anyone visiting the URL sees your filtered identity — no authentication required
+
+5. (Optional) Register a webhook to track views:
+   ```bash
+   curl -X POST http://localhost:8421/webhooks \
+       -H "Authorization: Bearer <token>" \
+       -H "Content-Type: application/json" \
+       -d '{"url": "https://your-webhook.example.com", "events": ["profile.viewed"]}'
+   ```
 
 ## Next Steps
 

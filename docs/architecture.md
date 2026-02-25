@@ -31,7 +31,7 @@ The central data structure. A directed graph with typed nodes and edges.
 - **Schema**: v5 (current), v6 (compatible extension)
 
 Key operations: `add_node()`, `add_edge()`, `find_nodes()`, `get_neighbors()`,
-`stats()`, `export_v5()`, `from_v5_json()`.
+`stats()`, `export_v5()`, `from_v5_json()`, `graph_health()`, `diff_graphs()`.
 
 ### `cortex/extract_memory.py` — AggressiveExtractor
 
@@ -70,14 +70,41 @@ Push/pull adapters for each platform:
 | `NotionAdapter` | notion_page.md + database.json | .md or .json → graph |
 | `GDocsAdapter` | google_docs.html | HTML → graph |
 
+### `cortex/search.py` — Semantic Search
+
+TF-IDF ranked search across all node fields (stdlib-only, no external dependencies).
+
+### `cortex/query_lang.py` — Graph Query Language
+
+DSL parser and executor: `FIND`, `NEIGHBORS`, `PATH`, `SEARCH` operations.
+
+### `cortex/federation.py` — Cross-Instance Federation
+
+Export/import graphs between Cortex instances with peer management.
+
+### `cortex/plugins/` — Plugin System
+
+12 hook points for extending server behavior (on_request, on_response, on_graph_update, etc.).
+
 ### `cortex/caas/` — Context-as-a-Service
 
-- **`server.py`** — HTTP API server + dashboard routes
+- **`server.py`** — HTTP API server (50+ endpoints) + dashboard + webapp routes
 - **`storage.py`** — Abstract store interfaces
 - **`sqlite_store.py`** — SQLite implementations for grants, webhooks, audit
+- **`postgres_store.py`** — PostgreSQL implementations with connection pooling
+- **`postgres_audit_ledger.py`** — Hash-chained audit ledger for PostgreSQL
 - **`rate_limit.py`** — Token bucket rate limiter
 - **`webhook_worker.py`** — Background webhook delivery with retry
-- **`dashboard/`** — Static SPA files served from the CaaS server
+- **`oauth.py`** — OAuth 2.0 / OIDC with Google and GitHub providers
+- **`config.py`** — INI + environment variable configuration
+- **`instrumentation.py`** — Prometheus metrics (17 metrics, stdlib-only)
+- **`correlation.py`** — Request correlation ID middleware
+- **`archive.py`** — ZIP archive export/import
+- **`qr.py`** — QR code generation for public profiles
+- **`profile.py`** — Public profile management (multi-profile, `/p/{handle}`)
+- **`api_keys.py`** — Shareable memory API key management
+- **`dashboard/`** — Admin dashboard SPA (6 pages: Overview, Graph, Grants, Versions, Health, Settings)
+- **`webapp/`** — Consumer web UI (Upload, Memory, Share, Profile)
 
 ## Data Flow
 

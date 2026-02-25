@@ -159,7 +159,8 @@ The CaaS server includes a built-in web dashboard at `/dashboard`.
   disclosure policy filtering, search, and node detail panel
 - **Grants** — Create and revoke grant tokens with scope/policy/TTL controls
 - **Versions** — Timeline of graph versions with diff comparison
-- **Settings** — Server config, webhook management, graph export
+- **Health** — Stale node detection, orphan analysis, confidence distribution charts, graph changelog
+- **Settings** — Server config, webhook management, graph export, archive export/import
 
 ### Dashboard Authentication
 
@@ -205,6 +206,94 @@ Thread-safe, supports audit logging and webhook delivery tracking.
 ```bash
 python3 -m cortex.cli serve context.json --storage sqlite --db-path cortex.db
 ```
+
+### PostgreSQL
+
+Production-grade relational backend with connection pooling and hash-chained audit ledger.
+
+```bash
+pip install "cortex-identity[postgres]"
+python3 -m cortex.cli serve context.json --storage postgres --db-url "host=localhost dbname=cortex"
+```
+
+---
+
+## Web App
+
+Start the server with `--enable-webapp` and open `http://localhost:8421/app`.
+
+```bash
+python3 -m cortex.cli serve context.json --enable-webapp
+```
+
+### Pages
+
+- **Upload** — Drag-and-drop files (JSON, PDF, DOCX, zip), GitHub and LinkedIn URL import cards, API key management
+- **My Memory** — Interactive canvas graph with force-directed layout, zoom/pan, click-to-select, tag-colored nodes, search and filters
+- **Share** — Export to Claude, Notion, Google Docs, or system prompt format with privacy level selection and live preview
+- **Profile** — Create and manage public profiles (see below)
+
+---
+
+## Public Profiles
+
+Create shareable public profiles accessible at `/p/{handle}`.
+
+### Features
+
+- **Multi-profile** — Create multiple profiles per identity, each with its own disclosure policy (e.g., one for recruiters, one for open-source)
+- **Public URLs** — Each profile gets a `/p/{handle}` route accessible without authentication
+- **QR codes** — Generate QR codes for profile URLs directly in the web app
+- **`profile.viewed` webhook** — Get notified when someone views your public profile
+
+### Setup
+
+1. Start the server with `--enable-webapp`
+2. Open `/app` and navigate to the **Profile** page
+3. Create a profile: choose a handle, select a disclosure policy, add a bio
+4. Share the URL or QR code
+
+---
+
+## Archive Export/Import
+
+Export your full graph as a ZIP archive for backup, migration, or sharing.
+
+- **Export** — From the Dashboard Settings page, click "Export Archive" to download a `.zip` containing your graph, identity, and configuration
+- **Import** — Upload a `.zip` archive to restore or migrate a graph to a new instance
+
+---
+
+## Shareable Memory API
+
+Generate API keys so external chatbots, agents, and coding tools can access your memory over HTTP.
+
+```bash
+# From the web UI: click "Generate API Key", pick a policy and format
+# Or via API:
+curl -X POST localhost:8421/api/keys \
+  -H "Cookie: cortex_app_session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"label": "My Claude context", "policy": "professional", "format": "claude_xml"}'
+
+# Anyone with the key can fetch your memory (no auth needed):
+curl localhost:8421/api/memory/cmk_a1b2c3d4_e5f6...
+```
+
+| Policy | What's Shared |
+|--------|--------------|
+| `full` | Everything in your graph |
+| `professional` | Identity, work history, skills, priorities |
+| `technical` | Tech stack, domain knowledge, active projects |
+| `minimal` | Just your name and communication preferences |
+| `custom` | You pick exactly which tags to include |
+
+| Format | Best For |
+|--------|---------|
+| `json` | Programmatic access, SDKs, custom integrations |
+| `claude_xml` | Claude system prompts (`<user-context>` tags) |
+| `system_prompt` | Any LLM's system prompt (plain text) |
+| `markdown` | Documentation, Notion, human-readable |
 
 ---
 

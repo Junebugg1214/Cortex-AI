@@ -23,9 +23,14 @@ python3 -m pytest tests/ -q
 | `cortex/caas/` | Context-as-a-Service HTTP API server |
 | `cortex/upai/` | UPAI protocol — identity, tokens, RBAC, disclosure |
 | `sdk/typescript/` | TypeScript SDK (`@cortex_ai/sdk`) |
-| `tests/` | All tests (pytest) |
+| `sdk/python/` | Python SDK (stdlib-only) |
+| `tests/` | All tests (2,361+ pytest) |
 | `spec/` | UPAI protocol spec and OpenAPI definition |
-| `deploy/` | Docker, config examples |
+| `deploy/` | Docker, Helm, Terraform, Grafana, config examples |
+| `deploy/helm/` | Kubernetes Helm chart |
+| `deploy/terraform/` | AWS (ECS Fargate) + GCP (Cloud Run) modules |
+| `deploy/grafana/` | 3 Grafana dashboard JSON files |
+| `examples/` | Sample scripts and integration patterns |
 | `docs/` | Documentation |
 
 ## Running Tests
@@ -116,6 +121,17 @@ Environment variables follow the pattern `CORTEX_<SECTION>_<KEY>`:
 export CORTEX_SERVER_PORT=9000
 export CORTEX_METRICS_ENABLED=true
 ```
+
+## TypeScript SDK
+
+```bash
+cd sdk/typescript
+npm install
+npm test          # Runs node:test suite (33 tests)
+npm run build     # ESM + CJS dual build
+```
+
+The TypeScript SDK (`@cortex_ai/sdk`) has zero runtime dependencies and uses native `fetch`.
 
 ## Code Style
 
