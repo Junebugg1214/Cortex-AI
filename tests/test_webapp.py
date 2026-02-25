@@ -131,6 +131,7 @@ def _setup_webapp_server(enable_webapp=True):
     CaaSHandler.federation_manager = None
     CaaSHandler.metrics_registry = None
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler.sse_manager = None
     CaaSHandler.oauth_manager = None
@@ -764,7 +765,7 @@ class TestWebappApiKeys:
         assert status == 200
         keys = json.loads(body)
         assert len(keys) >= 1
-        assert "..." in keys[0]["key_secret"]
+        assert "..." in keys[0]["key_hash"]
 
     def test_revoke_key(self):
         cookie = _login(self.port, self.identity)
@@ -860,6 +861,7 @@ def _setup_query_server():
     CaaSHandler.federation_manager = None
     CaaSHandler.metrics_registry = None
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler.sse_manager = None
     CaaSHandler.oauth_manager = None

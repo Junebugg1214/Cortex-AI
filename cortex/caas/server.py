@@ -221,6 +221,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     policy_registry: PolicyRegistry = PolicyRegistry()
     metrics_registry: Any = None  # Optional MetricsRegistry (None = metrics disabled)
     rate_limiter: Any = None  # Optional RateLimiter
+    login_rate_limiter: Any = None  # Stricter rate limiter for dashboard login
     webhook_worker: Any = None  # Optional WebhookWorker
     _allowed_origins: set[str] = set()
     session_manager: DashboardSessionManager | None = None
@@ -3536,6 +3537,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _handle_dashboard_login(self) -> None:
         """POST /dashboard/auth — authenticate with derived password."""
+        # Login brute-force protection
+        login_limiter = self.__class__.login_rate_limiter
+        if login_limiter is not None:
+            client_ip = self.client_address[0]
+            if not login_limiter.allow(client_ip):
+                self._respond(429, "application/json",
+                              json.dumps({"error": "too_many_attempts"}).encode(),
+                              dashboard=True)
+                return
+
         sm = self.__class__.session_manager
         if sm is None:
             self._error_response(ERR_NOT_CONFIGURED("Dashboard not configured"))
@@ -4226,6 +4237,11 @@ def start_caas_server(
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
     CaaSHandler.enable_webapp = enable_webapp
+
+    # Rate limiters
+    from cortex.caas.rate_limit import RateLimiter
+    CaaSHandler.rate_limiter = RateLimiter(max_requests=60, window=60)
+    CaaSHandler.login_rate_limiter = RateLimiter(max_requests=10, window=60)
     CaaSHandler.policy_registry = PolicyRegistry()
     # CSRF: enable via config
     if config is not None:
@@ -4283,7 +4299,7 @@ def start_caas_server(
             SqlitePolicyStore,
             SqliteWebhookStore,
         )
-        # Set up field encryption for grant tokens
+        # Set up field encryption for grant tokens and webhook secrets
         _encryptor = None
         try:
             from cortex.caas.encryption import FieldEncryptor
@@ -4291,6 +4307,9 @@ def start_caas_server(
             _encryptor = FieldEncryptor.from_identity_key(pk)
         except Exception:
             pass
+        if _encryptor is not None:
+            import cortex.upai.webhooks as _wh_mod
+            _wh_mod._webhook_encryptor = _encryptor
         CaaSHandler.grant_store = SqliteGrantStore(db_path, encryptor=_encryptor)
         webhook_store = SqliteWebhookStore(db_path)
         CaaSHandler.webhook_store = webhook_store
@@ -4321,6 +4340,9 @@ def start_caas_server(
             _encryptor = FieldEncryptor.from_identity_key(pk)
         except Exception:
             pass
+        if _encryptor is not None:
+            import cortex.upai.webhooks as _wh_mod
+            _wh_mod._webhook_encryptor = _encryptor
         CaaSHandler.grant_store = PostgresGrantStore(db_path, encryptor=_encryptor)
         webhook_store = PostgresWebhookStore(db_path)
         CaaSHandler.webhook_store = webhook_store
@@ -4332,6 +4354,15 @@ def start_caas_server(
         worker.start()
         CaaSHandler.webhook_worker = worker
     else:
+        # Set up field encryption for webhook secrets in JSON backend
+        try:
+            from cortex.caas.encryption import FieldEncryptor
+            pk = identity._private_key or identity.did.encode()
+            _json_encryptor = FieldEncryptor.from_identity_key(pk)
+            import cortex.upai.webhooks as _wh_mod
+            _wh_mod._webhook_encryptor = _json_encryptor
+        except Exception:
+            pass
         CaaSHandler.grant_store = JsonGrantStore(persist_path=grants_persist_path)
         json_webhook_store = JsonWebhookStore()
         CaaSHandler.webhook_store = json_webhook_store

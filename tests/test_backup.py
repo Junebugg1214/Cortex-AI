@@ -39,7 +39,7 @@ class TestKeyBackup(unittest.TestCase):
     def test_backup_format_is_json(self):
         blob = self.backup.backup(self.identity, "test123test")
         data = json.loads(blob)
-        self.assertEqual(data["version"], 1)
+        self.assertEqual(data["version"], 2)
         self.assertIn("salt", data)
         self.assertIn("iterations", data)
         self.assertIn("ciphertext", data)

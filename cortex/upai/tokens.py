@@ -74,6 +74,7 @@ class GrantToken:
     expires_at: str       # ISO-8601
     not_before: str = ""  # optional
     role: str = ""        # optional RBAC role (owner, admin, reader, subscriber)
+    jti: str = ""         # JWT ID for replay protection
 
     @classmethod
     def create(
@@ -95,6 +96,7 @@ class GrantToken:
             scopes=list(scopes) if scopes else list(DEFAULT_SCOPES),
             issued_at=now.isoformat(),
             expires_at=(now + timedelta(hours=ttl_hours)).isoformat(),
+            jti=str(uuid.uuid4()),
         )
 
     def to_dict(self) -> dict:
@@ -111,6 +113,8 @@ class GrantToken:
         }
         if self.role:
             d["role"] = self.role
+        if self.jti:
+            d["jti"] = self.jti
         return d
 
     @classmethod
@@ -126,6 +130,7 @@ class GrantToken:
             expires_at=d["expires_at"],
             not_before=d.get("not_before", ""),
             role=d.get("role", ""),
+            jti=d.get("jti", ""),
         )
 
     def sign(self, identity: UPAIIdentity) -> str:
@@ -162,10 +167,13 @@ class GrantToken:
         public_key_b64: str,
         expected_audience: str = "",
         clock_skew: int = 60,
+        expected_key_type: str = "ed25519",
     ) -> tuple[GrantToken | None, str]:
         """Verify signature + expiry + audience, then decode.
 
         Returns (token, error_message). token is None on failure.
+        ``expected_key_type`` enforces the verification algorithm server-side,
+        ignoring the ``alg`` claim in the token header.
         """
         parts = token_str.split(".")
         if len(parts) != 3:
@@ -173,9 +181,9 @@ class GrantToken:
 
         header_b64, payload_b64, sig_b64url = parts
 
-        # Decode header to determine algorithm
+        # Decode header (for logging only — alg is NOT trusted)
         try:
-            header = json.loads(_base64url_decode(header_b64))
+            json.loads(_base64url_decode(header_b64))
         except Exception:
             return None, "malformed header"
 
@@ -184,13 +192,12 @@ class GrantToken:
         except Exception:
             return None, "malformed payload"
 
-        # Verify signature
+        # Verify signature — server enforces key_type, ignoring header alg
         signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
         sig_bytes = _base64url_decode(sig_b64url)
         sig_b64_standard = base64.b64encode(sig_bytes).decode("ascii")
 
-        alg = header.get("alg", "Ed25519")
-        key_type = "ed25519" if alg == "Ed25519" else "sha256"
+        key_type = expected_key_type
 
         if not UPAIIdentity.verify(
             signing_input, sig_b64_standard, public_key_b64, key_type=key_type

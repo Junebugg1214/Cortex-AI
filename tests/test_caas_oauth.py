@@ -51,6 +51,7 @@ def _setup_server(oauth_providers=None, oauth_allowed_emails=None):
     CaaSHandler.webhook_store = JsonWebhookStore()
     CaaSHandler.audit_log = None
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler._allowed_origins = set()
 

@@ -197,6 +197,7 @@ class TestRouteEnforcement:
         CaaSHandler.audit_log = None
         CaaSHandler.metrics_registry = None
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.webhook_worker = None
         CaaSHandler.sse_manager = None
         CaaSHandler.session_manager = None
@@ -372,6 +373,7 @@ class TestGrantCreationWithRole:
         CaaSHandler.audit_log = None
         CaaSHandler.metrics_registry = None
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.webhook_worker = None
         CaaSHandler.sse_manager = None
         CaaSHandler.session_manager = None
@@ -488,6 +490,7 @@ class TestDiscoveryScopes:
         CaaSHandler.audit_log = None
         CaaSHandler.metrics_registry = None
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.webhook_worker = None
         CaaSHandler.sse_manager = None
         CaaSHandler.session_manager = None

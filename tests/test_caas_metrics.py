@@ -49,6 +49,7 @@ def _setup_server_with_metrics():
     CaaSHandler.metrics_registry = registry
     CaaSHandler._allowed_origins = set()
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler.audit_log = None
     CaaSHandler.session_manager = None
@@ -191,6 +192,7 @@ class TestMetricsDisabled:
         CaaSHandler.metrics_registry = None  # disabled
         CaaSHandler._allowed_origins = set()
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.webhook_worker = None
         CaaSHandler.audit_log = None
         CaaSHandler.session_manager = None

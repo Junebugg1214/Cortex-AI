@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac as _hmac
 import os
 
 import pytest
 
-from cortex.caas.encryption import _PREFIX, FieldEncryptor
+from cortex.caas.encryption import (
+    FieldEncryptor,
+    _PREFIX,
+    _PREFIX_V1,
+    _PREFIX_V2,
+    _ITERATIONS_V1,
+    _generate_keystream_v1,
+    _xor_bytes,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,8 +26,19 @@ def _make_encryptor() -> FieldEncryptor:
     return FieldEncryptor(master_key=os.urandom(32))
 
 
+def _encrypt_v1(master_key: bytes, plaintext: str) -> str:
+    """Produce a v1-format encrypted token (for backward compat tests)."""
+    salt = os.urandom(16)
+    field_key = hashlib.pbkdf2_hmac("sha256", master_key, salt, _ITERATIONS_V1)
+    plaintext_bytes = plaintext.encode("utf-8")
+    keystream = _generate_keystream_v1(field_key, len(plaintext_bytes))
+    ciphertext = _xor_bytes(plaintext_bytes, keystream)
+    mac = _hmac.new(field_key, ciphertext, hashlib.sha256).digest()
+    return f"{_PREFIX_V1}{salt.hex()}:{ciphertext.hex()}:{mac.hex()}"
+
+
 # ---------------------------------------------------------------------------
-# TestFieldEncryptor
+# TestFieldEncryptor — v2 (current)
 # ---------------------------------------------------------------------------
 
 class TestFieldEncryptor:
@@ -28,22 +49,24 @@ class TestFieldEncryptor:
         decrypted = enc.decrypt(encrypted)
         assert decrypted == plaintext
 
-    def test_encrypt_produces_prefix(self):
+    def test_encrypt_produces_v2_prefix(self):
         enc = _make_encryptor()
         encrypted = enc.encrypt("hello")
-        assert encrypted.startswith(_PREFIX)
+        assert encrypted.startswith(_PREFIX_V2)
 
-    def test_encrypted_format(self):
+    def test_encrypted_v2_format(self):
         enc = _make_encryptor()
         encrypted = enc.encrypt("test")
-        parts = encrypted[len(_PREFIX):].split(":")
-        assert len(parts) == 3  # salt:ciphertext:mac
-        # All parts should be valid hex
-        for part in parts:
-            bytes.fromhex(part)
+        parts = encrypted[len(_PREFIX_V2):].split(":")
+        assert len(parts) == 4  # salt:iterations:ciphertext:mac
+        bytes.fromhex(parts[0])  # salt is hex
+        int(parts[1])            # iterations is int
+        bytes.fromhex(parts[2])  # ciphertext is hex
+        bytes.fromhex(parts[3])  # mac is hex
 
     def test_is_encrypted(self):
         enc = _make_encryptor()
+        assert enc.is_encrypted("enc:v2:aabb:600000:ccdd:eeff")
         assert enc.is_encrypted("enc:v1:aabb:ccdd:eeff")
         assert not enc.is_encrypted("plain-text")
         assert not enc.is_encrypted("")
@@ -61,26 +84,26 @@ class TestFieldEncryptor:
     def test_tampered_ciphertext_rejected(self):
         enc = _make_encryptor()
         encrypted = enc.encrypt("secret")
-        parts = encrypted[len(_PREFIX):].split(":")
-        # Tamper with ciphertext
-        tampered_ct = "ff" * (len(parts[1]) // 2)
-        tampered = f"{_PREFIX}{parts[0]}:{tampered_ct}:{parts[2]}"
+        parts = encrypted[len(_PREFIX_V2):].split(":")
+        # Tamper with ciphertext (index 2)
+        tampered_ct = "ff" * (len(parts[2]) // 2)
+        tampered = f"{_PREFIX_V2}{parts[0]}:{parts[1]}:{tampered_ct}:{parts[3]}"
         with pytest.raises(ValueError, match="HMAC mismatch"):
             enc.decrypt(tampered)
 
     def test_tampered_mac_rejected(self):
         enc = _make_encryptor()
         encrypted = enc.encrypt("secret")
-        parts = encrypted[len(_PREFIX):].split(":")
-        tampered = f"{_PREFIX}{parts[0]}:{parts[1]}:{'00' * 32}"
+        parts = encrypted[len(_PREFIX_V2):].split(":")
+        tampered = f"{_PREFIX_V2}{parts[0]}:{parts[1]}:{parts[2]}:{'00' * 32}"
         with pytest.raises(ValueError, match="HMAC mismatch"):
             enc.decrypt(tampered)
 
     def test_tampered_salt_rejected(self):
         enc = _make_encryptor()
         encrypted = enc.encrypt("secret")
-        parts = encrypted[len(_PREFIX):].split(":")
-        tampered = f"{_PREFIX}{'00' * 16}:{parts[1]}:{parts[2]}"
+        parts = encrypted[len(_PREFIX_V2):].split(":")
+        tampered = f"{_PREFIX_V2}{'00' * 16}:{parts[1]}:{parts[2]}:{parts[3]}"
         with pytest.raises(ValueError, match="HMAC mismatch"):
             enc.decrypt(tampered)
 
@@ -99,7 +122,7 @@ class TestFieldEncryptor:
     def test_malformed_token_raises(self):
         enc = _make_encryptor()
         with pytest.raises(ValueError):
-            enc.decrypt("enc:v1:only-one-part")
+            enc.decrypt("enc:v2:only-one-part")
 
     def test_empty_plaintext(self):
         enc = _make_encryptor()
@@ -121,6 +144,49 @@ class TestFieldEncryptor:
     def test_short_master_key_rejected(self):
         with pytest.raises(ValueError, match="at least 16 bytes"):
             FieldEncryptor(master_key=b"short")
+
+
+# ---------------------------------------------------------------------------
+# TestV1BackwardCompat
+# ---------------------------------------------------------------------------
+
+class TestV1BackwardCompat:
+    """Verify that v1-encrypted data can still be decrypted."""
+
+    def test_decrypt_v1_token(self):
+        key = os.urandom(32)
+        enc = FieldEncryptor(master_key=key)
+        v1_token = _encrypt_v1(key, "legacy-secret")
+        assert v1_token.startswith(_PREFIX_V1)
+        decrypted = enc.decrypt(v1_token)
+        assert decrypted == "legacy-secret"
+
+    def test_v1_unicode(self):
+        key = os.urandom(32)
+        enc = FieldEncryptor(master_key=key)
+        v1_token = _encrypt_v1(key, "Hello, 世界!")
+        assert enc.decrypt(v1_token) == "Hello, 世界!"
+
+    def test_v1_tampered_rejected(self):
+        key = os.urandom(32)
+        enc = FieldEncryptor(master_key=key)
+        v1_token = _encrypt_v1(key, "secret")
+        parts = v1_token[len(_PREFIX_V1):].split(":")
+        tampered = f"{_PREFIX_V1}{parts[0]}:{'ff' * (len(parts[1]) // 2)}:{parts[2]}"
+        with pytest.raises(ValueError, match="HMAC mismatch"):
+            enc.decrypt(tampered)
+
+    def test_cross_version_not_interchangeable(self):
+        """v1 and v2 use different keystreams — same key produces different ciphertexts."""
+        key = os.urandom(32)
+        enc = FieldEncryptor(master_key=key)
+        v1_token = _encrypt_v1(key, "test")
+        v2_token = enc.encrypt("test")
+        assert v1_token.startswith(_PREFIX_V1)
+        assert v2_token.startswith(_PREFIX_V2)
+        # Both should decrypt correctly
+        assert enc.decrypt(v1_token) == "test"
+        assert enc.decrypt(v2_token) == "test"
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +239,7 @@ class TestSqliteStoreIntegration:
             "SELECT token_str FROM grants WHERE grant_id = 'grant-001'"
         ).fetchone()
         raw = row["token_str"]
-        assert raw.startswith(_PREFIX)
+        assert raw.startswith(_PREFIX_V2)
         assert raw != token_str
 
         # Verify retrieval decrypts

@@ -2,8 +2,8 @@
 UPAI Key Backup — Encrypted backup and recovery of identity keys.
 
 Encryption scheme (stdlib-only):
-1. Key derivation: PBKDF2-HMAC-SHA256(passphrase, salt, 100k iterations) -> 32-byte key
-2. Encryption: XOR with SHA-256-derived keystream
+1. Key derivation: PBKDF2-HMAC-SHA256(passphrase, salt, 600k iterations) -> 32-byte key
+2. Encryption: XOR with HMAC-SHA256 counter-mode keystream (v2)
 3. Integrity: HMAC-SHA256(derived_key, ciphertext)
 
 Also provides recovery phrase generation using a deterministic wordlist.
@@ -21,16 +21,27 @@ import secrets
 from cortex.upai.identity import UPAIIdentity
 
 # ---------------------------------------------------------------------------
-# XOR keystream cipher (stdlib-only)
+# Keystream ciphers
 # ---------------------------------------------------------------------------
 
-def _generate_keystream(key: bytes, length: int) -> bytes:
-    """Generate a deterministic keystream by repeated SHA-256 hashing."""
+def _generate_keystream_v1(key: bytes, length: int) -> bytes:
+    """Legacy v1: deterministic keystream by repeated SHA-256 hashing."""
     stream = bytearray()
     block = key
     while len(stream) < length:
         block = hashlib.sha256(block).digest()
         stream.extend(block)
+    return bytes(stream[:length])
+
+
+def _generate_keystream(key: bytes, length: int) -> bytes:
+    """HMAC-SHA256 counter-mode keystream (v2)."""
+    stream = bytearray()
+    counter = 0
+    while len(stream) < length:
+        block = _hmac.new(key, counter.to_bytes(4, "big"), hashlib.sha256).digest()
+        stream.extend(block)
+        counter += 1
     return bytes(stream[:length])
 
 
@@ -44,9 +55,10 @@ def _xor_bytes(data: bytes, keystream: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 
 class KeyBackup:
-    """Encrypted identity key backup using PBKDF2 + XOR stream cipher + HMAC."""
+    """Encrypted identity key backup using PBKDF2 + HMAC-CTR stream cipher + HMAC."""
 
-    DEFAULT_ITERATIONS = 100_000
+    DEFAULT_ITERATIONS = 600_000
+    _ITERATIONS_V1 = 100_000
 
     def backup(self, identity: UPAIIdentity, passphrase: str) -> bytes:
         """Encrypt identity private key and return JSON backup blob.
@@ -78,7 +90,7 @@ class KeyBackup:
         mac = _hmac.new(derived_key, ciphertext, hashlib.sha256).digest()
 
         backup_data = {
-            "version": 1,
+            "version": 2,
             "salt": base64.b64encode(salt).decode("ascii"),
             "iterations": iterations,
             "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
@@ -109,7 +121,7 @@ class KeyBackup:
             raise ValueError("Invalid backup format: not valid JSON")
 
         version = data.get("version", 0)
-        if version != 1:
+        if version not in (1, 2):
             raise ValueError(f"Unsupported backup version: {version}")
 
         salt = base64.b64decode(data["salt"])
@@ -127,8 +139,11 @@ class KeyBackup:
         if not _hmac.compare_digest(stored_mac, computed_mac):
             raise ValueError("Wrong passphrase (HMAC verification failed)")
 
-        # Decrypt
-        keystream = _generate_keystream(derived_key, len(ciphertext))
+        # Decrypt — select keystream based on version
+        if version == 1:
+            keystream = _generate_keystream_v1(derived_key, len(ciphertext))
+        else:
+            keystream = _generate_keystream(derived_key, len(ciphertext))
         private_key = _xor_bytes(ciphertext, keystream)
 
         return UPAIIdentity(

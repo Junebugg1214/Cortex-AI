@@ -55,6 +55,7 @@ def _setup():
     CaaSHandler.metrics_registry = None
     CaaSHandler._allowed_origins = set()
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler.audit_log = None
     CaaSHandler.session_manager = None

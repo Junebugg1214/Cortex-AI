@@ -183,6 +183,7 @@ class TestRateLimitIntegration:
             assert data["error"]["type"] == "rate_limited"
         finally:
             CaaSHandler.rate_limiter = None
+            CaaSHandler.login_rate_limiter = None
             server.shutdown()
 
 
