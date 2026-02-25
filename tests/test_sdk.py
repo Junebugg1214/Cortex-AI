@@ -100,7 +100,7 @@ class TestSDKClient:
     def test_info(self):
         data = self.client.info()
         assert data["service"] == "UPAI Context-as-a-Service"
-        assert data["version"] == "1.0.0"
+        assert data["version"] == "1.4.0"
 
     def test_discovery(self):
         data = self.client.discovery()
