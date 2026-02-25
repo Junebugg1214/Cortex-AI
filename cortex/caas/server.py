@@ -234,6 +234,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     tracing_manager: Any = None  # Optional TracingManager
     federation_manager: Any = None  # Optional FederationManager
     enable_webapp: bool = False  # Enable /app web UI
+    token_cache: Any = None  # Optional TokenCache for verified token caching
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
 
@@ -678,30 +679,50 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_CONFIGURED("No identity configured"))
             return None
 
-        token, err = GrantToken.verify_and_decode(
-            token_str, identity.public_key_b64
-        )
-        if token is None:
-            self._audit("auth.failed", {"reason": err})
-            self._error_response(ERR_INVALID_TOKEN(err))
-            return None
+        # Try token cache first
+        cache = self.__class__.token_cache
+        cached_data = cache.get(token_str) if cache is not None else None
 
-        # Check grant not revoked
-        grant_info = self.__class__.grant_store.get(token.grant_id)
+        if cached_data is not None:
+            token_data = cached_data["token_data"]
+            grant_id = cached_data["grant_id"]
+            token_obj = cached_data["token"]
+        else:
+            token_obj, err = GrantToken.verify_and_decode(
+                token_str, identity.public_key_b64
+            )
+            if token_obj is None:
+                self._audit("auth.failed", {"reason": err})
+                self._error_response(ERR_INVALID_TOKEN(err))
+                return None
+            token_data = token_obj.to_dict()
+            grant_id = token_obj.grant_id
+            # Cache the verified result
+            if cache is not None:
+                cache.put(token_str, {
+                    "token_data": token_data,
+                    "grant_id": grant_id,
+                    "token": token_obj,
+                })
+
+        # Check grant not revoked (always, even for cached tokens)
+        grant_info = self.__class__.grant_store.get(grant_id)
         if grant_info and grant_info.get("revoked"):
-            self._audit("auth.failed", {"reason": "grant_revoked", "grant_id": token.grant_id})
+            self._audit("auth.failed", {"reason": "grant_revoked", "grant_id": grant_id})
+            if cache is not None:
+                cache.invalidate(token_str)
             self._error_response(ERR_INVALID_TOKEN("Grant has been revoked"))
             return None
 
         # Check scope
-        if required_scope and not token.has_scope(required_scope):
+        if required_scope and not token_obj.has_scope(required_scope):
             err = ERR_INSUFFICIENT_SCOPE(required_scope)
             from cortex.upai.error_hints import hint_for_insufficient_scope
             err.hint = hint_for_insufficient_scope(required_scope)
             self._error_response(err)
             return None
 
-        return token.to_dict()
+        return token_data
 
     def _authenticate_or_dashboard(self, required_scope: str = "") -> dict | None:
         """Authenticate via Bearer token, webapp session cookie, or dashboard session.
@@ -4257,6 +4278,10 @@ def start_caas_server(
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
     CaaSHandler.session_manager = DashboardSessionManager(identity)
+
+    # Token verification cache
+    from cortex.caas.token_cache import TokenCache
+    CaaSHandler.token_cache = TokenCache(max_size=1024, ttl=30.0)
     CaaSHandler.enable_webapp = enable_webapp
 
     # Rate limiters
