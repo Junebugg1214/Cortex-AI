@@ -54,6 +54,7 @@
             '  <div style="display:flex;gap:12px;">' +
             '    <button class="btn btn-primary" id="btn-save-profile">Save Profile</button>' +
             '    <button class="btn btn-outline" id="btn-preview-profile">Preview</button>' +
+            '    <button class="btn btn-outline" id="btn-auto-profile">Auto-fill from Memory</button>' +
             '  </div>' +
             '</div>';
 
@@ -131,6 +132,31 @@
         // Preview
         document.getElementById('btn-preview-profile').addEventListener('click', function () {
             window.open('/api/profile/preview', '_blank');
+        });
+
+        // Auto-fill from Memory
+        document.getElementById('btn-auto-profile').addEventListener('click', function () {
+            C.api('/api/profile/auto').then(function (data) {
+                if (!data || !data.handle) {
+                    C.showToast('No graph data available to auto-fill', 'error');
+                    return;
+                }
+                handleInput.value = data.handle;
+                document.getElementById('handle-preview').textContent = data.handle;
+                document.getElementById('profile-name').value = data.display_name || '';
+                document.getElementById('profile-headline').value = data.headline || '';
+                document.getElementById('profile-bio').value = data.bio || '';
+                policySelect.value = data.policy || 'professional';
+                if (data.sections) {
+                    var boxes = togglesDiv.querySelectorAll('input[type=checkbox]');
+                    boxes.forEach(function (cb) {
+                        cb.checked = data.sections.indexOf(cb.dataset.section) >= 0;
+                    });
+                }
+                C.showToast('Profile auto-filled from memory!', 'success');
+            }).catch(function (err) {
+                C.showToast('Error: ' + err.message, 'error');
+            });
         });
     });
 })();

@@ -14,6 +14,7 @@ import html
 import json
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -106,6 +107,75 @@ def validate_handle(handle: str) -> list[str]:
     if handle in RESERVED_HANDLES:
         errors.append(f"handle '{handle}' is reserved")
     return errors
+
+
+def _slugify_handle(name: str) -> str:
+    """Convert a display name into a valid profile handle.
+
+    Normalizes unicode, lowercases, replaces non-alphanumeric chars with
+    hyphens, collapses/strips hyphens, and enforces 3-64 char range.
+    """
+    slug = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    slug = slug.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    if len(slug) < 3:
+        slug = (slug + "-profile")[:64]
+    return slug[:64]
+
+
+def auto_populate_profile(graph: CortexGraph) -> ProfileConfig:
+    """Derive a ProfileConfig from graph data without side effects.
+
+    Inspects identity and professional_context nodes to pre-fill
+    display_name, handle, headline, bio, and avatar_url.
+    """
+    display_name = ""
+    bio = ""
+    avatar_url = ""
+
+    # Extract from the first identity node
+    for node in graph.nodes.values():
+        if "identity" not in node.tags:
+            continue
+        if not display_name and node.label:
+            display_name = node.label
+        if not bio and node.brief:
+            bio = node.brief
+        if not avatar_url:
+            avatar_url = node.properties.get("avatar_url", "")
+        break  # use only the first identity node
+
+    # Derive handle
+    handle = _slugify_handle(display_name) if display_name else "my-profile"
+    if handle in RESERVED_HANDLES:
+        handle = handle + "-profile"
+
+    # Extract headline from professional_context nodes
+    headline = ""
+    long_bio = ""
+    for node in graph.nodes.values():
+        if "professional_context" not in node.tags:
+            continue
+        if not headline and node.label and len(node.label) < 120:
+            headline = node.label
+        if not long_bio and node.brief and len(node.brief) >= 120:
+            long_bio = node.brief[:500]
+
+    # Fall back: use a long professional_context brief as bio if identity had none
+    if not bio and long_bio:
+        bio = long_bio
+
+    return ProfileConfig(
+        handle=handle,
+        display_name=display_name,
+        headline=headline,
+        bio=bio,
+        avatar_url=avatar_url,
+        policy="professional",
+        sections=list(DEFAULT_SECTIONS),
+    )
 
 
 # ---------------------------------------------------------------------------

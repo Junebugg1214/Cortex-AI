@@ -15,6 +15,8 @@ from cortex.caas.profile import (
     RESERVED_HANDLES,
     ProfileConfig,
     ProfileStore,
+    _slugify_handle,
+    auto_populate_profile,
     render_profile_html,
     render_profile_jsonld,
     validate_handle,
@@ -389,6 +391,132 @@ class TestProfileRoute(unittest.TestCase):
 
         handler._serve_profile_page("unknown")
         self.assertEqual(response_data["status"], 404)
+
+
+# ---------------------------------------------------------------------------
+# Auto-populate profile
+# ---------------------------------------------------------------------------
+
+class TestSlugifyHandle(unittest.TestCase):
+
+    def test_simple_name(self):
+        self.assertEqual(_slugify_handle("Alice Smith"), "alice-smith")
+
+    def test_single_name(self):
+        # "alice" is 5 chars, valid
+        self.assertEqual(_slugify_handle("Alice"), "alice")
+
+    def test_unicode_name(self):
+        # Accented chars stripped to ASCII
+        slug = _slugify_handle("José García")
+        self.assertEqual(slug, "jose-garcia")
+
+    def test_special_chars(self):
+        slug = _slugify_handle("Dr. Jane O'Brien-Lee!")
+        self.assertTrue(slug.startswith("dr-jane"))
+        self.assertRegex(slug, r"^[a-z0-9][a-z0-9\-]+$")
+
+    def test_minimum_length_padding(self):
+        slug = _slugify_handle("AB")
+        self.assertTrue(len(slug) >= 3)
+
+    def test_empty_string(self):
+        slug = _slugify_handle("")
+        # Should still produce a valid handle (padded)
+        self.assertTrue(len(slug) >= 3)
+
+
+class TestAutoPopulateProfile(unittest.TestCase):
+
+    def test_name_extraction(self):
+        graph = _sample_graph()
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.display_name, "Alice Smith")
+
+    def test_handle_derivation(self):
+        graph = _sample_graph()
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.handle, "alice-smith")
+
+    def test_bio_from_identity_brief(self):
+        graph = _sample_graph()
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.bio, "Software Engineer from NYC")
+
+    def test_headline_from_professional_context(self):
+        graph = CortexGraph()
+        nid_i = make_node_id_with_tag("Alex", "identity")
+        graph.add_node(Node(id=nid_i, label="Alex", tags=["identity"],
+                            confidence=0.9))
+        nid_p = make_node_id_with_tag("Backend Developer", "professional_context")
+        graph.add_node(Node(id=nid_p, label="Backend Developer",
+                            tags=["professional_context"], confidence=0.8,
+                            brief="Current role"))
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.headline, "Backend Developer")
+
+    def test_empty_graph(self):
+        graph = CortexGraph()
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.display_name, "")
+        self.assertEqual(profile.handle, "my-profile")
+        self.assertEqual(profile.headline, "")
+        self.assertEqual(profile.bio, "")
+
+    def test_no_identity_nodes(self):
+        graph = CortexGraph()
+        nid = make_node_id_with_tag("CEO", "professional_context")
+        graph.add_node(Node(id=nid, label="CEO",
+                            tags=["professional_context"], confidence=0.85))
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.display_name, "")
+        self.assertEqual(profile.handle, "my-profile")
+        self.assertEqual(profile.headline, "CEO")
+
+    def test_reserved_handle_protection(self):
+        graph = CortexGraph()
+        nid = make_node_id_with_tag("Admin", "identity")
+        graph.add_node(Node(id=nid, label="Admin", tags=["identity"],
+                            confidence=0.9))
+        profile = auto_populate_profile(graph)
+        self.assertNotIn(profile.handle, RESERVED_HANDLES)
+        self.assertEqual(profile.handle, "admin-profile")
+
+    def test_default_policy_and_sections(self):
+        graph = _sample_graph()
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.policy, "professional")
+        self.assertEqual(profile.sections, list(DEFAULT_SECTIONS))
+
+    def test_avatar_url_from_properties(self):
+        graph = CortexGraph()
+        nid = make_node_id_with_tag("Jane", "identity")
+        graph.add_node(Node(id=nid, label="Jane", tags=["identity"],
+                            confidence=0.9,
+                            properties={"avatar_url": "https://example.com/pic.jpg"}))
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.avatar_url, "https://example.com/pic.jpg")
+
+    def test_long_bio_fallback(self):
+        """When identity has no brief, use long professional_context brief."""
+        graph = CortexGraph()
+        nid_i = make_node_id_with_tag("Bob", "identity")
+        graph.add_node(Node(id=nid_i, label="Bob", tags=["identity"],
+                            confidence=0.9, brief=""))
+        long_text = "A" * 150
+        nid_p = make_node_id_with_tag("Engineer", "professional_context")
+        graph.add_node(Node(id=nid_p, label="Engineer",
+                            tags=["professional_context"], confidence=0.8,
+                            brief=long_text))
+        profile = auto_populate_profile(graph)
+        self.assertEqual(profile.bio, long_text[:500])
+
+    def test_no_side_effects(self):
+        """auto_populate_profile should not modify the graph."""
+        graph = _sample_graph()
+        nodes_before = len(graph.nodes)
+        auto_populate_profile(graph)
+        self.assertEqual(len(graph.nodes), nodes_before)
 
 
 if __name__ == "__main__":

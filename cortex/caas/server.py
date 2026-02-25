@@ -355,6 +355,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Profile routes ─────────────────────────────────────
         elif path == "/api/profile":
             self._handle_get_profile()
+        elif path == "/api/profile/auto":
+            self._handle_auto_profile()
         elif path == "/api/profile/preview":
             self._handle_profile_preview()
         elif path.startswith("/p/"):
@@ -2654,7 +2656,35 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if profiles:
             self._json_response(profiles[0].to_dict())
         else:
+            # No saved profile — return auto-populated suggestion
+            graph = self.__class__.graph
+            if graph is not None:
+                from cortex.caas.profile import auto_populate_profile
+                suggestion = auto_populate_profile(graph)
+                data = suggestion.to_dict()
+                data["_auto"] = True
+                self._json_response(data)
+            else:
+                self._json_response({})
+
+    def _handle_auto_profile(self) -> None:
+        """GET /api/profile/auto — auto-populate profile from graph data."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        graph = self.__class__.graph
+        if graph is None:
             self._json_response({})
+            return
+
+        from cortex.caas.profile import auto_populate_profile
+        suggestion = auto_populate_profile(graph)
+        data = suggestion.to_dict()
+        data["_auto"] = True
+        self._json_response(data)
 
     def _handle_save_profile(self) -> None:
         """POST /api/profile — create or update profile config."""
