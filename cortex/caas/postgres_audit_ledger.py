@@ -143,6 +143,15 @@ class PostgresAuditLedger(AbstractAuditLedger):
             row = cur.fetchone()
             return row[0]
 
+    def rotate(self, before) -> int:
+        """Delete entries older than *before* (datetime). Returns deleted count."""
+        cutoff_iso = before.isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM audit_ledger WHERE timestamp < %s", (cutoff_iso,)
+            )
+            return cur.rowcount
+
     def close(self) -> None:
         """Close the connection (for testing)."""
         self._conn.close()

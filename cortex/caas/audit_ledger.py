@@ -116,6 +116,11 @@ class AbstractAuditLedger(abc.ABC):
     @abc.abstractmethod
     def count(self) -> int: ...
 
+    @abc.abstractmethod
+    def rotate(self, before: datetime) -> int:
+        """Delete entries with timestamp before *before*. Returns count of deleted entries."""
+        ...
+
     # Backward-compat adapter for old AbstractAuditLog interface
     def log(self, event_type: str, details: dict | None = None) -> None:
         self.append(event_type, details=details)
@@ -168,3 +173,10 @@ class InMemoryAuditLedger(AbstractAuditLedger):
     def count(self) -> int:
         with self._lock:
             return len(self._entries)
+
+    def rotate(self, before: datetime) -> int:
+        cutoff_iso = before.isoformat()
+        with self._lock:
+            original = len(self._entries)
+            self._entries = [e for e in self._entries if e.timestamp >= cutoff_iso]
+            return original - len(self._entries)

@@ -418,3 +418,77 @@ class TestAuditAPIEndpoints:
         assert status == 200
         # At least one entry should be from the grant creation
         assert len(data["entries"]) >= 1
+
+
+# ── Rotation ────────────────────────────────────────────────────────────
+
+
+class TestInMemoryRotation:
+    """Tests for InMemoryAuditLedger.rotate()."""
+
+    def test_rotate_removes_old_entries(self):
+        from datetime import datetime, timedelta, timezone
+        ledger = InMemoryAuditLedger()
+        # Append entries with different timestamps
+        e1 = ledger.append("old_event")
+        e2 = ledger.append("new_event")
+        # Manually backdate first entry
+        ledger._entries[0].timestamp = "2020-01-01T00:00:00+00:00"
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = ledger.rotate(cutoff)
+        assert deleted == 1
+        assert ledger.count() == 1
+
+    def test_rotate_keeps_recent_entries(self):
+        from datetime import datetime, timedelta, timezone
+        ledger = InMemoryAuditLedger()
+        ledger.append("event1")
+        ledger.append("event2")
+        # Don't backdate — both are recent
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = ledger.rotate(cutoff)
+        assert deleted == 0
+        assert ledger.count() == 2
+
+    def test_rotate_returns_count(self):
+        from datetime import datetime, timedelta, timezone
+        ledger = InMemoryAuditLedger()
+        for i in range(5):
+            ledger.append(f"event_{i}")
+        # Backdate all entries
+        for e in ledger._entries:
+            e.timestamp = "2020-01-01T00:00:00+00:00"
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = ledger.rotate(cutoff)
+        assert deleted == 5
+        assert ledger.count() == 0
+
+    def test_rotate_on_empty_ledger(self):
+        from datetime import datetime, timezone
+        ledger = InMemoryAuditLedger()
+        deleted = ledger.rotate(datetime.now(timezone.utc))
+        assert deleted == 0
+
+
+class TestSqliteRotation:
+    """Tests for SqliteAuditLedger.rotate()."""
+
+    def test_sqlite_rotate(self, tmp_path):
+        from datetime import datetime, timedelta, timezone
+        db_path = str(tmp_path / "audit_rotate.db")
+        ledger = SqliteAuditLedger(db_path)
+        ledger.append("old_event")
+        ledger.append("new_event")
+        # Backdate first entry via raw SQL
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE audit_ledger SET timestamp = ? WHERE sequence_id = 0",
+            ("2020-01-01T00:00:00+00:00",),
+        )
+        conn.commit()
+        conn.close()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = ledger.rotate(cutoff)
+        assert deleted == 1
+        assert ledger.count() == 1
