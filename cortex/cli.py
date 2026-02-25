@@ -1876,6 +1876,19 @@ def run_serve(args):
     if enable_webapp:
         print("Web UI: enabled (/app)")
 
+    # Connection pool for PostgreSQL
+    pool = None
+    if storage_backend == "postgres" and db_path:
+        pool_size = getattr(args, "pool_size", None) or 10
+        if config is not None:
+            pool_size = config.getint("storage", "pool_max", fallback=pool_size)
+        try:
+            from cortex.caas.postgres_pool import create_pool
+            pool = create_pool(db_path, min_size=2, max_size=pool_size)
+            print(f"PG pool: max_size={pool_size}, pooled={pool.is_pooled}")
+        except Exception as exc:
+            print(f"PG pool init failed ({exc}), falling back to per-store connections", file=sys.stderr)
+
     print("WARNING: Server running without TLS. Do not expose to untrusted networks.", file=sys.stderr)
 
     server = start_caas_server(
@@ -1899,6 +1912,7 @@ def run_serve(args):
         enable_federation=enable_federation,
         federation_trusted_dids=federation_trusted_dids,
         enable_webapp=enable_webapp,
+        pool=pool,
     )
 
     if enable_webapp:

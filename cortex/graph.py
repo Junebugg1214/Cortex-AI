@@ -223,16 +223,43 @@ class CortexGraph:
     edges: dict[str, Edge] = field(default_factory=dict)
     schema_version: str = "5.0"
     meta: dict = field(default_factory=dict)
+    _adjacency: dict[str, list[tuple[str, Edge]]] | None = field(
+        default=None, repr=False, compare=False,
+    )
+
+    # ── Adjacency cache ──────────────────────────────────────────────────
+
+    def _build_adjacency(self) -> dict[str, list[tuple[str, Edge]]]:
+        """Build adjacency list: node_id -> [(neighbor_id, edge), ...]."""
+        adj: dict[str, list[tuple[str, Edge]]] = {nid: [] for nid in self.nodes}
+        for edge in self.edges.values():
+            if edge.source_id in adj:
+                adj[edge.source_id].append((edge.target_id, edge))
+            if edge.target_id in adj:
+                adj[edge.target_id].append((edge.source_id, edge))
+        return adj
+
+    def _get_adjacency(self) -> dict[str, list[tuple[str, Edge]]]:
+        """Return cached adjacency list, building it lazily if needed."""
+        if self._adjacency is None:
+            self._adjacency = self._build_adjacency()
+        return self._adjacency
+
+    def _invalidate_adjacency(self) -> None:
+        """Clear the cached adjacency list after graph mutations."""
+        self._adjacency = None
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def add_node(self, node: Node) -> str:
         self.nodes[node.id] = node
         self._invalidate_search_index()
+        self._invalidate_adjacency()
         return node.id
 
     def add_edge(self, edge: Edge) -> str:
         self.edges[edge.id] = edge
+        self._invalidate_adjacency()
         return edge.id
 
     def get_node(self, node_id: str) -> Node | None:
@@ -253,12 +280,14 @@ class CortexGraph:
         for eid in to_remove:
             del self.edges[eid]
         self._invalidate_search_index()
+        self._invalidate_adjacency()
         return True
 
     def remove_edge(self, edge_id: str) -> bool:
         if edge_id not in self.edges:
             return False
         del self.edges[edge_id]
+        self._invalidate_adjacency()
         return True
 
     # ── Temporal ─────────────────────────────────────────────────────────
@@ -350,24 +379,19 @@ class CortexGraph:
     def get_neighbors(
         self, node_id: str, relation: str | None = None
     ) -> list[tuple[Edge, Node]]:
+        adj = self._get_adjacency()
         results = []
-        for edge in self.edges.values():
-            if edge.source_id == node_id or edge.target_id == node_id:
-                if relation is not None and edge.relation != relation:
-                    continue
-                neighbor_id = (
-                    edge.target_id if edge.source_id == node_id else edge.source_id
-                )
-                neighbor = self.nodes.get(neighbor_id)
-                if neighbor:
-                    results.append((edge, neighbor))
+        for neighbor_id, edge in adj.get(node_id, []):
+            if relation is not None and edge.relation != relation:
+                continue
+            neighbor = self.nodes.get(neighbor_id)
+            if neighbor:
+                results.append((edge, neighbor))
         return results
 
     def get_edges_for(self, node_id: str) -> list[Edge]:
-        return [
-            e for e in self.edges.values()
-            if e.source_id == node_id or e.target_id == node_id
-        ]
+        adj = self._get_adjacency()
+        return [edge for _, edge in adj.get(node_id, [])]
 
     # ── Update ─────────────────────────────────────────────────────────
 
@@ -470,13 +494,7 @@ class CortexGraph:
         if source_id == target_id:
             return [source_id]
 
-        # Build adjacency list
-        adj: dict[str, list[str]] = {nid: [] for nid in self.nodes}
-        for edge in self.edges.values():
-            if edge.source_id in adj:
-                adj[edge.source_id].append(edge.target_id)
-            if edge.target_id in adj:
-                adj[edge.target_id].append(edge.source_id)
+        adj = self._get_adjacency()
 
         from collections import deque
         visited: set[str] = {source_id}
@@ -486,12 +504,12 @@ class CortexGraph:
             current, path = queue.popleft()
             if len(path) > max_depth:
                 break
-            for neighbor in adj[current]:
-                if neighbor == target_id:
-                    return path + [neighbor]
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append((neighbor, path + [neighbor]))
+            for neighbor_id, _ in adj.get(current, []):
+                if neighbor_id == target_id:
+                    return path + [neighbor_id]
+                if neighbor_id not in visited:
+                    visited.add(neighbor_id)
+                    queue.append((neighbor_id, path + [neighbor_id]))
         return []
 
     def k_hop_neighborhood(
@@ -501,6 +519,7 @@ class CortexGraph:
         if node_id not in self.nodes:
             return set(), set()
 
+        adj = self._get_adjacency()
         visited_nodes: set[str] = {node_id}
         frontier: set[str] = {node_id}
         visited_edges: set[str] = set()
@@ -508,16 +527,12 @@ class CortexGraph:
         for _ in range(k):
             next_frontier: set[str] = set()
             for nid in frontier:
-                for edge in self.edges.values():
-                    if edge.source_id == nid and edge.target_id not in visited_nodes:
-                        visited_nodes.add(edge.target_id)
-                        next_frontier.add(edge.target_id)
+                for neighbor_id, edge in adj.get(nid, []):
+                    if neighbor_id not in visited_nodes:
+                        visited_nodes.add(neighbor_id)
+                        next_frontier.add(neighbor_id)
                         visited_edges.add(edge.id)
-                    elif edge.target_id == nid and edge.source_id not in visited_nodes:
-                        visited_nodes.add(edge.source_id)
-                        next_frontier.add(edge.source_id)
-                        visited_edges.add(edge.id)
-                    elif edge.source_id in visited_nodes and edge.target_id in visited_nodes:
+                    elif neighbor_id in visited_nodes:
                         visited_edges.add(edge.id)
             frontier = next_frontier
 
@@ -584,6 +599,7 @@ class CortexGraph:
 
         # Remove node B
         del self.nodes[node_id_b]
+        self._invalidate_adjacency()
         return a
 
     # ── Centrality ────────────────────────────────────────────────────
@@ -642,16 +658,12 @@ class CortexGraph:
 
     def _node_relationship_labels(self, node_id: str) -> list[str]:
         """Get labels of nodes connected to this node (for v4 compat)."""
+        adj = self._get_adjacency()
         labels = []
-        for edge in self.edges.values():
-            if edge.source_id == node_id:
-                target = self.nodes.get(edge.target_id)
-                if target:
-                    labels.append(target.label)
-            elif edge.target_id == node_id:
-                source = self.nodes.get(edge.source_id)
-                if source:
-                    labels.append(source.label)
+        for neighbor_id, _ in adj.get(node_id, []):
+            neighbor = self.nodes.get(neighbor_id)
+            if neighbor:
+                labels.append(neighbor.label)
         return labels[:10]
 
     def to_v5_json(self) -> dict:

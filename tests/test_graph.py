@@ -876,5 +876,102 @@ def run_tests():
     return 0
 
 
+# ============================================================================
+# Adjacency list cache
+# ============================================================================
+
+class TestAdjacencyCache:
+
+    def _make_graph(self):
+        g = CortexGraph()
+        g.add_node(Node(id="a", label="A"))
+        g.add_node(Node(id="b", label="B"))
+        g.add_node(Node(id="c", label="C"))
+        g.add_edge(Edge(id="e1", source_id="a", target_id="b", relation="r1"))
+        g.add_edge(Edge(id="e2", source_id="b", target_id="c", relation="r2"))
+        return g
+
+    def test_cache_built_lazily(self):
+        g = self._make_graph()
+        assert g._adjacency is None
+        adj = g._get_adjacency()
+        assert g._adjacency is not None
+        assert "a" in adj
+        assert "b" in adj
+
+    def test_cache_reused_on_second_call(self):
+        g = self._make_graph()
+        adj1 = g._get_adjacency()
+        adj2 = g._get_adjacency()
+        assert adj1 is adj2  # same object
+
+    def test_invalidated_on_add_node(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        assert g._adjacency is not None
+        g.add_node(Node(id="d", label="D"))
+        assert g._adjacency is None
+
+    def test_invalidated_on_add_edge(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        g.add_edge(Edge(id="e3", source_id="a", target_id="c", relation="r3"))
+        assert g._adjacency is None
+
+    def test_invalidated_on_remove_node(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        g.remove_node("c")
+        assert g._adjacency is None
+
+    def test_invalidated_on_remove_edge(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        g.remove_edge("e1")
+        assert g._adjacency is None
+
+    def test_invalidated_on_merge_nodes(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        g.merge_nodes("a", "b")
+        assert g._adjacency is None
+
+    def test_get_neighbors_uses_adjacency(self):
+        g = self._make_graph()
+        neighbors = g.get_neighbors("b")
+        neighbor_ids = {n.id for _, n in neighbors}
+        assert neighbor_ids == {"a", "c"}
+
+    def test_get_edges_for_uses_adjacency(self):
+        g = self._make_graph()
+        edges = g.get_edges_for("b")
+        edge_ids = {e.id for e in edges}
+        assert edge_ids == {"e1", "e2"}
+
+    def test_shortest_path_uses_adjacency(self):
+        g = self._make_graph()
+        path = g.shortest_path("a", "c")
+        assert path == ["a", "b", "c"]
+
+    def test_k_hop_neighborhood_uses_adjacency(self):
+        g = self._make_graph()
+        nodes, edges = g.k_hop_neighborhood("a", k=1)
+        assert nodes == {"a", "b"}
+        assert "e1" in edges
+
+    def test_relationship_labels_uses_adjacency(self):
+        g = self._make_graph()
+        labels = g._node_relationship_labels("b")
+        assert set(labels) == {"A", "C"}
+
+    def test_adjacency_correctness_after_rebuild(self):
+        g = self._make_graph()
+        g._get_adjacency()
+        g.add_node(Node(id="d", label="D"))
+        g.add_edge(Edge(id="e3", source_id="c", target_id="d", relation="r3"))
+        path = g.shortest_path("a", "d")
+        assert path == ["a", "b", "c", "d"]
+
+
 if __name__ == "__main__":
     sys.exit(run_tests())

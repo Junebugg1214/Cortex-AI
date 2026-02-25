@@ -29,13 +29,16 @@ _BETWEENNESS_MIN_NODES = 50  # Brandes algorithm only activates above this thres
 # ---------------------------------------------------------------------------
 
 def _build_adjacency(graph: CortexGraph) -> dict[str, set[str]]:
-    """Build undirected adjacency list from graph edges."""
-    adj: dict[str, set[str]] = {nid: set() for nid in graph.nodes}
-    for edge in graph.edges.values():
-        if edge.source_id in adj and edge.target_id in adj:
-            adj[edge.source_id].add(edge.target_id)
-            adj[edge.target_id].add(edge.source_id)
-    return adj
+    """Build undirected adjacency list from graph edges.
+
+    Delegates to the graph's cached adjacency list and converts to the
+    set-based format expected by the query module algorithms.
+    """
+    cached = graph._get_adjacency()
+    return {
+        nid: {neighbor_id for neighbor_id, _ in neighbors}
+        for nid, neighbors in cached.items()
+    }
 
 
 def shortest_path(graph: CortexGraph, from_id: str, to_id: str) -> list[str]:
