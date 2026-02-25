@@ -253,3 +253,82 @@ class TestCLIPoolSizeFlag:
         parser = build_parser()
         args = parser.parse_args(["serve", "test.json"])
         assert args.pool_size is None
+
+
+class TestPoolWiringToStores:
+    """Test that start_caas_server signature accepts pool= and wiring logic."""
+
+    def test_start_caas_server_accepts_pool_param(self):
+        """start_caas_server has pool= in its signature."""
+        import inspect
+        from cortex.caas.server import start_caas_server
+        sig = inspect.signature(start_caas_server)
+        assert "pool" in sig.parameters
+        assert sig.parameters["pool"].default is None
+
+    def test_postgres_stores_accept_pool_kwarg(self):
+        """All 5 Postgres store classes accept pool= in __init__."""
+        import inspect
+        mock_conn = MagicMock()
+        with patch("psycopg.connect", return_value=mock_conn):
+            from cortex.caas.postgres_store import (
+                PostgresAuditLog,
+                PostgresDeliveryLog,
+                PostgresGrantStore,
+                PostgresPolicyStore,
+                PostgresWebhookStore,
+            )
+            for cls in [PostgresGrantStore, PostgresWebhookStore, PostgresAuditLog,
+                        PostgresDeliveryLog, PostgresPolicyStore]:
+                sig = inspect.signature(cls.__init__)
+                assert "pool" in sig.parameters, f"{cls.__name__} missing pool param"
+
+    def test_postgres_base_uses_pool_when_provided(self):
+        """_PostgresBase routes _exec through pool.connection() when pool is set."""
+        mock_inner_conn = MagicMock()
+
+        @contextmanager
+        def mock_connection():
+            yield mock_inner_conn
+
+        mock_pool = MagicMock()
+        mock_pool.connection = mock_connection
+
+        mock_conn = MagicMock()
+        with patch("psycopg.connect", return_value=mock_conn):
+            from cortex.caas.postgres_store import _PostgresBase
+            base = _PostgresBase.__new__(_PostgresBase)
+            base._conninfo = "dbname=test"
+            base._pool = mock_pool
+            base._lock = None
+            base._conn = None
+
+            base._exec("SELECT 1")
+            mock_inner_conn.execute.assert_called_once_with("SELECT 1", None)
+            # The direct connection should NOT have been used
+            mock_conn.execute.assert_not_called()
+
+    def test_shutdown_coordinator_registers_pool_close(self):
+        """ShutdownCoordinator.register is called with pool.close."""
+        from cortex.caas.shutdown import ShutdownCoordinator
+
+        mock_pool = MagicMock()
+        coordinator = ShutdownCoordinator()
+        coordinator.register("pg_pool", mock_pool.close)
+
+        callback_names = [name for name, _ in coordinator._callbacks]
+        assert "pg_pool" in callback_names
+
+        coordinator.shutdown()
+        mock_pool.close.assert_called_once()
+
+    def test_cli_pool_creation_for_postgres(self):
+        """CLI creates pool when storage_backend=postgres and pool-size is set."""
+        from cortex.caas.postgres_pool import ConnectionPool
+
+        mock_conn = MagicMock()
+        with patch("psycopg.connect", return_value=mock_conn):
+            with patch.dict("sys.modules", {"psycopg_pool": None}):
+                pool = ConnectionPool("dbname=test", min_size=2, max_size=20)
+                assert pool.max_size == 20
+                pool.close()

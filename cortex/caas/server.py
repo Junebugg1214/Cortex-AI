@@ -4221,6 +4221,7 @@ def start_caas_server(
     enable_federation: bool = False,
     federation_trusted_dids: list[str] | None = None,
     enable_webapp: bool = False,
+    pool: Any = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -4363,12 +4364,12 @@ def start_caas_server(
         if _encryptor is not None:
             import cortex.upai.webhooks as _wh_mod
             _wh_mod._webhook_encryptor = _encryptor
-        CaaSHandler.grant_store = PostgresGrantStore(db_path, encryptor=_encryptor)
-        webhook_store = PostgresWebhookStore(db_path)
+        CaaSHandler.grant_store = PostgresGrantStore(db_path, encryptor=_encryptor, pool=pool)
+        webhook_store = PostgresWebhookStore(db_path, pool=pool)
         CaaSHandler.webhook_store = webhook_store
-        CaaSHandler.audit_log = PostgresAuditLog(db_path)
-        CaaSHandler.policy_registry = PolicyRegistry(store=PostgresPolicyStore(db_path))
-        delivery_log = PostgresDeliveryLog(db_path)
+        CaaSHandler.audit_log = PostgresAuditLog(db_path, pool=pool)
+        CaaSHandler.policy_registry = PolicyRegistry(store=PostgresPolicyStore(db_path, pool=pool))
+        delivery_log = PostgresDeliveryLog(db_path, pool=pool)
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
         worker.start()
@@ -4451,6 +4452,8 @@ def start_caas_server(
         coordinator.register("sse", CaaSHandler.sse_manager.stop)
     if CaaSHandler.webhook_worker is not None:
         coordinator.register("webhook_worker", CaaSHandler.webhook_worker.stop)
+    if pool is not None:
+        coordinator.register("pg_pool", pool.close)
     coordinator.register("http_server", server.shutdown)
     server._shutdown_coordinator = coordinator  # type: ignore[attr-defined]
 
