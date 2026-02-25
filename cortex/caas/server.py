@@ -291,6 +291,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_list_grants()
         elif path == "/health":
             self._serve_health()
+        elif path == "/readyz":
+            self._serve_readyz()
         elif path == "/metrics":
             self._serve_metrics()
         elif path == "/context":
@@ -784,11 +786,29 @@ class CaaSHandler(BaseHTTPRequestHandler):
         grant_count = len(self.__class__.grant_store.list_all())
         self._json_response({
             "status": "ok",
-            "version": "1.0.0",
+            "version": "1.4.0",
             "has_identity": identity is not None,
             "has_graph": graph is not None,
             "grant_count": grant_count,
         })
+
+    # ── Readiness probe ─────────────────────────────────────────────
+
+    def _serve_readyz(self) -> None:
+        """Kubernetes readiness probe — verifies storage and identity."""
+        reasons = []
+        if self.__class__.identity is None:
+            reasons.append("identity not loaded")
+        try:
+            self.__class__.grant_store.list_all()
+        except Exception as exc:
+            reasons.append(f"storage error: {exc}")
+        if reasons:
+            self._json_response(
+                {"status": "not_ready", "reasons": reasons}, status=503,
+            )
+        else:
+            self._json_response({"status": "ready"})
 
     # ── Swagger UI / OpenAPI ────────────────────────────────────────
 
@@ -819,7 +839,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         identity = self.__class__.identity
         self._json_response({
             "service": "UPAI Context-as-a-Service",
-            "version": "1.0.0",
+            "version": "1.4.0",
             "upai_version": "1.0",
             "did": identity.did if identity else None,
             "discovery": "/.well-known/upai-configuration",

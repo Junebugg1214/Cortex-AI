@@ -116,7 +116,7 @@ class TestHealthCheck:
             data, status = _get(port, "/health")
             assert status == 200
             assert data["status"] == "ok"
-            assert data["version"] == "1.0.0"
+            assert data["version"] == "1.4.0"
             assert data["has_identity"] is True
             assert data["has_graph"] is True
             assert isinstance(data["grant_count"], int)

@@ -129,7 +129,7 @@ class TestCaaSInfo:
             data, status = _get(port, "/")
             assert status == 200
             assert data["service"] == "UPAI Context-as-a-Service"
-            assert data["version"] == "1.0.0"
+            assert data["version"] == "1.4.0"
             assert data["did"] == identity.did
         finally:
             server.shutdown()
@@ -163,6 +163,33 @@ class TestCaaSInfo:
             assert "service" in data
             assert data["service"][0]["type"] == "ContextService"
         finally:
+            server.shutdown()
+
+    def test_readyz_ready(self):
+        server, port, identity, token = _setup_server()
+        if server is None:
+            return
+        try:
+            data, status = _get(port, "/readyz")
+            assert status == 200
+            assert data["status"] == "ready"
+        finally:
+            server.shutdown()
+
+    def test_readyz_not_ready(self):
+        """Readyz returns 503 when identity is not loaded."""
+        server, port, identity, token = _setup_server()
+        if server is None:
+            return
+        try:
+            # Remove identity to simulate not-ready state
+            CaaSHandler.identity = None
+            data, status = _get(port, "/readyz", expect_error=True)
+            assert status == 503
+            assert data["status"] == "not_ready"
+            assert "identity not loaded" in data["reasons"]
+        finally:
+            CaaSHandler.identity = identity
             server.shutdown()
 
 
