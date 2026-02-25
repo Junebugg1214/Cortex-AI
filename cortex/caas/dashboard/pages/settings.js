@@ -19,6 +19,7 @@
             '    <div class="card" style="margin-top:16px">' +
             '      <div class="card-header">Export</div>' +
             '      <button class="btn btn-primary" id="export-btn">Download Graph JSON</button>' +
+            '      <button class="btn btn-primary" id="archive-btn" style="margin-left:8px">Download Full Archive (ZIP)</button>' +
             '    </div>' +
             '  </div>' +
             '  <div>' +
@@ -41,6 +42,7 @@
             '          <label><input type="checkbox" value="grant.revoked" checked> grant.revoked</label>' +
             '          <label><input type="checkbox" value="context.updated"> context.updated</label>' +
             '          <label><input type="checkbox" value="version.created"> version.created</label>' +
+            '          <label><input type="checkbox" value="profile.viewed"> profile.viewed</label>' +
             '        </div></div>' +
             '        <button type="submit" class="btn btn-primary btn-sm">Register Webhook</button>' +
             '      </form>' +
@@ -64,6 +66,24 @@
                 D.showToast('Graph exported', 'success');
             } catch (e) {
                 D.showToast('Export failed: ' + e.message, 'error');
+            }
+        });
+
+        // Archive export
+        document.getElementById('archive-btn').addEventListener('click', async function () {
+            try {
+                var resp = await fetch('/dashboard/api/export/archive', { credentials: 'same-origin' });
+                if (!resp.ok) throw new Error('Export failed');
+                var blob = await resp.blob();
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = 'cortex-archive.zip';
+                a.click();
+                URL.revokeObjectURL(url);
+                D.showToast('Archive exported', 'success');
+            } catch (e) {
+                D.showToast('Archive export failed: ' + e.message, 'error');
             }
         });
 

@@ -27,6 +27,7 @@ VALID_EVENTS: set[str] = {
     "grant.created",
     "grant.revoked",
     "key.rotated",
+    "profile.viewed",
 }
 
 

@@ -36,6 +36,65 @@ def _normalize_label(label: str) -> str:
     return " ".join(label.lower().strip().split())
 
 
+def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
+    """Diff two graphs. Returns added/removed/modified nodes and edges with a summary."""
+    old_nids = set(old.nodes)
+    new_nids = set(new.nodes)
+
+    added_nodes = [
+        {"id": nid, "label": new.nodes[nid].label, "tags": list(new.nodes[nid].tags)}
+        for nid in sorted(new_nids - old_nids)
+    ]
+    removed_nodes = [
+        {"id": nid, "label": old.nodes[nid].label, "tags": list(old.nodes[nid].tags)}
+        for nid in sorted(old_nids - new_nids)
+    ]
+
+    modified_nodes: list[dict] = []
+    for nid in sorted(old_nids & new_nids):
+        a, b = old.nodes[nid], new.nodes[nid]
+        changes: dict[str, dict] = {}
+        if a.label != b.label:
+            changes["label"] = {"old": a.label, "new": b.label}
+        if a.confidence != b.confidence:
+            changes["confidence"] = {"old": a.confidence, "new": b.confidence}
+        if sorted(a.tags) != sorted(b.tags):
+            changes["tags"] = {"old": sorted(a.tags), "new": sorted(b.tags)}
+        if a.brief != b.brief:
+            changes["brief"] = {"old": a.brief, "new": b.brief}
+        if changes:
+            modified_nodes.append({"id": nid, "label": b.label, "changes": changes})
+
+    old_eids = set(old.edges)
+    new_eids = set(new.edges)
+
+    added_edges = [
+        {"id": eid, "source": new.edges[eid].source_id,
+         "target": new.edges[eid].target_id, "relation": new.edges[eid].relation}
+        for eid in sorted(new_eids - old_eids)
+    ]
+    removed_edges = [
+        {"id": eid, "source": old.edges[eid].source_id,
+         "target": old.edges[eid].target_id, "relation": old.edges[eid].relation}
+        for eid in sorted(old_eids - new_eids)
+    ]
+
+    return {
+        "added_nodes": added_nodes,
+        "removed_nodes": removed_nodes,
+        "modified_nodes": modified_nodes,
+        "added_edges": added_edges,
+        "removed_edges": removed_edges,
+        "summary": {
+            "added": len(added_nodes),
+            "removed": len(removed_nodes),
+            "modified": len(modified_nodes),
+            "edges_added": len(added_edges),
+            "edges_removed": len(removed_edges),
+        },
+    }
+
+
 def make_node_id(label: str) -> str:
     """Deterministic node ID: first 16 hex chars of SHA-256 of normalized label."""
     normalized = _normalize_label(label)
@@ -665,6 +724,86 @@ class CortexGraph:
                 },
             },
             "categories": self.to_v4_categories(),
+        }
+
+    # ── Health ─────────────────────────────────────────────────────────
+
+    def graph_health(self, stale_days: int = 30) -> dict:
+        """Compute graph health metrics: stale nodes, orphans, confidence distribution."""
+        now = datetime.now(timezone.utc)
+
+        # Build set of node IDs referenced by any edge
+        referenced: set[str] = set()
+        for edge in self.edges.values():
+            referenced.add(edge.source_id)
+            referenced.add(edge.target_id)
+
+        stale_nodes: list[dict] = []
+        orphan_nodes: list[dict] = []
+        confidences: list[float] = []
+        tag_conf_sums: dict[str, float] = {}
+        tag_conf_counts: dict[str, int] = {}
+
+        for nid, node in self.nodes.items():
+            confidences.append(node.confidence)
+            for tag in node.tags:
+                tag_conf_sums[tag] = tag_conf_sums.get(tag, 0.0) + node.confidence
+                tag_conf_counts[tag] = tag_conf_counts.get(tag, 0) + 1
+
+            # Stale check
+            date_str = node.last_seen or node.first_seen
+            if date_str:
+                try:
+                    ts = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    days = (now - ts).days
+                    if days > stale_days:
+                        stale_nodes.append({
+                            "id": nid,
+                            "label": node.label,
+                            "last_seen": date_str,
+                            "days_stale": days,
+                        })
+                except (ValueError, TypeError):
+                    pass
+
+            # Orphan check
+            if nid not in referenced:
+                orphan_nodes.append({
+                    "id": nid,
+                    "label": node.label,
+                    "tags": list(node.tags),
+                })
+
+        # Confidence distribution buckets
+        buckets = {"0.0-0.2": 0, "0.2-0.4": 0, "0.4-0.6": 0, "0.6-0.8": 0, "0.8-1.0": 0}
+        for c in confidences:
+            if c < 0.2:
+                buckets["0.0-0.2"] += 1
+            elif c < 0.4:
+                buckets["0.2-0.4"] += 1
+            elif c < 0.6:
+                buckets["0.4-0.6"] += 1
+            elif c < 0.8:
+                buckets["0.6-0.8"] += 1
+            else:
+                buckets["0.8-1.0"] += 1
+
+        avg_confidence = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
+        avg_per_tag = {
+            tag: round(tag_conf_sums[tag] / tag_conf_counts[tag], 4)
+            for tag in sorted(tag_conf_sums)
+        }
+
+        return {
+            "stale_nodes": stale_nodes,
+            "stale_count": len(stale_nodes),
+            "orphan_nodes": orphan_nodes,
+            "orphan_count": len(orphan_nodes),
+            "confidence_distribution": buckets,
+            "avg_confidence": avg_confidence,
+            "avg_confidence_per_tag": avg_per_tag,
+            "total_nodes": len(self.nodes),
+            "total_edges": len(self.edges),
         }
 
     # ── Stats ──────────────────────────────────────────────────────────
