@@ -7,7 +7,7 @@
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
   <a href="https://www.npmjs.com/package/@cortex_ai/sdk"><img src="https://img.shields.io/npm/v/@cortex_ai/sdk?color=cb3837&label=npm" alt="npm"></a>
-  <img src="https://img.shields.io/badge/tests-2%2C361%2B%20passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-2%2C417%2B%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
@@ -112,6 +112,17 @@ pip install -e .
 Requires Python 3.10+ (macOS, Linux, Windows). No external packages required for core functionality.
 
 </details>
+
+## Developer Guides
+
+| Guide | Description |
+|-------|-------------|
+| [5-Min Python SDK Quickstart](docs/quickstart-python.md) | Install, connect, and query your knowledge graph from Python |
+| [5-Min TypeScript SDK Quickstart](docs/quickstart-typescript.md) | Same flow in TypeScript — ESM, CJS, async generators, SSE |
+| [CLI Walkthrough](docs/cli-walkthrough.md) | Guided tour of every major CLI command with annotated output |
+| [Error Reference](docs/error-guide.md) | All 17 UPAI error codes with causes and fixes |
+| [Interactive API Docs](http://localhost:8421/docs) | Swagger UI — start the server and open `/docs` |
+| [Postman Collection](docs/cortex-api.postman_collection.json) | Import into Postman for interactive API exploration |
 
 ---
 
