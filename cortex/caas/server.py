@@ -547,7 +547,20 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if limiter is None:
             return False
         client_ip = self.client_address[0]
-        if not limiter.allow(client_ip):
+
+        # Support both plain RateLimiter and TieredRateLimiter
+        from cortex.caas.rate_limit import TieredRateLimiter
+        if isinstance(limiter, TieredRateLimiter):
+            from cortex.caas.rate_limit import classify_tier
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            method = self.command or "GET"
+            tier = classify_tier(method, path)
+            allowed = limiter.allow(client_ip, tier)
+        else:
+            allowed = limiter.allow(client_ip)
+
+        if not allowed:
             from cortex.upai.errors import ERR_RATE_LIMITED
             # Record metric
             if self.__class__.metrics_registry is not None:
@@ -4296,9 +4309,9 @@ def start_caas_server(
     if config is not None:
         CaaSHandler.hsts_enabled = config.getbool("security", "hsts_enabled", fallback=False)
 
-    # Rate limiters
-    from cortex.caas.rate_limit import RateLimiter
-    CaaSHandler.rate_limiter = RateLimiter(max_requests=60, window=60)
+    # Rate limiters — tiered by default
+    from cortex.caas.rate_limit import RateLimiter, TieredRateLimiter
+    CaaSHandler.rate_limiter = TieredRateLimiter()
     CaaSHandler.login_rate_limiter = RateLimiter(max_requests=10, window=60)
     CaaSHandler.policy_registry = PolicyRegistry()
     # CSRF: enable via config

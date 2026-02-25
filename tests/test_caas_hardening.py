@@ -370,6 +370,87 @@ class TestAuditLogging:
 # ============================================================================
 
 # ============================================================================
+# Tiered rate limiting
+# ============================================================================
+
+class TestTieredRateLimiter:
+
+    def test_classify_tier_auth(self):
+        from cortex.caas.rate_limit import classify_tier
+        assert classify_tier("POST", "/grants") == "auth"
+        assert classify_tier("POST", "/dashboard/auth") == "auth"
+        assert classify_tier("POST", "/app/auth") == "auth"
+        assert classify_tier("POST", "/api/token-exchange") == "auth"
+
+    def test_classify_tier_write(self):
+        from cortex.caas.rate_limit import classify_tier
+        assert classify_tier("POST", "/webhooks") == "write"
+        assert classify_tier("PUT", "/context/nodes/n1") == "write"
+        assert classify_tier("DELETE", "/grants/abc") == "write"
+
+    def test_classify_tier_read(self):
+        from cortex.caas.rate_limit import classify_tier
+        assert classify_tier("GET", "/health") == "read"
+        assert classify_tier("GET", "/context") == "read"
+
+    def test_auth_stricter_than_read(self):
+        from cortex.caas.rate_limit import TieredRateLimiter
+        limiter = TieredRateLimiter(tier_limits={"auth": 2, "read": 10}, window=60)
+        # Auth should block after 2
+        assert limiter.allow("1.1.1.1", "auth") is True
+        assert limiter.allow("1.1.1.1", "auth") is True
+        assert limiter.allow("1.1.1.1", "auth") is False
+        # Read should still work
+        assert limiter.allow("1.1.1.1", "read") is True
+
+    def test_cleanup_works(self):
+        from cortex.caas.rate_limit import TieredRateLimiter
+        limiter = TieredRateLimiter(tier_limits={"read": 5}, window=1)
+        limiter.allow("1.1.1.1", "read")
+        # Inject an expired entry
+        rl = limiter._limiters["read"]
+        rl._requests["old_ip"] = [time.monotonic() - 10]
+        limiter.cleanup()
+        assert "old_ip" not in rl._requests
+
+    def test_backward_compat_plain_rate_limiter(self):
+        """Plain RateLimiter still works in _check_rate_limit."""
+        limiter = RateLimiter(max_requests=2, window=60)
+        server, port, identity, token_str = _setup_server(rate_limiter=limiter)
+        if server is None:
+            return
+        try:
+            _get(port, "/health")
+            _get(port, "/health")
+            data, status = _get(port, "/health", expect_error=True)
+            assert status == 429
+        finally:
+            CaaSHandler.rate_limiter = None
+            CaaSHandler.login_rate_limiter = None
+            server.shutdown()
+
+    def test_tiered_limiter_integration(self):
+        """TieredRateLimiter works with the server."""
+        from cortex.caas.rate_limit import TieredRateLimiter
+        limiter = TieredRateLimiter(tier_limits={"auth": 1, "write": 2, "read": 3}, window=60)
+        server, port, identity, token_str = _setup_server(rate_limiter=limiter)
+        if server is None:
+            return
+        try:
+            # 3 reads should be fine
+            _get(port, "/health")
+            _get(port, "/health")
+            _get(port, "/health")
+            # 4th read should be blocked
+            data, status = _get(port, "/health", expect_error=True)
+            assert status == 429
+        finally:
+            CaaSHandler.rate_limiter = None
+            CaaSHandler.login_rate_limiter = None
+            server.shutdown()
+
+
+# ============================================================================
 # HSTS header
 # ============================================================================
 
