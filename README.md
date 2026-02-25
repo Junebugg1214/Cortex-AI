@@ -7,7 +7,7 @@
   <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Junebugg1214/Cortex-AI" alt="License"></a>
   <a href="https://github.com/Junebugg1214/Cortex-AI/stargazers"><img src="https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social" alt="Stars"></a>
   <a href="https://www.npmjs.com/package/@cortex_ai/sdk"><img src="https://img.shields.io/npm/v/@cortex_ai/sdk?color=cb3837&label=npm" alt="npm"></a>
-  <img src="https://img.shields.io/badge/tests-2%2C138%20passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-2%2C361%2B%20passing-brightgreen" alt="Tests">
 </p>
 
 ---
@@ -208,6 +208,7 @@ Start the server with `--enable-webapp` and open `http://localhost:8421/app`.
 - **Upload page** — Drag-and-drop files (JSON, PDF, DOCX, zip), GitHub and LinkedIn URL import cards, API key management with policy/format configuration
 - **My Memory page** — Interactive canvas graph with force-directed layout, zoom/pan, click-to-select, tag-colored nodes, search and filters
 - **Share page** — Export to Claude, Notion, Google Docs, or system prompt format with privacy level selection and live preview
+- **Profile page** — Public profile management with multi-profile support, QR code sharing, and `/p/{handle}` public URLs
 
 ### Admin Dashboard
 
@@ -217,7 +218,8 @@ Available at `/dashboard` with session-based auth (password derived from your id
 - **Graph Explorer** — Interactive canvas with policy filter
 - **Grants** — Create/revoke access tokens with scope checkboxes and TTL
 - **Versions** — Timeline + side-by-side diff
-- **Settings** — Server config, OAuth, webhooks, policies, graph export
+- **Health** — Stale node detection, orphan analysis, confidence distribution, changelog
+- **Settings** — Server config, OAuth, webhooks, policies, graph export, archive export/import
 
 ### UPAI Protocol (Cryptographic Identity)
 
@@ -225,7 +227,7 @@ Full spec: [`spec/upai-v1.0.md`](spec/upai-v1.0.md)
 
 - **W3C DID identity** (`did:cortex:`) with Ed25519 signing
 - **Grant tokens** — JWT-like, Ed25519-signed, 11 scopes, expiration
-- **RBAC** — 5 roles (owner/admin/editor/reader/subscriber) mapped to scope subsets
+- **RBAC** — 4 roles (admin/editor/reader/subscriber) mapped to scope subsets
 - **Key rotation** — Multi-key management with revocation chain and grace periods
 - **Disclosure policies** — 4 builtin + custom tag-based filtering
 - **Verifiable credentials** — W3C VC 1.1 issuance and verification
@@ -261,10 +263,10 @@ cortex serve context.json --port 8421 --enable-webapp --enable-sse --enable-metr
 | Import | `POST /api/upload`, `POST /api/import/github`, `POST /api/import/linkedin` |
 | Memory API | `POST/GET /api/keys`, `DELETE /api/keys/{id}`, `GET /api/memory/{key}` (public) |
 | Federation | `/federation/export`, `/federation/import`, `/federation/peers` |
-| Events | `/events` (SSE with Last-Event-ID replay) |
+| Events | `/events` (SSE with Last-Event-ID replay, including `profile.viewed`) |
 | Metrics | `/metrics` (Prometheus format, 17 metrics) |
-| Web UI | `/app` (Upload, Memory, Share) |
-| Dashboard | `/dashboard` (Overview, Graph, Grants, Versions, Settings) |
+| Web UI | `/app` (Upload, Memory, Share, Profile) |
+| Dashboard | `/dashboard` (Overview, Graph, Grants, Versions, Health, Settings) |
 
 ### Cross-Platform Context Writer
 
@@ -408,7 +410,7 @@ cortex/
 │   ├── importers.py        # PDF, DOCX, LinkedIn, GitHub import
 │   ├── api_keys.py         # Shareable memory API keys
 │   ├── webapp/             # Consumer web UI (Upload, Memory, Share)
-│   └── dashboard/          # Admin dashboard (5 pages)
+│   └── dashboard/          # Admin dashboard (6 pages)
 ├── search.py               # TF-IDF semantic search
 ├── query_lang.py           # Graph query language (DSL)
 ├── federation.py           # Cross-instance sharing
@@ -435,7 +437,7 @@ spec/
 ├── upai-v1.0.md            # Protocol specification
 └── openapi.json            # OpenAPI 3.1 API spec
 
-tests/                      # 2,138 tests across 75+ files
+tests/                      # 2,361 tests across 90+ files
 ```
 
 **Zero required external dependencies.** All crypto (Ed25519, HMAC-SHA256, PBKDF2, base58btc), HTTP serving, search (TF-IDF), graph layout (Fruchterman-Reingold), metrics (Prometheus text format), and tracing (W3C Trace Context) use Python stdlib only.
@@ -448,6 +450,7 @@ tests/                      # 2,138 tests across 75+ files
 
 | Version | What Changed |
 |---------|-------------|
+| v1.5.0 | **Health Dashboard + Public Profiles** — Graph health dashboard (stale nodes, orphans, confidence distribution, changelog), graph diff/changelog API, ZIP archive export/import, multi-profile with `/p/{handle}` public URLs, QR code sharing, `profile.viewed` webhook event. 2,361 tests. |
 | v1.4.1 | **Data Import + Shareable Memory API** — PDF/DOCX resume upload, LinkedIn data export + URL import, GitHub repo import, shareable memory API with 4 policies and 4 formats, public `GET /api/memory/{key}` endpoint. 2,138 tests. |
 | v1.4.0 | **Consumer Web UI** — Upload (drag-drop with auto-detection), My Memory (interactive canvas graph), Share (multi-platform export with privacy levels). 2,063 tests. |
 | v1.3.0 | **Advanced Features** — Semantic search, plugin system, query language, federation, Python SDK, Grafana dashboards, Helm chart, Terraform, tracing, Swagger UI, error hints, load testing, examples. 2,032 tests. |

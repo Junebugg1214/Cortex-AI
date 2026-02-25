@@ -21,7 +21,7 @@ pip install -e ".[dev]"
 python3 -m pytest tests/
 ```
 
-All 1,675+ tests should pass. 35 PostgreSQL-specific tests are skipped unless `psycopg` is installed and a database is available.
+All 2,361+ tests should pass. 35 PostgreSQL-specific tests are skipped unless `psycopg` is installed and a database is available.
 
 ## Architecture Overview
 
@@ -31,6 +31,10 @@ cortex/
 ├── graph.py            # CortexGraph — knowledge graph data structure
 ├── import_memory.py    # Export to platform formats (Claude, Notion, etc.)
 ├── cli.py              # CLI entry point (30+ subcommands)
+├── search.py           # TF-IDF semantic search
+├── query_lang.py       # Graph query language (DSL)
+├── federation.py       # Cross-instance sharing
+├── plugins/            # Hook-based plugin system
 ├── upai/               # UPAI protocol layer
 │   ├── identity.py     # W3C did:key identity
 │   ├── tokens.py       # Grant token signing/verification
@@ -44,9 +48,24 @@ cortex/
 │   ├── sqlite_store.py # SQLite backend
 │   ├── postgres_store.py # PostgreSQL backend
 │   ├── config.py       # INI + env var configuration
-│   └── instrumentation.py # Prometheus metrics
-└── sdk/
-    └── typescript/     # TypeScript SDK (@cortex_ai/sdk)
+│   ├── instrumentation.py # Prometheus metrics
+│   ├── archive.py      # ZIP archive export/import
+│   ├── qr.py           # QR code generation
+│   └── profile.py      # Public profile management
+sdk/
+├── python/             # Python SDK (stdlib-only)
+└── typescript/         # TypeScript SDK (@cortex_ai/sdk)
+
+examples/               # Sample scripts and integration patterns
+```
+
+### TypeScript SDK
+
+```bash
+cd sdk/typescript
+npm install
+npm test          # Runs node:test suite
+npm run build     # ESM + CJS dual build
 ```
 
 ## Key Principles

@@ -107,7 +107,7 @@ Once a platform has a token, it includes it in API requests as `Authorization: B
 
 **Webhooks** — Getting notified when things change:
 - `POST /webhooks` — register a URL to receive notifications
-- Events: `context.updated`, `version.created`, `grant.created`, `grant.revoked`, `key.rotated`
+- Events: `context.updated`, `version.created`, `grant.created`, `grant.revoked`, `key.rotated`, `profile.viewed`
 - Payloads are signed with HMAC-SHA256 so receivers can verify they're legitimate
 
 ### Security model
@@ -192,9 +192,17 @@ Optional: `pip install cortex-identity[crypto]` adds Ed25519 signatures (require
 
 Developers and power users who use multiple AI platforms, are comfortable with CLI tools, and care about owning their data. If you've felt the pain of starting over with a new AI because it doesn't know you — Cortex solves that.
 
-### Current Limitations
+### Access Paths
 
-- CLI-only — no GUI, no browser extension, no desktop app
-- Chat platform exports are manual (export zip, run command, repeat)
-- The CaaS server (serve/grant/tokens) has a learning curve
-- Claude doesn't have a clean bulk export path yet
+Cortex is available through multiple interfaces:
+
+- **CLI** — Full-featured command line for power users and automation
+- **Web App** — Consumer UI at `/app` for uploading data, exploring your memory graph, sharing context, and managing public profiles
+- **Dashboard** — Admin UI at `/dashboard` for grants, versions, audit, health monitoring, and server configuration
+- **API** — 50+ REST endpoints for programmatic access, plus SSE for real-time events
+- **SDKs** — Python and TypeScript client libraries for integration
+
+### Known Constraints
+
+- Chat platform exports are manual (export zip, run command, repeat) — no live API from ChatGPT/Gemini
+- Claude bulk export requires `.jsonl` session files from Claude Code

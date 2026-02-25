@@ -319,11 +319,65 @@ The CaaS server does not handle TLS directly. **Always deploy behind a TLS-termi
 - All data persisted to a single `.db` file
 - Grants, webhooks, audit log, delivery log
 - WAL mode for concurrent access
-- Best for: production
+- Best for: single-server production
 
 ```bash
 cortex serve context.json --storage sqlite --db-path ./cortex.db
 ```
+
+### PostgreSQL
+
+- Full relational storage for grants, webhooks, audit log, delivery log
+- Connection pooling support via `psycopg_pool`
+- Hash-chained audit ledger with tamper verification
+- Best for: multi-server production deployments
+
+```bash
+pip install "cortex-identity[postgres]"
+
+cortex serve context.json \
+    --storage postgres \
+    --db-url "host=localhost dbname=cortex user=cortex"
+```
+
+Environment variable: `CORTEX_STORAGE_DB_URL`
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_STORAGE_BACKEND` | `json` | Storage backend (`json`, `sqlite`, or `postgres`) |
+| `CORTEX_STORAGE_DB_URL` | *(none)* | PostgreSQL connection string (libpq format) |
+
+## Infrastructure as Code
+
+### Helm Chart (Kubernetes)
+
+A full Helm chart is provided at `deploy/helm/cortex/`:
+
+```bash
+helm install cortex deploy/helm/cortex \
+    --set storage.backend=postgres \
+    --set storage.dbUrl="host=pg dbname=cortex"
+```
+
+### Terraform Modules
+
+AWS and GCP modules are provided at `deploy/terraform/`:
+
+```bash
+# AWS — ECS Fargate + ALB
+cd deploy/terraform/aws && terraform apply
+
+# GCP — Cloud Run
+cd deploy/terraform/gcp && terraform apply
+```
+
+### Grafana Dashboards
+
+Three pre-built dashboards are available at `deploy/grafana/`:
+
+- Import the JSON files into Grafana
+- Point the Prometheus data source at the Cortex `/metrics` endpoint
+- Dashboards cover: request rates, latency percentiles, storage operations, webhook delivery
 
 ## Health Check
 
