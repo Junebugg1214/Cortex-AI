@@ -48,6 +48,7 @@ import json
 import threading
 import time as _time
 import urllib.parse
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -355,10 +356,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Profile routes ─────────────────────────────────────
         elif path == "/api/profile":
             self._handle_get_profile()
+        elif path == "/api/profiles":
+            self._handle_list_profiles()
         elif path == "/api/profile/auto":
             self._handle_auto_profile()
         elif path == "/api/profile/preview":
             self._handle_profile_preview()
+        elif path == "/api/profile/qr":
+            self._handle_profile_qr(query)
         elif path.startswith("/p/"):
             handle = path[len("/p/"):]
             self._serve_profile_page(handle)
@@ -484,6 +489,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
             self._handle_delete_policy(policy_name)
+        elif path == "/api/profile":
+            self._handle_delete_profile()
         elif path.startswith("/api/attestations/"):
             cred_id = path[len("/api/attestations/"):]
             self._handle_delete_attestation(cred_id)
@@ -2644,14 +2651,27 @@ class CaaSHandler(BaseHTTPRequestHandler):
         return self.__class__.profile_store
 
     def _handle_get_profile(self) -> None:
-        """GET /api/profile — get the current profile config."""
+        """GET /api/profile — get a profile config. ?handle= for specific, else first."""
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
         if not self._webapp_auth_check():
             return
 
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        handle = query.get("handle", [None])[0]
+
         store = self._get_profile_store()
+
+        if handle:
+            config = store.get(handle)
+            if config:
+                self._json_response(config.to_dict())
+            else:
+                self._error_response(ERR_NOT_FOUND("profile"))
+            return
+
         profiles = store.list_all()
         if profiles:
             self._json_response(profiles[0].to_dict())
@@ -2666,6 +2686,71 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 self._json_response(data)
             else:
                 self._json_response({})
+
+    def _handle_list_profiles(self) -> None:
+        """GET /api/profiles — list all profiles."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+        store = self._get_profile_store()
+        profiles = store.list_all()
+        self._json_response({
+            "profiles": [p.to_dict() for p in profiles],
+            "count": len(profiles),
+        })
+
+    def _handle_delete_profile(self) -> None:
+        """DELETE /api/profile?handle= — delete a profile."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        handle = query.get("handle", [None])[0]
+        if not handle:
+            self._error_response(ERR_INVALID_REQUEST("handle query parameter required"))
+            return
+
+        store = self._get_profile_store()
+        if store.delete(handle):
+            self._audit("profile.deleted", {"handle": handle})
+            self._json_response({"deleted": handle})
+        else:
+            self._error_response(ERR_NOT_FOUND("profile"))
+
+    def _handle_profile_qr(self, query: dict) -> None:
+        """GET /api/profile/qr?handle= — generate QR code SVG for profile URL."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+
+        store = self._get_profile_store()
+        handle = query.get("handle", [None])[0]
+
+        if handle:
+            config = store.get(handle)
+        else:
+            profiles = store.list_all()
+            config = profiles[0] if profiles else None
+
+        if config is None:
+            self._error_response(ERR_NOT_FOUND("profile"))
+            return
+
+        # Build profile URL from Host header
+        host = self.headers.get("Host", "localhost")
+        scheme = "https" if "443" in host else "http"
+        url = f"{scheme}://{host}/p/{config.handle}"
+
+        from cortex.caas.qr import generate_qr_svg
+        svg = generate_qr_svg(url)
+        self._respond(200, "image/svg+xml", svg.encode("utf-8"),
+                      extra_headers={"Cache-Control": "public, max-age=3600"})
 
     def _handle_auto_profile(self) -> None:
         """GET /api/profile/auto — auto-populate profile from graph data."""
@@ -2765,6 +2850,30 @@ class CaaSHandler(BaseHTTPRequestHandler):
         page_html = render_profile_html(filtered, config, self.__class__.credential_store)
         self._respond(200, "text/html", page_html.encode("utf-8"))
 
+    # Class-level rate limit state for profile views (handle -> monotonic timestamp)
+    _profile_view_rate: dict[str, float] = {}
+
+    def _fire_profile_viewed(self, handle: str, user_agent: str = "") -> None:
+        """Fire profile.viewed webhook with 60s per-handle cooldown."""
+        now = _time.monotonic()
+        rate = self.__class__._profile_view_rate
+
+        # Evict stale entries (> 120s)
+        stale = [h for h, t in rate.items() if now - t > 120]
+        for h in stale:
+            del rate[h]
+
+        last = rate.get(handle)
+        if last is not None and now - last < 60:
+            return  # cooldown active
+
+        rate[handle] = now
+        self._fire_webhook("profile.viewed", {
+            "handle": handle,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_agent": user_agent,
+        })
+
     def _serve_profile_page(self, handle: str) -> None:
         """GET /p/{handle} — serve the public profile page."""
         store = self._get_profile_store()
@@ -2781,9 +2890,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
         from cortex.caas.api_keys import get_disclosed_graph
         from cortex.caas.profile import render_profile_html
 
+        # Capture user-agent before responding (getattr for test safety)
+        headers = getattr(self, "headers", None)
+        user_agent = headers.get("User-Agent", "") if headers else ""
+
         filtered = get_disclosed_graph(graph, config.policy, config.custom_tags or None)
         page_html = render_profile_html(filtered, config, self.__class__.credential_store)
         self._respond(200, "text/html", page_html.encode("utf-8"))
+
+        # Fire profile.viewed webhook (rate-limited)
+        self._fire_profile_viewed(handle, user_agent)
 
     # ── Attestation endpoints ─────────────────────────────────────────
 
@@ -3542,6 +3658,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif api_path.startswith("/webhooks/") and api_path.endswith("/health"):
             webhook_id = api_path[len("/webhooks/"):-len("/health")]
             self._dashboard_api_webhook_health(webhook_id)
+        elif api_path == "/health":
+            self._dashboard_api_graph_health(query)
+        elif api_path == "/changelog":
+            self._dashboard_api_changelog(query)
+        elif api_path == "/export/archive":
+            self._dashboard_api_export_archive()
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -3569,6 +3691,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         elif api_path.startswith("/webhooks/") and api_path.endswith("/retry"):
             webhook_id = api_path[len("/webhooks/"):-len("/retry")]
             self._dashboard_api_webhook_retry(webhook_id)
+        elif api_path == "/import/archive":
+            self._dashboard_api_import_archive()
         else:
             self._error_response(ERR_NOT_FOUND("dashboard endpoint"))
 
@@ -3770,6 +3894,105 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "oauth_providers": om.provider_names if om and om.enabled else [],
             "oauth_allowed_emails": sorted(om._allowed_emails) if om and om._allowed_emails else None,
             "sse_enabled": self.__class__.sse_manager is not None,
+        })
+
+    # ── Dashboard: Graph Health & Changelog ────────────────────────
+
+    def _dashboard_api_graph_health(self, query: dict) -> None:
+        """GET /dashboard/api/health — graph health metrics."""
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+        stale_days = int(query.get("stale_days", ["30"])[0])
+        self._json_response(graph.graph_health(stale_days=stale_days))
+
+    def _dashboard_api_changelog(self, query: dict) -> None:
+        """GET /dashboard/api/changelog — recent graph diffs from version history."""
+        vs = self.__class__.version_store
+        if vs is None:
+            self._json_response({"entries": []})
+            return
+
+        from cortex.graph import diff_graphs
+        limit = int(query.get("limit", ["10"])[0])
+        versions = vs.log(limit=limit + 1)  # need pairs
+
+        entries: list[dict] = []
+        for i in range(len(versions) - 1):
+            newer, older = versions[i], versions[i + 1]
+            try:
+                graph_new = vs.checkout(newer.version_id, verify=False)
+                graph_old = vs.checkout(older.version_id, verify=False)
+                diff = diff_graphs(graph_old, graph_new)
+            except (FileNotFoundError, ValueError):
+                diff = {"summary": {}}
+            entries.append({
+                "version_id": newer.version_id,
+                "timestamp": newer.timestamp,
+                "message": newer.message,
+                "diff": diff,
+            })
+            if len(entries) >= limit:
+                break
+
+        self._json_response({"entries": entries})
+
+    # ── Dashboard: Archive Export/Import ──────────────────────────
+
+    def _dashboard_api_export_archive(self) -> None:
+        """GET /dashboard/api/export/archive — download ZIP archive."""
+        graph = self.__class__.graph
+        if graph is None:
+            self._error_response(ERR_NOT_CONFIGURED())
+            return
+
+        from cortex.caas.archive import create_archive
+
+        archive_bytes = create_archive(
+            graph,
+            profile_store=self._get_profile_store(),
+            credential_store=self.__class__.credential_store,
+            identity=self.__class__.identity,
+        )
+        self._respond(200, "application/zip", archive_bytes,
+                      extra_headers={
+                          "Content-Disposition": "attachment; filename=cortex-archive.zip",
+                      })
+
+    def _dashboard_api_import_archive(self) -> None:
+        """POST /dashboard/api/import/archive — import ZIP archive."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self._error_response(ERR_INVALID_REQUEST("Empty request body"))
+            return
+        if content_length > 10_485_760:  # 10 MB
+            self._error_response(ERR_PAYLOAD_TOO_LARGE())
+            return
+
+        raw = self.rfile.read(content_length)
+
+        from cortex.caas.archive import import_archive
+        try:
+            result = import_archive(raw)
+        except ValueError as exc:
+            self._error_response(ERR_INVALID_REQUEST(str(exc)))
+            return
+
+        # Replace graph if graph data present
+        if result.get("graph"):
+            from cortex.graph import CortexGraph
+            new_graph = CortexGraph.from_v5_json(result["graph"])
+            self.__class__.graph = new_graph
+
+        self._audit("archive.imported", {
+            "node_count": result.get("manifest", {}).get("node_count", 0),
+            "edge_count": result.get("manifest", {}).get("edge_count", 0),
+        })
+
+        self._json_response({
+            "imported": True,
+            "manifest": result.get("manifest", {}),
         })
 
     # ── Response helpers ─────────────────────────────────────────────
