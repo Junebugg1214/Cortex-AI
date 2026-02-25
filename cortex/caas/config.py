@@ -56,6 +56,8 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     "security": {
         "csrf_enabled": "true",
         "ssrf_block_private": "true",
+        "hsts_enabled": "false",
+        "audit_retention_days": "90",
     },
     "metrics": {
         "enabled": "false",

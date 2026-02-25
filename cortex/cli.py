@@ -459,6 +459,8 @@ def build_parser():
                     help="Add a trusted federation peer DID (repeatable)")
     sv.add_argument("--enable-webapp", action="store_true",
                     help="Enable web UI at /app (Upload, Memory, Share)")
+    sv.add_argument("--hsts", action="store_true",
+                    help="Enable HSTS header (use only behind TLS reverse proxy)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -1875,6 +1877,16 @@ def run_serve(args):
         enable_webapp = config.getbool("webapp", "enabled", fallback=False)
     if enable_webapp:
         print("Web UI: enabled (/app)")
+
+    # HSTS
+    hsts_enabled = getattr(args, "hsts", False)
+    if not hsts_enabled and config is not None:
+        hsts_enabled = config.getbool("security", "hsts_enabled", fallback=False)
+    if hsts_enabled:
+        # Set on config so start_caas_server picks it up
+        if config is not None:
+            config._parser.set("security", "hsts_enabled", "true")
+        print("HSTS: enabled")
 
     # Connection pool for PostgreSQL
     pool = None

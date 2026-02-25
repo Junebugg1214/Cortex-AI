@@ -233,6 +233,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     plugin_manager: Any = None  # Optional PluginManager
     tracing_manager: Any = None  # Optional TracingManager
     federation_manager: Any = None  # Optional FederationManager
+    hsts_enabled: bool = False  # Add Strict-Transport-Security header
     enable_webapp: bool = False  # Enable /app web UI
     token_cache: Any = None  # Optional TokenCache for verified token caching
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
@@ -4150,6 +4151,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             self.send_header("Content-Security-Policy", "default-src 'none'")
 
+        # HSTS (opt-in — only safe behind TLS reverse proxy)
+        if self.__class__.hsts_enabled:
+            self.send_header(
+                "Strict-Transport-Security",
+                "max-age=63072000; includeSubDomains",
+            )
+
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
@@ -4283,6 +4291,10 @@ def start_caas_server(
     from cortex.caas.token_cache import TokenCache
     CaaSHandler.token_cache = TokenCache(max_size=1024, ttl=30.0)
     CaaSHandler.enable_webapp = enable_webapp
+
+    # HSTS (opt-in)
+    if config is not None:
+        CaaSHandler.hsts_enabled = config.getbool("security", "hsts_enabled", fallback=False)
 
     # Rate limiters
     from cortex.caas.rate_limit import RateLimiter

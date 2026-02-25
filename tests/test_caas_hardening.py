@@ -369,6 +369,55 @@ class TestAuditLogging:
 # ERR_RATE_LIMITED error code
 # ============================================================================
 
+# ============================================================================
+# HSTS header
+# ============================================================================
+
+class TestHSTSHeader:
+
+    def test_hsts_disabled_by_default(self):
+        server, port, identity, token_str = _setup_server()
+        if server is None:
+            return
+        try:
+            url = f"http://127.0.0.1:{port}/health"
+            resp = urllib.request.urlopen(url)
+            hsts = resp.headers.get("Strict-Transport-Security")
+            assert hsts is None
+        finally:
+            server.shutdown()
+
+    def test_hsts_enabled_when_flag_set(self):
+        server, port, identity, token_str = _setup_server()
+        if server is None:
+            return
+        try:
+            CaaSHandler.hsts_enabled = True
+            url = f"http://127.0.0.1:{port}/health"
+            resp = urllib.request.urlopen(url)
+            hsts = resp.headers.get("Strict-Transport-Security")
+            assert hsts is not None
+            assert "max-age=63072000" in hsts
+            assert "includeSubDomains" in hsts
+        finally:
+            CaaSHandler.hsts_enabled = False
+            server.shutdown()
+
+    def test_hsts_header_value_format(self):
+        server, port, identity, token_str = _setup_server()
+        if server is None:
+            return
+        try:
+            CaaSHandler.hsts_enabled = True
+            url = f"http://127.0.0.1:{port}/health"
+            resp = urllib.request.urlopen(url)
+            hsts = resp.headers.get("Strict-Transport-Security")
+            assert hsts == "max-age=63072000; includeSubDomains"
+        finally:
+            CaaSHandler.hsts_enabled = False
+            server.shutdown()
+
+
 class TestErrorCodes:
 
     def test_rate_limited_error(self):
