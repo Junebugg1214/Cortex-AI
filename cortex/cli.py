@@ -459,6 +459,8 @@ def build_parser():
                     help="Add a trusted federation peer DID (repeatable)")
     sv.add_argument("--enable-webapp", action="store_true",
                     help="Enable web UI at /app (Upload, Memory, Share)")
+    sv.add_argument("--hsts", action="store_true",
+                    help="Enable HSTS header (use only behind TLS reverse proxy)")
 
     # -- grant (manage CaaS grants) ----------------------------------------
     gr = sub.add_parser("grant", help="Manage CaaS grant tokens")
@@ -504,6 +506,33 @@ def build_parser():
     cp.add_argument("--shell", "-s", required=True,
                     choices=["bash", "zsh", "fish"],
                     help="Shell type (bash, zsh, fish)")
+
+    # -- audit (audit log management) ----------------------------------------
+    au = sub.add_parser("audit", help="Manage audit log (export, verify, rotate)")
+    au.add_argument("--export", action="store_true",
+                    help="Export audit log entries")
+    au.add_argument("--format", choices=["json", "csv"], default="json",
+                    help="Export format (default: json)")
+    au.add_argument("--since", default=None,
+                    help="Only entries since (e.g. '7d', '24h', '30m')")
+    au.add_argument("--event-type", default=None,
+                    help="Filter by event type")
+    au.add_argument("--output", "-o", default=None,
+                    help="Output file (default: stdout)")
+    au.add_argument("--verify", action="store_true",
+                    help="Verify audit chain integrity")
+    au.add_argument("--rotate", action="store_true",
+                    help="Rotate (delete) old audit entries")
+    au.add_argument("--retention-days", type=int, default=90,
+                    help="Retention period in days for --rotate (default: 90)")
+    au.add_argument("--storage", choices=["json", "sqlite", "postgres"], default="sqlite",
+                    help="Audit storage backend (default: sqlite)")
+    au.add_argument("--db-path", default=None,
+                    help="SQLite database path")
+    au.add_argument("--db-url", default=None,
+                    help="PostgreSQL connection string")
+    au.add_argument("--store-dir", default=".cortex",
+                    help="Identity store directory (default: .cortex)")
 
     # -- rotate (key rotation) ---------------------------------------------
     ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
@@ -1876,6 +1905,16 @@ def run_serve(args):
     if enable_webapp:
         print("Web UI: enabled (/app)")
 
+    # HSTS
+    hsts_enabled = getattr(args, "hsts", False)
+    if not hsts_enabled and config is not None:
+        hsts_enabled = config.getbool("security", "hsts_enabled", fallback=False)
+    if hsts_enabled:
+        # Set on config so start_caas_server picks it up
+        if config is not None:
+            config._parser.set("security", "hsts_enabled", "true")
+        print("HSTS: enabled")
+
     # Connection pool for PostgreSQL
     pool = None
     if storage_backend == "postgres" and db_path:
@@ -2088,6 +2127,80 @@ def run_policy(args):
     return 1
 
 
+def run_audit(args):
+    """Manage audit log — export, verify, rotate."""
+    from pathlib import Path
+
+    store_dir = Path(args.store_dir)
+    storage = args.storage
+    db_path = args.db_path or str(store_dir / "cortex.db")
+    db_url = args.db_url
+
+    # Create the appropriate ledger
+    if storage == "postgres":
+        if db_url:
+            try:
+                from cortex.caas.postgres_audit_ledger import PostgresAuditLedger
+                ledger = PostgresAuditLedger(db_url)
+            except ImportError:
+                print("PostgreSQL requires psycopg: pip install 'psycopg[binary]'")
+                return 1
+        else:
+            print("--db-url required for postgres storage")
+            return 1
+    else:
+        from cortex.caas.sqlite_audit_ledger import SqliteAuditLedger
+        ledger = SqliteAuditLedger(db_path)
+
+    if args.verify:
+        valid, checked, error = ledger.verify()
+        print(f"Valid: {valid}")
+        print(f"Entries checked: {checked}")
+        if error:
+            print(f"Error: {error}")
+        return 0 if valid else 1
+
+    if args.rotate:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=args.retention_days)
+        if hasattr(ledger, 'rotate'):
+            deleted = ledger.rotate(cutoff)
+            print(f"Rotated {deleted} entries older than {args.retention_days} days")
+        else:
+            print("Rotation not supported for this storage backend")
+            return 1
+        return 0
+
+    if args.export:
+        from cortex.caas.audit_export import export_csv, export_json, filter_since, parse_since
+
+        entries_raw = ledger.query(event_type=args.event_type, limit=10000)
+        entries = [e.to_dict() for e in entries_raw]
+
+        if args.since:
+            try:
+                since_dt = parse_since(args.since)
+                entries = filter_since(entries, since_dt)
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                return 1
+
+        if args.format == "csv":
+            output = export_csv(entries)
+        else:
+            output = export_json(entries)
+
+        if args.output:
+            Path(args.output).write_text(output, encoding="utf-8")
+            print(f"Exported {len(entries)} entries to {args.output}")
+        else:
+            print(output)
+        return 0
+
+    print("Use --export, --verify, or --rotate. See: cortex audit --help")
+    return 1
+
+
 def run_rotate(args):
     """Rotate UPAI identity key."""
     from cortex.upai.keychain import Keychain
@@ -2137,7 +2250,7 @@ def main(argv=None):
         "gaps", "digest",
         "viz", "dashboard", "watch", "sync-schedule",
         "extract-coding", "context-hook", "context-export", "context-write",
-        "serve", "grant", "rotate", "pull", "policy", "completion",
+        "serve", "grant", "rotate", "pull", "policy", "completion", "audit",
         "-h", "--help",
     )
     if argv and argv[0] not in known_subcommands:
@@ -2206,6 +2319,8 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "completion":
         return run_completion(args)
+    elif args.subcommand == "audit":
+        return run_audit(args)
     else:
         return run_migrate(args)
 

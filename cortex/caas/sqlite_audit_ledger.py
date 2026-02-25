@@ -149,6 +149,20 @@ class SqliteAuditLedger(AbstractAuditLedger):
         finally:
             conn.close()
 
+    def rotate(self, before) -> int:
+        """Delete entries older than *before* (datetime). Returns deleted count."""
+        cutoff_iso = before.isoformat()
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    "DELETE FROM audit_ledger WHERE timestamp < ?", (cutoff_iso,)
+                )
+                conn.commit()
+                return cur.rowcount
+            finally:
+                conn.close()
+
     @staticmethod
     def _row_to_entry(row: sqlite3.Row) -> AuditEntry:
         details = row["details"]

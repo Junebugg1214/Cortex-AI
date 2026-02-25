@@ -30,7 +30,7 @@ Use this checklist when deploying Cortex-AI to production.
 
 - [ ] **TLS reverse proxy configured** (Caddy, Nginx, or cloud ALB)
 - [ ] **TLS 1.2+ enforced** — Disable TLS 1.0/1.1
-- [ ] **HSTS header enabled** on reverse proxy
+- [ ] **HSTS header enabled** — Use `--hsts` flag or `security.hsts_enabled = true` behind TLS proxy
 - [ ] **Certificate auto-renewal** configured (Let's Encrypt / ACM)
 - [ ] **Cortex binds to localhost only** (default `127.0.0.1`)
   - If binding to `0.0.0.0`, ensure firewall rules restrict access
@@ -90,6 +90,14 @@ Use this checklist when deploying Cortex-AI to production.
   cortex serve context.json --enable-metrics
   ```
 - [ ] **Grafana dashboards imported** — `deploy/grafana/*.json`
+- [ ] **Audit export configured** — Periodic export for compliance
+  ```bash
+  cortex audit --export --format csv --since 30d --output audit_monthly.csv
+  ```
+- [ ] **Audit rotation scheduled** — Remove entries past retention period
+  ```bash
+  cortex audit --rotate --retention-days 90
+  ```
 - [ ] **Alerting configured** — Alert on:
   - Error rate > 5%
   - p99 latency > 1s
