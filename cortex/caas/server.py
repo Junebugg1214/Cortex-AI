@@ -272,6 +272,17 @@ class CaaSHandler(BaseHTTPRequestHandler):
             extra={"method": method, "path": path, "status": status_code, "duration_ms": duration_ms},
         )
 
+    def _validate_path_id(self, value: str, id_type: str = "path_param") -> bool:
+        """Validate a path-extracted ID. Returns True if valid, else sends 400 and returns False."""
+        from cortex.caas.validation import validate_path_param
+        # URL-decode before validation to catch encoded attacks (%00, %2F, etc.)
+        decoded = urllib.parse.unquote(value)
+        ok, msg = validate_path_param(decoded)
+        if not ok:
+            self._json_response({"error": {"type": "invalid_request", "message": msg}}, status=400)
+            return False
+        return True
+
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
         self._init_request_id()
@@ -312,32 +323,38 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_shortest_path(rest)
         elif path.startswith("/context/nodes/") and path.endswith("/neighbors"):
             node_id = path[len("/context/nodes/"):-len("/neighbors")]
-            self._serve_node_neighbors(node_id, query)
+            if self._validate_path_id(node_id):
+                self._serve_node_neighbors(node_id, query)
         elif path.startswith("/context/nodes/"):
             node_id = path[len("/context/nodes/"):]
-            self._serve_context_node(node_id, query)
+            if self._validate_path_id(node_id):
+                self._serve_context_node(node_id, query)
         elif path == "/versions":
             self._serve_versions(query)
         elif path == "/versions/diff":
             self._serve_version_diff(query)
         elif path.startswith("/versions/"):
             version_id = path[len("/versions/"):]
-            self._serve_version(version_id, query)
+            if self._validate_path_id(version_id):
+                self._serve_version(version_id, query)
         elif path == "/webhooks":
             self._serve_list_webhooks()
         elif path == "/credentials":
             self._serve_credentials(query)
         elif path.startswith("/credentials/"):
             cred_id = path[len("/credentials/"):]
-            self._serve_credential_detail(cred_id)
+            if self._validate_path_id(cred_id):
+                self._serve_credential_detail(cred_id)
         elif path == "/policies":
             self._serve_list_policies()
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
-            self._serve_get_policy(policy_name)
+            if self._validate_path_id(policy_name):
+                self._serve_get_policy(policy_name)
         elif path.startswith("/resolve/"):
             did_encoded = path[len("/resolve/"):]
-            self._serve_resolve_did(did_encoded)
+            if self._validate_path_id(did_encoded):
+                self._serve_resolve_did(did_encoded)
         elif path == "/audit":
             self._serve_audit(query)
         elif path == "/audit/verify":
@@ -371,18 +388,22 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_profile_qr(query)
         elif path.startswith("/p/"):
             handle = path[len("/p/"):]
-            self._serve_profile_page(handle)
+            if self._validate_path_id(handle):
+                self._serve_profile_page(handle)
         # ── Attestation routes ─────────────────────────────────
         elif path == "/api/attestations":
             self._handle_list_attestations()
         elif path.startswith("/api/attestations/"):
             node_id = path[len("/api/attestations/"):]
-            self._handle_get_attestations_for_node(node_id)
+            if self._validate_path_id(node_id):
+                self._handle_get_attestations_for_node(node_id)
         # ── Timeline routes ────────────────────────────────────
         elif path == "/api/timeline":
             self._handle_get_timeline()
         elif path.startswith("/api/timeline/"):
-            self._handle_get_timeline_node(path[len("/api/timeline/"):])
+            tid = path[len("/api/timeline/"):]
+            if self._validate_path_id(tid):
+                self._handle_get_timeline_node(tid)
         # ── API key routes ──────────────────────────────────────
         elif path == "/api/keys":
             self._handle_list_api_keys()
@@ -427,7 +448,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_credential()
         elif path.startswith("/credentials/") and path.endswith("/verify"):
             cred_id = path[len("/credentials/"):-len("/verify")]
-            self._handle_verify_credential(cred_id)
+            if self._validate_path_id(cred_id):
+                self._handle_verify_credential(cred_id)
         elif path == "/policies":
             self._handle_create_policy()
         elif path == "/api/token-exchange":
@@ -478,33 +500,42 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/grants/"):
             grant_id = path[len("/grants/"):]
-            self._handle_revoke_grant(grant_id)
+            if self._validate_path_id(grant_id):
+                self._handle_revoke_grant(grant_id)
         elif path.startswith("/context/nodes/"):
             node_id = path[len("/context/nodes/"):]
-            self._handle_delete_node(node_id)
+            if self._validate_path_id(node_id):
+                self._handle_delete_node(node_id)
         elif path.startswith("/context/edges/"):
             edge_id = path[len("/context/edges/"):]
-            self._handle_delete_edge(edge_id)
+            if self._validate_path_id(edge_id):
+                self._handle_delete_edge(edge_id)
         elif path.startswith("/webhooks/"):
             webhook_id = path[len("/webhooks/"):]
-            self._handle_delete_webhook(webhook_id)
+            if self._validate_path_id(webhook_id):
+                self._handle_delete_webhook(webhook_id)
         elif path.startswith("/credentials/"):
             cred_id = path[len("/credentials/"):]
-            self._handle_delete_credential(cred_id)
+            if self._validate_path_id(cred_id):
+                self._handle_delete_credential(cred_id)
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
-            self._handle_delete_policy(policy_name)
+            if self._validate_path_id(policy_name):
+                self._handle_delete_policy(policy_name)
         elif path == "/api/profile":
             self._handle_delete_profile()
         elif path.startswith("/api/attestations/"):
             cred_id = path[len("/api/attestations/"):]
-            self._handle_delete_attestation(cred_id)
+            if self._validate_path_id(cred_id):
+                self._handle_delete_attestation(cred_id)
         elif path.startswith("/api/timeline/"):
             node_id = path[len("/api/timeline/"):]
-            self._handle_delete_timeline_entry(node_id)
+            if self._validate_path_id(node_id):
+                self._handle_delete_timeline_entry(node_id)
         elif path.startswith("/api/keys/"):
             key_id = path[len("/api/keys/"):]
-            self._handle_revoke_api_key(key_id)
+            if self._validate_path_id(key_id):
+                self._handle_revoke_api_key(key_id)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_delete(path)
@@ -523,13 +554,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/timeline/"):
             node_id = path[len("/api/timeline/"):]
-            self._handle_update_timeline_entry(node_id)
+            if self._validate_path_id(node_id):
+                self._handle_update_timeline_entry(node_id)
         elif path.startswith("/context/nodes/"):
             node_id = path[len("/context/nodes/"):]
-            self._handle_update_node(node_id)
+            if self._validate_path_id(node_id):
+                self._handle_update_node(node_id)
         elif path.startswith("/policies/"):
             policy_name = path[len("/policies/"):]
-            self._handle_update_policy(policy_name)
+            if self._validate_path_id(policy_name):
+                self._handle_update_policy(policy_name)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
