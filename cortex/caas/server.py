@@ -359,6 +359,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._serve_audit(query)
         elif path == "/audit/verify":
             self._serve_audit_verify()
+        elif path == "/audit/export":
+            self._serve_audit_export(query)
         elif path == "/events":
             self._handle_sse(query)
         elif path == "/docs":
@@ -1673,6 +1675,56 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "entries_checked": checked,
             "error": error,
         })
+
+    def _serve_audit_export(self, query: dict) -> None:
+        """GET /audit/export — export audit log as JSON or CSV. Requires grants:manage."""
+        token_data = self._authenticate_or_dashboard("grants:manage")
+        if token_data is None:
+            return
+
+        log = self.__class__.audit_log
+        if log is None or not hasattr(log, 'query'):
+            self._json_response({"entries": []})
+            return
+
+        from cortex.caas.audit_export import export_csv, export_json, filter_since, parse_since
+
+        fmt = query.get("format", ["json"])[0]
+        if fmt not in ("json", "csv"):
+            self._json_response(
+                {"error": {"type": "invalid_request", "message": "format must be 'json' or 'csv'"}},
+                status=400,
+            )
+            return
+
+        event_type = query.get("event_type", [None])[0]
+        # Fetch all matching entries (up to 10k for export)
+        entries_raw = log.query(event_type=event_type, limit=10000)
+        entries = [e.to_dict() if hasattr(e, 'to_dict') else e for e in entries_raw]
+
+        # Time filter
+        since_str = query.get("since", [None])[0]
+        if since_str:
+            try:
+                since_dt = parse_since(since_str)
+                entries = filter_since(entries, since_dt)
+            except ValueError as exc:
+                self._json_response(
+                    {"error": {"type": "invalid_request", "message": str(exc)}},
+                    status=400,
+                )
+                return
+
+        if fmt == "csv":
+            body = export_csv(entries).encode("utf-8")
+            self._respond(200, "text/csv", body, extra_headers={
+                "Content-Disposition": "attachment; filename=audit_export.csv",
+            })
+        else:
+            body = export_json(entries).encode("utf-8")
+            self._respond(200, "application/json", body, extra_headers={
+                "Content-Disposition": "attachment; filename=audit_export.json",
+            })
 
     # ── Policies ─────────────────────────────────────────────────
 
