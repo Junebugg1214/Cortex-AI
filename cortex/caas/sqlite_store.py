@@ -29,6 +29,8 @@ class _SqliteBase:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA cache_size=-8000")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.row_factory = sqlite3.Row

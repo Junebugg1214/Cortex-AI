@@ -274,3 +274,41 @@ class TestDeliveryLog:
         failures = [e for e in entries if not e["success"]]
         assert len(successes) == 1
         assert len(failures) == 1
+
+
+# ============================================================================
+# SQLite WAL tuning PRAGMAs
+# ============================================================================
+
+class TestSqliteWALTuning:
+    """Verify performance-tuning PRAGMAs are set on new SQLite stores."""
+
+    def test_synchronous_normal(self, tmpdir):
+        db = str(Path(tmpdir) / "test.db")
+        gs = SqliteGrantStore(db)
+        row = gs._conn.execute("PRAGMA synchronous").fetchone()
+        # synchronous=NORMAL is mode 1
+        assert row[0] == 1
+        gs.close()
+
+    def test_cache_size_8mb(self, tmpdir):
+        db = str(Path(tmpdir) / "test.db")
+        gs = SqliteGrantStore(db)
+        row = gs._conn.execute("PRAGMA cache_size").fetchone()
+        # Negative value means KiB: -8000 => ~8MB
+        assert row[0] == -8000
+        gs.close()
+
+    def test_wal_mode_still_enabled(self, tmpdir):
+        db = str(Path(tmpdir) / "test.db")
+        gs = SqliteGrantStore(db)
+        row = gs._conn.execute("PRAGMA journal_mode").fetchone()
+        assert row[0] == "wal"
+        gs.close()
+
+    def test_foreign_keys_still_on(self, tmpdir):
+        db = str(Path(tmpdir) / "test.db")
+        gs = SqliteGrantStore(db)
+        row = gs._conn.execute("PRAGMA foreign_keys").fetchone()
+        assert row[0] == 1
+        gs.close()
