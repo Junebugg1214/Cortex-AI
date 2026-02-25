@@ -18,6 +18,7 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -29,6 +30,9 @@ VALID_EVENTS: set[str] = {
     "key.rotated",
     "profile.viewed",
 }
+
+# Module-level encryptor (set by start_caas_server when encryption is available)
+_webhook_encryptor: Any = None
 
 
 @dataclass
@@ -43,22 +47,30 @@ class WebhookRegistration:
     active: bool = True
 
     def to_dict(self) -> dict:
+        secret_value = self.secret
+        enc = _webhook_encryptor
+        if enc is not None and secret_value and not enc.is_encrypted(secret_value):
+            secret_value = enc.encrypt(secret_value)
         return {
             "webhook_id": self.webhook_id,
             "url": self.url,
             "events": list(self.events),
-            "secret": self.secret,
+            "secret": secret_value,
             "created_at": self.created_at,
             "active": self.active,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> WebhookRegistration:
+        secret_value = d["secret"]
+        enc = _webhook_encryptor
+        if enc is not None and secret_value and enc.is_encrypted(secret_value):
+            secret_value = enc.decrypt(secret_value)
         return cls(
             webhook_id=d["webhook_id"],
             url=d["url"],
             events=list(d["events"]),
-            secret=d["secret"],
+            secret=secret_value,
             created_at=d["created_at"],
             active=d.get("active", True),
         )

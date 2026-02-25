@@ -9,6 +9,8 @@ Covers:
 - Scope checking
 - HMAC fallback
 - Decode without verification
+- Server-side algorithm enforcement
+- JTI (replay protection) field
 """
 
 from datetime import datetime, timedelta, timezone
@@ -156,6 +158,68 @@ class TestGrantTokenRejection:
 
 
 # ============================================================================
+# Algorithm enforcement (Fix H-2)
+# ============================================================================
+
+class TestAlgorithmEnforcement:
+
+    def test_server_ignores_header_alg(self):
+        """Token with alg=HMAC-SHA256 in header is still verified with Ed25519."""
+        if not has_crypto():
+            return
+        import base64
+        import json
+        from cortex.upai.identity import _base64url_encode, _base64url_decode
+
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, audience="Claude")
+
+        # Sign normally first
+        token_str = token.sign(identity)
+        parts = token_str.split(".")
+
+        # Forge header with HMAC-SHA256 alg
+        forged_header = {"alg": "HMAC-SHA256", "typ": "UPAI-Grant"}
+        forged_header_b64 = _base64url_encode(
+            json.dumps(forged_header, sort_keys=True).encode()
+        )
+
+        # Re-sign with real Ed25519 key but forged header
+        signing_input = f"{forged_header_b64}.{parts[1]}".encode("utf-8")
+        sig = identity.sign(signing_input)
+        sig_b64url = _base64url_encode(base64.b64decode(sig))
+        forged_token = f"{forged_header_b64}.{parts[1]}.{sig_b64url}"
+
+        # With server-side enforcement (default: ed25519), this should PASS
+        # because the server ignores the header alg and uses ed25519
+        result, err = GrantToken.verify_and_decode(
+            forged_token, identity.public_key_b64
+        )
+        assert result is not None, f"Should pass with enforced ed25519: {err}"
+
+    def test_expected_key_type_parameter(self):
+        """The expected_key_type parameter is used for verification."""
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, audience="Test")
+        token_str = token.sign(identity)
+
+        # Verify with ed25519 (default) — should pass
+        result, err = GrantToken.verify_and_decode(
+            token_str, identity.public_key_b64, expected_key_type="ed25519"
+        )
+        assert result is not None
+
+        # Verify with wrong key type — should fail
+        result, err = GrantToken.verify_and_decode(
+            token_str, identity.public_key_b64, expected_key_type="sha256"
+        )
+        assert result is None
+        assert "invalid signature" in err
+
+
+# ============================================================================
 # Scope checking
 # ============================================================================
 
@@ -262,3 +326,70 @@ class TestGrantTokenSerialization:
         assert "scopes" in d
         assert "issued_at" in d
         assert "expires_at" in d
+
+
+# ============================================================================
+# JTI field (Fix H-6)
+# ============================================================================
+
+class TestGrantTokenJTI:
+
+    def test_create_generates_jti(self):
+        """New tokens should have a jti field."""
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, audience="Claude")
+        assert token.jti
+        assert len(token.jti) == 36  # UUID4 format
+
+    def test_jti_in_to_dict(self):
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, "Test")
+        d = token.to_dict()
+        assert "jti" in d
+        assert d["jti"] == token.jti
+
+    def test_jti_roundtrip(self):
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, "Test")
+        d = token.to_dict()
+        restored = GrantToken.from_dict(d)
+        assert restored.jti == token.jti
+
+    def test_jti_unique_per_token(self):
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        t1 = GrantToken.create(identity, "Test")
+        t2 = GrantToken.create(identity, "Test")
+        assert t1.jti != t2.jti
+
+    def test_old_token_without_jti(self):
+        """Old tokens without jti field should still deserialize."""
+        d = {
+            "grant_id": "test-grant",
+            "subject_did": "did:upai:test",
+            "issuer_did": "did:upai:test",
+            "audience": "Test",
+            "policy": "professional",
+            "scopes": ["context:read"],
+            "issued_at": "2026-01-01T00:00:00Z",
+            "expires_at": "2026-01-02T00:00:00Z",
+        }
+        token = GrantToken.from_dict(d)
+        assert token.jti == ""
+
+    def test_jti_in_signed_token(self):
+        """JTI should survive sign/decode round-trip."""
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test")
+        token = GrantToken.create(identity, "Claude")
+        token_str = token.sign(identity)
+        decoded = GrantToken.decode(token_str)
+        assert decoded.jti == token.jti

@@ -47,6 +47,7 @@ def _setup_dashboard_server():
     CaaSHandler.webhook_store = JsonWebhookStore()
     CaaSHandler.audit_log = None
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler._allowed_origins = set()
 

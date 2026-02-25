@@ -338,6 +338,7 @@ class TestAuditAPIEndpoints:
         CaaSHandler.audit_log = self.ledger
         CaaSHandler.metrics_registry = None
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.webhook_worker = None
         CaaSHandler.sse_manager = None
         CaaSHandler.session_manager = None

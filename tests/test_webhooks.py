@@ -7,12 +7,15 @@ Covers:
 - Delivery to test HTTP server
 - All headers present
 - Webhook registration
+- Encrypted secret storage round-trip
 """
 
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import mock
 
 from cortex.upai.webhooks import (
     VALID_EVENTS,
@@ -105,6 +108,73 @@ class TestWebhookRegistration:
         assert "grant.created" in VALID_EVENTS
         assert "grant.revoked" in VALID_EVENTS
         assert "key.rotated" in VALID_EVENTS
+
+
+# ============================================================================
+# Encrypted secret storage (Fix H-5)
+# ============================================================================
+
+class TestWebhookSecretEncryption:
+
+    def test_encrypted_secret_roundtrip(self):
+        """With an encryptor set, to_dict encrypts and from_dict decrypts."""
+        from cortex.caas.encryption import FieldEncryptor
+        import cortex.upai.webhooks as wh_mod
+
+        enc = FieldEncryptor(master_key=os.urandom(32))
+        original_encryptor = wh_mod._webhook_encryptor
+        try:
+            wh_mod._webhook_encryptor = enc
+
+            reg = create_webhook("https://example.com/hook", ["context.updated"])
+            raw_secret = reg.secret
+
+            # Serialize — secret should be encrypted
+            d = reg.to_dict()
+            assert d["secret"] != raw_secret
+            assert enc.is_encrypted(d["secret"])
+
+            # Deserialize — secret should be decrypted
+            restored = WebhookRegistration.from_dict(d)
+            assert restored.secret == raw_secret
+        finally:
+            wh_mod._webhook_encryptor = original_encryptor
+
+    def test_no_encryptor_stores_plaintext(self):
+        """Without encryptor, secret is stored as-is."""
+        import cortex.upai.webhooks as wh_mod
+
+        original_encryptor = wh_mod._webhook_encryptor
+        try:
+            wh_mod._webhook_encryptor = None
+
+            reg = create_webhook("https://example.com/hook", ["context.updated"])
+            d = reg.to_dict()
+            assert d["secret"] == reg.secret
+        finally:
+            wh_mod._webhook_encryptor = original_encryptor
+
+    def test_already_encrypted_not_double_encrypted(self):
+        """Calling to_dict twice doesn't double-encrypt."""
+        from cortex.caas.encryption import FieldEncryptor
+        import cortex.upai.webhooks as wh_mod
+
+        enc = FieldEncryptor(master_key=os.urandom(32))
+        original_encryptor = wh_mod._webhook_encryptor
+        try:
+            wh_mod._webhook_encryptor = enc
+
+            reg = create_webhook("https://example.com/hook", ["context.updated"])
+            d1 = reg.to_dict()
+            # Simulate loading from storage (already encrypted)
+            reg2 = WebhookRegistration.from_dict(d1)
+            d2 = reg2.to_dict()
+
+            # Both should decrypt to the same secret
+            reg3 = WebhookRegistration.from_dict(d2)
+            assert reg3.secret == reg.secret
+        finally:
+            wh_mod._webhook_encryptor = original_encryptor
 
 
 # ============================================================================

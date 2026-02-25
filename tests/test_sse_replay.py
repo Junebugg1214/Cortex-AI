@@ -351,6 +351,7 @@ class TestLastEventIdParsing(unittest.TestCase):
         CaaSHandler.webhook_worker = None
         CaaSHandler.metrics_registry = None
         CaaSHandler.rate_limiter = None
+        CaaSHandler.login_rate_limiter = None
         CaaSHandler.oauth_manager = None
         CaaSHandler.credential_store = None
         CaaSHandler.keychain = None

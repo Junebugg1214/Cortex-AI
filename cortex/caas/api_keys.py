@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac as _hmac
 import json
 import secrets
 from datetime import datetime, timezone
@@ -51,6 +53,20 @@ class ApiKeyStore:
             self._keys = data.get("keys", {})
         except (json.JSONDecodeError, OSError):
             self._keys = {}
+        # Migrate legacy entries that store raw key_secret
+        self._migrate_legacy_keys()
+
+    def _migrate_legacy_keys(self) -> None:
+        """Migrate old entries with plaintext key_secret to hashed storage."""
+        migrated = False
+        for entry in self._keys.values():
+            if "key_secret" in entry and "key_hash" not in entry:
+                raw_secret = entry["key_secret"]
+                entry["key_hash"] = hashlib.sha256(raw_secret.encode()).hexdigest()
+                del entry["key_secret"]
+                migrated = True
+        if migrated:
+            self._save()
 
     def _save(self) -> None:
         if self._path is None:
@@ -69,9 +85,10 @@ class ApiKeyStore:
         key_secret = f"cmk_{key_id}_{key_secret_part}"
 
         now = datetime.now(timezone.utc).isoformat()
+        key_hash = hashlib.sha256(key_secret.encode()).hexdigest()
         entry: dict[str, Any] = {
             "key_id": key_id,
-            "key_secret": key_secret,
+            "key_hash": key_hash,
             "label": label,
             "policy": policy,
             "tags": tags or [],
@@ -82,26 +99,40 @@ class ApiKeyStore:
         }
         self._keys[key_id] = entry
         self._save()
-        return dict(entry)
+        # Return a copy with the raw secret included (shown once)
+        result = dict(entry)
+        result["key_secret"] = key_secret
+        return result
 
     def list_keys(self) -> list[dict]:
-        """List all keys with secrets masked."""
+        """List all keys with hash preview."""
         result = []
         for entry in self._keys.values():
             masked = dict(entry)
-            secret = masked.get("key_secret", "")
-            if len(secret) > 12:
-                masked["key_secret"] = secret[:12] + "..." + secret[-4:]
+            key_hash = masked.get("key_hash", "")
+            if key_hash:
+                masked["key_hash"] = key_hash[:12] + "..."
+            # Remove raw secret if it somehow exists
+            masked.pop("key_secret", None)
             result.append(masked)
         return result
 
     def get_by_secret(self, key_secret: str) -> dict | None:
-        """Look up a key by its full secret. Updates last_used. Returns None if revoked."""
+        """Look up a key by its full secret. Updates last_used. Returns None if revoked.
+
+        Scans all entries and uses constant-time comparison to prevent timing leaks.
+        """
+        input_hash = hashlib.sha256(key_secret.encode()).hexdigest()
+        matched_entry: dict[str, Any] | None = None
+        # Scan ALL entries to prevent timing leaks on which entry matched
         for entry in self._keys.values():
-            if entry.get("key_secret") == key_secret and entry.get("active"):
-                entry["last_used"] = datetime.now(timezone.utc).isoformat()
-                self._save()
-                return dict(entry)
+            stored_hash = entry.get("key_hash", "")
+            if _hmac.compare_digest(input_hash, stored_hash) and entry.get("active"):
+                matched_entry = entry
+        if matched_entry is not None:
+            matched_entry["last_used"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+            return dict(matched_entry)
         return None
 
     def revoke(self, key_id: str) -> bool:

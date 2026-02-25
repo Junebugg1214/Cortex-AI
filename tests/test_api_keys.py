@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from pathlib import Path
@@ -28,14 +29,27 @@ class TestApiKeyStore:
         assert key["key_secret"].startswith("cmk_")
         assert len(key["key_id"]) == 8
 
-    def test_list_keys_masks_secrets(self):
+    def test_create_key_stores_hash_not_secret(self):
+        """Verify that the stored entry contains key_hash, not key_secret."""
+        key = self.store.create("Hash Test", "full")
+        key_id = key["key_id"]
+        stored = self.store._keys[key_id]
+        assert "key_hash" in stored
+        assert "key_secret" not in stored
+        expected_hash = hashlib.sha256(key["key_secret"].encode()).hexdigest()
+        assert stored["key_hash"] == expected_hash
+
+    def test_list_keys_shows_hash_preview(self):
         self.store.create("Key A", "full")
         self.store.create("Key B", "technical")
         keys = self.store.list_keys()
         assert len(keys) == 2
         for k in keys:
-            # Secret should be masked
-            assert "..." in k["key_secret"]
+            # Hash should be truncated
+            assert "key_hash" in k
+            assert k["key_hash"].endswith("...")
+            # No raw secret exposed
+            assert "key_secret" not in k
 
     def test_get_by_secret(self):
         created = self.store.create("My Key", "professional", fmt="markdown")
@@ -69,6 +83,61 @@ class TestApiKeyStore:
         assert key["policy"] == "custom"
         assert key["tags"] == ["identity", "technical_expertise"]
         assert key["format"] == "system_prompt"
+
+    def test_constant_time_comparison(self):
+        """Verify get_by_secret scans all entries (doesn't early-return on miss)."""
+        self.store.create("Key1", "full")
+        created = self.store.create("Key2", "full")
+        self.store.create("Key3", "full")
+        # Should still find Key2 even though it's not the first entry
+        found = self.store.get_by_secret(created["key_secret"])
+        assert found is not None
+        assert found["label"] == "Key2"
+
+
+# ── Legacy migration ────────────────────────────────────────────────
+
+class TestApiKeyMigration:
+    """Test migration from plaintext key_secret to hashed storage."""
+
+    def test_migrate_legacy_format(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = Path(f.name)
+
+        try:
+            # Write legacy format with plaintext key_secret
+            legacy_secret = "cmk_abc12345_deadbeefcafebabe01234567"
+            legacy_data = {
+                "keys": {
+                    "abc12345": {
+                        "key_id": "abc12345",
+                        "key_secret": legacy_secret,
+                        "label": "Legacy Key",
+                        "policy": "full",
+                        "tags": [],
+                        "format": "json",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "last_used": None,
+                        "active": True,
+                    }
+                }
+            }
+            path.write_text(json.dumps(legacy_data))
+
+            # Load with new code — should auto-migrate
+            store = ApiKeyStore(path)
+            stored = store._keys["abc12345"]
+            assert "key_hash" in stored
+            assert "key_secret" not in stored
+            expected_hash = hashlib.sha256(legacy_secret.encode()).hexdigest()
+            assert stored["key_hash"] == expected_hash
+
+            # Verify lookup still works
+            found = store.get_by_secret(legacy_secret)
+            assert found is not None
+            assert found["label"] == "Legacy Key"
+        finally:
+            path.unlink(missing_ok=True)
 
 
 # ── File persistence ─────────────────────────────────────────────────

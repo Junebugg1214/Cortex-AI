@@ -43,6 +43,7 @@ def _setup_server():
     CaaSHandler.policy_registry = PolicyRegistry()
     CaaSHandler._allowed_origins = set()
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
     CaaSHandler.audit_log = None
     CaaSHandler.session_manager = None

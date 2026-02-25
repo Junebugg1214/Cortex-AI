@@ -158,6 +158,7 @@ def _setup_caas_server():
     CaaSHandler.webhook_store = store
     CaaSHandler.audit_log = None
     CaaSHandler.rate_limiter = None
+    CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = worker
     CaaSHandler.metrics_registry = None
     CaaSHandler.session_manager = None
