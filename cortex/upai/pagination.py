@@ -41,7 +41,8 @@ def encode_cursor(sort_value: str, item_id: str) -> str:
 
 def decode_cursor(cursor: str) -> tuple[str, str]:
     """Decode an opaque cursor into (sort_value, item_id)."""
-    padded = cursor + "=" * (4 - len(cursor) % 4)
+    # Add padding only if needed: (4 - len % 4) % 4 gives 0,3,2,1 for len%4 = 0,1,2,3
+    padded = cursor + "=" * ((4 - len(cursor) % 4) % 4)
     payload = json.loads(base64.urlsafe_b64decode(padded))
     return payload["s"], payload["i"]
 

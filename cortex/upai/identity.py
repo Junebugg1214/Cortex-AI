@@ -106,7 +106,8 @@ def _base64url_encode(data: bytes) -> str:
 
 def _base64url_decode(encoded: str) -> bytes:
     """URL-safe base64 decoding with padding restoration."""
-    padded = encoded + "=" * (4 - len(encoded) % 4)
+    # Add padding only if needed: (4 - len % 4) % 4 gives 0,3,2,1 for len%4 = 0,1,2,3
+    padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
     return base64.urlsafe_b64decode(padded)
 
 

@@ -307,6 +307,23 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _parse_int_param(
+        self, query: dict, name: str, default: int, min_val: int = 0, max_val: int = 10000
+    ) -> int | None:
+        """Parse an integer query parameter safely. Returns None and sends 400 on error."""
+        raw = query.get(name, [str(default)])[0]
+        try:
+            value = int(raw)
+            if value < min_val or value > max_val:
+                self._error_response(ERR_INVALID_REQUEST(
+                    f"{name} must be between {min_val} and {max_val}"
+                ))
+                return None
+            return value
+        except (ValueError, TypeError):
+            self._error_response(ERR_INVALID_REQUEST(f"{name} must be an integer"))
+            return None
+
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
         self._init_request_id()
@@ -1162,7 +1179,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         items = [n.to_dict() for n in filtered.nodes.values()]
         items.sort(key=lambda x: x.get("id", ""))
 
-        limit = int(query.get("limit", ["20"])[0])
+        limit = self._parse_int_param(query, "limit", 20, min_val=1, max_val=1000)
+        if limit is None:
+            return
         cursor = query.get("cursor", [None])[0]
         page = paginate(items, limit=limit, cursor=cursor)
         self._json_response(page.to_dict())
@@ -1205,7 +1224,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         items = [e.to_dict() for e in filtered.edges.values()]
         items.sort(key=lambda x: x.get("id", ""))
 
-        limit = int(query.get("limit", ["20"])[0])
+        limit = self._parse_int_param(query, "limit", 20, min_val=1, max_val=1000)
+        if limit is None:
+            return
         cursor = query.get("cursor", [None])[0]
         page = paginate(items, limit=limit, cursor=cursor)
         self._json_response(page.to_dict())
@@ -1539,7 +1560,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         versions = vs.log(limit=100)
         items = [v.to_dict() for v in versions]
 
-        limit = int(query.get("limit", ["20"])[0])
+        limit = self._parse_int_param(query, "limit", 20, min_val=1, max_val=100)
+        if limit is None:
+            return
         cursor = query.get("cursor", [None])[0]
         page = paginate(items, limit=limit, cursor=cursor, sort_key="version_id")
         self._json_response(page.to_dict())
@@ -1683,8 +1706,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         event_type = query.get("event_type", [None])[0]
         actor = query.get("actor", [None])[0]
-        limit = min(int(query.get("limit", ["50"])[0]), 1000)
-        offset = int(query.get("offset", ["0"])[0])
+        limit = self._parse_int_param(query, "limit", 50, min_val=1, max_val=1000)
+        if limit is None:
+            return
+        offset = self._parse_int_param(query, "offset", 0, min_val=0, max_val=100000)
+        if offset is None:
+            return
 
         entries = log.query(event_type=event_type, actor=actor, limit=limit, offset=offset)
         self._json_response({
@@ -4325,7 +4352,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         versions = vs.log(limit=100)
         items = [v.to_dict() for v in versions]
 
-        limit = int(query.get("limit", ["20"])[0])
+        limit = self._parse_int_param(query, "limit", 20, min_val=1, max_val=100)
+        if limit is None:
+            return
         cursor = query.get("cursor", [None])[0]
         page = paginate(items, limit=limit, cursor=cursor, sort_key="version_id")
         self._json_response(page.to_dict())
@@ -4354,7 +4383,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._json_response({"entries": []})
             return
 
-        limit = int(query.get("limit", ["50"])[0])
+        limit = self._parse_int_param(query, "limit", 50, min_val=1, max_val=1000)
+        if limit is None:
+            return
         entries = log.recent(limit=limit)
         self._json_response({"entries": entries})
 
@@ -4418,7 +4449,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if graph is None:
             self._error_response(ERR_NOT_CONFIGURED())
             return
-        stale_days = int(query.get("stale_days", ["30"])[0])
+        stale_days = self._parse_int_param(query, "stale_days", 30, min_val=1, max_val=365)
+        if stale_days is None:
+            return
         self._json_response(graph.graph_health(stale_days=stale_days))
 
     def _dashboard_api_changelog(self, query: dict) -> None:
@@ -4429,7 +4462,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         from cortex.graph import diff_graphs
-        limit = int(query.get("limit", ["10"])[0])
+        limit = self._parse_int_param(query, "limit", 10, min_val=1, max_val=100)
+        if limit is None:
+            return
         versions = vs.log(limit=limit + 1)  # need pairs
 
         entries: list[dict] = []
