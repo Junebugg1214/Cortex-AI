@@ -2753,7 +2753,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         nodes_created = 0
         edges_created = 0
+        edges_skipped = 0
         tag_set: set[str] = set()
+        imported_node_ids: set[str] = set()
 
         for nd in import_result.get("nodes", []):
             label = nd.get("label", "")
@@ -2770,6 +2772,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 full_description=nd.get("full_description", ""),
             )
             graph.add_node(node)
+            imported_node_ids.add(node_id)
             nodes_created += 1
             tag_set.update(t.lower() for t in tags)
 
@@ -2778,6 +2781,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
             target_id = ed.get("target_id", "")
             relation = ed.get("relation", "related_to")
             if source_id and target_id:
+                # Validate that both source and target nodes exist
+                source_exists = source_id in imported_node_ids or graph.get_node(source_id) is not None
+                target_exists = target_id in imported_node_ids or graph.get_node(target_id) is not None
+                if not source_exists or not target_exists:
+                    edges_skipped += 1
+                    continue
+
                 edge_id = ed.get("id") or make_edge_id(source_id, target_id, relation)
                 edge = Edge(
                     id=edge_id, source_id=source_id,
@@ -2788,12 +2798,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 graph.add_edge(edge)
                 edges_created += 1
 
-        return {
+        result = {
             "nodes_created": nodes_created,
             "edges_created": edges_created,
             "categories": len(tag_set),
             "source_type": import_result.get("source_type", "import"),
         }
+        if edges_skipped > 0:
+            result["edges_skipped"] = edges_skipped
+        return result
 
     # ── GitHub / LinkedIn import endpoints ───────────────────────────
 
@@ -3804,6 +3817,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if errors:
             self._respond(400, "application/json",
                           json.dumps({"error": {"type": "validation_error", "messages": errors}}).encode())
+            return
+
+        if user is None:
+            self._error_response(ERR_INTERNAL("Failed to create user account"))
             return
 
         self._audit("user.signup", {"user_id": user.user_id, "email": user.email})

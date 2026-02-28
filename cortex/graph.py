@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -226,6 +227,9 @@ class CortexGraph:
     _adjacency: dict[str, list[tuple[str, Edge]]] | None = field(
         default=None, repr=False, compare=False,
     )
+    _adjacency_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False,
+    )
 
     # ── Adjacency cache ──────────────────────────────────────────────────
 
@@ -241,13 +245,15 @@ class CortexGraph:
 
     def _get_adjacency(self) -> dict[str, list[tuple[str, Edge]]]:
         """Return cached adjacency list, building it lazily if needed."""
-        if self._adjacency is None:
-            self._adjacency = self._build_adjacency()
-        return self._adjacency
+        with self._adjacency_lock:
+            if self._adjacency is None:
+                self._adjacency = self._build_adjacency()
+            return self._adjacency
 
     def _invalidate_adjacency(self) -> None:
         """Clear the cached adjacency list after graph mutations."""
-        self._adjacency = None
+        with self._adjacency_lock:
+            self._adjacency = None
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
