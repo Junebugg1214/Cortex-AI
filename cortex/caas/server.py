@@ -75,6 +75,20 @@ from cortex.upai.errors import (
 )
 from cortex.upai.pagination import paginate
 
+# Multi-user authentication imports (optional, graceful fallback if not available)
+try:
+    from cortex.caas.users import (
+        LoginRequest,
+        MultiUserSessionManager,
+        SignupRequest,
+        SqliteUserStore,
+        User,
+        UserGraphResolver,
+    )
+    _MULTI_USER_AVAILABLE = True
+except ImportError:
+    _MULTI_USER_AVAILABLE = False
+
 if TYPE_CHECKING:
     from cortex.graph import CortexGraph
     from cortex.upai.identity import UPAIIdentity
@@ -239,7 +253,17 @@ class CaaSHandler(BaseHTTPRequestHandler):
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
 
+    # Multi-user authentication
+    multi_user_enabled: bool = False  # Enable multi-user mode
+    multi_user_session_manager: Any = None  # MultiUserSessionManager instance
+    user_graph_resolver: Any = None  # UserGraphResolver for per-user graphs
+    user_store: Any = None  # SqliteUserStore for user data
+    registration_open: bool = True  # Allow new user signups
+    default_user_quota: int = 5_368_709_120  # 5GB default
+    max_upload_bytes: int = 1_073_741_824  # 1GB max upload
+
     _request_id: str = ""
+    _current_user: Any = None  # Set during request processing for multi-user
     _logger = None  # lazily set
 
     @classmethod
@@ -413,6 +437,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_public_memory(path, query)
         elif path.startswith("/api/resume/"):
             self._handle_public_resume(path)
+        # ── Multi-user routes ─────────────────────────────────────
+        elif path == "/api/me":
+            self._handle_get_current_user()
+        elif path == "/api/users/config":
+            self._handle_get_users_config()
         # ── Webapp routes ────────────────────────────────────────
         elif path.startswith("/app"):
             self._serve_webapp_file(path)
@@ -477,6 +506,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_webapp_login()
         elif path == "/app/logout":
             self._handle_webapp_logout()
+        # ── Multi-user auth routes ────────────────────────────────
+        elif path == "/api/signup":
+            self._handle_user_signup()
+        elif path == "/api/login":
+            self._handle_user_login()
+        elif path == "/api/logout":
+            self._handle_user_logout()
         # ── Federation routes ─────────────────────────────────────
         elif path == "/federation/export":
             self._handle_federation_export()
@@ -2387,24 +2423,47 @@ class CaaSHandler(BaseHTTPRequestHandler):
     def _handle_webapp_upload(self) -> None:
         """POST /api/upload — accept a file upload and extract nodes/edges.
 
-        The webapp upload is owner-only: requires a valid dashboard session.
+        In single-user mode: requires a valid dashboard/webapp session.
+        In multi-user mode: requires a valid user session and checks quota.
         Accepts multipart/form-data with a single 'file' field.
         Parses JSON chat exports to create nodes + edges in the graph.
         """
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
-            return
+
+        # Multi-user or single-user auth
+        current_user = None
+        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
+            is_auth, current_user = self._multi_user_auth_check()
+            if not is_auth:
+                return  # Already sent 401
+        else:
+            if not self._webapp_auth_check():
+                return
 
         content_type = self.headers.get("Content-Type", "")
         content_length = int(self.headers.get("Content-Length", 0))
 
-        # Size limit: 100 MB for uploads
-        max_upload = 100 * 1024 * 1024
+        # Size limit: use configured max or default 100 MB
+        max_upload = self.__class__.max_upload_bytes or (100 * 1024 * 1024)
         if content_length > max_upload:
             self._error_response(ERR_PAYLOAD_TOO_LARGE())
             return
+
+        # Check user storage quota (only in multi-user mode with a user)
+        if current_user is not None:
+            if not current_user.can_upload(content_length):
+                self._respond(413, "application/json",
+                              json.dumps({
+                                  "error": {
+                                      "type": "quota_exceeded",
+                                      "message": "Storage quota exceeded",
+                                      "quota": current_user.storage_quota,
+                                      "used": current_user.storage_used,
+                                  }
+                              }).encode())
+                return
 
         if "multipart/form-data" not in content_type:
             self._respond(415, "application/json",
@@ -3673,6 +3732,256 @@ class CaaSHandler(BaseHTTPRequestHandler):
                       extra_headers={
                           "Set-Cookie": "cortex_app_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
                       })
+
+    # ── Multi-user authentication ─────────────────────────────────
+
+    def _handle_user_signup(self) -> None:
+        """POST /api/signup — create a new user account."""
+        if not _MULTI_USER_AVAILABLE:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user module not available"))
+            return
+
+        if not self.__class__.multi_user_enabled:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user mode not enabled"))
+            return
+
+        if not self.__class__.registration_open:
+            self._error_response(ERR_INVALID_REQUEST("Registration is closed"))
+            return
+
+        mu_sm = self.__class__.multi_user_session_manager
+        if mu_sm is None:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user session manager not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        email = body.get("email", "").strip()
+        password = body.get("password", "")
+        display_name = body.get("display_name", "").strip()
+
+        request = SignupRequest(email=email, password=password, display_name=display_name)
+        user, errors = mu_sm.signup(request)
+
+        if errors:
+            self._respond(400, "application/json",
+                          json.dumps({"error": {"type": "validation_error", "messages": errors}}).encode())
+            return
+
+        self._audit("user.signup", {"user_id": user.user_id, "email": user.email})
+        self._json_response({
+            "user_id": user.user_id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "message": "Account created successfully",
+        }, status=201)
+
+    def _handle_user_login(self) -> None:
+        """POST /api/login — authenticate with email/password."""
+        if not _MULTI_USER_AVAILABLE:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user module not available"))
+            return
+
+        if not self.__class__.multi_user_enabled:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user mode not enabled"))
+            return
+
+        mu_sm = self.__class__.multi_user_session_manager
+        if mu_sm is None:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user session manager not configured"))
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        email = body.get("email", "").strip()
+        password = body.get("password", "")
+
+        request = LoginRequest(email=email, password=password)
+
+        # Get client info for session
+        ip_address = self.client_address[0] if self.client_address else None
+        user_agent = self.headers.get("User-Agent", "")[:256]  # Truncate long UAs
+
+        token, user, errors = mu_sm.login(request, ip_address=ip_address, user_agent=user_agent)
+
+        if errors:
+            self._audit("user.login_failed", {"email": email})
+            self._respond(401, "application/json",
+                          json.dumps({"error": {"type": "auth_error", "messages": errors}}).encode())
+            return
+
+        self._audit("user.login", {"user_id": user.user_id, "email": user.email})
+        resp_body = json.dumps({
+            "user_id": user.user_id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "role": user.role.value,
+        }).encode()
+        self._respond(200, "application/json", resp_body,
+                      extra_headers={
+                          "Set-Cookie": f"cortex_user_session={token}; HttpOnly; SameSite=Strict; Path=/",
+                      })
+
+    def _handle_user_logout(self) -> None:
+        """POST /api/logout — revoke user session."""
+        if not _MULTI_USER_AVAILABLE or not self.__class__.multi_user_enabled:
+            self._error_response(ERR_NOT_CONFIGURED("Multi-user mode not enabled"))
+            return
+
+        mu_sm = self.__class__.multi_user_session_manager
+        if mu_sm is not None:
+            cookie_header = self.headers.get("Cookie", "")
+            for part in cookie_header.split(";"):
+                part = part.strip()
+                if part.startswith("cortex_user_session="):
+                    token = part[len("cortex_user_session="):]
+                    if token:
+                        mu_sm.logout_user(token)
+                    break
+
+        self._audit("user.logout", {})
+        resp_body = json.dumps({"ok": True}).encode()
+        self._respond(200, "application/json", resp_body,
+                      extra_headers={
+                          "Set-Cookie": "cortex_user_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                      })
+
+    def _handle_get_current_user(self) -> None:
+        """GET /api/me — get current user info."""
+        if not _MULTI_USER_AVAILABLE:
+            # Fall back to admin mode info
+            sm = self.__class__.session_manager
+            if sm is not None and self._webapp_auth_check():
+                self._json_response({
+                    "mode": "admin",
+                    "authenticated": True,
+                })
+            return
+
+        if not self.__class__.multi_user_enabled:
+            # Single-user mode
+            if self._webapp_auth_check():
+                self._json_response({
+                    "mode": "admin",
+                    "authenticated": True,
+                })
+            return
+
+        mu_sm = self.__class__.multi_user_session_manager
+        if mu_sm is None:
+            self._error_response(ERR_NOT_CONFIGURED("Session manager not configured"))
+            return
+
+        # Check for user session
+        cookie_header = self.headers.get("Cookie", "")
+        token = None
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_user_session="):
+                token = part[len("cortex_user_session="):]
+                break
+
+        if token:
+            user = mu_sm.validate_user_session(token)
+            if user:
+                self._json_response(user.to_public_dict())
+                return
+
+        # Check for admin session
+        if self._check_admin_session():
+            self._json_response({
+                "mode": "admin",
+                "authenticated": True,
+                "role": "admin",
+            })
+            return
+
+        self._respond(401, "application/json",
+                      json.dumps({"error": "unauthorized"}).encode())
+
+    def _handle_get_users_config(self) -> None:
+        """GET /api/users/config — get multi-user configuration (public info)."""
+        self._json_response({
+            "multi_user_enabled": self.__class__.multi_user_enabled,
+            "registration_open": self.__class__.registration_open,
+        })
+
+    def _check_admin_session(self) -> bool:
+        """Check if current request has valid admin session (dashboard or webapp)."""
+        sm = self.__class__.session_manager
+        if sm is None:
+            return False
+
+        cookie_header = self.headers.get("Cookie", "")
+
+        # Check webapp session
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_app_session="):
+                token = part[len("cortex_app_session="):]
+                if token and sm.validate(token):
+                    return True
+                break
+
+        # Check dashboard session
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_session="):
+                token = part[len("cortex_session="):]
+                if token and sm.validate(token):
+                    return True
+                break
+
+        return False
+
+    def _get_current_user(self) -> "User | None":
+        """Get the current authenticated user from session, or None."""
+        if not _MULTI_USER_AVAILABLE or not self.__class__.multi_user_enabled:
+            return None
+
+        mu_sm = self.__class__.multi_user_session_manager
+        if mu_sm is None:
+            return None
+
+        cookie_header = self.headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("cortex_user_session="):
+                token = part[len("cortex_user_session="):]
+                if token:
+                    return mu_sm.validate_user_session(token)
+        return None
+
+    def _multi_user_auth_check(self) -> tuple[bool, "User | None"]:
+        """Validate multi-user or admin session.
+
+        Returns:
+            (is_authenticated, user_or_none)
+            user_or_none is None for admin sessions
+        """
+        if not _MULTI_USER_AVAILABLE or not self.__class__.multi_user_enabled:
+            # Fall back to admin-only mode
+            if self._webapp_auth_check():
+                return True, None
+            return False, None
+
+        # Check user session first
+        user = self._get_current_user()
+        if user:
+            self._current_user = user
+            return True, user
+
+        # Fall back to admin session
+        if self._check_admin_session():
+            return True, None
+
+        self._respond(401, "application/json",
+                      json.dumps({"error": "unauthorized"}).encode())
+        return False, None
 
     # ── Dashboard: session auth ──────────────────────────────────
 

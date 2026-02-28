@@ -73,11 +73,23 @@
                 </svg>
                 <span>Cortex</span>
             </div>
+            <!-- Admin login form (single-user mode) -->
             <form id="login-form">
                 <input type="password" id="login-password" class="login-input" placeholder="Enter password" autocomplete="current-password" required>
                 <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Sign In</button>
             </form>
+            <!-- Multi-user login form -->
+            <form id="user-login-form" style="display:none;">
+                <input type="email" id="login-email" class="login-input" placeholder="Email" autocomplete="email" required style="margin-bottom:10px;">
+                <input type="password" id="login-user-password" class="login-input" placeholder="Password" autocomplete="current-password" required>
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;">Sign In</button>
+            </form>
             <div id="login-error" class="login-error"></div>
+            <!-- Signup link (shown in multi-user mode) -->
+            <div id="signup-link" style="display:none;text-align:center;margin-top:16px;">
+                <span style="color:#6b7280;font-size:14px;">Don't have an account? </span>
+                <a href="#signup" id="goto-signup" style="color:#4f46e5;font-size:14px;text-decoration:none;">Create one</a>
+            </div>
         </div>
     </div>
 
@@ -94,5 +106,6 @@
     <script src="/app/pages/memory.js"></script>
     <script src="/app/pages/share.js"></script>
     <script src="/app/pages/profile.js"></script>
+    <script src="/app/pages/signup.js"></script>
 </body>
 </html>

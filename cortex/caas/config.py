@@ -76,6 +76,15 @@ _DEFAULTS: dict[str, dict[str, str]] = {
         "bundle_ttl": "3600",
         "trusted_dids": "",
     },
+    "users": {
+        "enabled": "true",
+        "registration_open": "true",
+        "default_quota_bytes": "5368709120",  # 5GB per user
+        "max_upload_bytes": "1073741824",      # 1GB per upload
+        "session_ttl_seconds": "604800",       # 7 days
+        "require_email_verification": "false",
+        "allowed_domains": "",                 # Empty = all domains allowed
+    },
 }
 
 _BOOL_TRUE = {"true", "yes", "1", "on"}
