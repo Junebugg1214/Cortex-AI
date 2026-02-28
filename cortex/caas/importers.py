@@ -405,6 +405,14 @@ def fetch_github_repo(url: str, token: str | None = None) -> dict:
                 "error": "Invalid GitHub repo URL"}
 
     owner, repo = m.group(1), m.group(2).rstrip(".git")
+
+    # Validate owner/repo to prevent injection via URL encoding or special chars
+    if not re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?$", owner) and not re.match(r"^[a-zA-Z0-9]$", owner):
+        return {"nodes": [], "edges": [], "source_type": "github",
+                "error": "Invalid GitHub owner format"}
+    if not re.match(r"^[a-zA-Z0-9._\-]+$", repo):
+        return {"nodes": [], "edges": [], "source_type": "github",
+                "error": "Invalid GitHub repo format"}
     headers: dict[str, str] = {
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "CortexBot/1.0",
