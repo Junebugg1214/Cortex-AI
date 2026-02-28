@@ -84,44 +84,46 @@ def import_archive(data: bytes) -> dict:
     except (zipfile.BadZipFile, Exception) as exc:
         raise ValueError(f"Invalid ZIP file: {exc}") from exc
 
-    names = zf.namelist()
-
-    # Find manifest
-    manifest_path = None
-    for n in names:
-        if n.endswith("manifest.json"):
-            manifest_path = n
-            break
-    if manifest_path is None:
-        raise ValueError("Archive missing manifest.json")
-
-    prefix = manifest_path.rsplit("manifest.json", 1)[0]
-
     try:
-        manifest = json.loads(zf.read(manifest_path))
-    except (json.JSONDecodeError, KeyError) as exc:
-        raise ValueError(f"Invalid manifest: {exc}") from exc
+        names = zf.namelist()
 
-    checksums = manifest.get("checksums", {})
+        # Find manifest
+        manifest_path = None
+        for n in names:
+            if n.endswith("manifest.json"):
+                manifest_path = n
+                break
+        if manifest_path is None:
+            raise ValueError("Archive missing manifest.json")
 
-    result: dict[str, Any] = {"manifest": manifest}
+        prefix = manifest_path.rsplit("manifest.json", 1)[0]
 
-    for filename in ("graph.json", "profiles.json", "credentials.json"):
-        entry_path = prefix + filename
-        if entry_path not in names:
-            continue
-        raw = zf.read(entry_path)
-        # Verify checksum
-        expected = checksums.get(filename)
-        if expected:
-            actual = hashlib.sha256(raw).hexdigest()
-            if actual != expected:
-                raise ValueError(
-                    f"Checksum mismatch for {filename}: "
-                    f"expected {expected[:16]}..., got {actual[:16]}..."
-                )
-        key = filename.replace(".json", "")
-        result[key] = json.loads(raw)
+        try:
+            manifest = json.loads(zf.read(manifest_path))
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise ValueError(f"Invalid manifest: {exc}") from exc
 
-    zf.close()
-    return result
+        checksums = manifest.get("checksums", {})
+
+        result: dict[str, Any] = {"manifest": manifest}
+
+        for filename in ("graph.json", "profiles.json", "credentials.json"):
+            entry_path = prefix + filename
+            if entry_path not in names:
+                continue
+            raw = zf.read(entry_path)
+            # Verify checksum
+            expected = checksums.get(filename)
+            if expected:
+                actual = hashlib.sha256(raw).hexdigest()
+                if actual != expected:
+                    raise ValueError(
+                        f"Checksum mismatch for {filename}: "
+                        f"expected {expected[:16]}..., got {actual[:16]}..."
+                    )
+            key = filename.replace(".json", "")
+            result[key] = json.loads(raw)
+
+        return result
+    finally:
+        zf.close()

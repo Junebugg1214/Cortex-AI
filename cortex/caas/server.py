@@ -141,10 +141,11 @@ class JsonGrantStore(AbstractGrantStore):
         with self._lock:
             result = []
             for gid, g in self._grants.items():
+                token_data = g.get("token_data", {})
                 result.append({
                     "grant_id": gid,
-                    "audience": g["token_data"].get("audience", ""),
-                    "policy": g["token_data"].get("policy", ""),
+                    "audience": token_data.get("audience", ""),
+                    "policy": token_data.get("policy", ""),
                     "created_at": g.get("created_at", ""),
                     "revoked": g.get("revoked", False),
                 })
