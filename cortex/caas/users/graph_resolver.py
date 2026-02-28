@@ -258,15 +258,16 @@ class UserGraphResolver:
         if version_data is None:
             return False
 
-        # Save current as a new version before restoring
-        self._create_version(user_id)
+        with self._lock:
+            # Save current as a new version before restoring
+            self._create_version(user_id)
 
-        # Restore the old version as current
-        graph_file = self._graph_path(user_id)
-        with open(graph_file, "w", encoding="utf-8") as f:
-            json.dump(version_data, f, indent=2, ensure_ascii=False)
+            # Restore the old version as current
+            graph_file = self._graph_path(user_id)
+            with open(graph_file, "w", encoding="utf-8") as f:
+                json.dump(version_data, f, indent=2, ensure_ascii=False)
 
-        return True
+            return True
 
     # ── Admin graph (legacy) ──────────────────────────────────────
 

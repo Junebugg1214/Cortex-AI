@@ -56,6 +56,9 @@ _PREFIX = _PREFIX_V2  # current version for new encryptions
 _ITERATIONS_V1 = 10_000
 _ITERATIONS = 600_000
 _SALT_SIZE = 16
+# Safe bounds for iteration count to prevent DoS via CPU exhaustion
+_MIN_ITERATIONS = 10_000
+_MAX_ITERATIONS = 10_000_000
 
 
 class FieldEncryptor:
@@ -108,6 +111,9 @@ class FieldEncryptor:
         try:
             salt = bytes.fromhex(salt_hex)
             iterations = int(iter_str)
+            # Reject iteration counts outside safe bounds to prevent DoS
+            if iterations < _MIN_ITERATIONS or iterations > _MAX_ITERATIONS:
+                raise ValueError("Iteration count out of safe bounds")
             ciphertext = bytes.fromhex(ct_hex)
             stored_mac = bytes.fromhex(mac_hex)
         except ValueError:

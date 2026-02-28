@@ -115,6 +115,10 @@ class PBKDF2PasswordHasher:
         # Format: pbkdf2:iterations:salt_hex:hash_hex
         return f"pbkdf2:{self._iterations}:{salt.hex()}:{dk.hex()}"
 
+    # Safe bounds for iteration count to prevent DoS
+    MIN_ITERATIONS = 10_000
+    MAX_ITERATIONS = 10_000_000
+
     def verify(self, password: str, hash_str: str) -> bool:
         """Verify password against PBKDF2 hash."""
         try:
@@ -122,6 +126,9 @@ class PBKDF2PasswordHasher:
             if len(parts) != 4 or parts[0] != "pbkdf2":
                 return False
             iterations = int(parts[1])
+            # Reject iteration counts outside safe bounds to prevent DoS
+            if iterations < self.MIN_ITERATIONS or iterations > self.MAX_ITERATIONS:
+                return False
             salt = bytes.fromhex(parts[2])
             stored_hash = bytes.fromhex(parts[3])
             dk = hashlib.pbkdf2_hmac(

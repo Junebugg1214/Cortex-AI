@@ -4,10 +4,17 @@ User and session data models for multi-user authentication.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
+
+# Email validation regex - RFC 5322 simplified
+_EMAIL_REGEX = re.compile(
+    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?'
+    r'(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$'
+)
 
 
 class AccountStatus(str, Enum):
@@ -135,10 +142,10 @@ class SignupRequest:
         email = self.email.strip().lower()
         if not email:
             errors.append("Email is required")
-        elif "@" not in email or "." not in email.split("@")[-1]:
-            errors.append("Invalid email format")
         elif len(email) > 254:
             errors.append("Email too long")
+        elif not _EMAIL_REGEX.match(email):
+            errors.append("Invalid email format")
 
         # Password validation
         if len(self.password) < 8:

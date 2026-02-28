@@ -245,6 +245,8 @@ class MultiUserSessionManager:
         rate_key = f"login:{request.normalized_email}"
         if not self._rate_limiter.is_allowed(rate_key):
             remaining = self._rate_limiter.get_remaining_lockout(rate_key)
+            # Always show at least 1 second to avoid confusing "0 seconds" message
+            remaining = max(1, remaining)
             return None, None, [f"Too many attempts. Try again in {remaining} seconds."]
 
         # Find user
