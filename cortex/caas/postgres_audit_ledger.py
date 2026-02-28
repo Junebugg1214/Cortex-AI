@@ -160,7 +160,10 @@ class PostgresAuditLedger(AbstractAuditLedger):
     def _row_to_entry(row: tuple) -> AuditEntry:
         details = row[5]
         if isinstance(details, str):
-            details = json.loads(details)
+            try:
+                details = json.loads(details)
+            except (json.JSONDecodeError, TypeError):
+                details = {}
         return AuditEntry(
             sequence_id=row[0],
             timestamp=row[1],

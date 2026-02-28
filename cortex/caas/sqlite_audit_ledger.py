@@ -167,7 +167,10 @@ class SqliteAuditLedger(AbstractAuditLedger):
     def _row_to_entry(row: sqlite3.Row) -> AuditEntry:
         details = row["details"]
         if isinstance(details, str):
-            details = json.loads(details)
+            try:
+                details = json.loads(details)
+            except (json.JSONDecodeError, TypeError):
+                details = {}
         return AuditEntry(
             sequence_id=row["sequence_id"],
             timestamp=row["timestamp"],

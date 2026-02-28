@@ -110,9 +110,13 @@ class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
         token_str = row["token_str"]
         if self._encryptor is not None and self._encryptor.is_encrypted(token_str):
             token_str = self._encryptor.decrypt(token_str)
+        try:
+            token_data = json.loads(row["token_data"])
+        except (json.JSONDecodeError, TypeError):
+            token_data = {}
         return {
             "token_str": token_str,
-            "token_data": json.loads(row["token_data"]),
+            "token_data": token_data,
             "created_at": row["created_at"],
             "revoked": bool(row["revoked"]),
         }
@@ -122,7 +126,10 @@ class SqliteGrantStore(_SqliteBase, AbstractGrantStore):
             rows = self._conn.execute("SELECT * FROM grants ORDER BY created_at").fetchall()
         result = []
         for row in rows:
-            token_data = json.loads(row["token_data"])
+            try:
+                token_data = json.loads(row["token_data"])
+            except (json.JSONDecodeError, TypeError):
+                token_data = {}
             result.append({
                 "grant_id": row["grant_id"],
                 "audience": token_data.get("audience", ""),

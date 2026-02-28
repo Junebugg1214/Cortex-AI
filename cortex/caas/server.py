@@ -2651,8 +2651,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             if "messages" in parsed:
                 items = parsed["messages"]
             elif "conversations" in parsed:
-                for conv in parsed["conversations"]:
-                    items.extend(conv.get("messages", []))
+                convs = parsed["conversations"]
+                if isinstance(convs, list):
+                    for conv in convs:
+                        if isinstance(conv, dict):
+                            items.extend(conv.get("messages", []))
             elif "nodes" in parsed:
                 # Already in graph format — import directly
                 for nd in parsed.get("nodes", []):
