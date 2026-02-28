@@ -2742,6 +2742,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
         from cortex.graph import Edge, Node, make_edge_id, make_node_id
 
         graph = self.__class__.graph
+        if graph is None:
+            return {
+                "nodes_created": 0,
+                "edges_created": 0,
+                "categories": 0,
+                "source_type": import_result.get("source_type", "import"),
+                "error": "No graph configured",
+            }
+
         nodes_created = 0
         edges_created = 0
         tag_set: set[str] = set()
@@ -2752,10 +2761,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 continue
             node_id = nd.get("id") or make_node_id(label)
             tags = nd.get("tags", [])
+            properties = nd.get("properties", {})
             node = Node(
                 id=node_id, label=label, tags=tags,
                 confidence=nd.get("confidence", 0.5),
                 brief=nd.get("brief", ""),
+                properties=properties,
+                full_description=nd.get("full_description", ""),
             )
             graph.add_node(node)
             nodes_created += 1
@@ -2767,8 +2779,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
             relation = ed.get("relation", "related_to")
             if source_id and target_id:
                 edge_id = ed.get("id") or make_edge_id(source_id, target_id, relation)
-                edge = Edge(id=edge_id, source_id=source_id,
-                            target_id=target_id, relation=relation)
+                edge = Edge(
+                    id=edge_id, source_id=source_id,
+                    target_id=target_id, relation=relation,
+                    confidence=ed.get("confidence", 0.5),
+                    properties=ed.get("properties", {}),
+                )
                 graph.add_edge(edge)
                 edges_created += 1
 
@@ -2786,8 +2802,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
-            return
+
+        # Support both multi-user and single-user auth
+        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
+            is_auth, _ = self._multi_user_auth_check()
+            if not is_auth:
+                return
+        else:
+            if not self._webapp_auth_check():
+                return
 
         body = self._read_body()
         if body is None:
@@ -2808,6 +2831,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         result = self._import_nodes_edges(import_result)
+        if result.get("error"):
+            self._error_response(ERR_NOT_CONFIGURED(result["error"]))
+            return
         self._json_response(result, status=201)
 
     def _handle_linkedin_import(self) -> None:
@@ -2815,8 +2841,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
-            return
+
+        # Support both multi-user and single-user auth
+        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
+            is_auth, _ = self._multi_user_auth_check()
+            if not is_auth:
+                return
+        else:
+            if not self._webapp_auth_check():
+                return
 
         body = self._read_body()
         if body is None:
@@ -2835,6 +2868,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         result = self._import_nodes_edges(import_result)
+        if result.get("error"):
+            self._error_response(ERR_NOT_CONFIGURED(result["error"]))
+            return
         if import_result.get("limited"):
             result["limited"] = True
             result["hint"] = ("LinkedIn blocks most scraping. "
