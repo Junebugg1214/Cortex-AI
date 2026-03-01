@@ -197,6 +197,20 @@
                 });
                 lines.push('');
             });
+        } else if (selectedPlatform === 'jsonresume') {
+            // Best effort: expose stable JSON structure for ATS/tools.
+            return JSON.stringify({
+                generated_at: new Date().toISOString(),
+                policy: selectedPolicy,
+                nodes: nodes.map(function (n) {
+                    return {
+                        id: n.id,
+                        label: n.label || n.id,
+                        tags: n.tags || [],
+                        brief: n.brief || '',
+                    };
+                }),
+            }, null, 2);
         } else {
             // Google Docs / generic
             lines.push('Personal Knowledge Graph Export');
@@ -214,8 +228,15 @@
 
     function downloadExport() {
         var text = document.getElementById('preview-content').textContent;
-        var ext = selectedPlatform === 'claude' ? '.xml' : '.md';
-        var mimeType = selectedPlatform === 'claude' ? 'application/xml' : 'text/markdown';
+        var ext = '.md';
+        var mimeType = 'text/markdown';
+        if (selectedPlatform === 'claude') {
+            ext = '.xml';
+            mimeType = 'application/xml';
+        } else if (selectedPlatform === 'jsonresume') {
+            ext = '.json';
+            mimeType = 'application/json';
+        }
 
         var blob = new Blob([text], { type: mimeType });
         var url = URL.createObjectURL(blob);

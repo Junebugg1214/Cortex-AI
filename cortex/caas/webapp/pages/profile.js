@@ -196,7 +196,9 @@
 
         // Preview
         document.getElementById('btn-preview-profile').addEventListener('click', function () {
-            window.open('/api/profile/preview', '_blank');
+            var handle = handleInput.value.trim();
+            var url = '/api/profile/preview' + (handle ? '?handle=' + encodeURIComponent(handle) : '');
+            window.open(url, '_blank');
         });
 
         // Auto-fill from Memory

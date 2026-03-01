@@ -3,18 +3,48 @@
     'use strict';
     var C = window.CortexApp;
 
-    // Tag color palette
+    // Tag color palette (aligned to Cortex tag taxonomy)
     var TAG_COLORS = {
-        skills: '#4f46e5', work: '#be185d', interests: '#059669',
-        people: '#d97706', tech: '#7c3aed', education: '#ea580c',
-        preferences: '#4338ca', health: '#dc2626', hobbies: '#0891b2',
-        personality: '#7e22ce', goals: '#15803d', location: '#b45309',
+        identity: '#1d4ed8',
+        professional_context: '#0f766e',
+        business_context: '#7c2d12',
+        active_priorities: '#be123c',
+        work_history: '#0f766e',
+        education_history: '#7c3aed',
+        relationships: '#b45309',
+        technical_expertise: '#4338ca',
+        domain_knowledge: '#0e7490',
+        market_context: '#9a3412',
+        metrics: '#166534',
+        constraints: '#b91c1c',
+        values: '#a16207',
+        negations: '#991b1b',
+        user_preferences: '#6d28d9',
+        communication_preferences: '#0369a1',
+        correction_history: '#6b7280',
+        history: '#4b5563',
+        mentions: '#475569',
     };
     var TAG_BG = {
-        skills: '#eef2ff', work: '#fce7f3', interests: '#ecfdf5',
-        people: '#fef3c7', tech: '#ede9fe', education: '#ffedd5',
-        preferences: '#e0e7ff', health: '#fef2f2', hobbies: '#ecfeff',
-        personality: '#faf5ff', goals: '#dcfce7', location: '#fef3c7',
+        identity: '#dbeafe',
+        professional_context: '#ccfbf1',
+        business_context: '#ffedd5',
+        active_priorities: '#ffe4e6',
+        work_history: '#ccfbf1',
+        education_history: '#f3e8ff',
+        relationships: '#fef3c7',
+        technical_expertise: '#e0e7ff',
+        domain_knowledge: '#cffafe',
+        market_context: '#ffedd5',
+        metrics: '#dcfce7',
+        constraints: '#fee2e2',
+        values: '#fef9c3',
+        negations: '#fee2e2',
+        user_preferences: '#ede9fe',
+        communication_preferences: '#e0f2fe',
+        correction_history: '#f3f4f6',
+        history: '#e5e7eb',
+        mentions: '#f1f5f9',
     };
 
     var graphData = null;

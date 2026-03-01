@@ -766,6 +766,15 @@ body {
     .topnav { padding: 0 12px; }
     .topnav-brand { margin-right: 16px; }
     .topnav-brand span { display: none; }
+    .topnav-tabs {
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        white-space: nowrap;
+        flex-wrap: nowrap;
+        max-width: calc(100vw - 96px);
+    }
+    .topnav-tabs::-webkit-scrollbar { display: none; }
     .tab-link span { display: none; }
     .tab-link { padding: 8px 12px; }
 
