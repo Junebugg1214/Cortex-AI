@@ -2849,6 +2849,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # Persist the graph to context.json
         import sys
         print(f"[DEBUG _import_nodes_edges] nodes_created={nodes_created}, edges_created={edges_created}", file=sys.stderr, flush=True)
+        print(f"[DEBUG _import_nodes_edges] graph id={id(graph)}, nodes={len(graph.nodes)}, edges={len(graph.edges)}", file=sys.stderr, flush=True)
         if nodes_created > 0 or edges_created > 0:
             print(f"[DEBUG _import_nodes_edges] Calling _save_graph()", file=sys.stderr, flush=True)
             self._save_graph()
@@ -2868,7 +2869,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         import sys
         graph = self.__class__.graph
         context_path = self.__class__.context_path
-        print(f"[DEBUG _save_graph] graph={graph is not None}, context_path={context_path}", file=sys.stderr, flush=True)
+        print(f"[DEBUG _save_graph] graph id={id(graph) if graph else None}, context_path={context_path}", file=sys.stderr, flush=True)
+        print(f"[DEBUG _save_graph] graph.nodes count={len(graph.nodes) if graph else 0}", file=sys.stderr, flush=True)
         if graph is None or context_path is None:
             print(f"[DEBUG _save_graph] Skipping save: graph or context_path is None", file=sys.stderr, flush=True)
             return
