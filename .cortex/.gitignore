@@ -1,1 +1,5 @@
 identity.key
+identity.json
+api_keys.json
+*.key
+*.pem
