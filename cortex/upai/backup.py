@@ -124,10 +124,22 @@ class KeyBackup:
         if version not in (1, 2):
             raise ValueError(f"Unsupported backup version: {version}")
 
-        salt = base64.b64decode(data["salt"])
+        # Validate required keys
+        required_keys = ["salt", "iterations", "ciphertext", "hmac", "did", "name", "public_key_b64"]
+        missing = [k for k in required_keys if k not in data]
+        if missing:
+            raise ValueError(f"Invalid backup: missing required fields: {', '.join(missing)}")
+
+        try:
+            salt = base64.b64decode(data["salt"])
+            ciphertext = base64.b64decode(data["ciphertext"])
+            stored_mac = base64.b64decode(data["hmac"])
+        except Exception as e:
+            raise ValueError(f"Invalid backup: malformed base64 data: {e}") from e
+
         iterations = data["iterations"]
-        ciphertext = base64.b64decode(data["ciphertext"])
-        stored_mac = base64.b64decode(data["hmac"])
+        if not isinstance(iterations, int) or iterations <= 0:
+            raise ValueError("Invalid backup: iterations must be a positive integer")
 
         # Derive key
         derived_key = hashlib.pbkdf2_hmac(
