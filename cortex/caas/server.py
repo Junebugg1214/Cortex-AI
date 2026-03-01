@@ -2864,14 +2864,21 @@ class CaaSHandler(BaseHTTPRequestHandler):
         """Persist the current graph to context.json."""
         graph = self.__class__.graph
         context_path = self.__class__.context_path
+        print(f"[DEBUG _save_graph] graph={graph is not None}, context_path={context_path}")
         if graph is None or context_path is None:
+            print(f"[DEBUG _save_graph] Skipping save: graph or context_path is None")
             return
         try:
             graph_data = graph.export_v5()
+            node_count = len(graph_data.get("nodes", []))
+            edge_count = len(graph_data.get("edges", []))
+            print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}")
             Path(context_path).write_text(
                 json.dumps(graph_data, indent=2), encoding="utf-8"
             )
-        except (OSError, IOError):
+            print(f"[DEBUG _save_graph] Successfully saved to {context_path}")
+        except (OSError, IOError) as e:
+            print(f"[DEBUG _save_graph] Save failed: {e}")
             pass  # Best effort — don't fail the request if save fails
 
     # ── GitHub / LinkedIn import endpoints ───────────────────────────
@@ -4987,6 +4994,8 @@ def start_caas_server(
     # Keychain and store_dir
     CaaSHandler.store_dir = store_dir
     CaaSHandler.context_path = context_path
+    print(f"[DEBUG start_caas_server] Set CaaSHandler.context_path = {context_path}")
+    print(f"[DEBUG start_caas_server] Set CaaSHandler.store_dir = {store_dir}")
     if store_dir:
         from cortex.upai.keychain import Keychain
         CaaSHandler.keychain = Keychain(Path(store_dir))
