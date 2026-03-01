@@ -62,7 +62,7 @@
     var pointerMoved = false;
     var canvas, ctx;
     var MAX_FETCH_NODES = 1000;
-    var MAX_FETCH_EDGES = 2000;
+    var MAX_FETCH_EDGES = 1000;
     var MAX_RENDER_NODES = 350;
 
     C.registerPage('memory', function (container) {
