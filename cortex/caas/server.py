@@ -254,6 +254,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
     store_dir: str | None = None  # Storage directory for data files
+    context_path: str | None = None  # Path to context.json for persistence
 
     # Multi-user authentication
     multi_user_enabled: bool = False  # Enable multi-user mode
@@ -2845,6 +2846,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 graph.add_edge(edge)
                 edges_created += 1
 
+        # Persist the graph to context.json
+        if nodes_created > 0 or edges_created > 0:
+            self._save_graph()
+
         result = {
             "nodes_created": nodes_created,
             "edges_created": edges_created,
@@ -2854,6 +2859,20 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if edges_skipped > 0:
             result["edges_skipped"] = edges_skipped
         return result
+
+    def _save_graph(self) -> None:
+        """Persist the current graph to context.json."""
+        graph = self.__class__.graph
+        context_path = self.__class__.context_path
+        if graph is None or context_path is None:
+            return
+        try:
+            graph_data = graph.export_v5()
+            Path(context_path).write_text(
+                json.dumps(graph_data, indent=2), encoding="utf-8"
+            )
+        except (OSError, IOError):
+            pass  # Best effort — don't fail the request if save fails
 
     # ── GitHub / LinkedIn import endpoints ───────────────────────────
 
@@ -4772,6 +4791,7 @@ def start_caas_server(
     federation_trusted_dids: list[str] | None = None,
     enable_webapp: bool = False,
     pool: Any = None,
+    context_path: str | None = None,
 ) -> ThreadingHTTPServer:
     """Start the CaaS API server. Returns the server instance (call serve_forever()).
 
@@ -4966,6 +4986,7 @@ def start_caas_server(
 
     # Keychain and store_dir
     CaaSHandler.store_dir = store_dir
+    CaaSHandler.context_path = context_path
     if store_dir:
         from cortex.upai.keychain import Keychain
         CaaSHandler.keychain = Keychain(Path(store_dir))

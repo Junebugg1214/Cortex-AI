@@ -1952,6 +1952,7 @@ def run_serve(args):
         federation_trusted_dids=federation_trusted_dids,
         enable_webapp=enable_webapp,
         pool=pool,
+        context_path=str(input_path),
     )
 
     if enable_webapp:
