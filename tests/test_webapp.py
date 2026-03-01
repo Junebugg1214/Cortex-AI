@@ -432,6 +432,39 @@ class TestUploadZip:
         assert status == 201
         assert data["nodes_created"] >= 1
 
+    def test_upload_zip_with_openai_mapping_format(self):
+        """Upload zip containing OpenAI conversations[].mapping export → 201, nodes created."""
+        cookie = _login(self.port, self.identity)
+        conversations = json.dumps([
+            {
+                "title": "Memory export",
+                "mapping": {
+                    "node-1": {
+                        "id": "node-1",
+                        "message": {
+                            "content": {
+                                "content_type": "text",
+                                "parts": ["I live in Miami and work in product management."],
+                            }
+                        },
+                    },
+                    "node-2": {
+                        "id": "node-2",
+                        "message": {
+                            "content": {
+                                "content_type": "text",
+                                "parts": ["I build Python tools for data pipelines."],
+                            }
+                        },
+                    },
+                },
+            }
+        ]).encode()
+        zip_bytes = self._make_zip({"conversations.json": conversations})
+        data, status = self._upload(zip_bytes, filename="openai-export.zip", cookie=cookie)
+        assert status == 201
+        assert data["nodes_created"] >= 1
+
     def test_upload_zip_with_generic_json(self):
         """Upload zip containing a generic data.json with messages → 201."""
         cookie = _login(self.port, self.identity)
