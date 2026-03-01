@@ -22,6 +22,7 @@ def resolve_webapp_path(url_path: str) -> Path | None:
     Returns None if the path escapes the webapp directory or the file
     does not exist.  ``/app`` and ``/app/`` resolve to ``index.html``.
     """
+    import sys
     # Strip the /app prefix
     rel = url_path.lstrip("/")
     if rel.startswith("app"):
@@ -32,6 +33,9 @@ def resolve_webapp_path(url_path: str) -> Path | None:
         rel = "index.html"
 
     resolved = (WEBAPP_DIR / rel).resolve()
+
+    # Debug logging
+    print(f"DEBUG resolve_webapp_path: url_path={url_path!r}, rel={rel!r}, WEBAPP_DIR={WEBAPP_DIR}, resolved={resolved}, is_file={resolved.is_file()}", file=sys.stderr)
 
     # Prevent directory traversal
     if not str(resolved).startswith(str(WEBAPP_DIR.resolve())):

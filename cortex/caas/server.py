@@ -2454,6 +2454,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
         resolved = resolve_webapp_path(path)
+        # Debug logging
+        import sys
+        print(f"DEBUG _serve_webapp_file: path={path!r}, resolved={resolved}", file=sys.stderr)
         if resolved is None:
             self._error_response(ERR_NOT_FOUND("webapp file"))
             return
