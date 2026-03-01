@@ -807,15 +807,70 @@ class CaaSHandler(BaseHTTPRequestHandler):
             grant_id = cached_data["grant_id"]
             token_obj = cached_data["token"]
         else:
-            token_obj, err = GrantToken.verify_and_decode(
-                token_str, identity.public_key_b64
-            )
-            if token_obj is None:
-                self._audit("auth.failed", {"reason": err})
-                self._error_response(ERR_INVALID_TOKEN(err))
-                return None
-            token_data = token_obj.to_dict()
-            grant_id = token_obj.grant_id
+            # In stdlib-only environments we run in HMAC fallback mode where
+            # signatures are self-verifiable (via identity secret) but not
+            # publicly verifiable from ``public_key_b64`` alone.
+            if identity._key_type == "sha256":
+                try:
+                    token_obj = GrantToken.decode(token_str)
+                except Exception:
+                    self._audit("auth.failed", {"reason": "malformed token"})
+                    self._error_response(ERR_INVALID_TOKEN("malformed token"))
+                    return None
+
+                parts = token_str.split(".")
+                if len(parts) != 3:
+                    self._audit("auth.failed", {"reason": "malformed token"})
+                    self._error_response(ERR_INVALID_TOKEN("malformed token"))
+                    return None
+
+                signing_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
+                import base64
+                from cortex.upai.identity import _base64url_decode
+
+                try:
+                    sig_b64_standard = base64.b64encode(
+                        _base64url_decode(parts[2])
+                    ).decode("ascii")
+                except Exception:
+                    self._audit("auth.failed", {"reason": "malformed signature"})
+                    self._error_response(ERR_INVALID_TOKEN("malformed token signature"))
+                    return None
+
+                if not identity.verify_own(signing_input, sig_b64_standard):
+                    self._audit("auth.failed", {"reason": "invalid signature"})
+                    self._error_response(ERR_INVALID_TOKEN("invalid signature"))
+                    return None
+
+                if token_obj.is_expired():
+                    self._audit("auth.failed", {"reason": "token expired"})
+                    self._error_response(ERR_INVALID_TOKEN("token expired"))
+                    return None
+
+                if token_obj.not_before:
+                    try:
+                        nbf = datetime.fromisoformat(token_obj.not_before)
+                    except ValueError:
+                        self._audit("auth.failed", {"reason": "invalid not_before timestamp"})
+                        self._error_response(ERR_INVALID_TOKEN("invalid not_before timestamp"))
+                        return None
+                    now = datetime.now(timezone.utc)
+                    if now.timestamp() < nbf.timestamp() - 60:
+                        self._audit("auth.failed", {"reason": "token not yet valid"})
+                        self._error_response(ERR_INVALID_TOKEN("token not yet valid"))
+                        return None
+                token_data = token_obj.to_dict()
+                grant_id = token_obj.grant_id
+            else:
+                token_obj, err = GrantToken.verify_and_decode(
+                    token_str, identity.public_key_b64
+                )
+                if token_obj is None:
+                    self._audit("auth.failed", {"reason": err})
+                    self._error_response(ERR_INVALID_TOKEN(err))
+                    return None
+                token_data = token_obj.to_dict()
+                grant_id = token_obj.grant_id
             # Cache the verified result
             if cache is not None:
                 cache.put(token_str, {

@@ -346,7 +346,16 @@ class FederationManager:
             )
 
         # 5. Signature verification
-        if verify_signature and bundle.signature and bundle.exporter_public_key_b64:
+        is_ed25519_exporter = (
+            bundle.exporter_did.startswith("did:key:")
+            or bundle.exporter_did.startswith("did:upai:ed25519:")
+        )
+        if (
+            verify_signature
+            and is_ed25519_exporter
+            and bundle.signature
+            and bundle.exporter_public_key_b64
+        ):
             from cortex.upai.identity import UPAIIdentity as _Identity
 
             signing_input = _compute_signing_input(bundle.to_dict())

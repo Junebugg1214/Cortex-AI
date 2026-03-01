@@ -296,8 +296,10 @@ class UPAIIdentity:
             signed = signing_key.sign(data)
             return base64.b64encode(signed.signature).decode("ascii")
         else:
-            # HMAC-SHA256 fallback
-            sig = hmac.new(self._private_key, data, hashlib.sha256).digest()
+            # HMAC-SHA256 fallback. Use a derived verification key so signatures
+            # can be validated with public_key_b64 in stdlib-only mode.
+            verify_key = hashlib.sha256(self._private_key).digest()
+            sig = hmac.new(verify_key, data, hashlib.sha256).digest()
             return base64.b64encode(sig).decode("ascii")
 
     @classmethod
@@ -334,10 +336,12 @@ class UPAIIdentity:
         if self._key_type == "ed25519":
             return self.verify(data, signature_b64, self.public_key_b64)
         else:
-            # HMAC: recompute and compare
+            # HMAC: support both legacy self-keyed signatures and current
+            # derived-key signatures for backward compatibility.
             sig_bytes = base64.b64decode(signature_b64)
-            expected = hmac.new(self._private_key, data, hashlib.sha256).digest()
-            return hmac.compare_digest(sig_bytes, expected)
+            expected_legacy = hmac.new(self._private_key, data, hashlib.sha256).digest()
+            expected_current = hmac.new(hashlib.sha256(self._private_key).digest(), data, hashlib.sha256).digest()
+            return hmac.compare_digest(sig_bytes, expected_legacy) or hmac.compare_digest(sig_bytes, expected_current)
 
     def integrity_hash(self, data: bytes) -> str:
         """SHA-256 integrity hash (always available, stdlib)."""

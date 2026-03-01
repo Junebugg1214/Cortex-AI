@@ -233,8 +233,19 @@ class CredentialVerifier:
         proof_type = proof.get("type", "")
         key_type = "ed25519" if "Ed25519" in proof_type else "sha256"
 
-        if not UPAIIdentity.verify(canonical, sig_b64_standard, issuer_public_key_b64, key_type=key_type):
-            return False, "invalid signature"
+        if key_type == "sha256":
+            import base64
+            import hashlib
+            import hmac
+
+            sig_raw = base64.b64decode(sig_b64_standard)
+            verify_key = base64.b64decode(issuer_public_key_b64)
+            expected = hmac.new(verify_key, canonical, hashlib.sha256).digest()
+            if not hmac.compare_digest(sig_raw, expected):
+                return False, "invalid signature"
+        else:
+            if not UPAIIdentity.verify(canonical, sig_b64_standard, issuer_public_key_b64, key_type=key_type):
+                return False, "invalid signature"
 
         return True, ""
 
