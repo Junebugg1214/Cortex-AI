@@ -48,6 +48,7 @@
     };
 
     var graphData = null;
+    var graphMeta = { totalNodes: 0, totalEdges: 0, nodesHasMore: false, edgesHasMore: false };
     var layoutNodes = [];
     var layoutEdges = [];
     var selectedNode = null;
@@ -60,6 +61,9 @@
     var pointerDown = { x: 0, y: 0 };
     var pointerMoved = false;
     var canvas, ctx;
+    var MAX_FETCH_NODES = 1000;
+    var MAX_FETCH_EDGES = 2000;
+    var MAX_RENDER_NODES = 350;
 
     C.registerPage('memory', function (container) {
         container.innerHTML =
@@ -195,32 +199,59 @@
     }
 
     function loadData() {
-        C.api('/context?policy=full', { cache: 'no-store' }).then(function (data) {
-            graphData = normalizeGraphData(data);
+        Promise.all([
+            C.api('/context/stats', { cache: 'no-store' }),
+            C.api('/context/nodes?limit=' + MAX_FETCH_NODES, { cache: 'no-store' }),
+            C.api('/context/edges?limit=' + MAX_FETCH_EDGES, { cache: 'no-store' }),
+        ]).then(function (results) {
+            var stats = results[0] || {};
+            var nodesPage = results[1] || {};
+            var edgesPage = results[2] || {};
+            graphData = {
+                nodes: Array.isArray(nodesPage.items) ? nodesPage.items : [],
+                edges: Array.isArray(edgesPage.items) ? edgesPage.items : [],
+            };
+            graphMeta = {
+                totalNodes: stats.node_count || graphData.nodes.length,
+                totalEdges: stats.edge_count || graphData.edges.length,
+                nodesHasMore: !!nodesPage.has_more,
+                edgesHasMore: !!edgesPage.has_more,
+            };
             processGraph();
             renderFilters();
             renderStats();
             draw();
+            if (graphMeta.nodesHasMore || graphMeta.edgesHasMore) {
+                C.showToast(
+                    'Large memory detected. Showing ' + graphData.nodes.length + ' facts for responsive browsing.',
+                    'info'
+                );
+            }
         }).catch(function (err) {
             if (err.message === 'unauthorized') return;
-            // Fallback path for occasional proxy/cache oddities on /context.
-            C.api('/context/compact', { cache: 'no-store' }).then(function (data) {
-                graphData = normalizeGraphData(data);
-                processGraph();
-                renderFilters();
-                renderStats();
-                draw();
-            }).catch(function (fallbackErr) {
-                C.showToast('Failed to load memory: ' + (fallbackErr.message || err.message), 'error');
-            });
+            C.showToast('Failed to load memory: ' + err.message, 'error');
         });
     }
 
     function processGraph() {
         if (!graphData) return;
-        var nodes = graphData.nodes || [];
-        var edges = graphData.edges || [];
+        var nodes = (graphData.nodes || []).slice();
+        var edges = (graphData.edges || []).slice();
         var tagSet = {};
+
+        if (nodes.length > MAX_RENDER_NODES) {
+            nodes.sort(function (a, b) {
+                return (b.confidence || 0.5) - (a.confidence || 0.5);
+            });
+            nodes = nodes.slice(0, MAX_RENDER_NODES);
+            var keep = {};
+            nodes.forEach(function (n) { keep[n.id] = true; });
+            edges = edges.filter(function (e) {
+                var s = e.source_id || e.source;
+                var t = e.target_id || e.target;
+                return keep[s] && keep[t];
+            });
+        }
 
         // Build node lookup
         var nodeMap = {};
@@ -249,8 +280,10 @@
         // Build adjacency for edge lookup
         var adjEdges = [];
         edges.forEach(function (e) {
-            var si = typeof e.source === 'number' ? e.source : nodeMap[e.source];
-            var ti = typeof e.target === 'number' ? e.target : nodeMap[e.target];
+            var src = e.source_id || e.source;
+            var tgt = e.target_id || e.target;
+            var si = typeof src === 'number' ? src : nodeMap[src];
+            var ti = typeof tgt === 'number' ? tgt : nodeMap[tgt];
             if (si !== undefined && ti !== undefined) {
                 adjEdges.push({ s: si, t: ti });
             }
@@ -353,12 +386,16 @@
     function renderStats() {
         if (!graphData) return;
         var el = document.getElementById('graph-stats');
-        var nCount = (graphData.nodes || []).length;
-        var eCount = (graphData.edges || []).length;
+        var nCount = graphMeta.totalNodes || (graphData.nodes || []).length;
+        var eCount = graphMeta.totalEdges || (graphData.edges || []).length;
+        var shownN = layoutNodes.length;
+        var shownE = layoutEdges.length;
         el.innerHTML =
             '<span><strong>' + nCount + '</strong> facts</span>' +
             '<span><strong>' + eCount + '</strong> connections</span>' +
-            '<span><strong>' + allTags.length + '</strong> categories</span>';
+            '<span><strong>' + allTags.length + '</strong> categories</span>' +
+            '<span><strong>' + shownN + '</strong> shown</span>' +
+            '<span><strong>' + shownE + '</strong> links shown</span>';
     }
 
     function selectNode(node) {
