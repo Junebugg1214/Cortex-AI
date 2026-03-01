@@ -2488,8 +2488,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if content_length is None:
             return
 
-        # Size limit: use configured max or default 100 MB
-        max_upload = self.__class__.max_upload_bytes or (100 * 1024 * 1024)
+        # Size limit: use configured max or default 1 GB
+        max_upload = self.__class__.max_upload_bytes or (1024 * 1024 * 1024)
         if content_length > max_upload:
             self._error_response(ERR_PAYLOAD_TOO_LARGE())
             return

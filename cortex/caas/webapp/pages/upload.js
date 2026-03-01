@@ -86,9 +86,9 @@
     }
 
     function handleFile(file) {
-        // Size check: 100 MB max
-        if (file.size > 100 * 1024 * 1024) {
-            C.showToast('File too large. Maximum size is 100 MB.', 'error');
+        // Size check: 1 GB max (configurable on server)
+        if (file.size > 1024 * 1024 * 1024) {
+            C.showToast('File too large. Maximum size is 1 GB.', 'error');
             return;
         }
 
