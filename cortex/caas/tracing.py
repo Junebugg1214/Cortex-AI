@@ -192,7 +192,8 @@ class OTLPHttpExporter(SpanExporter):
             method="POST",
         )
         try:
-            urllib.request.urlopen(req, timeout=5)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                pass  # Response discarded, but ensure socket is closed
         except Exception:
             logger.debug("Failed to export span to %s", self.endpoint, exc_info=True)
 

@@ -131,13 +131,13 @@ def exchange_code_for_token(
     req = urllib.request.Request(provider.token_url, data=data, method="POST")
     req.add_header("Accept", "application/json")
     try:
-        resp = urllib.request.urlopen(req, timeout=10)
-        body = resp.read().decode()
-        ct = resp.headers.get("Content-Type", "")
-        if "json" in ct:
-            return json.loads(body)
-        # GitHub may return form-encoded
-        return dict(urllib.parse.parse_qsl(body))
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode()
+            ct = resp.headers.get("Content-Type", "")
+            if "json" in ct:
+                return json.loads(body)
+            # GitHub may return form-encoded
+            return dict(urllib.parse.parse_qsl(body))
     except Exception:
         return None
 
@@ -150,8 +150,8 @@ def fetch_userinfo(
     req.add_header("Authorization", f"Bearer {access_token}")
     req.add_header("Accept", "application/json")
     try:
-        resp = urllib.request.urlopen(req, timeout=10)
-        info = json.loads(resp.read().decode())
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            info = json.loads(resp.read().decode())
     except Exception:
         return None
 
@@ -161,8 +161,8 @@ def fetch_userinfo(
             email_req = urllib.request.Request("https://api.github.com/user/emails")
             email_req.add_header("Authorization", f"Bearer {access_token}")
             email_req.add_header("Accept", "application/json")
-            email_resp = urllib.request.urlopen(email_req, timeout=10)
-            emails = json.loads(email_resp.read().decode())
+            with urllib.request.urlopen(email_req, timeout=10) as email_resp:
+                emails = json.loads(email_resp.read().decode())
             for e in emails:
                 if e.get("primary") and e.get("verified"):
                     info["email"] = e["email"]
@@ -181,11 +181,11 @@ def validate_google_id_token(id_token: str, client_id: str) -> dict | None:
     """Validate Google ID token via tokeninfo endpoint. Returns claims or ``None``."""
     url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(id_token)}"
     try:
-        resp = urllib.request.urlopen(url, timeout=10)
-        claims = json.loads(resp.read().decode())
-        if claims.get("aud") != client_id:
-            return None
-        return claims
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            claims = json.loads(resp.read().decode())
+            if claims.get("aud") != client_id:
+                return None
+            return claims
     except Exception:
         return None
 
@@ -196,8 +196,8 @@ def validate_github_token(access_token: str) -> dict | None:
     req.add_header("Authorization", f"Bearer {access_token}")
     req.add_header("Accept", "application/json")
     try:
-        resp = urllib.request.urlopen(req, timeout=10)
-        return json.loads(resp.read().decode())
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
     except Exception:
         return None
 

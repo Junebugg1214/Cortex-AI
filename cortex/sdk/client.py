@@ -220,11 +220,11 @@ class CortexClient:
             req.add_header("Authorization", f"Bearer {self.token}")
 
         try:
-            resp = urllib.request.urlopen(req, timeout=self.timeout)
-            resp_body = resp.read()
-            if raw:
-                return resp_body.decode("utf-8"), resp.status
-            return json.loads(resp_body), resp.status
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                resp_body = resp.read()
+                if raw:
+                    return resp_body.decode("utf-8"), resp.status
+                return json.loads(resp_body), resp.status
         except urllib.error.HTTPError as e:
             status = e.code
             try:

@@ -129,9 +129,9 @@ def deliver_webhook(
     req.add_header("X-UPAI-Timestamp", datetime.now(timezone.utc).isoformat())
 
     try:
-        resp = urlopen(req, timeout=timeout)
-        headers = {k: v for k, v in resp.getheaders()}
-        return True, resp.status, headers
+        with urlopen(req, timeout=timeout) as resp:
+            headers = {k: v for k, v in resp.getheaders()}
+            return True, resp.status, headers
     except URLError as e:
         # Extract headers from HTTPError responses (e.g. 429)
         if hasattr(e, 'code') and hasattr(e, 'headers'):
