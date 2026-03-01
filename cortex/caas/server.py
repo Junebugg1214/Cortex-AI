@@ -2847,7 +2847,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 edges_created += 1
 
         # Persist the graph to context.json
+        import sys
+        print(f"[DEBUG _import_nodes_edges] nodes_created={nodes_created}, edges_created={edges_created}", file=sys.stderr, flush=True)
         if nodes_created > 0 or edges_created > 0:
+            print(f"[DEBUG _import_nodes_edges] Calling _save_graph()", file=sys.stderr, flush=True)
             self._save_graph()
 
         result = {
@@ -2862,23 +2865,24 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _save_graph(self) -> None:
         """Persist the current graph to context.json."""
+        import sys
         graph = self.__class__.graph
         context_path = self.__class__.context_path
-        print(f"[DEBUG _save_graph] graph={graph is not None}, context_path={context_path}")
+        print(f"[DEBUG _save_graph] graph={graph is not None}, context_path={context_path}", file=sys.stderr, flush=True)
         if graph is None or context_path is None:
-            print(f"[DEBUG _save_graph] Skipping save: graph or context_path is None")
+            print(f"[DEBUG _save_graph] Skipping save: graph or context_path is None", file=sys.stderr, flush=True)
             return
         try:
             graph_data = graph.export_v5()
             node_count = len(graph_data.get("nodes", []))
             edge_count = len(graph_data.get("edges", []))
-            print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}")
+            print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}", file=sys.stderr, flush=True)
             Path(context_path).write_text(
                 json.dumps(graph_data, indent=2), encoding="utf-8"
             )
-            print(f"[DEBUG _save_graph] Successfully saved to {context_path}")
+            print(f"[DEBUG _save_graph] Successfully saved to {context_path}", file=sys.stderr, flush=True)
         except (OSError, IOError) as e:
-            print(f"[DEBUG _save_graph] Save failed: {e}")
+            print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
             pass  # Best effort — don't fail the request if save fails
 
     # ── GitHub / LinkedIn import endpoints ───────────────────────────
