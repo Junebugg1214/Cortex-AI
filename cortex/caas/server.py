@@ -325,6 +325,19 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INVALID_REQUEST(f"{name} must be an integer"))
             return None
 
+    def _parse_content_length(self) -> int | None:
+        """Parse Content-Length header safely. Returns None and sends 400 on error."""
+        raw = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw)
+            if length < 0:
+                self._error_response(ERR_INVALID_REQUEST("Content-Length must be non-negative"))
+                return None
+            return length
+        except (ValueError, TypeError):
+            self._error_response(ERR_INVALID_REQUEST("Invalid Content-Length header"))
+            return None
+
     def do_GET(self) -> None:
         self._request_start_time = _time.monotonic()
         self._init_request_id()
@@ -2471,7 +2484,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 return
 
         content_type = self.headers.get("Content-Type", "")
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length = self._parse_content_length()
+        if content_length is None:
+            return
 
         # Size limit: use configured max or default 100 MB
         max_upload = self.__class__.max_upload_bytes or (100 * 1024 * 1024)
@@ -4515,7 +4530,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _dashboard_api_import_archive(self) -> None:
         """POST /dashboard/api/import/archive — import ZIP archive."""
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length = self._parse_content_length()
+        if content_length is None:
+            return
         if content_length == 0:
             self._error_response(ERR_INVALID_REQUEST("Empty request body"))
             return
@@ -4552,7 +4569,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _read_body(self, require_json: bool = True) -> dict | None:
         """Read and parse JSON request body. Returns None and sends error on failure."""
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length = self._parse_content_length()
+        if content_length is None:
+            return None
         if content_length == 0:
             self._error_response(ERR_INVALID_REQUEST("Empty request body"))
             return None
