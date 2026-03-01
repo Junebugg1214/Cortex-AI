@@ -255,14 +255,19 @@ def _match_condition(node_dict: dict, field: str, op: str, value: Any) -> bool:
         return str(obj).lower() == str(value).lower()
     elif op == "!=":
         return str(obj).lower() != str(value).lower()
-    elif op == ">=":
-        return float(obj) >= float(value)
-    elif op == "<=":
-        return float(obj) <= float(value)
-    elif op == ">":
-        return float(obj) > float(value)
-    elif op == "<":
-        return float(obj) < float(value)
+    elif op in (">=", "<=", ">", "<"):
+        try:
+            obj_f, val_f = float(obj), float(value)
+        except (ValueError, TypeError):
+            return False  # Non-numeric comparison fails
+        if op == ">=":
+            return obj_f >= val_f
+        elif op == "<=":
+            return obj_f <= val_f
+        elif op == ">":
+            return obj_f > val_f
+        else:  # op == "<"
+            return obj_f < val_f
     return False
 
 
