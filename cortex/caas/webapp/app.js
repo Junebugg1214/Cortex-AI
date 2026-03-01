@@ -8,13 +8,20 @@
     var currentUser = null;
 
     // ── API helper ──────────────────────────────────────────────
+    function shouldBypassLoginOverlay() {
+        var hash = location.hash.replace('#', '') || 'upload';
+        return multiUserEnabled && registrationOpen && hash === 'signup';
+    }
+
     function api(path, opts) {
         opts = opts || {};
         opts.credentials = 'same-origin';
         opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
         return fetch(path, opts).then(function (resp) {
             if (resp.status === 401) {
-                showLogin();
+                if (!shouldBypassLoginOverlay()) {
+                    showLogin();
+                }
                 throw new Error('unauthorized');
             }
             if (!resp.ok) {
@@ -252,7 +259,12 @@
             var checkUrl = multiUserEnabled ? '/api/me' : '/context/stats';
             fetch(checkUrl, { credentials: 'same-origin' }).then(function (resp) {
                 if (resp.status === 401) {
-                    showLogin();
+                    if (!shouldBypassLoginOverlay()) {
+                        showLogin();
+                    } else {
+                        hideLogin();
+                        route();
+                    }
                 } else {
                     if (multiUserEnabled) {
                         resp.json().then(function (data) {

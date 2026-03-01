@@ -116,20 +116,30 @@
     }
 
     function loadPreview() {
-        C.api('/context/compact?policy=' + selectedPolicy).then(function (data) {
-            contextData = data;
-            updatePreview();
-        }).catch(function (err) {
-            if (err.message === 'unauthorized') return;
-            // Fallback: try full context
-            C.api('/context?policy=' + selectedPolicy).then(function (data) {
-                contextData = normalizeGraphData(data);
+        C.apiRaw('/context/compact?policy=' + selectedPolicy, { method: 'GET' })
+            .then(function (resp) {
+                if (resp.status === 401) {
+                    C.showLogin();
+                    throw new Error('unauthorized');
+                }
+                if (!resp.ok) throw new Error('compact preview unavailable');
+                return resp.text();
+            })
+            .then(function (text) {
+                contextData = text;
                 updatePreview();
-            }).catch(function (err2) {
-                if (err2.message === 'unauthorized') return;
-                document.getElementById('preview-content').textContent = 'Could not load preview: ' + err2.message;
+            })
+            .catch(function (err) {
+                if (err.message === 'unauthorized') return;
+                // Fallback: try full context
+                C.api('/context?policy=' + selectedPolicy).then(function (data) {
+                    contextData = normalizeGraphData(data);
+                    updatePreview();
+                }).catch(function (err2) {
+                    if (err2.message === 'unauthorized') return;
+                    document.getElementById('preview-content').textContent = 'Could not load preview: ' + err2.message;
+                });
             });
-        });
     }
 
     function updatePreview() {

@@ -57,6 +57,8 @@
     var cam = { x: 0, y: 0, zoom: 1 };
     var dragging = false;
     var dragStart = { x: 0, y: 0 };
+    var pointerDown = { x: 0, y: 0 };
+    var pointerMoved = false;
     var canvas, ctx;
 
     C.registerPage('memory', function (container) {
@@ -113,10 +115,15 @@
         canvas.addEventListener('mousedown', function (e) {
             dragging = true;
             dragStart = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+            pointerDown = { x: e.clientX, y: e.clientY };
+            pointerMoved = false;
         });
 
         canvas.addEventListener('mousemove', function (e) {
             if (dragging) {
+                if (Math.abs(e.clientX - pointerDown.x) > 3 || Math.abs(e.clientY - pointerDown.y) > 3) {
+                    pointerMoved = true;
+                }
                 cam.x = e.clientX - dragStart.x;
                 cam.y = e.clientY - dragStart.y;
                 draw();
@@ -128,6 +135,11 @@
 
         canvas.addEventListener('click', function (e) {
             if (!layoutNodes.length) return;
+            // Ignore click selection immediately after a pan drag gesture.
+            if (pointerMoved) {
+                pointerMoved = false;
+                return;
+            }
             var rect = canvas.getBoundingClientRect();
             var mx = (e.clientX - rect.left - cam.x) / cam.zoom;
             var my = (e.clientY - rect.top - cam.y) / cam.zoom;
