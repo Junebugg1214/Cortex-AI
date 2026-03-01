@@ -80,7 +80,7 @@ _DEFAULTS: dict[str, dict[str, str]] = {
         "enabled": "true",
         "registration_open": "true",
         "default_quota_bytes": "5368709120",  # 5GB per user
-        "max_upload_bytes": "1073741824",      # 1GB per upload
+        "max_upload_bytes": "3221225472",      # 3GB per upload
         "session_ttl_seconds": "604800",       # 7 days
         "require_email_verification": "false",
         "allowed_domains": "",                 # Empty = all domains allowed

@@ -2,6 +2,7 @@
 (function () {
     'use strict';
     var C = window.CortexApp;
+    var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
 
     C.registerPage('upload', function (container) {
         container.innerHTML =
@@ -16,6 +17,7 @@
         renderDropZone();
         renderImportCards();
         renderApiKeys();
+        loadUploadConfig();
     });
 
     // ── Drop Zone ──────────────────────────────────────────────────
@@ -86,14 +88,40 @@
     }
 
     function handleFile(file) {
-        // Size check: 1 GB max (configurable on server)
-        if (file.size > 1024 * 1024 * 1024) {
-            C.showToast('File too large. Maximum size is 1 GB.', 'error');
+        if (file.size > maxUploadBytes) {
+            C.showToast('File too large. Maximum size is ' + formatBytes(maxUploadBytes) + '.', 'error');
             return;
         }
 
         renderProgress(file.name);
         uploadFile(file);
+    }
+
+    function formatBytes(bytes) {
+        if (bytes >= 1024 * 1024 * 1024) {
+            return (bytes / (1024 * 1024 * 1024)).toFixed(0) + ' GB';
+        }
+        if (bytes >= 1024 * 1024) {
+            return Math.round(bytes / (1024 * 1024)) + ' MB';
+        }
+        return bytes + ' bytes';
+    }
+
+    function loadUploadConfig() {
+        C.apiRaw('/api/users/config', { method: 'GET' })
+            .then(function (resp) {
+                if (!resp.ok) return null;
+                return resp.json();
+            })
+            .then(function (cfg) {
+                if (!cfg) return;
+                if (typeof cfg.max_upload_bytes === 'number' && cfg.max_upload_bytes > 0) {
+                    maxUploadBytes = cfg.max_upload_bytes;
+                }
+            })
+            .catch(function () {
+                // Keep fallback.
+            });
     }
 
     function renderProgress(filename) {
@@ -328,6 +356,7 @@
             '    <label class="radio-label"><input type="radio" name="key-format" value="claude_xml"> Claude XML</label>' +
             '    <label class="radio-label"><input type="radio" name="key-format" value="system_prompt"> System Prompt</label>' +
             '    <label class="radio-label"><input type="radio" name="key-format" value="markdown"> Markdown</label>' +
+            '    <label class="radio-label"><input type="radio" name="key-format" value="jsonresume"> JSON Resume</label>' +
             '  </div>' +
             '  <button class="btn btn-success" id="create-key-submit">Create Key</button>' +
             '</div>';
@@ -351,6 +380,10 @@
                 var checkboxes = formEl.querySelectorAll('input[name="key-tag"]:checked');
                 for (var j = 0; j < checkboxes.length; j++) {
                     tags.push(checkboxes[j].value);
+                }
+                if (!tags.length) {
+                    C.showToast('Select at least one tag for custom policy', 'error');
+                    return;
                 }
             }
 

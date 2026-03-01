@@ -263,7 +263,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     user_store: Any = None  # SqliteUserStore for user data
     registration_open: bool = True  # Allow new user signups
     default_user_quota: int = 5_368_709_120  # 5GB default
-    max_upload_bytes: int = 1_073_741_824  # 1GB max upload
+    max_upload_bytes: int = 3_221_225_472  # 3GB max upload
 
     _request_id: str = ""
     _current_user: Any = None  # Set during request processing for multi-user
@@ -2545,10 +2545,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if content_length is None:
             return
 
-        # Size limit: use configured max or default 1 GB
-        max_upload = self.__class__.max_upload_bytes or (1024 * 1024 * 1024)
+        # Size limit: use configured max or default 3 GB
+        max_upload = self.__class__.max_upload_bytes or (3 * 1024 * 1024 * 1024)
         if content_length > max_upload:
-            self._error_response(ERR_PAYLOAD_TOO_LARGE())
+            self._error_response(
+                ERR_PAYLOAD_TOO_LARGE(
+                    "Request payload exceeds configured upload limit",
+                    max_upload_bytes=max_upload,
+                    received_bytes=content_length,
+                )
+            )
             return
 
         # Check user storage quota (only in multi-user mode with a user)
@@ -4096,6 +4102,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._json_response({
             "multi_user_enabled": self.__class__.multi_user_enabled,
             "registration_open": self.__class__.registration_open,
+            "max_upload_bytes": self.__class__.max_upload_bytes,
         })
 
     def _check_admin_session(self) -> bool:
@@ -4900,6 +4907,13 @@ def start_caas_server(
     from cortex.caas.token_cache import TokenCache
     CaaSHandler.token_cache = TokenCache(max_size=1024, ttl=30.0)
     CaaSHandler.enable_webapp = enable_webapp
+    if config is not None:
+        # Upload cap used by /api/upload (applies in both single-user and multi-user modes).
+        _cfg_upload_max = config.getint(
+            "users", "max_upload_bytes", fallback=CaaSHandler.max_upload_bytes
+        )
+        if _cfg_upload_max > 0:
+            CaaSHandler.max_upload_bytes = _cfg_upload_max
 
     # HSTS (opt-in)
     if config is not None:
