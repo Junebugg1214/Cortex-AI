@@ -403,7 +403,7 @@
                     C.showLogin();
                     throw new Error('Your session expired. Please sign in and try again.');
                 }
-                return resp.json().then(function (data) {
+                return parseJsonSafe(resp).then(function (data) {
                     if (!resp.ok) {
                         var msg = (data.error && data.error.message) || data.error || 'Failed';
                         throw new Error(msg);
@@ -451,10 +451,10 @@
                 C.showLogin();
                 throw new Error('unauthorized');
             }
-            return resp.json();
+            return parseJsonSafe(resp);
         }).then(function (keys) {
             var listEl = document.getElementById('api-keys-list');
-            if (!keys || keys.length === 0) {
+            if (!Array.isArray(keys) || keys.length === 0) {
                 listEl.innerHTML = '<p class="api-keys-empty">No API keys yet.</p>';
                 return;
             }
@@ -501,7 +501,7 @@
                 C.showLogin();
                 throw new Error('Your session expired. Please sign in and try again.');
             }
-            return resp.json().then(function (data) {
+            return parseJsonSafe(resp).then(function (data) {
                 if (!resp.ok) throw new Error('Revoke failed');
                 return data;
             });
@@ -524,5 +524,16 @@
             document.execCommand('copy');
             document.body.removeChild(ta);
         }
+    }
+
+    function parseJsonSafe(resp) {
+        return resp.text().then(function (text) {
+            if (!text) return {};
+            try {
+                return JSON.parse(text);
+            } catch (_e) {
+                return { error: text };
+            }
+        });
     }
 })();

@@ -3177,10 +3177,29 @@ class CaaSHandler(BaseHTTPRequestHandler):
         """Lazy-init the profile store."""
         if self.__class__.profile_store is None:
             from cortex.caas.profile import ProfileStore
-            base_dir = Path(self.__class__.store_dir) if self.__class__.store_dir else Path(".cortex")
+            base_dir = self._get_store_base_dir()
             store_path = base_dir / "profiles.json"
             self.__class__.profile_store = ProfileStore(store_path)
         return self.__class__.profile_store
+
+    def _get_store_base_dir(self) -> Path:
+        """Resolve a writable storage directory for profile/key metadata."""
+        if self.__class__.store_dir:
+            base = Path(self.__class__.store_dir)
+            base.mkdir(parents=True, exist_ok=True)
+            return base
+
+        # In container deployments, /data is writable and persisted.
+        # Fall back to local .cortex for non-container/dev usage.
+        for candidate in (Path("/data/.cortex"), Path(".cortex")):
+            try:
+                candidate.mkdir(parents=True, exist_ok=True)
+                return candidate
+            except OSError:
+                continue
+
+        # Last resort: current working directory (non-persistent).
+        return Path(".")
 
     def _handle_get_profile(self) -> None:
         """GET /api/profile — get a profile config. ?handle= for specific, else first."""
@@ -3763,7 +3782,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         """Lazy-init the API key store."""
         if self.__class__.api_key_store is None:
             from cortex.caas.api_keys import ApiKeyStore
-            store_path = Path(".cortex") / "api_keys.json"
+            store_path = self._get_store_base_dir() / "api_keys.json"
             self.__class__.api_key_store = ApiKeyStore(store_path)
         return self.__class__.api_key_store
 
@@ -3797,7 +3816,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         store = self._get_api_key_store()
-        key_info = store.create(label, policy, tags=tags, fmt=fmt)
+        try:
+            key_info = store.create(label, policy, tags=tags, fmt=fmt)
+        except OSError as exc:
+            self._error_response(ERR_INTERNAL(f"Failed to persist API key: {exc}"))
+            return
         self._json_response(key_info, status=201)
 
     def _handle_list_api_keys(self) -> None:
