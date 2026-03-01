@@ -213,13 +213,19 @@ class GrantToken:
         # Check expiry
         now = datetime.now(timezone.utc)
         if token.expires_at:
-            exp = datetime.fromisoformat(token.expires_at)
+            try:
+                exp = datetime.fromisoformat(token.expires_at)
+            except ValueError:
+                return None, "invalid expires_at timestamp"
             if now.timestamp() > exp.timestamp() + clock_skew:
                 return None, "token expired"
 
         # Check not_before
         if token.not_before:
-            nbf = datetime.fromisoformat(token.not_before)
+            try:
+                nbf = datetime.fromisoformat(token.not_before)
+            except ValueError:
+                return None, "invalid not_before timestamp"
             if now.timestamp() < nbf.timestamp() - clock_skew:
                 return None, "token not yet valid"
 
@@ -234,7 +240,10 @@ class GrantToken:
         if not self.expires_at:
             return False
         now = datetime.now(timezone.utc)
-        exp = datetime.fromisoformat(self.expires_at)
+        try:
+            exp = datetime.fromisoformat(self.expires_at)
+        except ValueError:
+            return True  # Treat malformed timestamp as expired for safety
         return now.timestamp() > exp.timestamp() + clock_skew
 
     def has_scope(self, scope: str) -> bool:
