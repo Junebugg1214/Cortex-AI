@@ -253,6 +253,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     token_cache: Any = None  # Optional TokenCache for verified token caching
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
+    store_dir: str | None = None  # Storage directory for data files
 
     # Multi-user authentication
     multi_user_enabled: bool = False  # Enable multi-user mode
@@ -2942,7 +2943,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         """Lazy-init the profile store."""
         if self.__class__.profile_store is None:
             from cortex.caas.profile import ProfileStore
-            store_path = Path(".cortex") / "profiles.json"
+            base_dir = Path(self.__class__.store_dir) if self.__class__.store_dir else Path(".cortex")
+            store_path = base_dir / "profiles.json"
             self.__class__.profile_store = ProfileStore(store_path)
         return self.__class__.profile_store
 
@@ -4962,7 +4964,8 @@ def start_caas_server(
     else:
         CaaSHandler.sse_manager = None
 
-    # Keychain
+    # Keychain and store_dir
+    CaaSHandler.store_dir = store_dir
     if store_dir:
         from cortex.upai.keychain import Keychain
         CaaSHandler.keychain = Keychain(Path(store_dir))
