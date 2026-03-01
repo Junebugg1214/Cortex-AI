@@ -2770,6 +2770,47 @@ class CaaSHandler(BaseHTTPRequestHandler):
         edges_created = 0
         tag_set = set()
 
+        def _collect_text(value: object) -> str:
+            """Best-effort flattening of text-like message payloads."""
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, list):
+                parts: list[str] = []
+                for item in value:
+                    txt = _collect_text(item)
+                    if txt:
+                        parts.append(txt)
+                return " ".join(parts).strip()
+            if isinstance(value, dict):
+                # Common message carriers across OpenAI/Claude/Gemini exports.
+                for key in ("parts", "text", "content", "value"):
+                    if key in value:
+                        txt = _collect_text(value.get(key))
+                        if txt:
+                            return txt
+            return ""
+
+        def _message_text(msg: object) -> str:
+            if isinstance(msg, str):
+                return msg.strip()
+            if not isinstance(msg, dict):
+                return ""
+            for key in (
+                "content",
+                "text",
+                "message",
+                "body",
+                "prompt",
+                "response",
+                "input",
+                "output",
+            ):
+                if key in msg:
+                    txt = _collect_text(msg.get(key))
+                    if txt:
+                        return txt
+            return ""
+
         def _text_from_openai_mapping(conv: dict) -> list[str]:
             """Extract text chunks from OpenAI export conversations[].mapping."""
             mapping = conv.get("mapping")
@@ -2796,29 +2837,53 @@ class CaaSHandler(BaseHTTPRequestHandler):
                     out.append(content.strip())
             return out
 
+        def _messages_from_conversation(conv: dict) -> list[dict]:
+            out: list[dict] = []
+            for key in ("messages", "chat_messages", "turns", "items", "entries"):
+                maybe = conv.get(key)
+                if isinstance(maybe, list):
+                    for msg in maybe:
+                        txt = _message_text(msg)
+                        if txt:
+                            out.append({"content": txt})
+            for txt in _text_from_openai_mapping(conv):
+                out.append({"content": txt})
+            return out
+
         # Handle different formats
         items = []
         if isinstance(parsed, list):
             mapping_items: list[dict] = []
             for entry in parsed:
                 if isinstance(entry, dict):
-                    for text in _text_from_openai_mapping(entry):
-                        mapping_items.append({"content": text})
+                    extracted = _messages_from_conversation(entry)
+                    if extracted:
+                        mapping_items.extend(extracted)
+                    else:
+                        txt = _message_text(entry)
+                        if txt:
+                            mapping_items.append({"content": txt})
+                elif isinstance(entry, str) and entry.strip():
+                    mapping_items.append({"content": entry.strip()})
             items = mapping_items if mapping_items else parsed
         elif isinstance(parsed, dict):
             # Common chat export formats
             if "messages" in parsed:
                 items = parsed["messages"]
+            elif "chat_messages" in parsed and isinstance(parsed["chat_messages"], list):
+                items = parsed["chat_messages"]
+            elif "turns" in parsed and isinstance(parsed["turns"], list):
+                items = parsed["turns"]
             elif "conversations" in parsed:
                 convs = parsed["conversations"]
                 if isinstance(convs, list):
                     for conv in convs:
                         if isinstance(conv, dict):
-                            if isinstance(conv.get("messages"), list):
+                            extracted = _messages_from_conversation(conv)
+                            if extracted:
+                                items.extend(extracted)
+                            elif isinstance(conv.get("messages"), list):
                                 items.extend(conv["messages"])
-                            else:
-                                for text in _text_from_openai_mapping(conv):
-                                    items.append({"content": text})
             elif "nodes" in parsed:
                 # Already in graph format — import directly
                 for nd in parsed.get("nodes", []):
@@ -2867,16 +2932,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             if isinstance(msg, str):
                 content = msg
             elif isinstance(msg, dict):
-                content = msg.get("content", msg.get("text", msg.get("message", "")))
-                if isinstance(content, list):
-                    # Handle multi-part messages (e.g., OpenAI format)
-                    parts = []
-                    for p in content:
-                        if isinstance(p, str):
-                            parts.append(p)
-                        elif isinstance(p, dict) and p.get("type") == "text":
-                            parts.append(p.get("text", ""))
-                    content = " ".join(parts)
+                content = _message_text(msg)
 
             if not content or not isinstance(content, str):
                 continue
