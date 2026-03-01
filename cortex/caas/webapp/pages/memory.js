@@ -195,7 +195,7 @@
     }
 
     function loadData() {
-        C.api('/context?policy=full').then(function (data) {
+        C.api('/context?policy=full', { cache: 'no-store' }).then(function (data) {
             graphData = normalizeGraphData(data);
             processGraph();
             renderFilters();
@@ -203,7 +203,16 @@
             draw();
         }).catch(function (err) {
             if (err.message === 'unauthorized') return;
-            C.showToast('Failed to load memory: ' + err.message, 'error');
+            // Fallback path for occasional proxy/cache oddities on /context.
+            C.api('/context/compact', { cache: 'no-store' }).then(function (data) {
+                graphData = normalizeGraphData(data);
+                processGraph();
+                renderFilters();
+                renderStats();
+                draw();
+            }).catch(function (fallbackErr) {
+                C.showToast('Failed to load memory: ' + (fallbackErr.message || err.message), 'error');
+            });
         });
     }
 

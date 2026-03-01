@@ -14,10 +14,22 @@
     }
 
     function api(path, opts) {
-        opts = opts || {};
-        opts.credentials = 'same-origin';
-        opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-        return fetch(path, opts).then(function (resp) {
+        function consume(resp, allowRetry) {
+            if (resp.status === 304 && allowRetry) {
+                // Browser/proxy cache revalidation can return empty 304 bodies.
+                // Retry once with explicit cache bypass so callers still get JSON.
+                var retryOpts = Object.assign({}, opts, {
+                    credentials: 'same-origin',
+                    cache: 'reload',
+                    headers: Object.assign({}, opts.headers || {}, {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache',
+                    }),
+                });
+                return fetch(path, retryOpts).then(function (retryResp) {
+                    return consume(retryResp, false);
+                });
+            }
             if (resp.status === 401) {
                 if (!shouldBypassLoginOverlay()) {
                     showLogin();
@@ -34,12 +46,19 @@
                 });
             }
             return resp.json();
-        });
+        }
+
+        opts = opts || {};
+        opts.credentials = 'same-origin';
+        if (opts.cache === undefined) opts.cache = 'no-store';
+        opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+        return fetch(path, opts).then(function (resp) { return consume(resp, true); });
     }
 
     function apiRaw(path, opts) {
         opts = opts || {};
         opts.credentials = 'same-origin';
+        if (opts.cache === undefined) opts.cache = 'no-store';
         return fetch(path, opts);
     }
 
