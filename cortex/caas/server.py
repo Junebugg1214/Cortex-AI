@@ -2693,22 +2693,72 @@ class CaaSHandler(BaseHTTPRequestHandler):
         import io
         import zipfile
 
+        def _loads_json_bytes(raw: bytes) -> dict | list | None:
+            # Try direct bytes parse first.
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, (dict, list)):
+                    return parsed
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+            # Then try common encodings for exported archives.
+            for enc in ("utf-8-sig", "utf-16", "utf-16le", "utf-16be", "latin-1"):
+                try:
+                    txt = raw.decode(enc)
+                except Exception:
+                    continue
+                try:
+                    parsed = json.loads(txt)
+                    if isinstance(parsed, (dict, list)):
+                        return parsed
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    continue
+            return None
+
+        def _loads_jsonl_bytes(raw: bytes) -> list | None:
+            # Best effort JSONL support (e.g., one JSON object per line).
+            for enc in ("utf-8-sig", "utf-16", "utf-16le", "utf-16be", "latin-1"):
+                try:
+                    txt = raw.decode(enc)
+                except Exception:
+                    continue
+                items = []
+                ok = True
+                for line in txt.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        ok = False
+                        break
+                    items.append(obj)
+                if ok and items:
+                    return items
+            return None
+
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             names = zf.namelist()
             # Prefer conversations.json (OpenAI export format)
             for name in names:
                 if name.endswith("conversations.json"):
-                    try:
-                        return json.loads(zf.read(name))
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-            # Fall back to any .json file
+                    parsed = _loads_json_bytes(zf.read(name))
+                    if parsed is not None:
+                        return parsed
+            # Fall back to any .json/.jsonl file
             for name in names:
-                if name.lower().endswith(".json"):
-                    try:
-                        return json.loads(zf.read(name))
-                    except (json.JSONDecodeError, ValueError):
-                        continue
+                lower = name.lower()
+                raw = zf.read(name)
+                if lower.endswith(".json"):
+                    parsed = _loads_json_bytes(raw)
+                    if parsed is not None:
+                        return parsed
+                elif lower.endswith(".jsonl"):
+                    parsed_jsonl = _loads_jsonl_bytes(raw)
+                    if parsed_jsonl is not None:
+                        return parsed_jsonl
         return None
 
     def _extract_from_upload(self, parsed: dict | list) -> dict:

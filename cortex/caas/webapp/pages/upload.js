@@ -144,6 +144,10 @@
             method: 'POST',
             body: formData,
         }).then(function (resp) {
+            if (resp.status === 401) {
+                C.showLogin();
+                throw new Error('Your session expired. Please sign in and try again.');
+            }
             return resp.json().then(function (data) {
                 if (!resp.ok) {
                     var msg = (data.error && data.error.message) || data.error || 'Upload failed';
@@ -395,6 +399,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             }).then(function (resp) {
+                if (resp.status === 401) {
+                    C.showLogin();
+                    throw new Error('Your session expired. Please sign in and try again.');
+                }
                 return resp.json().then(function (data) {
                     if (!resp.ok) {
                         var msg = (data.error && data.error.message) || data.error || 'Failed';
@@ -439,6 +447,10 @@
 
     function loadApiKeys() {
         C.apiRaw('/api/keys', { method: 'GET' }).then(function (resp) {
+            if (resp.status === 401) {
+                C.showLogin();
+                throw new Error('unauthorized');
+            }
             return resp.json();
         }).then(function (keys) {
             var listEl = document.getElementById('api-keys-list');
@@ -485,6 +497,10 @@
 
     function revokeKey(keyId) {
         C.apiRaw('/api/keys/' + keyId, { method: 'DELETE' }).then(function (resp) {
+            if (resp.status === 401) {
+                C.showLogin();
+                throw new Error('Your session expired. Please sign in and try again.');
+            }
             return resp.json().then(function (data) {
                 if (!resp.ok) throw new Error('Revoke failed');
                 return data;
