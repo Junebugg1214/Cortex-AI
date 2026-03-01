@@ -649,7 +649,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         limiter = self.__class__.rate_limiter
         if limiter is None:
             return False
-        client_ip = self.client_address[0]
+        client_ip = self.client_address[0] if self.client_address else "unknown"
 
         # Support both plain RateLimiter and TieredRateLimiter
         from cortex.caas.rate_limit import TieredRateLimiter
@@ -4089,7 +4089,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # Login brute-force protection
         login_limiter = self.__class__.login_rate_limiter
         if login_limiter is not None:
-            client_ip = self.client_address[0]
+            client_ip = self.client_address[0] if self.client_address else "unknown"
             if not login_limiter.allow(client_ip):
                 self._respond(429, "application/json",
                               json.dumps({"error": "too_many_attempts"}).encode(),
