@@ -17,6 +17,8 @@ knowledge graph, and lets you share filtered views with other platforms.
 - **CaaS** — Context-as-a-Service. An HTTP API that serves your graph to
   authorized consumers via grant tokens.
 
+For a plain-language, code-driven feature inventory, see [Codebase Feature Guide](codebase-feature-guide.md).
+
 ---
 
 ## Installation

@@ -120,6 +120,7 @@ Requires Python 3.10+ (macOS, Linux, Windows). No external packages required for
 | [5-Min Python SDK Quickstart](docs/quickstart-python.md) | Install, connect, and query your knowledge graph from Python |
 | [5-Min TypeScript SDK Quickstart](docs/quickstart-typescript.md) | Same flow in TypeScript — ESM, CJS, async generators, SSE |
 | [CLI Walkthrough](docs/cli-walkthrough.md) | Guided tour of every major CLI command with annotated output |
+| [Codebase Feature Guide](docs/codebase-feature-guide.md) | Plain-language walkthrough of what the app does, all major features, and how to use them |
 | [Error Reference](docs/error-guide.md) | All 17 UPAI error codes with causes and fixes |
 | [Interactive API Docs](http://localhost:8421/docs) | Swagger UI — start the server and open `/docs` |
 | [Postman Collection](docs/cortex-api.postman_collection.json) | Import into Postman for interactive API exploration |
