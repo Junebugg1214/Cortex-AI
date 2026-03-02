@@ -933,8 +933,25 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if auth_header.startswith("Bearer "):
             return self._authenticate(required_scope)
 
-        sm = self.__class__.session_manager
         cookie_header = self.headers.get("Cookie", "")
+
+        # Check multi-user session cookie (cortex_user_session)
+        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
+            mu_sm = self.__class__.multi_user_session_manager
+            if mu_sm is not None:
+                for part in cookie_header.split(";"):
+                    part = part.strip()
+                    if part.startswith("cortex_user_session="):
+                        token = part[len("cortex_user_session="):]
+                        if token and mu_sm.validate_user_session(token) is not None:
+                            return {
+                                "_user_session": True,
+                                "scopes": list(VALID_SCOPES),
+                                "policy": "full",
+                            }
+                        break
+
+        sm = self.__class__.session_manager
 
         # Check webapp session cookie (cortex_app_session)
         if getattr(self.__class__, "enable_webapp", False) and sm is not None:
@@ -1224,7 +1241,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         # Owner sessions (webapp/dashboard) honor the ?policy= query param
-        if token_data.get("_webapp") or token_data.get("_dashboard"):
+        if token_data.get("_webapp") or token_data.get("_dashboard") or token_data.get("_user_session"):
             policy_name = query.get("policy", ["full"])[0]
         else:
             policy_name = self._get_policy_for_token(token_data)
@@ -1244,7 +1261,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_CONFIGURED())
             return
 
-        if token_data.get("_webapp") or token_data.get("_dashboard"):
+        if token_data.get("_webapp") or token_data.get("_dashboard") or token_data.get("_user_session"):
             policy_name = query.get("policy", ["full"])[0]
         else:
             policy_name = self._get_policy_for_token(token_data)
@@ -2562,7 +2579,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             if not is_auth:
                 return  # Already sent 401
         else:
-            if not self._webapp_auth_check():
+            if not self._webapp_or_multiuser_auth_check():
                 return
 
         content_type = self.headers.get("Content-Type", "")
@@ -3128,7 +3145,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             if not is_auth:
                 return
         else:
-            if not self._webapp_auth_check():
+            if not self._webapp_or_multiuser_auth_check():
                 return
 
         body = self._read_body()
@@ -3167,7 +3184,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             if not is_auth:
                 return
         else:
-            if not self._webapp_auth_check():
+            if not self._webapp_or_multiuser_auth_check():
                 return
 
         body = self._read_body()
@@ -3231,7 +3248,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         parsed = urllib.parse.urlparse(self.path)
@@ -3268,7 +3285,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         store = self._get_profile_store()
         profiles = store.list_all()
@@ -3282,7 +3299,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         parsed = urllib.parse.urlparse(self.path)
@@ -3333,7 +3350,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         graph = self.__class__.graph
@@ -3352,7 +3369,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         body = self._read_body()
@@ -3404,7 +3421,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         store = self._get_profile_store()
@@ -3484,7 +3501,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         store = self.__class__.credential_store
@@ -3522,7 +3539,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         identity = self.__class__.identity
@@ -3604,7 +3621,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         store = self.__class__.credential_store
@@ -3653,7 +3670,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         graph = self.__class__.graph
         if graph is None:
@@ -3671,7 +3688,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         graph = self.__class__.graph
         if graph is None:
@@ -3688,7 +3705,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         graph = self.__class__.graph
         if graph is None:
@@ -3736,7 +3753,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         graph = self.__class__.graph
         if graph is None:
@@ -3786,7 +3803,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
         graph = self.__class__.graph
         if graph is None:
@@ -3816,7 +3833,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         body = self._read_body()
@@ -3835,7 +3852,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         connectors = self._get_connector_service().list_all()
@@ -3846,7 +3863,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         connector = self._get_connector_service().get(connector_id)
@@ -3860,7 +3877,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         body = self._read_body()
@@ -3882,7 +3899,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         deleted = self._get_connector_service().delete(connector_id)
@@ -3904,7 +3921,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         body = self._read_body()
@@ -3941,7 +3958,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         store = self._get_api_key_store()
@@ -3952,7 +3969,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self.__class__.enable_webapp:
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
-        if not self._webapp_auth_check():
+        if not self._webapp_or_multiuser_auth_check():
             return
 
         store = self._get_api_key_store()
@@ -4144,6 +4161,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         # Fall back to dashboard session cookie
         return self._dashboard_auth_check()
+
+    def _webapp_or_multiuser_auth_check(self) -> bool:
+        """Validate auth for webapp APIs in both single-user and multi-user modes."""
+        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
+            is_auth, _ = self._multi_user_auth_check()
+            return is_auth
+        return self._webapp_auth_check()
 
     def _handle_webapp_login(self) -> None:
         """POST /app/auth — authenticate webapp with derived password."""
@@ -5184,6 +5208,10 @@ def start_caas_server(
     from cortex.caas.token_cache import TokenCache
     CaaSHandler.token_cache = TokenCache(max_size=1024, ttl=30.0)
     CaaSHandler.enable_webapp = enable_webapp
+    CaaSHandler.multi_user_enabled = False
+    CaaSHandler.multi_user_session_manager = None
+    CaaSHandler.user_graph_resolver = None
+    CaaSHandler.user_store = None
     if config is not None:
         # Upload cap used by /api/upload (applies in both single-user and multi-user modes).
         _cfg_upload_max = config.getint(
@@ -5191,6 +5219,10 @@ def start_caas_server(
         )
         if _cfg_upload_max > 0:
             CaaSHandler.max_upload_bytes = _cfg_upload_max
+        CaaSHandler.registration_open = config.getbool("users", "registration_open", fallback=True)
+        _cfg_quota = config.getint("users", "default_quota_bytes", fallback=CaaSHandler.default_user_quota)
+        if _cfg_quota > 0:
+            CaaSHandler.default_user_quota = _cfg_quota
 
     # HSTS (opt-in)
     if config is not None:
@@ -5358,6 +5390,29 @@ def start_caas_server(
         CaaSHandler.keychain = Keychain(Path(store_dir))
     else:
         CaaSHandler.keychain = None
+
+    # Multi-user mode (signup/login + per-user sessions/graphs)
+    if config is not None and config.getbool("users", "enabled", fallback=False):
+        if not _MULTI_USER_AVAILABLE:
+            print("[WARN] Multi-user mode requested but module is unavailable; running single-user.")
+        elif storage_backend != "sqlite" or not db_path:
+            print("[WARN] Multi-user mode requires SQLite storage with --db-path; running single-user.")
+        else:
+            try:
+                _user_session_ttl = config.getint("users", "session_ttl_seconds", fallback=604800)
+                if _user_session_ttl <= 0:
+                    _user_session_ttl = 604800
+                CaaSHandler.user_store = SqliteUserStore(db_path)
+                CaaSHandler.multi_user_session_manager = MultiUserSessionManager(
+                    identity,
+                    CaaSHandler.user_store,
+                    user_session_ttl=float(_user_session_ttl),
+                )
+                resolver_base = Path(store_dir) if store_dir else Path(".cortex")
+                CaaSHandler.user_graph_resolver = UserGraphResolver(resolver_base)
+                CaaSHandler.multi_user_enabled = True
+            except Exception as exc:
+                print(f"[WARN] Failed to initialize multi-user mode: {exc}; running single-user.")
 
     if allowed_origins:
         CaaSHandler._allowed_origins = allowed_origins
