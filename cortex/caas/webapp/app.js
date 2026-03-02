@@ -259,7 +259,7 @@
     }
 
     function markPageVisited(page) {
-        var allowed = { upload: true, memory: true, share: true, profile: true };
+        var allowed = { upload: true, memory: true, share: true, connectors: true, profile: true };
         if (!allowed[page]) return;
         var visited = getVisitedPages();
         if (visited[page]) return;
@@ -296,6 +296,14 @@
                 ctaHref: '#share',
             };
         }
+        if (!visited.connectors) {
+            return {
+                title: 'Connect your external AI tools',
+                detail: 'Add provider connectors so memory continuity is easier across assistants.',
+                ctaLabel: 'Open Connectors',
+                ctaHref: '#connectors',
+            };
+        }
         if (!visited.profile) {
             return {
                 title: 'Optional: publish a public profile',
@@ -325,6 +333,7 @@
             { id: 'import', label: 'Import', done: onboardingState.hasData },
             { id: 'explore', label: 'Explore', done: onboardingState.hasData && !!visited.memory },
             { id: 'share', label: 'Share', done: onboardingState.hasShareKey },
+            { id: 'connect', label: 'Connect', done: !!visited.connectors },
         ];
         var firstIncomplete = null;
         for (var i = 0; i < steps.length; i++) {

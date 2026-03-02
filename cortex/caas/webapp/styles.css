@@ -1668,6 +1668,115 @@ body {
     margin-top: 12px;
 }
 
+/* ── Connectors Page ───────────────────────────────────────── */
+
+.connector-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+.connector-create h3 {
+    margin-bottom: 14px;
+}
+
+.connector-form {
+    display: grid;
+    gap: 10px;
+}
+
+.connector-list {
+    display: grid;
+    gap: 14px;
+}
+
+.connector-item h3 {
+    font-size: 17px;
+    margin-bottom: 3px;
+}
+
+.connector-item p {
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+.connector-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.connector-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.connector-status-active {
+    background: var(--color-success-light);
+    color: var(--color-success);
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.connector-status-paused {
+    background: var(--color-warning-light);
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.connector-status-error {
+    background: var(--color-danger-light);
+    color: var(--color-danger);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.connector-meta {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 10px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+}
+
+.connector-scopes {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.connector-scope {
+    border: 1px solid var(--color-border);
+    background: #f8fafc;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.connector-actions {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.connector-empty h3 {
+    margin-bottom: 6px;
+}
+
+.connector-empty p {
+    color: var(--color-text-secondary);
+}
+
 /* ── Signup Page ───────────────────────────────────────────── */
 
 .signup-page {
@@ -1757,6 +1866,8 @@ body {
 
 @media (max-width: 768px) {
     .import-cards { grid-template-columns: 1fr; }
+    .connector-layout { grid-template-columns: 1fr; }
+    .connector-meta { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {

@@ -74,6 +74,11 @@ class TestWebappStaticResolution:
         assert resolved is not None
         assert resolved.name == "share.js"
 
+    def test_connectors_page_resolves(self):
+        resolved = resolve_webapp_path("/app/pages/connectors.js")
+        assert resolved is not None
+        assert resolved.name == "connectors.js"
+
     def test_nonexistent_returns_none(self):
         resolved = resolve_webapp_path("/app/nonexistent.xyz")
         assert resolved is None
@@ -230,6 +235,11 @@ class TestWebappServing:
         body, status, ct = _get_raw(self.port, "/app/pages/share.js")
         assert status == 200
         assert b"share" in body.lower()
+
+    def test_connectors_js_served(self):
+        body, status, ct = _get_raw(self.port, "/app/pages/connectors.js")
+        assert status == 200
+        assert b"connectors" in body.lower()
 
     def test_nonexistent_file_returns_404(self):
         body, status, ct = _get_raw(self.port, "/app/nonexistent.xyz")
