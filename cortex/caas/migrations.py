@@ -43,6 +43,24 @@ _MIGRATIONS: list[Migration] = [
         description="Encryption support available — no schema changes needed",
         up_sql="-- encryption: encrypted values stored in existing TEXT columns",
     ),
+    Migration(
+        version=3,
+        description="Connector account links table",
+        up_sql="""
+            CREATE TABLE IF NOT EXISTS connectors (
+                connector_id      TEXT PRIMARY KEY,
+                provider          TEXT NOT NULL,
+                account_label     TEXT NOT NULL DEFAULT '',
+                external_user_id  TEXT NOT NULL DEFAULT '',
+                scopes            TEXT NOT NULL DEFAULT '[]',
+                status            TEXT NOT NULL DEFAULT 'active',
+                metadata          TEXT NOT NULL DEFAULT '{}',
+                created_at        TEXT NOT NULL DEFAULT '',
+                updated_at        TEXT NOT NULL DEFAULT '',
+                last_sync_at      TEXT NOT NULL DEFAULT ''
+            )
+        """,
+    ),
 ]
 
 

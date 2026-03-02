@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from cortex.caas.storage import (
     AbstractAuditLog,
+    AbstractConnectorStore,
     AbstractGrantStore,
     AbstractPolicyStore,
     AbstractWebhookStore,
@@ -551,3 +552,115 @@ class PostgresPolicyStore(_PostgresBase, AbstractPolicyStore):
             redact_properties=json.loads(row[4]),
             max_nodes=row[5],
         )
+
+
+# ---------------------------------------------------------------------------
+# PostgresConnectorStore
+# ---------------------------------------------------------------------------
+
+class PostgresConnectorStore(_PostgresBase, AbstractConnectorStore):
+    """Connector account links backed by PostgreSQL."""
+
+    def __init__(self, conninfo: str, *, pool=None) -> None:
+        super().__init__(conninfo, pool=pool)
+
+    def _create_tables(self) -> None:
+        self._exec("""
+            CREATE TABLE IF NOT EXISTS connectors (
+                connector_id     TEXT PRIMARY KEY,
+                provider         TEXT NOT NULL,
+                account_label    TEXT NOT NULL DEFAULT '',
+                external_user_id TEXT NOT NULL DEFAULT '',
+                scopes           TEXT NOT NULL DEFAULT '[]',
+                status           TEXT NOT NULL DEFAULT 'active',
+                metadata         TEXT NOT NULL DEFAULT '{}',
+                created_at       TEXT NOT NULL DEFAULT '',
+                updated_at       TEXT NOT NULL DEFAULT '',
+                last_sync_at     TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+    def add(self, connector: dict) -> None:
+        self._exec(
+            "INSERT INTO connectors "
+            "(connector_id, provider, account_label, external_user_id, scopes, status, metadata, "
+            "created_at, updated_at, last_sync_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (connector_id) DO UPDATE SET "
+            "provider=EXCLUDED.provider, account_label=EXCLUDED.account_label, "
+            "external_user_id=EXCLUDED.external_user_id, scopes=EXCLUDED.scopes, "
+            "status=EXCLUDED.status, metadata=EXCLUDED.metadata, "
+            "created_at=EXCLUDED.created_at, updated_at=EXCLUDED.updated_at, "
+            "last_sync_at=EXCLUDED.last_sync_at",
+            (
+                connector["connector_id"],
+                connector["provider"],
+                connector.get("account_label", ""),
+                connector.get("external_user_id", ""),
+                json.dumps(connector.get("scopes", [])),
+                connector.get("status", "active"),
+                json.dumps(connector.get("metadata", {})),
+                connector.get("created_at", ""),
+                connector.get("updated_at", ""),
+                connector.get("last_sync_at", ""),
+            ),
+        )
+
+    def get(self, connector_id: str) -> dict | None:
+        row = self._exec_fetchone(
+            "SELECT connector_id, provider, account_label, external_user_id, scopes, status, "
+            "metadata, created_at, updated_at, last_sync_at "
+            "FROM connectors WHERE connector_id = %s",
+            (connector_id,),
+        )
+        if row is None:
+            return None
+        return self._row_to_connector(row)
+
+    def list_all(self) -> list[dict]:
+        rows = self._exec_fetchall(
+            "SELECT connector_id, provider, account_label, external_user_id, scopes, status, "
+            "metadata, created_at, updated_at, last_sync_at "
+            "FROM connectors ORDER BY created_at"
+        )
+        return [self._row_to_connector(row) for row in rows]
+
+    def update(self, connector_id: str, updates: dict) -> dict | None:
+        current = self.get(connector_id)
+        if current is None:
+            return None
+        merged = dict(current)
+        merged.update(updates)
+        merged["connector_id"] = connector_id
+        self.add(merged)
+        return merged
+
+    def delete(self, connector_id: str) -> bool:
+        cur = self._exec(
+            "DELETE FROM connectors WHERE connector_id = %s",
+            (connector_id,),
+        )
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_connector(row: tuple) -> dict:
+        try:
+            scopes = json.loads(row[4])
+        except (json.JSONDecodeError, TypeError):
+            scopes = []
+        try:
+            metadata = json.loads(row[6])
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+        return {
+            "connector_id": row[0],
+            "provider": row[1],
+            "account_label": row[2],
+            "external_user_id": row[3],
+            "scopes": scopes,
+            "status": row[5],
+            "metadata": metadata,
+            "created_at": row[7],
+            "updated_at": row[8],
+            "last_sync_at": row[9],
+        }

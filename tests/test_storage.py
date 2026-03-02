@@ -13,11 +13,12 @@ import pytest
 from cortex.caas.server import JsonGrantStore
 from cortex.caas.sqlite_store import (
     SqliteAuditLog,
+    SqliteConnectorStore,
     SqliteDeliveryLog,
     SqliteGrantStore,
     SqliteWebhookStore,
 )
-from cortex.caas.storage import InMemoryAuditLog, JsonWebhookStore
+from cortex.caas.storage import InMemoryAuditLog, JsonConnectorStore, JsonWebhookStore
 from cortex.upai.webhooks import create_webhook
 
 # ---------------------------------------------------------------------------
@@ -61,6 +62,13 @@ def _make_token_data(audience="TestAudience", policy="professional"):
         "issued_at": "2026-01-01T00:00:00Z",
         "scopes": ["context:read"],
     }
+
+
+@pytest.fixture(params=["json", "sqlite"])
+def connector_store(request, tmpdir):
+    if request.param == "json":
+        return JsonConnectorStore()
+    return SqliteConnectorStore(str(Path(tmpdir) / "test.db"))
 
 
 # ============================================================================
@@ -239,6 +247,53 @@ class TestAuditLog:
     def test_empty_query(self, audit_log):
         entries = audit_log.query()
         assert entries == []
+
+
+# ============================================================================
+# Connector store tests
+# ============================================================================
+
+class TestConnectorStore:
+
+    def test_add_and_get(self, connector_store):
+        connector = {
+            "connector_id": "cn_1",
+            "provider": "openai",
+            "account_label": "Primary",
+            "external_user_id": "u_1",
+            "scopes": ["memory:read"],
+            "status": "active",
+            "metadata": {"plan": "pro"},
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_sync_at": "",
+        }
+        connector_store.add(connector)
+        result = connector_store.get("cn_1")
+        assert result is not None
+        assert result["provider"] == "openai"
+        assert result["metadata"]["plan"] == "pro"
+
+    def test_list_update_delete(self, connector_store):
+        connector_store.add({
+            "connector_id": "cn_1",
+            "provider": "openai",
+            "account_label": "Primary",
+            "external_user_id": "u_1",
+            "scopes": [],
+            "status": "active",
+            "metadata": {},
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_sync_at": "",
+        })
+        items = connector_store.list_all()
+        assert len(items) == 1
+        updated = connector_store.update("cn_1", {"status": "paused"})
+        assert updated is not None
+        assert updated["status"] == "paused"
+        assert connector_store.delete("cn_1") is True
+        assert connector_store.get("cn_1") is None
 
 
 # ============================================================================

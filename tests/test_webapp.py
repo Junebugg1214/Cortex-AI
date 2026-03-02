@@ -138,6 +138,7 @@ def _setup_webapp_server(enable_webapp=True):
     CaaSHandler.credential_store = None
     CaaSHandler.csrf_enabled = False
     CaaSHandler.api_key_store = None
+    CaaSHandler.connector_store = None
 
     from cortex.caas.dashboard.auth import DashboardSessionManager
     CaaSHandler.session_manager = DashboardSessionManager(identity)
@@ -663,6 +664,25 @@ def _delete_req(port, path, cookie=None):
             return {"raw": raw.decode("utf-8", errors="replace")}, e.code
 
 
+def _put_json(port, path, body, cookie=None):
+    """PUT JSON to a path, return (parsed_json, status)."""
+    url = f"http://127.0.0.1:{port}{path}"
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="PUT")
+    req.add_header("Content-Type", "application/json")
+    if cookie:
+        req.add_header("Cookie", cookie)
+    try:
+        resp = urllib.request.urlopen(req)
+        return json.loads(resp.read()), resp.status
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return json.loads(raw), e.code
+        except (json.JSONDecodeError, ValueError):
+            return {"raw": raw.decode("utf-8", errors="replace")}, e.code
+
+
 @pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
 class TestWebappImportEndpoints:
     """Test POST /api/import/github and /api/import/linkedin."""
@@ -851,6 +871,68 @@ class TestWebappApiKeys:
         assert "<user-context>" in text
 
 
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappConnectors:
+    """Test connector CRUD endpoints."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        CaaSHandler.connector_store = None
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def test_create_connector_requires_auth(self):
+        data, status = _post_json(self.port, "/api/connectors", {"provider": "openai"})
+        assert status == 401
+
+    def test_connector_crud(self):
+        cookie = _login(self.port, self.identity)
+        created, status = _post_json(
+            self.port,
+            "/api/connectors",
+            {
+                "provider": "openai",
+                "account_label": "Primary",
+                "scopes": ["memory:read", "memory:write"],
+                "metadata": {"workspace": "main"},
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+        connector_id = created["connector_id"]
+        assert connector_id.startswith("cn_")
+
+        body, status, _ = _get_raw(self.port, "/api/connectors", cookie=cookie)
+        assert status == 200
+        listed = json.loads(body)
+        assert listed["count"] >= 1
+        assert any(c["connector_id"] == connector_id for c in listed["connectors"])
+
+        body, status, _ = _get_raw(self.port, f"/api/connectors/{connector_id}", cookie=cookie)
+        assert status == 200
+        fetched = json.loads(body)
+        assert fetched["provider"] == "openai"
+
+        updated, status = _put_json(
+            self.port,
+            f"/api/connectors/{connector_id}",
+            {"status": "paused", "metadata": {"workspace": "prod"}},
+            cookie=cookie,
+        )
+        assert status == 200
+        assert updated["status"] == "paused"
+        assert updated["metadata"]["workspace"] == "prod"
+
+        deleted, status = _delete_req(self.port, f"/api/connectors/{connector_id}", cookie=cookie)
+        assert status == 200
+        assert deleted["deleted"] is True
+
+        body, status, _ = _get_raw(self.port, f"/api/connectors/{connector_id}", cookie=cookie)
+        assert status == 404
+
+
 # ============================================================================
 # Public memory query endpoint
 # ============================================================================
@@ -901,6 +983,7 @@ def _setup_query_server():
     CaaSHandler.credential_store = None
     CaaSHandler.csrf_enabled = False
     CaaSHandler.api_key_store = None
+    CaaSHandler.connector_store = None
 
     from cortex.caas.dashboard.auth import DashboardSessionManager
     CaaSHandler.session_manager = DashboardSessionManager(identity)

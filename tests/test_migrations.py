@@ -70,8 +70,8 @@ class TestMigrationRunner:
         runner = MigrationRunner(conn)
         assert not runner.is_applied(1)
         runner.migrate()
-        assert runner.is_applied(1)
-        assert runner.is_applied(2)
+        for migration in _MIGRATIONS:
+            assert runner.is_applied(migration.version)
         conn.close()
 
     def test_pending_after_partial(self):
@@ -111,9 +111,10 @@ class TestMigrationOrder:
         assert len(versions) == len(set(versions))
 
     def test_builtin_migrations_exist(self):
-        assert len(_MIGRATIONS) >= 2
+        assert len(_MIGRATIONS) >= 3
         assert _MIGRATIONS[0].version == 1
         assert _MIGRATIONS[1].version == 2
+        assert _MIGRATIONS[2].version == 3
 
 
 # ---------------------------------------------------------------------------

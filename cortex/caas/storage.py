@@ -77,6 +77,25 @@ class AbstractPolicyStore(abc.ABC):
     def delete(self, name: str) -> bool: ...
 
 
+class AbstractConnectorStore(abc.ABC):
+    """Thread-safe connector configuration store interface."""
+
+    @abc.abstractmethod
+    def add(self, connector: dict) -> None: ...
+
+    @abc.abstractmethod
+    def get(self, connector_id: str) -> dict | None: ...
+
+    @abc.abstractmethod
+    def list_all(self) -> list[dict]: ...
+
+    @abc.abstractmethod
+    def update(self, connector_id: str, updates: dict) -> dict | None: ...
+
+    @abc.abstractmethod
+    def delete(self, connector_id: str) -> bool: ...
+
+
 class AbstractAuditLog(abc.ABC):
     """Append-only audit event log interface."""
 
@@ -189,4 +208,46 @@ class JsonPolicyStore(AbstractPolicyStore):
             if name not in self._policies:
                 return False
             del self._policies[name]
+            return True
+
+
+class JsonConnectorStore(AbstractConnectorStore):
+    """Thread-safe in-memory connector store."""
+
+    def __init__(self) -> None:
+        self._connectors: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def add(self, connector: dict) -> None:
+        connector_id = str(connector.get("connector_id", ""))
+        if not connector_id:
+            raise ValueError("connector_id is required")
+        with self._lock:
+            self._connectors[connector_id] = dict(connector)
+
+    def get(self, connector_id: str) -> dict | None:
+        with self._lock:
+            connector = self._connectors.get(connector_id)
+            return dict(connector) if connector is not None else None
+
+    def list_all(self) -> list[dict]:
+        with self._lock:
+            return [dict(c) for c in self._connectors.values()]
+
+    def update(self, connector_id: str, updates: dict) -> dict | None:
+        with self._lock:
+            current = self._connectors.get(connector_id)
+            if current is None:
+                return None
+            merged = dict(current)
+            merged.update(updates)
+            merged["connector_id"] = connector_id
+            self._connectors[connector_id] = merged
+            return dict(merged)
+
+    def delete(self, connector_id: str) -> bool:
+        with self._lock:
+            if connector_id not in self._connectors:
+                return False
+            del self._connectors[connector_id]
             return True

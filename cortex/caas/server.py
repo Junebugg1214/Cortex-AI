@@ -58,7 +58,14 @@ from cortex.caas.caching import check_if_none_match, generate_etag, get_cache_pr
 from cortex.caas.correlation import parse_request_id
 from cortex.caas.dashboard.auth import DashboardSessionManager
 from cortex.caas.dashboard.static import guess_content_type, resolve_dashboard_path
-from cortex.caas.storage import AbstractAuditLog, AbstractGrantStore, AbstractWebhookStore, JsonWebhookStore
+from cortex.caas.storage import (
+    AbstractAuditLog,
+    AbstractConnectorStore,
+    AbstractGrantStore,
+    AbstractWebhookStore,
+    JsonConnectorStore,
+    JsonWebhookStore,
+)
 from cortex.caas.webapp.static import guess_webapp_content_type, resolve_webapp_path
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, PolicyRegistry, apply_disclosure
 from cortex.upai.errors import (
@@ -253,6 +260,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     token_cache: Any = None  # Optional TokenCache for verified token caching
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
+    connector_store: AbstractConnectorStore | None = None  # External connector store
     store_dir: str | None = None  # Storage directory for data files
     context_path: str | None = None  # Path to context.json for persistence
 
@@ -466,6 +474,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── API key routes ──────────────────────────────────────
         elif path == "/api/keys":
             self._handle_list_api_keys()
+        # ── Connector routes ────────────────────────────────────
+        elif path == "/api/connectors":
+            self._handle_list_connectors()
+        elif path.startswith("/api/connectors/"):
+            connector_id = path[len("/api/connectors/"):]
+            if self._validate_path_id(connector_id):
+                self._handle_get_connector(connector_id)
         elif path.startswith("/api/memory/"):
             self._handle_public_memory(path, query)
         elif path.startswith("/api/resume/"):
@@ -534,6 +549,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_timeline_entry()
         elif path == "/api/keys":
             self._handle_create_api_key()
+        elif path == "/api/connectors":
+            self._handle_create_connector()
         # ── Webapp auth routes ────────────────────────────────────
         elif path == "/app/auth":
             self._handle_webapp_login()
@@ -607,6 +624,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             key_id = path[len("/api/keys/"):]
             if self._validate_path_id(key_id):
                 self._handle_revoke_api_key(key_id)
+        elif path.startswith("/api/connectors/"):
+            connector_id = path[len("/api/connectors/"):]
+            if self._validate_path_id(connector_id):
+                self._handle_delete_connector(connector_id)
         # ── Dashboard routes ──────────────────────────────────────
         elif path.startswith("/dashboard/api/"):
             self._route_dashboard_api_delete(path)
@@ -635,6 +656,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             policy_name = path[len("/policies/"):]
             if self._validate_path_id(policy_name):
                 self._handle_update_policy(policy_name)
+        elif path.startswith("/api/connectors/"):
+            connector_id = path[len("/api/connectors/"):]
+            if self._validate_path_id(connector_id):
+                self._handle_update_connector(connector_id)
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
@@ -3778,6 +3803,94 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     # ── API Key endpoints ────────────────────────────────────────────
 
+    def _get_connector_service(self):
+        """Lazy-init connector service + store."""
+        from cortex.caas.connectors import ConnectorService
+
+        if self.__class__.connector_store is None:
+            self.__class__.connector_store = JsonConnectorStore()
+        return ConnectorService(self.__class__.connector_store)
+
+    def _handle_create_connector(self) -> None:
+        """POST /api/connectors — create a connector link."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            connector = self._get_connector_service().create(body)
+        except ValueError as exc:
+            self._error_response(ERR_INVALID_REQUEST(str(exc)))
+            return
+        self._json_response(connector, status=201)
+
+    def _handle_list_connectors(self) -> None:
+        """GET /api/connectors — list all connector links."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        connectors = self._get_connector_service().list_all()
+        self._json_response({"connectors": connectors, "count": len(connectors)})
+
+    def _handle_get_connector(self, connector_id: str) -> None:
+        """GET /api/connectors/{id} — get one connector."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        connector = self._get_connector_service().get(connector_id)
+        if connector is None:
+            self._error_response(ERR_NOT_FOUND("connector"))
+            return
+        self._json_response(connector)
+
+    def _handle_update_connector(self, connector_id: str) -> None:
+        """PUT /api/connectors/{id} — update connector metadata/status."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            connector = self._get_connector_service().update(connector_id, body)
+        except ValueError as exc:
+            self._error_response(ERR_INVALID_REQUEST(str(exc)))
+            return
+        if connector is None:
+            self._error_response(ERR_NOT_FOUND("connector"))
+            return
+        self._json_response(connector)
+
+    def _handle_delete_connector(self, connector_id: str) -> None:
+        """DELETE /api/connectors/{id} — delete connector link."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_auth_check():
+            return
+
+        deleted = self._get_connector_service().delete(connector_id)
+        if not deleted:
+            self._error_response(ERR_NOT_FOUND("connector"))
+            return
+        self._json_response({"deleted": True, "connector_id": connector_id})
+
     def _get_api_key_store(self):
         """Lazy-init the API key store."""
         if self.__class__.api_key_store is None:
@@ -5139,6 +5252,7 @@ def start_caas_server(
     if storage_backend == "sqlite" and db_path:
         from cortex.caas.sqlite_store import (
             SqliteAuditLog,
+            SqliteConnectorStore,
             SqliteDeliveryLog,
             SqliteGrantStore,
             SqlitePolicyStore,
@@ -5160,6 +5274,7 @@ def start_caas_server(
         CaaSHandler.webhook_store = webhook_store
         CaaSHandler.audit_log = SqliteAuditLog(db_path)
         CaaSHandler.policy_registry = PolicyRegistry(store=SqlitePolicyStore(db_path))
+        CaaSHandler.connector_store = SqliteConnectorStore(db_path)
         delivery_log = SqliteDeliveryLog(db_path)
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
@@ -5169,6 +5284,7 @@ def start_caas_server(
         try:
             from cortex.caas.postgres_store import (
                 PostgresAuditLog,
+                PostgresConnectorStore,
                 PostgresDeliveryLog,
                 PostgresGrantStore,
                 PostgresPolicyStore,
@@ -5193,6 +5309,7 @@ def start_caas_server(
         CaaSHandler.webhook_store = webhook_store
         CaaSHandler.audit_log = PostgresAuditLog(db_path, pool=pool)
         CaaSHandler.policy_registry = PolicyRegistry(store=PostgresPolicyStore(db_path, pool=pool))
+        CaaSHandler.connector_store = PostgresConnectorStore(db_path, pool=pool)
         delivery_log = PostgresDeliveryLog(db_path, pool=pool)
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(webhook_store, delivery_log=delivery_log)
@@ -5211,6 +5328,7 @@ def start_caas_server(
         CaaSHandler.grant_store = JsonGrantStore(persist_path=grants_persist_path)
         json_webhook_store = JsonWebhookStore()
         CaaSHandler.webhook_store = json_webhook_store
+        CaaSHandler.connector_store = JsonConnectorStore()
         CaaSHandler.audit_log = None
         from cortex.caas.webhook_worker import WebhookWorker
         worker = WebhookWorker(json_webhook_store)

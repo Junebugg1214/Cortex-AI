@@ -13,7 +13,13 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from cortex.caas.storage import AbstractAuditLog, AbstractGrantStore, AbstractPolicyStore, AbstractWebhookStore
+from cortex.caas.storage import (
+    AbstractAuditLog,
+    AbstractConnectorStore,
+    AbstractGrantStore,
+    AbstractPolicyStore,
+    AbstractWebhookStore,
+)
 from cortex.upai.disclosure import DisclosurePolicy
 from cortex.upai.webhooks import WebhookRegistration
 
@@ -471,3 +477,107 @@ class SqlitePolicyStore(_SqliteBase, AbstractPolicyStore):
             redact_properties=json.loads(row["redact_properties"]),
             max_nodes=row["max_nodes"],
         )
+
+
+# ---------------------------------------------------------------------------
+# SqliteConnectorStore
+# ---------------------------------------------------------------------------
+
+class SqliteConnectorStore(_SqliteBase, AbstractConnectorStore):
+    """Connector account links backed by SQLite."""
+
+    def _create_tables(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS connectors (
+                connector_id      TEXT PRIMARY KEY,
+                provider          TEXT NOT NULL,
+                account_label     TEXT NOT NULL DEFAULT '',
+                external_user_id  TEXT NOT NULL DEFAULT '',
+                scopes            TEXT NOT NULL DEFAULT '[]',
+                status            TEXT NOT NULL DEFAULT 'active',
+                metadata          TEXT NOT NULL DEFAULT '{}',
+                created_at        TEXT NOT NULL DEFAULT '',
+                updated_at        TEXT NOT NULL DEFAULT '',
+                last_sync_at      TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        self._conn.commit()
+
+    def add(self, connector: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO connectors "
+                "(connector_id, provider, account_label, external_user_id, scopes, status, metadata, "
+                "created_at, updated_at, last_sync_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    connector["connector_id"],
+                    connector["provider"],
+                    connector.get("account_label", ""),
+                    connector.get("external_user_id", ""),
+                    json.dumps(connector.get("scopes", [])),
+                    connector.get("status", "active"),
+                    json.dumps(connector.get("metadata", {})),
+                    connector.get("created_at", ""),
+                    connector.get("updated_at", ""),
+                    connector.get("last_sync_at", ""),
+                ),
+            )
+            self._conn.commit()
+
+    def get(self, connector_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM connectors WHERE connector_id = ?", (connector_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_connector(row)
+
+    def list_all(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM connectors ORDER BY created_at"
+            ).fetchall()
+        return [self._row_to_connector(row) for row in rows]
+
+    def update(self, connector_id: str, updates: dict) -> dict | None:
+        current = self.get(connector_id)
+        if current is None:
+            return None
+        merged = dict(current)
+        merged.update(updates)
+        merged["connector_id"] = connector_id
+        self.add(merged)
+        return merged
+
+    def delete(self, connector_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM connectors WHERE connector_id = ?", (connector_id,)
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    @staticmethod
+    def _row_to_connector(row: sqlite3.Row) -> dict:
+        try:
+            scopes = json.loads(row["scopes"])
+        except (json.JSONDecodeError, TypeError):
+            scopes = []
+        try:
+            metadata = json.loads(row["metadata"])
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+        return {
+            "connector_id": row["connector_id"],
+            "provider": row["provider"],
+            "account_label": row["account_label"],
+            "external_user_id": row["external_user_id"],
+            "scopes": scopes,
+            "status": row["status"],
+            "metadata": metadata,
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "last_sync_at": row["last_sync_at"],
+        }
