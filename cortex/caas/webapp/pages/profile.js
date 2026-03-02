@@ -2,6 +2,7 @@
 (function () {
     'use strict';
     var C = window.CortexApp;
+    var pendingDelete = null;
 
     var SECTIONS = [
         { id: 'about', name: 'About' },
@@ -23,55 +24,61 @@
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Public Profile</h1>' +
-            '  <p>Configure your public profile page</p>' +
+            '  <p>Configure and publish your profile in a few steps</p>' +
             '</div>' +
-            '<div style="margin-bottom:16px;">' +
-            '  <label style="font-weight:600;display:block;margin-bottom:4px;">Profile</label>' +
-            '  <select id="profile-selector" class="login-input" style="width:300px;"></select>' +
-            '  <button class="btn btn-outline" id="btn-new-profile" style="margin-left:8px;">+ New Profile</button>' +
-            '  <button class="btn btn-danger" id="btn-delete-profile" style="margin-left:8px;display:none;">Delete</button>' +
+            '<div class="profile-toolbar">' +
+            '  <div class="profile-field">' +
+            '    <label class="profile-label" for="profile-selector">Profile</label>' +
+            '    <select id="profile-selector" class="login-input profile-select"></select>' +
+            '  </div>' +
+            '  <div class="profile-toolbar-actions">' +
+            '    <button class="btn btn-outline" id="btn-new-profile">+ New Profile</button>' +
+            '    <button class="btn btn-outline btn-danger is-hidden" id="btn-delete-profile">Delete</button>' +
+            '  </div>' +
             '</div>' +
-            '<div class="profile-config card" style="padding:20px;">' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Handle</label>' +
-            '    <input type="text" id="profile-handle" class="login-input" placeholder="your-name" style="width:300px;">' +
-            '    <span style="color:#6b7280;font-size:13px;margin-left:8px;">URL: /p/<span id="handle-preview">your-name</span></span>' +
+            '<div id="profile-empty-hint" class="profile-empty-hint is-hidden">No profiles yet. Click <strong>+ New Profile</strong> to create your first one.</div>' +
+            '<div class="profile-config card">' +
+            '  <div class="profile-grid">' +
+            '    <div class="profile-field">' +
+            '      <label class="profile-label" for="profile-handle">Handle</label>' +
+            '      <input type="text" id="profile-handle" class="login-input" placeholder="your-name">' +
+            '      <div class="profile-help">URL: /p/<span id="handle-preview">your-name</span></div>' +
+            '    </div>' +
+            '    <div class="profile-field">' +
+            '      <label class="profile-label" for="profile-name">Display Name</label>' +
+            '      <input type="text" id="profile-name" class="login-input" placeholder="Your Full Name">' +
+            '    </div>' +
+            '    <div class="profile-field profile-wide">' +
+            '      <label class="profile-label" for="profile-headline">Headline</label>' +
+            '      <input type="text" id="profile-headline" class="login-input" placeholder="Software Engineer">' +
+            '    </div>' +
+            '    <div class="profile-field profile-wide">' +
+            '      <label class="profile-label" for="profile-bio">Bio</label>' +
+            '      <textarea id="profile-bio" class="login-input profile-textarea" rows="3" placeholder="A short bio..."></textarea>' +
+            '    </div>' +
+            '    <div class="profile-field">' +
+            '      <label class="profile-label" for="profile-policy">Privacy Level</label>' +
+            '      <select id="profile-policy" class="login-input profile-policy-select"></select>' +
+            '    </div>' +
             '  </div>' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Display Name</label>' +
-            '    <input type="text" id="profile-name" class="login-input" placeholder="Your Full Name" style="width:300px;">' +
+            '  <div class="profile-field">' +
+            '    <label class="profile-label">Sections</label>' +
+            '    <div id="section-toggles" class="profile-sections"></div>' +
             '  </div>' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Headline</label>' +
-            '    <input type="text" id="profile-headline" class="login-input" placeholder="Software Engineer" style="width:400px;">' +
-            '  </div>' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Bio</label>' +
-            '    <textarea id="profile-bio" class="login-input" rows="3" style="width:100%;resize:vertical;" placeholder="A short bio..."></textarea>' +
-            '  </div>' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Privacy Level</label>' +
-            '    <select id="profile-policy" class="login-input" style="width:200px;"></select>' +
-            '  </div>' +
-            '  <div style="margin-bottom:16px;">' +
-            '    <label style="font-weight:600;display:block;margin-bottom:4px;">Sections</label>' +
-            '    <div id="section-toggles" style="display:flex;gap:12px;flex-wrap:wrap;"></div>' +
-            '  </div>' +
-            '  <div style="display:flex;gap:12px;">' +
+            '  <div class="profile-actions">' +
             '    <button class="btn btn-primary" id="btn-save-profile">Save Profile</button>' +
             '    <button class="btn btn-outline" id="btn-preview-profile">Preview</button>' +
             '    <button class="btn btn-outline" id="btn-auto-profile">Auto-fill from Memory</button>' +
             '    <button class="btn btn-outline" id="btn-qr-profile">QR Code</button>' +
             '  </div>' +
             '</div>' +
-            '<div id="qr-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">' +
-            '  <div style="background:#fff;border-radius:12px;padding:24px;text-align:center;max-width:320px;">' +
+            '<div id="qr-modal" class="profile-modal is-hidden">' +
+            '  <div class="profile-modal-card">' +
             '    <div id="qr-content"></div>' +
-            '    <button class="btn btn-outline" id="btn-close-qr" style="margin-top:12px;">Close</button>' +
+            '    <button class="btn btn-outline profile-modal-close" id="btn-close-qr">Close</button>' +
             '  </div>' +
             '</div>';
 
-        // Populate policy select
         var policySelect = document.getElementById('profile-policy');
         POLICIES.forEach(function (p) {
             var opt = document.createElement('option');
@@ -80,11 +87,10 @@
             policySelect.appendChild(opt);
         });
 
-        // Populate section toggles
         var togglesDiv = document.getElementById('section-toggles');
         SECTIONS.forEach(function (s) {
             var label = document.createElement('label');
-            label.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:14px;';
+            label.className = 'profile-section-pill';
             var cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.checked = true;
@@ -120,6 +126,7 @@
         function loadProfiles() {
             C.api('/api/profiles').then(function (resp) {
                 var profiles = resp.profiles || [];
+                var hint = document.getElementById('profile-empty-hint');
                 profileSelector.innerHTML = '';
                 profiles.forEach(function (p) {
                     var opt = document.createElement('option');
@@ -127,12 +134,15 @@
                     opt.textContent = p.display_name || p.handle;
                     profileSelector.appendChild(opt);
                 });
-                deleteBtn.style.display = profiles.length > 0 ? '' : 'none';
+                deleteBtn.classList.toggle('is-hidden', profiles.length === 0);
                 if (profiles.length > 0) {
                     fillForm(profiles[0]);
+                    hint.classList.add('is-hidden');
+                } else {
+                    profileSelector.innerHTML = '<option value="">No profiles yet</option>';
+                    hint.classList.remove('is-hidden');
                 }
             }).catch(function () {
-                // Load single profile fallback
                 C.api('/api/profile').then(function (data) {
                     if (data && data.handle) fillForm(data);
                 }).catch(function () {});
@@ -156,20 +166,38 @@
             policySelect.value = 'professional';
             togglesDiv.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = true; });
             handleInput.focus();
+            C.trackEvent('profile.new_clicked', {});
         });
 
         deleteBtn.addEventListener('click', function () {
             var handle = profileSelector.value;
-            if (!handle || !confirm('Delete profile "' + handle + '"?')) return;
-            C.api('/api/profile?handle=' + encodeURIComponent(handle), { method: 'DELETE' })
-                .then(function () {
-                    C.showToast('Profile deleted', 'success');
-                    loadProfiles();
-                })
-                .catch(function (err) { C.showToast('Error: ' + err.message, 'error'); });
+            if (!handle) return;
+            if (pendingDelete) return;
+
+            pendingDelete = setTimeout(function () {
+                pendingDelete = null;
+                C.api('/api/profile?handle=' + encodeURIComponent(handle), { method: 'DELETE' })
+                    .then(function () {
+                        C.showToast('Profile deleted', 'success');
+                        loadProfiles();
+                        C.trackEvent('profile.deleted', { handle: handle });
+                    })
+                    .catch(function (err) { C.showToast('Error: ' + err.message, 'error'); });
+            }, 5000);
+
+            C.showToast('Profile scheduled for deletion.', {
+                type: 'info',
+                duration: 5200,
+                actionLabel: 'Undo',
+                onAction: function () {
+                    clearTimeout(pendingDelete);
+                    pendingDelete = null;
+                    C.showToast('Delete canceled.', 'success');
+                    C.trackEvent('profile.delete_undo', { handle: handle });
+                },
+            });
         });
 
-        // Save
         document.getElementById('btn-save-profile').addEventListener('click', function () {
             var sections = [];
             togglesDiv.querySelectorAll('input[type=checkbox]:checked').forEach(function (cb) {
@@ -189,19 +217,19 @@
             }).then(function () {
                 C.showToast('Profile saved!', 'success');
                 loadProfiles();
+                C.trackEvent('profile.saved', { handle: handleInput.value.toLowerCase().trim(), policy: policySelect.value });
             }).catch(function (err) {
                 C.showToast('Error: ' + err.message, 'error');
             });
         });
 
-        // Preview
         document.getElementById('btn-preview-profile').addEventListener('click', function () {
             var handle = handleInput.value.trim();
             var url = '/api/profile/preview' + (handle ? '?handle=' + encodeURIComponent(handle) : '');
             window.open(url, '_blank');
+            C.trackEvent('profile.preview_opened', { handle: handle });
         });
 
-        // Auto-fill from Memory
         document.getElementById('btn-auto-profile').addEventListener('click', function () {
             C.api('/api/profile/auto').then(function (data) {
                 if (!data || !data.handle) {
@@ -210,12 +238,12 @@
                 }
                 fillForm(data);
                 C.showToast('Profile auto-filled from memory!', 'success');
+                C.trackEvent('profile.autofill', {});
             }).catch(function (err) {
                 C.showToast('Error: ' + err.message, 'error');
             });
         });
 
-        // QR Code
         var qrModal = document.getElementById('qr-modal');
         document.getElementById('btn-qr-profile').addEventListener('click', function () {
             var handle = handleInput.value.trim();
@@ -227,19 +255,20 @@
                 })
                 .then(function (svg) {
                     document.getElementById('qr-content').innerHTML = svg;
-                    qrModal.style.display = 'flex';
+                    qrModal.classList.remove('is-hidden');
+                    C.trackEvent('profile.qr_opened', { handle: handle });
                 })
                 .catch(function (err) { C.showToast('Error: ' + err.message, 'error'); });
         });
 
         document.getElementById('btn-close-qr').addEventListener('click', function () {
-            qrModal.style.display = 'none';
-        });
-        qrModal.addEventListener('click', function (e) {
-            if (e.target === qrModal) qrModal.style.display = 'none';
+            qrModal.classList.add('is-hidden');
         });
 
-        // Initial load
+        qrModal.addEventListener('click', function (e) {
+            if (e.target === qrModal) qrModal.classList.add('is-hidden');
+        });
+
         loadProfiles();
     });
 })();

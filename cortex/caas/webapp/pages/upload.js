@@ -3,6 +3,7 @@
     'use strict';
     var C = window.CortexApp;
     var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
+    var pendingRevokes = {};
 
     C.registerPage('upload', function (container) {
         container.innerHTML =
@@ -25,6 +26,20 @@
     function renderDropZone() {
         var area = document.getElementById('upload-area');
         area.innerHTML =
+            '<div class="card upload-guide">' +
+            '  <h3>Import Wizard</h3>' +
+            '  <p class="upload-guide-sub">Choose your source to see exactly what to upload.</p>' +
+            '  <div class="upload-guide-row">' +
+            '    <select id="source-guide-select" class="import-input" aria-label="Choose import source">' +
+            '      <option value="chatgpt">ChatGPT Export</option>' +
+            '      <option value="claude">Claude Export</option>' +
+            '      <option value="linkedin">LinkedIn Export</option>' +
+            '      <option value="resume">Resume PDF/DOCX</option>' +
+            '      <option value="github">GitHub Repository URL</option>' +
+            '    </select>' +
+            '    <div id="source-guide-copy" class="upload-guide-copy"></div>' +
+            '  </div>' +
+            '</div>' +
             '<div class="card">' +
             '  <div class="upload-zone" id="drop-zone">' +
             '    <div class="upload-zone-icon">' +
@@ -35,8 +50,9 @@
             '      </svg>' +
             '    </div>' +
             '    <h2>Drop your file here</h2>' +
-            '    <p>Supports JSON, text, PDF, DOCX, and zip files. Drop chat exports, resumes, or LinkedIn data exports.</p>' +
-            '    <input type="file" id="file-input" class="upload-hidden-input" accept=".json,.txt,.md,.csv,.zip,.pdf,.docx">' +
+            '    <p>Supports JSON, text, PDF, DOCX, and zip files. You can upload multiple files at once.</p>' +
+            '    <p class="upload-zone-subtle">Max file size: ' + C.escapeHtml(formatBytes(maxUploadBytes)) + '</p>' +
+            '    <input type="file" id="file-input" class="upload-hidden-input" accept=".json,.txt,.md,.csv,.zip,.pdf,.docx" multiple>' +
             '    <div class="platform-icons">' +
             '      <div class="platform-icon">' +
             '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 10.42c-.2-.14-.42-.22-.65-.22H14.6l2.24-6.41c.16-.48-.05-1-.5-1.22a.99.99 0 00-1.17.25L5.32 13.58c-.18.2-.28.46-.28.73 0 .58.47 1.05 1.05 1.05h7.03l-2.24 6.41c-.16.48.05 1 .5 1.22.14.07.3.1.45.1.33 0 .64-.15.85-.42l9.85-10.76c.18-.2.28-.46.28-.73a1.03 1.03 0 00-.53-.76z"/></svg>' +
@@ -60,6 +76,23 @@
 
         var dropZone = document.getElementById('drop-zone');
         var fileInput = document.getElementById('file-input');
+        var sourceGuide = document.getElementById('source-guide-select');
+
+        function renderGuide(value) {
+            var copy = {
+                chatgpt: 'Export from ChatGPT settings, then upload the .zip file directly.',
+                claude: 'Upload Claude export JSON; Cortex extracts facts, preferences, and project context.',
+                linkedin: 'Use LinkedIn “Get a copy of your data” zip for rich work history and skills.',
+                resume: 'Upload PDF or DOCX resume for role, company, skill, and education extraction.',
+                github: 'Use the GitHub import card below for repo URL + optional token.',
+            };
+            document.getElementById('source-guide-copy').textContent = copy[value] || copy.chatgpt;
+        }
+        renderGuide('chatgpt');
+        sourceGuide.addEventListener('change', function () {
+            renderGuide(this.value);
+            C.trackEvent('upload.guide_selected', { source: this.value });
+        });
 
         dropZone.addEventListener('click', function () { fileInput.click(); });
 
@@ -76,25 +109,42 @@
             e.preventDefault();
             dropZone.classList.remove('dragover');
             if (e.dataTransfer.files.length > 0) {
-                handleFile(e.dataTransfer.files[0]);
+                handleFiles(e.dataTransfer.files);
+                C.trackEvent('upload.drop', { count: e.dataTransfer.files.length });
             }
         });
 
         fileInput.addEventListener('change', function () {
             if (fileInput.files.length > 0) {
-                handleFile(fileInput.files[0]);
+                handleFiles(fileInput.files);
+                fileInput.value = '';
+                C.trackEvent('upload.pick', { count: fileInput.files.length });
             }
         });
     }
 
-    function handleFile(file) {
-        if (file.size > maxUploadBytes) {
-            C.showToast('File too large. Maximum size is ' + formatBytes(maxUploadBytes) + '.', 'error');
-            return;
-        }
+    function handleFiles(fileList) {
+        var files = Array.prototype.slice.call(fileList || []);
+        if (!files.length) return;
 
-        renderProgress(file.name);
-        uploadFile(file);
+        var allowed = [];
+        var tooLarge = [];
+        files.forEach(function (file) {
+            if (file.size > maxUploadBytes) {
+                tooLarge.push(file.name);
+                return;
+            }
+            allowed.push(file);
+        });
+
+        if (tooLarge.length) {
+            C.showToast(
+                'Skipped ' + tooLarge.length + ' file(s) over ' + formatBytes(maxUploadBytes) + '.',
+                'error'
+            );
+        }
+        if (!allowed.length) return;
+        processUploadQueue(allowed);
     }
 
     function formatBytes(bytes) {
@@ -124,23 +174,79 @@
             });
     }
 
-    function renderProgress(filename) {
+    function renderQueueProgress(files, results, currentIndex) {
         var area = document.getElementById('upload-area');
+        var completed = results.length;
+        var current = files[currentIndex];
+        var listHtml = files.map(function (file, idx) {
+            var status = 'Queued';
+            var cls = 'upload-queue-item';
+            if (idx < completed) {
+                var r = results[idx];
+                if (r && r.status === 'success') {
+                    status = 'Imported';
+                    cls += ' success';
+                } else {
+                    status = 'Failed';
+                    cls += ' error';
+                }
+            } else if (idx === currentIndex) {
+                status = 'Processing...';
+                cls += ' active';
+            }
+            return (
+                '<li class="' + cls + '">' +
+                '  <span class="upload-queue-file">' + C.escapeHtml(file.name) + '</span>' +
+                '  <span class="upload-queue-status">' + status + '</span>' +
+                '</li>'
+            );
+        }).join('');
+
         area.innerHTML =
             '<div class="card">' +
             '  <div class="upload-progress">' +
             '    <div class="progress-spinner"></div>' +
-            '    <div class="progress-text">Processing ' + C.escapeHtml(filename) + '</div>' +
+            '    <div class="progress-text">Processing ' + C.escapeHtml(current.name) + '</div>' +
+            '    <div class="progress-sub">' + (currentIndex + 1) + ' of ' + files.length + ' files</div>' +
+            '    <ul class="upload-queue-list">' + listHtml + '</ul>' +
             '    <div class="progress-sub">Extracting facts and connections...</div>' +
             '  </div>' +
             '</div>';
+    }
+
+    function processUploadQueue(files) {
+        var results = [];
+        var sequence = Promise.resolve();
+
+        files.forEach(function (file, index) {
+            sequence = sequence.then(function () {
+                renderQueueProgress(files, results, index);
+                return uploadFile(file).then(function (data) {
+                    results.push({ file: file, status: 'success', data: data });
+                }).catch(function (err) {
+                    results.push({ file: file, status: 'error', error: err.message || 'Upload failed' });
+                });
+            });
+        });
+
+        sequence.then(function () {
+            renderBatchResults(results);
+            if (results.some(function (r) { return r.status === 'success'; })) {
+                C.signalProgressChanged();
+            }
+            C.trackEvent('upload.batch_completed', {
+                total: results.length,
+                success: results.filter(function (r) { return r.status === 'success'; }).length,
+                failed: results.filter(function (r) { return r.status === 'error'; }).length,
+            });
+        });
     }
 
     function uploadFile(file) {
         var formData = new FormData();
         formData.append('file', file);
 
-        C.apiRaw('/api/upload', {
+        return C.apiRaw('/api/upload', {
             method: 'POST',
             body: formData,
         }).then(function (resp) {
@@ -148,32 +254,53 @@
                 C.showLogin();
                 throw new Error('Your session expired. Please sign in and try again.');
             }
-            return resp.json().then(function (data) {
+            return parseJsonSafe(resp).then(function (data) {
                 if (!resp.ok) {
                     var msg = (data.error && data.error.message) || data.error || 'Upload failed';
                     throw new Error(msg);
                 }
                 return data;
             });
-        }).then(function (data) {
-            renderResults(data);
-        }).catch(function (err) {
-            C.showToast('Upload failed: ' + err.message, 'error');
-            renderDropZone();
         });
     }
 
-    function renderResults(data) {
-        var nodes = data.nodes_created || 0;
-        var edges = data.edges_created || 0;
-        var categories = data.categories || 0;
-        var sourceLabel = 'Your data has been processed successfully';
-        if (data.source_type === 'resume') {
-            sourceLabel = 'Your resume has been processed successfully';
-        } else if (data.source_type === 'linkedin_export') {
-            sourceLabel = 'Your LinkedIn data has been imported successfully';
-        } else if (data.source_type === 'github') {
-            sourceLabel = 'GitHub repository data has been imported successfully';
+    function describeSource(sourceType) {
+        if (sourceType === 'resume') return 'Resume';
+        if (sourceType === 'linkedin_export') return 'LinkedIn export';
+        if (sourceType === 'github') return 'GitHub';
+        if (sourceType === 'chatgpt') return 'ChatGPT';
+        if (sourceType === 'claude') return 'Claude';
+        return 'Import';
+    }
+
+    function renderBatchResults(results) {
+        var successes = results.filter(function (r) { return r.status === 'success'; });
+        var failures = results.filter(function (r) { return r.status === 'error'; });
+        var nodes = 0;
+        var edges = 0;
+        var categories = 0;
+
+        successes.forEach(function (r) {
+            nodes += r.data.nodes_created || 0;
+            edges += r.data.edges_created || 0;
+            categories += r.data.categories || 0;
+        });
+
+        var summary;
+        if (!successes.length) {
+            summary = 'No files were imported successfully. Review errors below and try again.';
+        } else if (successes.length === 1 && !failures.length) {
+            summary = describeSource(successes[0].data.source_type) + ' imported successfully.';
+        } else {
+            summary = successes.length + ' file(s) imported, ' + failures.length + ' failed.';
+        }
+
+        var errorsHtml = '';
+        if (failures.length) {
+            var items = failures.map(function (r) {
+                return '<li><strong>' + C.escapeHtml(r.file.name) + ':</strong> ' + C.escapeHtml(r.error) + '</li>';
+            }).join('');
+            errorsHtml = '<div class="upload-errors"><h3>Needs attention</h3><ul>' + items + '</ul></div>';
         }
 
         var area = document.getElementById('upload-area');
@@ -187,15 +314,18 @@
             '      </svg>' +
             '    </div>' +
             '    <div class="results-title">Import Complete</div>' +
-            '    <div class="results-summary">' + C.escapeHtml(sourceLabel) + '</div>' +
+            '    <div class="results-summary">' + C.escapeHtml(summary) + '</div>' +
             '    <div class="results-stats">' +
             '      <div class="stat-item"><div class="stat-value">' + nodes + '</div><div class="stat-label">Facts</div></div>' +
             '      <div class="stat-item"><div class="stat-value">' + edges + '</div><div class="stat-label">Connections</div></div>' +
             '      <div class="stat-item"><div class="stat-value">' + categories + '</div><div class="stat-label">Categories</div></div>' +
             '    </div>' +
-            '    <div>' +
-            '      <a href="#memory" class="btn btn-primary btn-lg">View My Memory</a>' +
-            '      <button class="btn btn-outline btn-lg" id="upload-another" style="margin-left:10px">Upload Another</button>' +
+            errorsHtml +
+            '    <div class="upload-results-actions">' +
+            (successes.length
+                ? '      <a href="#memory" class="btn btn-primary btn-lg">View My Memory</a>'
+                : '') +
+            '      <button class="btn btn-outline btn-lg" id="upload-another">Upload More</button>' +
             '    </div>' +
             '  </div>' +
             '</div>';
@@ -203,6 +333,13 @@
         document.getElementById('upload-another').addEventListener('click', function () {
             renderDropZone();
         });
+        if (!successes.length) {
+            C.showToast('Uploads failed. Check file format and try again.', 'error');
+        } else if (failures.length) {
+            C.showToast('Imported with partial failures.', 'info');
+        } else {
+            C.showToast('Import complete.', 'success');
+        }
     }
 
     // ── Import Cards (GitHub + LinkedIn URL) ───────────────────────
@@ -242,8 +379,9 @@
             var url = document.getElementById('github-url').value.trim();
             var token = document.getElementById('github-token').value.trim();
             if (!url) { C.showToast('Please enter a GitHub URL', 'error'); return; }
+            C.trackEvent('import.github.started', { private_repo: !!token });
             var statusEl = document.getElementById('github-status');
-            statusEl.innerHTML = '<div class="progress-spinner" style="width:20px;height:20px;display:inline-block;vertical-align:middle"></div> Importing...';
+            statusEl.innerHTML = '<div class="progress-spinner import-inline-spinner"></div> Importing...';
 
             C.apiRaw('/api/import/github', {
                 method: 'POST',
@@ -262,16 +400,20 @@
                     '<span class="import-success">Imported ' + data.nodes_created + ' facts and ' +
                     data.edges_created + ' connections</span> &mdash; ' +
                     '<a href="#memory">View Memory</a>';
+                C.signalProgressChanged();
+                C.trackEvent('import.github.completed', { nodes: data.nodes_created || 0, edges: data.edges_created || 0 });
             }).catch(function (err) {
                 statusEl.innerHTML = '<span class="import-error">' + C.escapeHtml(err.message) + '</span>';
+                C.trackEvent('import.github.failed', { error: err.message });
             });
         });
 
         document.getElementById('linkedin-import-btn').addEventListener('click', function () {
             var url = document.getElementById('linkedin-url').value.trim();
             if (!url) { C.showToast('Please enter a LinkedIn URL', 'error'); return; }
+            C.trackEvent('import.linkedin.started', {});
             var statusEl = document.getElementById('linkedin-status');
-            statusEl.innerHTML = '<div class="progress-spinner" style="width:20px;height:20px;display:inline-block;vertical-align:middle"></div> Importing...';
+            statusEl.innerHTML = '<div class="progress-spinner import-inline-spinner"></div> Importing...';
 
             C.apiRaw('/api/import/linkedin', {
                 method: 'POST',
@@ -292,8 +434,11 @@
                 }
                 html += ' &mdash; <a href="#memory">View Memory</a>';
                 statusEl.innerHTML = html;
+                C.signalProgressChanged();
+                C.trackEvent('import.linkedin.completed', { nodes: data.nodes_created || 0 });
             }).catch(function (err) {
                 statusEl.innerHTML = '<span class="import-error">' + C.escapeHtml(err.message) + '</span>';
+                C.trackEvent('import.linkedin.failed', { error: err.message });
             });
         });
     }
@@ -307,18 +452,18 @@
             '  <h2>Your Memory API</h2>' +
             '  <p class="api-keys-desc">Generate API keys so external chatbots, agents, and coding tools can access your memory.</p>' +
             '  <button class="btn btn-primary" id="show-create-key-btn">Generate API Key</button>' +
-            '  <div id="create-key-form" style="display:none"></div>' +
+            '  <div id="create-key-form" class="is-hidden"></div>' +
             '  <div id="api-keys-list"></div>' +
             '</div>';
 
         document.getElementById('show-create-key-btn').addEventListener('click', function () {
             var formEl = document.getElementById('create-key-form');
-            if (formEl.style.display === 'none') {
-                formEl.style.display = 'block';
+            if (formEl.classList.contains('is-hidden')) {
+                formEl.classList.remove('is-hidden');
                 this.textContent = 'Cancel';
                 renderCreateKeyForm();
             } else {
-                formEl.style.display = 'none';
+                formEl.classList.add('is-hidden');
                 formEl.innerHTML = '';
                 this.textContent = 'Generate API Key';
             }
@@ -341,7 +486,7 @@
             '    <label class="radio-label"><input type="radio" name="key-policy" value="minimal"> Minimal</label>' +
             '    <label class="radio-label"><input type="radio" name="key-policy" value="custom"> Custom</label>' +
             '  </div>' +
-            '  <div id="custom-tags-area" style="display:none">' +
+            '  <div id="custom-tags-area" class="is-hidden">' +
             '    <label>Include tags</label>' +
             '    <div class="key-tags-options">' +
             '      <label class="checkbox-label"><input type="checkbox" name="key-tag" value="identity"> identity</label>' +
@@ -370,7 +515,7 @@
         for (var i = 0; i < radios.length; i++) {
             radios[i].addEventListener('change', function () {
                 var customArea = document.getElementById('custom-tags-area');
-                customArea.style.display = this.value === 'custom' ? 'block' : 'none';
+                customArea.classList.toggle('is-hidden', this.value !== 'custom');
             });
         }
 
@@ -439,8 +584,11 @@
 
                 document.getElementById('show-create-key-btn').textContent = 'Generate API Key';
                 loadApiKeys();
+                C.signalProgressChanged();
+                C.trackEvent('keys.created', { policy: policy, format: fmt });
             }).catch(function (err) {
                 C.showToast('Failed to create key: ' + err.message, 'error');
+                C.trackEvent('keys.create_failed', { error: err.message });
             });
         });
     }
@@ -496,20 +644,40 @@
     }
 
     function revokeKey(keyId) {
-        C.apiRaw('/api/keys/' + keyId, { method: 'DELETE' }).then(function (resp) {
-            if (resp.status === 401) {
-                C.showLogin();
-                throw new Error('Your session expired. Please sign in and try again.');
-            }
-            return parseJsonSafe(resp).then(function (data) {
-                if (!resp.ok) throw new Error('Revoke failed');
-                return data;
+        if (pendingRevokes[keyId]) return;
+        var timer = setTimeout(function () {
+            delete pendingRevokes[keyId];
+            C.apiRaw('/api/keys/' + keyId, { method: 'DELETE' }).then(function (resp) {
+                if (resp.status === 401) {
+                    C.showLogin();
+                    throw new Error('Your session expired. Please sign in and try again.');
+                }
+                return parseJsonSafe(resp).then(function (data) {
+                    if (!resp.ok) throw new Error('Revoke failed');
+                    return data;
+                });
+            }).then(function () {
+                C.showToast('Key revoked', 'success');
+                loadApiKeys();
+                C.trackEvent('keys.revoked', { key_id: keyId });
+                C.signalProgressChanged();
+            }).catch(function (err) {
+                C.showToast('Failed to revoke key: ' + err.message, 'error');
+                C.trackEvent('keys.revoke_failed', { error: err.message });
             });
-        }).then(function () {
-            C.showToast('Key revoked', 'success');
-            loadApiKeys();
-        }).catch(function (err) {
-            C.showToast('Failed to revoke key: ' + err.message, 'error');
+        }, 5000);
+
+        pendingRevokes[keyId] = timer;
+        C.showToast('Key scheduled for revoke.', {
+            type: 'info',
+            duration: 5200,
+            actionLabel: 'Undo',
+            onAction: function () {
+                clearTimeout(pendingRevokes[keyId]);
+                delete pendingRevokes[keyId];
+                C.showToast('Revoke canceled.', 'success');
+                C.trackEvent('keys.revoke_undo', { key_id: keyId });
+            },
         });
     }
 

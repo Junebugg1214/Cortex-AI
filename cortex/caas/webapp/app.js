@@ -6,6 +6,18 @@
     var multiUserEnabled = false;
     var registrationOpen = false;
     var currentUser = null;
+    var onboardingState = {
+        hasData: false,
+        hasShareKey: false,
+        explored: false,
+        nextAction: null,
+    };
+    var onboardingRefreshPromise = null;
+    var lastOnboardingRefreshAt = 0;
+    var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
+    var ANALYTICS_KEY = 'cortex.webapp.analytics.v1';
+    var CHANGELOG_DISMISS_KEY = 'cortex.webapp.changelog.dismiss.v1';
+    var WEBAPP_RELEASE = '2026.03-ux2';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -74,6 +86,7 @@
         var hash = location.hash.replace('#', '') || 'upload';
         if (hash === currentPage) return;
         currentPage = hash;
+        markPageVisited(hash);
 
         // Update tab active state
         document.querySelectorAll('.tab-link').forEach(function (el) {
@@ -92,18 +105,38 @@
         } else {
             container.innerHTML = '<div class="page-loading">Page not found</div>';
         }
+        refreshOnboardingState(false);
+        trackEvent('nav.page_view', { page: hash });
     }
 
     window.addEventListener('hashchange', route);
 
     // ── Toast notifications ─────────────────────────────────────
-    function showToast(msg, type) {
-        type = type || 'info';
+    function showToast(msg, typeOrOpts) {
+        var opts = {};
+        if (typeof typeOrOpts === 'string') {
+            opts.type = typeOrOpts;
+        } else if (typeOrOpts && typeof typeOrOpts === 'object') {
+            opts = typeOrOpts;
+        }
+        var type = opts.type || 'info';
+        var duration = typeof opts.duration === 'number' ? opts.duration : 4000;
         var el = document.createElement('div');
         el.className = 'toast toast-' + type;
-        el.textContent = msg;
+        el.innerHTML = '<span class="toast-message">' + escapeHtml(msg) + '</span>';
+        if (opts.actionLabel && typeof opts.onAction === 'function') {
+            var btn = document.createElement('button');
+            btn.className = 'toast-action';
+            btn.type = 'button';
+            btn.textContent = opts.actionLabel;
+            btn.addEventListener('click', function () {
+                try { opts.onAction(); } catch (_e) {}
+                el.remove();
+            });
+            el.appendChild(btn);
+        }
         document.getElementById('toast-container').appendChild(el);
-        setTimeout(function () { el.remove(); }, 4000);
+        setTimeout(function () { el.remove(); }, duration);
     }
 
     // ── Utilities ───────────────────────────────────────────────
@@ -127,6 +160,7 @@
         if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(function () {
                 showToast('Copied to clipboard', 'success');
+                trackEvent('clipboard.copied', { length: (text || '').length });
             });
         } else {
             var ta = document.createElement('textarea');
@@ -136,6 +170,41 @@
             document.execCommand('copy');
             ta.remove();
             showToast('Copied to clipboard', 'success');
+            trackEvent('clipboard.copied', { length: (text || '').length, legacy: true });
+        }
+    }
+
+    function getAnalyticsQueue() {
+        try {
+            var raw = localStorage.getItem(ANALYTICS_KEY);
+            if (!raw) return [];
+            var parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    function saveAnalyticsQueue(queue) {
+        try {
+            localStorage.setItem(ANALYTICS_KEY, JSON.stringify(queue.slice(-200)));
+        } catch (_e) {
+            // Ignore localStorage failures.
+        }
+    }
+
+    function trackEvent(name, payload) {
+        var event = {
+            name: String(name || 'unknown'),
+            payload: payload || {},
+            at: new Date().toISOString(),
+            page: location.hash.replace('#', '') || 'upload',
+        };
+        var queue = getAnalyticsQueue();
+        queue.push(event);
+        saveAnalyticsQueue(queue);
+        if (window.console && console.debug) {
+            console.debug('[CortexAnalytics]', event.name, event.payload);
         }
     }
 
@@ -144,6 +213,7 @@
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('logout-btn').style.display = 'none';
         document.getElementById('login-error').textContent = '';
+        setHudVisible(false);
 
         // Show appropriate form based on mode
         var adminForm = document.getElementById('login-form');
@@ -167,6 +237,202 @@
     function hideLogin() {
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('logout-btn').style.display = '';
+        setHudVisible(true);
+        refreshOnboardingState(true);
+    }
+
+    function setHudVisible(visible) {
+        var hud = document.getElementById('app-hud');
+        if (!hud) return;
+        hud.style.display = visible ? 'block' : 'none';
+    }
+
+    function getVisitedPages() {
+        try {
+            var raw = localStorage.getItem(VISITED_PAGES_KEY);
+            if (!raw) return {};
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_e) {
+            return {};
+        }
+    }
+
+    function markPageVisited(page) {
+        var allowed = { upload: true, memory: true, share: true, profile: true };
+        if (!allowed[page]) return;
+        var visited = getVisitedPages();
+        if (visited[page]) return;
+        visited[page] = true;
+        try {
+            localStorage.setItem(VISITED_PAGES_KEY, JSON.stringify(visited));
+        } catch (_e) {
+            // Ignore storage failures (private mode / storage quotas).
+        }
+    }
+
+    function computeNextAction(state, visited) {
+        if (!state.hasData) {
+            return {
+                title: 'Start by importing your first source',
+                detail: 'Upload a chat export, resume, or LinkedIn data export to build your memory graph.',
+                ctaLabel: 'Go to Upload',
+                ctaHref: '#upload',
+            };
+        }
+        if (!visited.memory) {
+            return {
+                title: 'Explore what Cortex extracted',
+                detail: 'Review your graph so you can validate facts and see how your context connects.',
+                ctaLabel: 'Open My Memory',
+                ctaHref: '#memory',
+            };
+        }
+        if (!state.hasShareKey) {
+            return {
+                title: 'Create your first shareable API key',
+                detail: 'Use policy-based keys to share only the context each tool should access.',
+                ctaLabel: 'Open Share',
+                ctaHref: '#share',
+            };
+        }
+        if (!visited.profile) {
+            return {
+                title: 'Optional: publish a public profile',
+                detail: 'Set your handle and decide what sections are public at /p/{handle}.',
+                ctaLabel: 'Configure Profile',
+                ctaHref: '#profile',
+            };
+        }
+        return {
+            title: 'Setup complete',
+            detail: 'Your memory is imported, explored, and ready to share.',
+            ctaLabel: 'View My Memory',
+            ctaHref: '#memory',
+        };
+    }
+
+    function renderHud() {
+        var hud = document.getElementById('app-hud');
+        if (!hud) return;
+        if (document.getElementById('login-overlay').style.display === 'flex') {
+            hud.style.display = 'none';
+            return;
+        }
+
+        var visited = getVisitedPages();
+        var steps = [
+            { id: 'import', label: 'Import', done: onboardingState.hasData },
+            { id: 'explore', label: 'Explore', done: onboardingState.hasData && !!visited.memory },
+            { id: 'share', label: 'Share', done: onboardingState.hasShareKey },
+        ];
+        var firstIncomplete = null;
+        for (var i = 0; i < steps.length; i++) {
+            if (!steps[i].done) {
+                firstIncomplete = steps[i].id;
+                break;
+            }
+        }
+
+        var next = onboardingState.nextAction || computeNextAction(onboardingState, visited);
+        var changelogVisible = true;
+        try {
+            changelogVisible = localStorage.getItem(CHANGELOG_DISMISS_KEY) !== WEBAPP_RELEASE;
+        } catch (_e) {
+            changelogVisible = true;
+        }
+        var tipsHtml = changelogVisible
+            ? (
+                '<div class="hud-whatsnew">' +
+                '  <strong>What\'s New</strong>: Summary-first Memory, intent-based Share presets, and multi-file upload queue.' +
+                '  <button class="hud-dismiss" id="dismiss-whatsnew" aria-label="Dismiss updates">Dismiss</button>' +
+                '</div>'
+            )
+            : (
+                '<div class="hud-tip">' +
+                '  <strong>Tip</strong>: Use Share intents to generate safer, policy-scoped exports in one click.' +
+                '</div>'
+            );
+        var stepHtml = steps.map(function (step) {
+            var cls = 'journey-step';
+            if (step.done) cls += ' done';
+            else if (step.id === firstIncomplete) cls += ' current';
+            return (
+                '<div class="' + cls + '">' +
+                '  <div class="journey-dot"></div>' +
+                '  <span>' + escapeHtml(step.label) + '</span>' +
+                '</div>'
+            );
+        }).join('');
+
+        hud.innerHTML =
+            '<div class="app-hud-inner">' +
+            '  <div class="journey-track">' +
+            '    <div class="journey-title">Setup Journey</div>' +
+            '    <div class="journey-steps">' + stepHtml + '</div>' +
+            '    ' + tipsHtml +
+            '  </div>' +
+            '  <div class="next-action-card">' +
+            '    <div class="next-action-title">' + escapeHtml(next.title) + '</div>' +
+            '    <div class="next-action-detail">' + escapeHtml(next.detail) + '</div>' +
+            '    <a class="btn btn-primary btn-sm" href="' + escapeHtml(next.ctaHref) + '">' + escapeHtml(next.ctaLabel) + '</a>' +
+            '  </div>' +
+            '</div>';
+        hud.style.display = 'block';
+
+        var dismissBtn = document.getElementById('dismiss-whatsnew');
+        if (dismissBtn) {
+            dismissBtn.addEventListener('click', function () {
+                try {
+                    localStorage.setItem(CHANGELOG_DISMISS_KEY, WEBAPP_RELEASE);
+                } catch (_e) {}
+                renderHud();
+                trackEvent('changelog.dismissed', { release: WEBAPP_RELEASE });
+            });
+        }
+    }
+
+    function refreshOnboardingState(force) {
+        var now = Date.now();
+        if (!force && onboardingRefreshPromise) return onboardingRefreshPromise;
+        if (!force && now - lastOnboardingRefreshAt < 5000) {
+            renderHud();
+            return Promise.resolve(onboardingState);
+        }
+
+        var statsReq = apiRaw('/context/stats', { method: 'GET', cache: 'no-store' })
+            .then(function (resp) {
+                if (!resp.ok) return { node_count: 0 };
+                return resp.json();
+            })
+            .catch(function () { return { node_count: 0 }; });
+
+        var keysReq = apiRaw('/api/keys', { method: 'GET', cache: 'no-store' })
+            .then(function (resp) {
+                if (!resp.ok) return [];
+                return resp.text().then(function (text) {
+                    if (!text) return [];
+                    try { return JSON.parse(text); } catch (_e) { return []; }
+                });
+            })
+            .catch(function () { return []; });
+
+        onboardingRefreshPromise = Promise.all([statsReq, keysReq]).then(function (results) {
+            var stats = results[0] || {};
+            var keys = Array.isArray(results[1]) ? results[1] : [];
+            var visited = getVisitedPages();
+            onboardingState.hasData = (stats.node_count || 0) > 0;
+            onboardingState.hasShareKey = keys.some(function (k) { return !!k.active; });
+            onboardingState.explored = !!visited.memory;
+            onboardingState.nextAction = computeNextAction(onboardingState, visited);
+            lastOnboardingRefreshAt = Date.now();
+            renderHud();
+            return onboardingState;
+        }).finally(function () {
+            onboardingRefreshPromise = null;
+        });
+
+        return onboardingRefreshPromise;
     }
 
     function setupAuth() {
@@ -311,6 +577,10 @@
         return multiUserEnabled;
     }
 
+    function signalProgressChanged() {
+        return refreshOnboardingState(true);
+    }
+
     // ── Exports ─────────────────────────────────────────────────
     window.CortexApp = {
         api: api,
@@ -323,6 +593,10 @@
         showLogin: showLogin,
         getCurrentUser: getCurrentUser,
         isMultiUserMode: isMultiUserMode,
+        signalProgressChanged: signalProgressChanged,
+        refreshOnboardingState: refreshOnboardingState,
+        trackEvent: trackEvent,
+        getAnalyticsQueue: getAnalyticsQueue,
     };
 
     // Boot

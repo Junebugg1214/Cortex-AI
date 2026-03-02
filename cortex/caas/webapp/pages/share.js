@@ -5,7 +5,11 @@
 
     var selectedPlatform = 'claude';
     var selectedPolicy = 'professional';
+    var selectedIntent = 'assistant';
     var contextData = null;
+    var exposureStats = { facts: 0, categories: 0 };
+
+    var SHARE_PRESETS_KEY = 'cortex.webapp.share.presets.v1';
 
     var PLATFORMS = [
         { id: 'claude', name: 'Claude', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>' },
@@ -22,21 +26,49 @@
         { id: 'minimal', name: 'Minimal', desc: 'Almost nothing — just basic preferences' },
     ];
 
+    var INTENTS = [
+        { id: 'assistant', name: 'Coding Assistant', desc: 'Share technical context with coding copilots', platform: 'claude', policy: 'technical' },
+        { id: 'recruiter', name: 'Recruiter / ATS', desc: 'Share structured professional data for hiring', platform: 'jsonresume', policy: 'professional' },
+        { id: 'agent', name: 'Agent Handoff', desc: 'Give your custom AI agent full context', platform: 'prompt', policy: 'full' },
+        { id: 'public', name: 'Public Bio', desc: 'Keep it minimal for broad sharing', platform: 'docs', policy: 'minimal' },
+    ];
+
     C.registerPage('share', function (container) {
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Share</h1>' +
-            '  <p>Export your memory for use with other platforms</p>' +
+            '  <p>Pick an intent first, then export with the right privacy level</p>' +
             '</div>' +
             '<div class="share-layout">' +
             '  <div class="share-config">' +
             '    <div>' +
-            '      <div class="section-label">Platform</div>' +
-            '      <div class="platform-cards" id="platform-cards"></div>' +
+            '      <div class="section-label">Quick Intents</div>' +
+            '      <div class="intent-cards" id="intent-cards"></div>' +
             '    </div>' +
-            '    <div>' +
-            '      <div class="section-label">Privacy Level</div>' +
-            '      <div class="privacy-options" id="privacy-options"></div>' +
+            '    <div class="card share-presets">' +
+            '      <div class="section-label">Saved Presets</div>' +
+            '      <div class="share-presets-row">' +
+            '        <select id="preset-select" class="import-input" aria-label="Saved presets"></select>' +
+            '        <button class="btn btn-outline" id="preset-apply">Apply</button>' +
+            '        <button class="btn btn-outline" id="preset-delete">Delete</button>' +
+            '      </div>' +
+            '      <div class="share-presets-row">' +
+            '        <input id="preset-name" class="import-input" placeholder="Preset name (e.g. recruiter-v1)" aria-label="Preset name">' +
+            '        <button class="btn btn-primary" id="preset-save">Save Current</button>' +
+            '      </div>' +
+            '    </div>' +
+            '    <div class="share-advanced">' +
+            '      <button class="btn btn-outline" id="toggle-advanced">Customize manually</button>' +
+            '      <div id="advanced-panel" class="advanced-panel is-hidden">' +
+            '        <div>' +
+            '          <div class="section-label">Platform</div>' +
+            '          <div class="platform-cards" id="platform-cards"></div>' +
+            '        </div>' +
+            '        <div class="advanced-subsection">' +
+            '          <div class="section-label">Privacy Level</div>' +
+            '          <div class="privacy-options" id="privacy-options"></div>' +
+            '        </div>' +
+            '      </div>' +
             '    </div>' +
             '  </div>' +
             '  <div class="share-preview card" id="share-preview">' +
@@ -44,6 +76,8 @@
             '      <h3>Preview</h3>' +
             '      <span class="preview-count" id="preview-count"></span>' +
             '    </div>' +
+            '    <div id="intent-summary" class="intent-summary"></div>' +
+            '    <div class="trust-indicator" id="trust-indicator"></div>' +
             '    <div class="preview-content" id="preview-content">Loading preview...</div>' +
             '    <div class="share-actions">' +
             '      <button class="btn btn-primary" id="btn-copy">Copy to Clipboard</button>' +
@@ -52,33 +86,184 @@
             '  </div>' +
             '</div>';
 
+        renderIntents();
         renderPlatforms();
         renderPolicies();
-        loadPreview();
+        renderPresetOptions();
+        applyIntent('assistant');
+
+        document.getElementById('toggle-advanced').addEventListener('click', function () {
+            var panel = document.getElementById('advanced-panel');
+            var open = !panel.classList.contains('is-hidden');
+            panel.classList.toggle('is-hidden', open);
+            this.textContent = open ? 'Customize manually' : 'Hide customization';
+        });
 
         document.getElementById('btn-copy').addEventListener('click', function () {
             var text = document.getElementById('preview-content').textContent;
             C.copyToClipboard(text);
+            C.trackEvent('share.copied', { platform: selectedPlatform, policy: selectedPolicy });
         });
 
         document.getElementById('btn-download').addEventListener('click', function () {
             downloadExport();
         });
+
+        bindPresetActions();
     });
+
+    function getPresets() {
+        try {
+            var raw = localStorage.getItem(SHARE_PRESETS_KEY);
+            if (!raw) return [];
+            var parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    function savePresets(presets) {
+        try {
+            localStorage.setItem(SHARE_PRESETS_KEY, JSON.stringify(presets.slice(0, 30)));
+        } catch (_e) {
+            // Ignore storage failures.
+        }
+    }
+
+    function renderPresetOptions() {
+        var select = document.getElementById('preset-select');
+        var presets = getPresets();
+        var html = '<option value="">Select preset</option>';
+        presets.forEach(function (p, idx) {
+            html += '<option value="' + idx + '">' + C.escapeHtml(p.name) + '</option>';
+        });
+        select.innerHTML = html;
+    }
+
+    function bindPresetActions() {
+        document.getElementById('preset-save').addEventListener('click', function () {
+            var nameInput = document.getElementById('preset-name');
+            var name = nameInput.value.trim();
+            if (!name) {
+                C.showToast('Name the preset first.', 'error');
+                return;
+            }
+            var presets = getPresets();
+            presets.unshift({
+                name: name,
+                intent: selectedIntent,
+                platform: selectedPlatform,
+                policy: selectedPolicy,
+                saved_at: new Date().toISOString(),
+            });
+            savePresets(presets);
+            renderPresetOptions();
+            nameInput.value = '';
+            C.showToast('Preset saved.', 'success');
+            C.trackEvent('share.preset_saved', { name: name });
+        });
+
+        document.getElementById('preset-apply').addEventListener('click', function () {
+            var index = parseInt(document.getElementById('preset-select').value, 10);
+            var presets = getPresets();
+            var preset = presets[index];
+            if (!preset) {
+                C.showToast('Choose a preset first.', 'error');
+                return;
+            }
+            selectedIntent = preset.intent || 'custom';
+            selectedPlatform = preset.platform || 'claude';
+            selectedPolicy = preset.policy || 'professional';
+            renderIntents();
+            renderPlatforms();
+            renderPolicies();
+            loadPreview();
+            renderIntentSummary();
+            C.showToast('Preset applied.', 'success');
+            C.trackEvent('share.preset_applied', { name: preset.name });
+        });
+
+        document.getElementById('preset-delete').addEventListener('click', function () {
+            var select = document.getElementById('preset-select');
+            var index = parseInt(select.value, 10);
+            if (isNaN(index)) {
+                C.showToast('Choose a preset first.', 'error');
+                return;
+            }
+            var presets = getPresets();
+            var removed = presets.splice(index, 1)[0];
+            savePresets(presets);
+            renderPresetOptions();
+            C.showToast('Preset deleted.', 'success');
+            C.trackEvent('share.preset_deleted', { name: removed ? removed.name : '' });
+        });
+    }
+
+    function renderIntents() {
+        var container = document.getElementById('intent-cards');
+        container.innerHTML = INTENTS.map(function (intent) {
+            var cls = 'intent-card' + (intent.id === selectedIntent ? ' selected' : '');
+            return (
+                '<button class="' + cls + '" data-intent="' + intent.id + '">' +
+                '  <div class="intent-title">' + C.escapeHtml(intent.name) + '</div>' +
+                '  <div class="intent-desc">' + C.escapeHtml(intent.desc) + '</div>' +
+                '</button>'
+            );
+        }).join('');
+
+        container.querySelectorAll('.intent-card').forEach(function (card) {
+            card.addEventListener('click', function () {
+                applyIntent(this.getAttribute('data-intent'));
+            });
+        });
+    }
+
+    function applyIntent(intentId) {
+        var intent = INTENTS.find(function (x) { return x.id === intentId; });
+        if (!intent) return;
+        selectedIntent = intent.id;
+        selectedPlatform = intent.platform;
+        selectedPolicy = intent.policy;
+        renderIntents();
+        renderPlatforms();
+        renderPolicies();
+        loadPreview();
+        renderIntentSummary();
+        C.trackEvent('share.intent_selected', { intent: selectedIntent, platform: selectedPlatform, policy: selectedPolicy });
+    }
+
+    function renderIntentSummary() {
+        var intent = INTENTS.find(function (x) { return x.id === selectedIntent; });
+        var platformName = getPlatformName(selectedPlatform);
+        var policyName = getPolicyName(selectedPolicy);
+        var summary = document.getElementById('intent-summary');
+        var title = intent ? intent.name : 'Custom';
+        var desc = intent ? intent.desc : 'Manually selected settings';
+
+        summary.innerHTML =
+            '<strong>' + C.escapeHtml(title) + '</strong>' +
+            ' · ' + C.escapeHtml(platformName) +
+            ' · ' + C.escapeHtml(policyName) +
+            '<br><span>' + C.escapeHtml(desc) + '</span>';
+    }
 
     function renderPlatforms() {
         var container = document.getElementById('platform-cards');
         container.innerHTML = PLATFORMS.map(function (p) {
-            return '<button class="platform-card' + (p.id === selectedPlatform ? ' selected' : '') +
-                '" data-platform="' + p.id + '">' +
+            return '<button class="platform-card' + (p.id === selectedPlatform ? ' selected' : '') + '" data-platform="' + p.id + '">' +
                 p.icon + '<span>' + C.escapeHtml(p.name) + '</span></button>';
         }).join('');
 
         container.querySelectorAll('.platform-card').forEach(function (card) {
             card.addEventListener('click', function () {
                 selectedPlatform = this.getAttribute('data-platform');
+                selectedIntent = 'custom';
+                renderIntents();
                 renderPlatforms();
+                renderIntentSummary();
                 updatePreview();
+                C.trackEvent('share.platform_changed', { platform: selectedPlatform });
             });
         });
     }
@@ -86,8 +271,7 @@
     function renderPolicies() {
         var container = document.getElementById('privacy-options');
         container.innerHTML = POLICIES.map(function (p) {
-            return '<button class="privacy-option' + (p.id === selectedPolicy ? ' selected' : '') +
-                '" data-policy="' + p.id + '">' +
+            return '<button class="privacy-option' + (p.id === selectedPolicy ? ' selected' : '') + '" data-policy="' + p.id + '">' +
                 '<div class="privacy-radio"></div>' +
                 '<div><div class="privacy-name">' + C.escapeHtml(p.name) + '</div>' +
                 '<div class="privacy-desc">' + C.escapeHtml(p.desc) + '</div></div></button>';
@@ -96,26 +280,51 @@
         container.querySelectorAll('.privacy-option').forEach(function (opt) {
             opt.addEventListener('click', function () {
                 selectedPolicy = this.getAttribute('data-policy');
+                selectedIntent = 'custom';
+                renderIntents();
                 renderPolicies();
+                renderIntentSummary();
                 loadPreview();
+                C.trackEvent('share.policy_changed', { policy: selectedPolicy });
             });
         });
     }
 
-    function normalizeGraphData(data) {
-        if (data && data.graph) {
-            var g = data.graph;
-            var nodes = g.nodes || {};
-            var edges = g.edges || {};
-            return {
-                nodes: Array.isArray(nodes) ? nodes : Object.values(nodes),
-                edges: Array.isArray(edges) ? edges : Object.values(edges),
-            };
+    function extractNodesFromContext(data) {
+        if (!data) return [];
+        if (data.context && data.context.nodes) return data.context.nodes;
+        if (data.nodes) return data.nodes;
+        if (data.graph && data.graph.nodes) {
+            var nodes = data.graph.nodes;
+            return Array.isArray(nodes) ? nodes : Object.values(nodes);
         }
-        return data;
+        return [];
+    }
+
+    function updateTrustIndicator() {
+        var el = document.getElementById('trust-indicator');
+        if (!el) return;
+        el.textContent = 'This export exposes approximately ' + exposureStats.facts + ' facts across ' + exposureStats.categories + ' categories for policy "' + selectedPolicy + '".';
+    }
+
+    function loadExposureStats() {
+        C.api('/context?policy=' + selectedPolicy).then(function (data) {
+            var nodes = extractNodesFromContext(data);
+            var tagSet = {};
+            nodes.forEach(function (n) {
+                (n.tags || []).forEach(function (tag) { tagSet[String(tag || '').toLowerCase()] = true; });
+            });
+            exposureStats = { facts: nodes.length, categories: Object.keys(tagSet).length };
+            updateTrustIndicator();
+        }).catch(function () {
+            exposureStats = { facts: 0, categories: 0 };
+            updateTrustIndicator();
+        });
     }
 
     function loadPreview() {
+        loadExposureStats();
+
         C.apiRaw('/context/compact?policy=' + selectedPolicy, { method: 'GET' })
             .then(function (resp) {
                 if (resp.status === 401) {
@@ -128,13 +337,14 @@
             .then(function (text) {
                 contextData = text;
                 updatePreview();
+                renderIntentSummary();
             })
             .catch(function (err) {
                 if (err.message === 'unauthorized') return;
-                // Fallback: try full context
                 C.api('/context?policy=' + selectedPolicy).then(function (data) {
-                    contextData = normalizeGraphData(data);
+                    contextData = data;
                     updatePreview();
+                    renderIntentSummary();
                 }).catch(function (err2) {
                     if (err2.message === 'unauthorized') return;
                     document.getElementById('preview-content').textContent = 'Could not load preview: ' + err2.message;
@@ -152,22 +362,28 @@
         }
 
         var text = '';
+        var nodeCount = 0;
         if (typeof contextData === 'string') {
             text = contextData;
-        } else if (contextData.markdown) {
-            text = contextData.markdown;
-        } else if (contextData.context) {
-            text = formatForPlatform(contextData.context);
-        } else if (contextData.nodes) {
-            text = formatForPlatform(contextData);
         } else {
-            text = JSON.stringify(contextData, null, 2);
+            var nodes = extractNodesFromContext(contextData);
+            nodeCount = nodes.length;
+            if (!nodeCount) {
+                content.innerHTML =
+                    '<div class="empty-state">' +
+                    '  <h3>No shareable data yet</h3>' +
+                    '  <p>Import data first, then return here to generate exports.</p>' +
+                    '  <a class="btn btn-primary empty-state-action" href="#upload">Go to Upload</a>' +
+                    '</div>';
+                count.textContent = '0 lines';
+                return;
+            }
+            text = formatForPlatform({ nodes: nodes });
         }
 
         content.textContent = text;
-
-        var lines = text.split('\n').length;
-        count.textContent = lines + ' lines';
+        count.textContent = text.split('\n').length + ' lines';
+        C.trackEvent('share.preview_loaded', { platform: selectedPlatform, policy: selectedPolicy, facts: nodeCount || exposureStats.facts });
     }
 
     function formatForPlatform(data) {
@@ -193,7 +409,6 @@
         } else if (selectedPlatform === 'notion') {
             lines.push('# My Knowledge Graph');
             lines.push('');
-            // Group by first tag
             var groups = {};
             nodes.forEach(function (n) {
                 var tag = (n.tags && n.tags[0]) || 'Other';
@@ -208,7 +423,6 @@
                 lines.push('');
             });
         } else if (selectedPlatform === 'jsonresume') {
-            // Best effort: expose stable JSON structure for ATS/tools.
             return JSON.stringify({
                 generated_at: new Date().toISOString(),
                 policy: selectedPolicy,
@@ -222,7 +436,6 @@
                 }),
             }, null, 2);
         } else {
-            // Google Docs / generic
             lines.push('Personal Knowledge Graph Export');
             lines.push('Policy: ' + selectedPolicy);
             lines.push('Date: ' + new Date().toLocaleDateString());
@@ -236,10 +449,21 @@
         return lines.join('\n');
     }
 
+    function getPlatformName(id) {
+        var item = PLATFORMS.find(function (p) { return p.id === id; });
+        return item ? item.name : id;
+    }
+
+    function getPolicyName(id) {
+        var item = POLICIES.find(function (p) { return p.id === id; });
+        return item ? item.name : id;
+    }
+
     function downloadExport() {
         var text = document.getElementById('preview-content').textContent;
         var ext = '.md';
         var mimeType = 'text/markdown';
+
         if (selectedPlatform === 'claude') {
             ext = '.xml';
             mimeType = 'application/xml';
@@ -258,5 +482,6 @@
         a.remove();
         URL.revokeObjectURL(url);
         C.showToast('File downloaded', 'success');
+        C.trackEvent('share.downloaded', { platform: selectedPlatform, policy: selectedPolicy, ext: ext });
     }
 })();
