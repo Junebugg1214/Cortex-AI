@@ -340,6 +340,24 @@ body {
     margin-bottom: 14px;
 }
 
+.upload-priority-cue {
+    margin-bottom: 12px;
+    padding: 14px 16px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    background: #f8fbff;
+}
+
+.upload-priority-cue strong {
+    color: var(--color-text);
+}
+
+.upload-priority-cue a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 600;
+}
+
 .upload-guide h3 {
     font-size: 16px;
     margin-bottom: 4px;
@@ -590,6 +608,20 @@ body {
     padding: 8px 12px;
     font-size: 12px;
     border-radius: var(--radius-sm);
+}
+
+.btn-logout {
+    font-size: 13px;
+    padding: 6px 14px;
+}
+
+.btn-block-center {
+    width: 100%;
+    justify-content: center;
+}
+
+.btn-mt-sm {
+    margin-top: 10px;
 }
 
 /* ── Graph Explorer ──────────────────────────────────────────── */
@@ -1267,6 +1299,26 @@ body {
     min-height: 20px;
 }
 
+.login-input-tight {
+    margin-bottom: 10px;
+}
+
+.login-signup {
+    text-align: center;
+    margin-top: 16px;
+}
+
+.login-signup-text {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.login-signup-link {
+    color: var(--color-primary);
+    font-size: 14px;
+    text-decoration: none;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
@@ -1323,7 +1375,7 @@ body {
 
 .import-cards {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 16px;
     margin-top: 20px;
 }

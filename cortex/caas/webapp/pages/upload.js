@@ -8,8 +8,8 @@
     C.registerPage('upload', function (container) {
         container.innerHTML =
             '<div class="page-header">' +
-            '  <h1>Upload</h1>' +
-            '  <p>Import your data to build your personal knowledge graph</p>' +
+            '  <h1>Import (Manual)</h1>' +
+            '  <p>Best flow: connect assistants first, then use manual imports as a fallback.</p>' +
             '</div>' +
             '<div id="upload-area"></div>' +
             '<div id="import-cards-area"></div>' +
@@ -26,9 +26,12 @@
     function renderDropZone() {
         var area = document.getElementById('upload-area');
         area.innerHTML =
+            '<div class="card upload-priority-cue">' +
+            '  <strong>Recommended:</strong> Start in <a href="#connectors">Connectors</a> for ongoing memory continuity. Use manual imports here when needed.' +
+            '</div>' +
             '<div class="card upload-guide">' +
             '  <h3>Import Wizard</h3>' +
-            '  <p class="upload-guide-sub">Choose your source to see exactly what to upload.</p>' +
+            '  <p class="upload-guide-sub">Choose a source to see what file to upload.</p>' +
             '  <div class="upload-guide-row">' +
             '    <select id="source-guide-select" class="import-input" aria-label="Choose import source">' +
             '      <option value="chatgpt">ChatGPT Export</option>' +
@@ -82,9 +85,9 @@
             var copy = {
                 chatgpt: 'Export from ChatGPT settings, then upload the .zip file directly.',
                 claude: 'Upload Claude export JSON; Cortex extracts facts, preferences, and project context.',
-                linkedin: 'Use LinkedIn “Get a copy of your data” zip for rich work history and skills.',
+                linkedin: 'Upload LinkedIn “Get a copy of your data” ZIP (manual export only).',
                 resume: 'Upload PDF or DOCX resume for role, company, skill, and education extraction.',
-                github: 'Use the GitHub import card below for repo URL + optional token.',
+                github: 'Use the GitHub import card below (optional) for technical memory from a repo.',
             };
             document.getElementById('source-guide-copy').textContent = copy[value] || copy.chatgpt;
         }
@@ -342,7 +345,7 @@
         }
     }
 
-    // ── Import Cards (GitHub + LinkedIn URL) ───────────────────────
+    // ── Import Cards (GitHub URL) ──────────────────────────────────
 
     function renderImportCards() {
         var area = document.getElementById('import-cards-area');
@@ -359,18 +362,6 @@
             '      <input type="text" id="github-token" class="import-input" placeholder="Token (optional, for private repos)">' +
             '      <button class="btn btn-primary" id="github-import-btn">Import</button>' +
             '      <div id="github-status" class="import-status"></div>' +
-            '    </div>' +
-            '  </div>' +
-            '  <div class="card import-card">' +
-            '    <div class="import-card-header">' +
-            '      <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M19 3a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h14m-.5 15.5v-5.3a3.26 3.26 0 00-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 011.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 001.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 00-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>' +
-            '      <h3>LinkedIn Profile</h3>' +
-            '    </div>' +
-            '    <p class="import-card-desc">Import basic profile info from a public URL. For richer data, upload your LinkedIn data export above.</p>' +
-            '    <div class="import-card-body">' +
-            '      <input type="text" id="linkedin-url" class="import-input" placeholder="https://linkedin.com/in/yourname">' +
-            '      <button class="btn btn-primary" id="linkedin-import-btn">Import</button>' +
-            '      <div id="linkedin-status" class="import-status"></div>' +
             '    </div>' +
             '  </div>' +
             '</div>';
@@ -408,39 +399,6 @@
             });
         });
 
-        document.getElementById('linkedin-import-btn').addEventListener('click', function () {
-            var url = document.getElementById('linkedin-url').value.trim();
-            if (!url) { C.showToast('Please enter a LinkedIn URL', 'error'); return; }
-            C.trackEvent('import.linkedin.started', {});
-            var statusEl = document.getElementById('linkedin-status');
-            statusEl.innerHTML = '<div class="progress-spinner import-inline-spinner"></div> Importing...';
-
-            C.apiRaw('/api/import/linkedin', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url }),
-            }).then(function (resp) {
-                return resp.json().then(function (data) {
-                    if (!resp.ok) {
-                        var msg = (data.error && data.error.message) || data.error || 'Import failed';
-                        throw new Error(msg);
-                    }
-                    return data;
-                });
-            }).then(function (data) {
-                var html = '<span class="import-success">Imported ' + data.nodes_created + ' facts</span>';
-                if (data.limited) {
-                    html += '<br><small class="import-warning">' + C.escapeHtml(data.hint || 'Limited data — use LinkedIn data export for richer results') + '</small>';
-                }
-                html += ' &mdash; <a href="#memory">View Memory</a>';
-                statusEl.innerHTML = html;
-                C.signalProgressChanged();
-                C.trackEvent('import.linkedin.completed', { nodes: data.nodes_created || 0 });
-            }).catch(function (err) {
-                statusEl.innerHTML = '<span class="import-error">' + C.escapeHtml(err.message) + '</span>';
-                C.trackEvent('import.linkedin.failed', { error: err.message });
-            });
-        });
     }
 
     // ── API Keys Section ───────────────────────────────────────────

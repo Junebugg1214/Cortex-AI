@@ -210,8 +210,8 @@
 
     // ── Login / Logout ──────────────────────────────────────────
     function showLogin() {
-        document.getElementById('login-overlay').style.display = 'flex';
-        document.getElementById('logout-btn').style.display = 'none';
+        document.getElementById('login-overlay').classList.remove('is-hidden');
+        document.getElementById('logout-btn').classList.add('is-hidden');
         document.getElementById('login-error').textContent = '';
         setHudVisible(false);
 
@@ -221,22 +221,22 @@
         var signupLink = document.getElementById('signup-link');
 
         if (multiUserEnabled) {
-            adminForm.style.display = 'none';
-            userForm.style.display = 'block';
-            signupLink.style.display = registrationOpen ? 'block' : 'none';
+            adminForm.classList.add('is-hidden');
+            userForm.classList.remove('is-hidden');
+            signupLink.classList.toggle('is-hidden', !registrationOpen);
             document.getElementById('login-email').value = '';
             document.getElementById('login-user-password').value = '';
         } else {
-            adminForm.style.display = 'block';
-            userForm.style.display = 'none';
-            signupLink.style.display = 'none';
+            adminForm.classList.remove('is-hidden');
+            userForm.classList.add('is-hidden');
+            signupLink.classList.add('is-hidden');
             document.getElementById('login-password').value = '';
         }
     }
 
     function hideLogin() {
-        document.getElementById('login-overlay').style.display = 'none';
-        document.getElementById('logout-btn').style.display = '';
+        document.getElementById('login-overlay').classList.add('is-hidden');
+        document.getElementById('logout-btn').classList.remove('is-hidden');
         setHudVisible(true);
         refreshOnboardingState(true);
     }
@@ -244,7 +244,7 @@
     function setHudVisible(visible) {
         var hud = document.getElementById('app-hud');
         if (!hud) return;
-        hud.style.display = visible ? 'block' : 'none';
+        hud.classList.toggle('is-hidden', !visible);
     }
 
     function getVisitedPages() {
@@ -272,10 +272,18 @@
     }
 
     function computeNextAction(state, visited) {
+        if (!visited.connectors) {
+            return {
+                title: 'Connect your AI tools first',
+                detail: 'Set up connectors for seamless memory continuity across assistants.',
+                ctaLabel: 'Open Connectors',
+                ctaHref: '#connectors',
+            };
+        }
         if (!state.hasData) {
             return {
-                title: 'Start by importing your first source',
-                detail: 'Upload a chat export, resume, or LinkedIn data export to build your memory graph.',
+                title: 'Add your first memory data',
+                detail: 'Use manual import for chat exports, resumes, and other files when connector sync is not available.',
                 ctaLabel: 'Go to Upload',
                 ctaHref: '#upload',
             };
@@ -296,19 +304,11 @@
                 ctaHref: '#share',
             };
         }
-        if (!visited.connectors) {
-            return {
-                title: 'Connect your external AI tools',
-                detail: 'Add provider connectors so memory continuity is easier across assistants.',
-                ctaLabel: 'Open Connectors',
-                ctaHref: '#connectors',
-            };
-        }
         if (!visited.profile) {
             return {
-                title: 'Optional: publish a public profile',
-                detail: 'Set your handle and decide what sections are public at /p/{handle}.',
-                ctaLabel: 'Configure Profile',
+                title: 'Optional: configure your AI ID card',
+                detail: 'Set share policy, generate QR, and add optional GitHub URL for technical work.',
+                ctaLabel: 'Open Profile',
                 ctaHref: '#profile',
             };
         }
@@ -323,17 +323,17 @@
     function renderHud() {
         var hud = document.getElementById('app-hud');
         if (!hud) return;
-        if (document.getElementById('login-overlay').style.display === 'flex') {
-            hud.style.display = 'none';
+        if (!document.getElementById('login-overlay').classList.contains('is-hidden')) {
+            hud.classList.add('is-hidden');
             return;
         }
 
         var visited = getVisitedPages();
         var steps = [
+            { id: 'connect', label: 'Connect', done: !!visited.connectors },
             { id: 'import', label: 'Import', done: onboardingState.hasData },
             { id: 'explore', label: 'Explore', done: onboardingState.hasData && !!visited.memory },
             { id: 'share', label: 'Share', done: onboardingState.hasShareKey },
-            { id: 'connect', label: 'Connect', done: !!visited.connectors },
         ];
         var firstIncomplete = null;
         for (var i = 0; i < steps.length; i++) {
@@ -387,7 +387,7 @@
             '    <a class="btn btn-primary btn-sm" href="' + escapeHtml(next.ctaHref) + '">' + escapeHtml(next.ctaLabel) + '</a>' +
             '  </div>' +
             '</div>';
-        hud.style.display = 'block';
+        hud.classList.remove('is-hidden');
 
         var dismissBtn = document.getElementById('dismiss-whatsnew');
         if (dismissBtn) {

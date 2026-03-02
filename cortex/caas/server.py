@@ -3402,6 +3402,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 display_name=body.get("display_name", ""),
                 headline=body.get("headline", ""),
                 bio=body.get("bio", ""),
+                github_url=body.get("github_url", ""),
                 avatar_url=body.get("avatar_url", ""),
                 policy=body.get("policy", "professional"),
                 sections=body.get("sections", [

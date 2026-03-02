@@ -63,14 +63,14 @@
             </a>
         </div>
         <div class="topnav-spacer"></div>
-        <button id="logout-btn" class="btn btn-outline" style="font-size:13px;padding:6px 14px;display:none;">Logout</button>
+        <button id="logout-btn" class="btn btn-outline btn-logout is-hidden">Logout</button>
     </nav>
 
     <!-- Journey / onboarding HUD -->
-    <section id="app-hud" class="app-hud" style="display:none;"></section>
+    <section id="app-hud" class="app-hud is-hidden"></section>
 
     <!-- Login overlay -->
-    <div id="login-overlay" class="login-overlay" style="display:none;">
+    <div id="login-overlay" class="login-overlay is-hidden">
         <div class="login-modal">
             <div class="login-brand">
                 <svg width="36" height="36" viewBox="0 0 40 40" fill="none">
@@ -87,19 +87,19 @@
             <!-- Admin login form (single-user mode) -->
             <form id="login-form">
                 <input type="password" id="login-password" class="login-input" placeholder="Enter password" autocomplete="current-password" required>
-                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Sign In</button>
+                <button type="submit" class="btn btn-primary btn-block-center">Sign In</button>
             </form>
             <!-- Multi-user login form -->
-            <form id="user-login-form" style="display:none;">
-                <input type="email" id="login-email" class="login-input" placeholder="Email" autocomplete="email" required style="margin-bottom:10px;">
+            <form id="user-login-form" class="is-hidden">
+                <input type="email" id="login-email" class="login-input login-input-tight" placeholder="Email" autocomplete="email" required>
                 <input type="password" id="login-user-password" class="login-input" placeholder="Password" autocomplete="current-password" required>
-                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;">Sign In</button>
+                <button type="submit" class="btn btn-primary btn-block-center btn-mt-sm">Sign In</button>
             </form>
             <div id="login-error" class="login-error"></div>
             <!-- Signup link (shown in multi-user mode) -->
-            <div id="signup-link" style="display:none;text-align:center;margin-top:16px;">
-                <span style="color:#6b7280;font-size:14px;">Don't have an account? </span>
-                <a href="#signup" id="goto-signup" style="color:#4f46e5;font-size:14px;text-decoration:none;">Create one</a>
+            <div id="signup-link" class="login-signup is-hidden">
+                <span class="login-signup-text">Don't have an account? </span>
+                <a href="#signup" id="goto-signup" class="login-signup-link">Create one</a>
             </div>
         </div>
     </div>

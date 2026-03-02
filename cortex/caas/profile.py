@@ -52,6 +52,7 @@ class ProfileConfig:
     display_name: str = ""
     headline: str = ""
     bio: str = ""
+    github_url: str = ""
     avatar_url: str = ""
     policy: str = "professional"
     sections: list[str] = field(default_factory=lambda: list(DEFAULT_SECTIONS))
@@ -65,6 +66,7 @@ class ProfileConfig:
             "display_name": self.display_name,
             "headline": self.headline,
             "bio": self.bio,
+            "github_url": self.github_url,
             "avatar_url": self.avatar_url,
             "policy": self.policy,
             "sections": list(self.sections),
@@ -80,6 +82,7 @@ class ProfileConfig:
             display_name=d.get("display_name", ""),
             headline=d.get("headline", ""),
             bio=d.get("bio", ""),
+            github_url=d.get("github_url", ""),
             avatar_url=d.get("avatar_url", ""),
             policy=d.get("policy", "professional"),
             sections=list(d.get("sections", DEFAULT_SECTIONS)),
@@ -233,7 +236,7 @@ class ProfileStore:
             config = self._profiles.get(handle)
             if config is None:
                 return None
-            for key in ("display_name", "headline", "bio", "avatar_url",
+            for key in ("display_name", "headline", "bio", "github_url", "avatar_url",
                         "policy", "sections", "custom_tags"):
                 if key in updates:
                     setattr(config, key, updates[key])
@@ -270,6 +273,8 @@ def render_profile_jsonld(graph: CortexGraph, config: ProfileConfig) -> dict:
         person["jobTitle"] = config.headline
     if config.bio:
         person["description"] = config.bio
+    if config.github_url:
+        person["sameAs"] = [config.github_url]
 
     # Extract email/url from identity nodes
     for node in graph.nodes.values():
@@ -378,6 +383,7 @@ font-size:13px}}
 <h1>{e(config.display_name or config.handle)}</h1>
 {f'<div class="headline">{e(config.headline)}</div>' if config.headline else ''}
 {f'<div class="bio">{e(config.bio)}</div>' if config.bio else ''}
+{f'<div class="bio"><a href="{e(config.github_url)}" target="_blank" rel="noopener noreferrer">GitHub</a></div>' if config.github_url else ''}
 </div>
 {body}
 <div class="footer">Powered by Cortex-AI</div>

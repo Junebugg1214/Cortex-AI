@@ -23,8 +23,8 @@
     C.registerPage('profile', function (container) {
         container.innerHTML =
             '<div class="page-header">' +
-            '  <h1>Public Profile</h1>' +
-            '  <p>Configure and publish your profile in a few steps</p>' +
+            '  <h1>AI ID Card</h1>' +
+            '  <p>Your AI ID belongs to you. Share a scoped identity card with QR and policy controls.</p>' +
             '</div>' +
             '<div class="profile-toolbar">' +
             '  <div class="profile-field">' +
@@ -55,6 +55,11 @@
             '    <div class="profile-field profile-wide">' +
             '      <label class="profile-label" for="profile-bio">Bio</label>' +
             '      <textarea id="profile-bio" class="login-input profile-textarea" rows="3" placeholder="A short bio..."></textarea>' +
+            '    </div>' +
+            '    <div class="profile-field profile-wide">' +
+            '      <label class="profile-label" for="profile-github-url">GitHub URL (Optional)</label>' +
+            '      <input type="url" id="profile-github-url" class="login-input" placeholder="https://github.com/yourname">' +
+            '      <div class="profile-help">For coder sharing cards: include your technical work link without making it the main profile focus.</div>' +
             '    </div>' +
             '    <div class="profile-field">' +
             '      <label class="profile-label" for="profile-policy">Privacy Level</label>' +
@@ -115,6 +120,7 @@
             document.getElementById('profile-name').value = data.display_name || '';
             document.getElementById('profile-headline').value = data.headline || '';
             document.getElementById('profile-bio').value = data.bio || '';
+            document.getElementById('profile-github-url').value = data.github_url || '';
             policySelect.value = data.policy || 'professional';
             if (data.sections) {
                 togglesDiv.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
@@ -163,6 +169,7 @@
             document.getElementById('profile-name').value = '';
             document.getElementById('profile-headline').value = '';
             document.getElementById('profile-bio').value = '';
+            document.getElementById('profile-github-url').value = '';
             policySelect.value = 'professional';
             togglesDiv.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = true; });
             handleInput.focus();
@@ -211,6 +218,7 @@
                     display_name: document.getElementById('profile-name').value,
                     headline: document.getElementById('profile-headline').value,
                     bio: document.getElementById('profile-bio').value,
+                    github_url: document.getElementById('profile-github-url').value.trim(),
                     policy: policySelect.value,
                     sections: sections,
                 }),
