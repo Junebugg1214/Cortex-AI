@@ -358,6 +358,49 @@ body {
     font-weight: 600;
 }
 
+.storage-mode-card {
+    margin-bottom: 12px;
+}
+
+.storage-mode-head h3 {
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+
+.storage-mode-head p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.storage-mode-options {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.storage-mode-btn {
+    min-width: 120px;
+}
+
+.storage-mode-btn-active {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: var(--color-primary-light);
+}
+
+.storage-mode-byos {
+    margin-top: 12px;
+    border-top: 1px solid var(--color-border);
+    padding-top: 12px;
+}
+
+.storage-mode-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
 .upload-guide h3 {
     font-size: 16px;
     margin-bottom: 4px;

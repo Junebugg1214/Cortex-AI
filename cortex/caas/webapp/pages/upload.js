@@ -4,6 +4,9 @@
     var C = window.CortexApp;
     var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
     var pendingRevokes = {};
+    var storageModes = ['local', 'byos'];
+    var defaultStorageMode = 'local';
+    var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
 
     C.registerPage('upload', function (container) {
         container.innerHTML =
@@ -26,6 +29,24 @@
     function renderDropZone() {
         var area = document.getElementById('upload-area');
         area.innerHTML =
+            '<div class="card storage-mode-card">' +
+            '  <div class="storage-mode-head">' +
+            '    <h3>Storage Mode</h3>' +
+            '    <p>Only two modes are supported: <strong>Local Vault</strong> and <strong>BYOS</strong> (Bring Your Own Storage).</p>' +
+            '  </div>' +
+            '  <div class="storage-mode-options">' +
+            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
+            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS</button>' +
+            '  </div>' +
+            '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
+            '    <label class="profile-label" for="byos-provider">Provider</label>' +
+            '    <input id="byos-provider" class="login-input" placeholder="S3, R2, WebDAV, iCloud Drive">' +
+            '    <label class="profile-label" for="byos-location">Storage Location</label>' +
+            '    <input id="byos-location" class="login-input" placeholder="s3://my-cortex-vault or https://storage.example.com/bucket">' +
+            '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS Settings</button>' +
+            '    <p class="storage-mode-hint">Store encrypted memory in your own storage account. Cortex should not keep your plaintext data.</p>' +
+            '  </div>' +
+            '</div>' +
             '<div class="card upload-priority-cue">' +
             '  <strong>Recommended:</strong> Start in <a href="#connectors">Connectors</a> for ongoing memory continuity. Use manual imports here when needed.' +
             '</div>' +
@@ -80,6 +101,70 @@
         var dropZone = document.getElementById('drop-zone');
         var fileInput = document.getElementById('file-input');
         var sourceGuide = document.getElementById('source-guide-select');
+        var byosPane = document.getElementById('byos-config');
+        var byosProvider = document.getElementById('byos-provider');
+        var byosLocation = document.getElementById('byos-location');
+        var modeButtons = Array.prototype.slice.call(document.querySelectorAll('.storage-mode-btn'));
+
+        function getStoredPrefs() {
+            try {
+                var raw = localStorage.getItem(STORAGE_PREFS_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch (_e) {
+                return {};
+            }
+        }
+
+        function setStoredPrefs(next) {
+            try {
+                localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify(next));
+            } catch (_e) {
+                // Ignore local storage errors.
+            }
+        }
+
+        function setActiveStorageMode(mode) {
+            var safeMode = storageModes.indexOf(mode) >= 0 ? mode : defaultStorageMode;
+            modeButtons.forEach(function (btn) {
+                var isActive = btn.getAttribute('data-storage-mode') === safeMode;
+                btn.classList.toggle('storage-mode-btn-active', isActive);
+            });
+            byosPane.classList.toggle('is-hidden', safeMode !== 'byos');
+            var prefs = getStoredPrefs();
+            prefs.mode = safeMode;
+            setStoredPrefs(prefs);
+            C.trackEvent('storage.mode_changed', { mode: safeMode });
+        }
+
+        var initialPrefs = getStoredPrefs();
+        byosProvider.value = initialPrefs.byos_provider || '';
+        byosLocation.value = initialPrefs.byos_location || '';
+        setActiveStorageMode(initialPrefs.mode || defaultStorageMode);
+
+        modeButtons.forEach(function (btn) {
+            var mode = btn.getAttribute('data-storage-mode');
+            btn.classList.toggle('is-hidden', storageModes.indexOf(mode) < 0);
+            btn.addEventListener('click', function () {
+                setActiveStorageMode(mode);
+            });
+        });
+
+        document.getElementById('save-byos-prefs').addEventListener('click', function () {
+            var provider = byosProvider.value.trim();
+            var location = byosLocation.value.trim();
+            if (!provider || !location) {
+                C.showToast('Enter both BYOS provider and storage location.', 'error');
+                return;
+            }
+            var prefs = getStoredPrefs();
+            prefs.byos_provider = provider;
+            prefs.byos_location = location;
+            prefs.mode = 'byos';
+            setStoredPrefs(prefs);
+            setActiveStorageMode('byos');
+            C.showToast('BYOS settings saved locally.', 'success');
+            C.trackEvent('storage.byos_saved', { provider: provider });
+        });
 
         function renderGuide(value) {
             var copy = {
@@ -161,6 +246,13 @@
     }
 
     function loadUploadConfig() {
+        var appStorage = (C.getStorageConfig && C.getStorageConfig()) || null;
+        if (appStorage && Array.isArray(appStorage.modes) && appStorage.modes.length) {
+            storageModes = appStorage.modes.slice();
+        }
+        if (appStorage && typeof appStorage.defaultMode === 'string' && appStorage.defaultMode) {
+            defaultStorageMode = appStorage.defaultMode;
+        }
         C.apiRaw('/api/users/config', { method: 'GET' })
             .then(function (resp) {
                 if (!resp.ok) return null;
@@ -170,6 +262,12 @@
                 if (!cfg) return;
                 if (typeof cfg.max_upload_bytes === 'number' && cfg.max_upload_bytes > 0) {
                     maxUploadBytes = cfg.max_upload_bytes;
+                }
+                if (Array.isArray(cfg.storage_modes) && cfg.storage_modes.length) {
+                    storageModes = cfg.storage_modes.slice();
+                }
+                if (typeof cfg.default_storage_mode === 'string' && cfg.default_storage_mode) {
+                    defaultStorageMode = cfg.default_storage_mode;
                 }
             })
             .catch(function () {

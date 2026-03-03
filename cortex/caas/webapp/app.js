@@ -5,6 +5,8 @@
     // State
     var multiUserEnabled = false;
     var registrationOpen = false;
+    var storageModes = ['local', 'byos'];
+    var defaultStorageMode = 'local';
     var currentUser = null;
     var onboardingState = {
         hasData: false,
@@ -283,7 +285,7 @@
         if (!state.hasData) {
             return {
                 title: 'Add your first memory data',
-                detail: 'Use manual import for chat exports, resumes, and other files when connector sync is not available.',
+                detail: 'Use manual import for chat exports and resumes when connector sync is not available. Storage modes: Local Vault or BYOS only.',
                 ctaLabel: 'Go to Upload',
                 ctaHref: '#upload',
             };
@@ -539,10 +541,18 @@
             .then(function (data) {
                 multiUserEnabled = data.multi_user_enabled || false;
                 registrationOpen = data.registration_open || false;
+                if (Array.isArray(data.storage_modes) && data.storage_modes.length) {
+                    storageModes = data.storage_modes;
+                }
+                if (typeof data.default_storage_mode === 'string' && data.default_storage_mode) {
+                    defaultStorageMode = data.default_storage_mode;
+                }
             })
             .catch(function () {
                 multiUserEnabled = false;
                 registrationOpen = false;
+                storageModes = ['local', 'byos'];
+                defaultStorageMode = 'local';
             });
     }
 
@@ -586,6 +596,13 @@
         return multiUserEnabled;
     }
 
+    function getStorageConfig() {
+        return {
+            modes: storageModes.slice(),
+            defaultMode: defaultStorageMode,
+        };
+    }
+
     function signalProgressChanged() {
         return refreshOnboardingState(true);
     }
@@ -602,6 +619,7 @@
         showLogin: showLogin,
         getCurrentUser: getCurrentUser,
         isMultiUserMode: isMultiUserMode,
+        getStorageConfig: getStorageConfig,
         signalProgressChanged: signalProgressChanged,
         refreshOnboardingState: refreshOnboardingState,
         trackEvent: trackEvent,

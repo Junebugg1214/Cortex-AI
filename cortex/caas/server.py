@@ -272,6 +272,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
     registration_open: bool = True  # Allow new user signups
     default_user_quota: int = 5_368_709_120  # 5GB default
     max_upload_bytes: int = 3_221_225_472  # 3GB max upload
+    storage_modes: list[str] = ["local", "byos"]  # Supported user storage modes
+    default_storage_mode: str = "local"  # Default storage mode shown in UI
 
     _request_id: str = ""
     _current_user: Any = None  # Set during request processing for multi-user
@@ -4405,6 +4407,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "multi_user_enabled": self.__class__.multi_user_enabled,
             "registration_open": self.__class__.registration_open,
             "max_upload_bytes": self.__class__.max_upload_bytes,
+            "storage_modes": list(self.__class__.storage_modes),
+            "default_storage_mode": self.__class__.default_storage_mode,
+            "managed_cloud_enabled": False,
         })
 
     def _check_admin_session(self) -> bool:
@@ -5213,6 +5218,8 @@ def start_caas_server(
     CaaSHandler.multi_user_session_manager = None
     CaaSHandler.user_graph_resolver = None
     CaaSHandler.user_store = None
+    CaaSHandler.storage_modes = ["local", "byos"]
+    CaaSHandler.default_storage_mode = "local"
     if config is not None:
         # Upload cap used by /api/upload (applies in both single-user and multi-user modes).
         _cfg_upload_max = config.getint(
@@ -5224,6 +5231,14 @@ def start_caas_server(
         _cfg_quota = config.getint("users", "default_quota_bytes", fallback=CaaSHandler.default_user_quota)
         if _cfg_quota > 0:
             CaaSHandler.default_user_quota = _cfg_quota
+        _cfg_modes_raw = config.get("users", "storage_modes", fallback="local,byos")
+        _cfg_modes = [m.strip().lower() for m in _cfg_modes_raw.split(",") if m.strip()]
+        _valid_modes = [m for m in _cfg_modes if m in {"local", "byos"}]
+        if _valid_modes:
+            CaaSHandler.storage_modes = _valid_modes
+        _cfg_default_mode = config.get("users", "default_storage_mode", fallback="local").strip().lower()
+        if _cfg_default_mode in CaaSHandler.storage_modes:
+            CaaSHandler.default_storage_mode = _cfg_default_mode
 
     # HSTS (opt-in)
     if config is not None:

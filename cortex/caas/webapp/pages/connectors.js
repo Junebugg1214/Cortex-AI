@@ -127,7 +127,7 @@
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Connectors</h1>' +
-            '  <p>Connect AI providers so identity and memory can persist across tools.</p>' +
+            '  <p>Connect AI providers so identity and memory persist across tools. Storage model: Local Vault or BYOS only.</p>' +
             '</div>' +
             '<div class="connector-layout">' +
             '  <section class="card connector-create">' +
