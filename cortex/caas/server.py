@@ -506,6 +506,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
     connector_auto_sync_worker: Any = None  # Optional ConnectorAutoSyncWorker
     store_dir: str | None = None  # Storage directory for data files
     context_path: str | None = None  # Path to context.json for persistence
+    admin_graph: Any = None  # Admin graph reference for multi-user context switching
+    admin_context_path: str | None = None  # Admin context path reference
+    _graph_context_lock = threading.RLock()  # Serialize graph context switching in multi-user mode
 
     # Multi-user authentication
     multi_user_enabled: bool = False  # Enable multi-user mode
@@ -521,6 +524,44 @@ class CaaSHandler(BaseHTTPRequestHandler):
     _request_id: str = ""
     _current_user: Any = None  # Set during request processing for multi-user
     _logger = None  # lazily set
+
+    def _activate_admin_graph_context(self) -> None:
+        """Switch request graph context to admin graph/persistence path."""
+        if self.__class__.admin_graph is not None:
+            self.__class__.graph = self.__class__.admin_graph
+        self.__class__.context_path = self.__class__.admin_context_path
+        self._current_user = None
+        self._active_user_id = ""
+
+    def _activate_user_graph_context(self, user: Any) -> None:
+        """Switch request graph context to a specific user's graph/persistence path."""
+        if user is None:
+            self._activate_admin_graph_context()
+            return
+        resolver = self.__class__.user_graph_resolver
+        if resolver is None:
+            self._activate_admin_graph_context()
+            return
+        user_id = str(getattr(user, "user_id", "") or "").strip()
+        if not user_id:
+            self._activate_admin_graph_context()
+            return
+        if getattr(self, "_active_user_id", "") == user_id:
+            self._current_user = user
+            return
+
+        from cortex.graph import CortexGraph
+        graph_data = resolver.get_user_graph(user_id)
+        if isinstance(graph_data, dict):
+            user_graph = CortexGraph.from_v5_json(graph_data)
+        else:
+            user_graph = CortexGraph()
+
+        self.__class__.graph = user_graph
+        # Resolver uses this path for user graph storage.
+        self.__class__.context_path = str(resolver._graph_path(user_id))
+        self._current_user = user
+        self._active_user_id = user_id
 
     @classmethod
     def _get_logger(cls):
@@ -599,6 +640,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
+        if self.__class__.multi_user_enabled:
+            self._activate_admin_graph_context()
 
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
@@ -756,6 +799,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
+        if self.__class__.multi_user_enabled:
+            self._activate_admin_graph_context()
 
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
@@ -835,6 +880,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
+        if self.__class__.multi_user_enabled:
+            self._activate_admin_graph_context()
 
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
@@ -893,6 +940,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
         self._metrics_inc_in_flight(1)
         if self._check_rate_limit():
             return
+        if self.__class__.multi_user_enabled:
+            self._activate_admin_graph_context()
 
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")
@@ -1198,7 +1247,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
                     part = part.strip()
                     if part.startswith("cortex_user_session="):
                         token = part[len("cortex_user_session="):]
-                        if token and mu_sm.validate_user_session(token) is not None:
+                        user = mu_sm.validate_user_session(token) if token else None
+                        if user is not None:
+                            self._activate_user_graph_context(user)
                             return {
                                 "_user_session": True,
                                 "scopes": list(VALID_SCOPES),
@@ -1215,6 +1266,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 if part.startswith("cortex_app_session="):
                     token = part[len("cortex_app_session="):]
                     if token and sm.validate(token):
+                        self._activate_admin_graph_context()
                         return {"_webapp": True, "scopes": list(VALID_SCOPES)}
                     break
 
@@ -1225,6 +1277,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 if part.startswith("cortex_session="):
                     token = part[len("cortex_session="):]
                     if token and sm.validate(token):
+                        self._activate_admin_graph_context()
                         return {"_dashboard": True, "scopes": list(VALID_SCOPES)}
                     break
 
@@ -5107,11 +5160,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # Check user session first
         user = self._get_current_user()
         if user:
+            self._activate_user_graph_context(user)
             self._current_user = user
             return True, user
 
         # Fall back to admin session
         if self._check_admin_session():
+            self._activate_admin_graph_context()
             return True, None
 
         self._respond(401, "application/json",
@@ -5589,6 +5644,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if result.get("graph"):
             from cortex.graph import CortexGraph
             new_graph = CortexGraph.from_v5_json(result["graph"])
+            self.__class__.admin_graph = new_graph
             self.__class__.graph = new_graph
 
         self._audit("archive.imported", {
@@ -5838,6 +5894,7 @@ def start_caas_server(
                 store_dir = _cfg_dir
 
     CaaSHandler.graph = graph
+    CaaSHandler.admin_graph = graph
     CaaSHandler.identity = identity
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
@@ -6032,6 +6089,7 @@ def start_caas_server(
     # Keychain and store_dir
     CaaSHandler.store_dir = store_dir
     CaaSHandler.context_path = context_path
+    CaaSHandler.admin_context_path = context_path
     print(f"[DEBUG start_caas_server] Set CaaSHandler.context_path = {context_path}")
     print(f"[DEBUG start_caas_server] Set CaaSHandler.store_dir = {store_dir}")
     if store_dir:
@@ -6105,7 +6163,12 @@ def start_caas_server(
     host = "127.0.0.1"
     if config is not None:
         host = config.get("server", "host", fallback="127.0.0.1")
-    server = ThreadingHTTPServer((host, port), CaaSHandler)
+    server_cls: type[HTTPServer] = ThreadingHTTPServer
+    if CaaSHandler.multi_user_enabled:
+        # Multi-user currently relies on request-scoped graph switching.
+        # Use single-threaded serving to avoid cross-user graph leakage.
+        server_cls = HTTPServer
+    server = server_cls((host, port), CaaSHandler)
 
     # Build shutdown coordinator
     from cortex.caas.shutdown import ShutdownCoordinator
