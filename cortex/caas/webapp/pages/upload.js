@@ -4,9 +4,10 @@
     var C = window.CortexApp;
     var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
     var pendingRevokes = {};
-    var storageModes = ['local', 'byos'];
-    var defaultStorageMode = 'local';
+    var storageModes = ['byos', 'self_host'];
+    var defaultStorageMode = 'byos';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
+    var SELF_HOST_STARTER_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/main/deploy/self-host-starter.sh)';
 
     C.registerPage('upload', function (container) {
         var isConsumer = C.isConsumerMode && C.isConsumerMode();
@@ -45,42 +46,40 @@
             '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 10.42c-.2-.14-.42-.22-.65-.22H14.6l2.24-6.41c.16-.48-.05-1-.5-1.22a.99.99 0 00-1.17.25L5.32 13.58c-.18.2-.28.46-.28.73 0 .58.47 1.05 1.05 1.05h7.03l-2.24 6.41c-.16.48.05 1 .5 1.22.14.07.3.1.45.1.33 0 .64-.15.85-.42l9.85-10.76c.18-.2.28-.46.28-.73a1.03 1.03 0 00-.53-.76z"/></svg>' +
             '        <span>GitHub</span>' +
             '      </div>';
-        var storageCard = isConsumer
-            ? '<div class="card storage-mode-card">' +
-                '  <div class="storage-mode-head">' +
-                '    <h3>Where should your AI ID data live?</h3>' +
-                '    <p>Choose one: keep it in Local Vault or use your own cloud storage.</p>' +
-                '  </div>' +
-                '  <div class="storage-mode-options">' +
-                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
-                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">My Cloud Storage</button>' +
-                '  </div>' +
-                '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
-                '    <label class="profile-label" for="byos-provider">Storage Provider</label>' +
-                '    <input id="byos-provider" class="login-input" placeholder="S3, R2, iCloud Drive, WebDAV">' +
-                '    <label class="profile-label" for="byos-location">Storage Path or URL</label>' +
-                '    <input id="byos-location" class="login-input" placeholder="s3://my-ai-id-vault or https://storage.example.com/vault">' +
-                '    <button class="btn btn-primary" id="save-byos-prefs">Save Storage</button>' +
-                '  </div>' +
-                '</div>'
-            : '<div class="card storage-mode-card">' +
-                '  <div class="storage-mode-head">' +
-                '    <h3>Storage Mode</h3>' +
-                '    <p>Only two modes are supported: <strong>Local Vault</strong> and <strong>BYOS</strong> (Bring Your Own Storage).</p>' +
-                '  </div>' +
-                '  <div class="storage-mode-options">' +
-                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
-                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS</button>' +
-                '  </div>' +
-                '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
-                '    <label class="profile-label" for="byos-provider">Provider</label>' +
-                '    <input id="byos-provider" class="login-input" placeholder="S3, R2, WebDAV, iCloud Drive">' +
-                '    <label class="profile-label" for="byos-location">Storage Location</label>' +
-                '    <input id="byos-location" class="login-input" placeholder="s3://my-cortex-vault or https://storage.example.com/bucket">' +
-                '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS Settings</button>' +
-                '    <p class="storage-mode-hint">Store encrypted memory in your own storage account. Cortex should not keep your plaintext data.</p>' +
-                '  </div>' +
-                '</div>';
+        var storageCard = '<div class="card storage-mode-card">' +
+            '  <div class="storage-mode-head">' +
+            '    <h3>' + (isConsumer ? 'Choose Your Storage' : 'Storage Mode') + '</h3>' +
+            '    <p>' + (isConsumer
+                ? 'Use your own cloud storage or run your own Cortex server.'
+                : 'Local vault is removed. Choose BYOS or Self-Host only.') + '</p>' +
+            '  </div>' +
+            '  <div class="storage-mode-options">' +
+            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS Cloud</button>' +
+            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="self_host">Self-Host</button>' +
+            '  </div>' +
+            '  <div id="byos-config" class="storage-mode-pane is-hidden">' +
+            '    <label class="profile-label" for="byos-provider">Storage Provider</label>' +
+            '    <input id="byos-provider" class="login-input" placeholder="S3, R2, iCloud Drive, WebDAV">' +
+            '    <label class="profile-label" for="byos-location">Storage Path or URL</label>' +
+            '    <input id="byos-location" class="login-input" placeholder="s3://my-ai-id-vault/context.json or https://storage.example.com/vault/context.json">' +
+            '    <label class="profile-label" for="e2e-passphrase">E2E Passphrase</label>' +
+            '    <input id="e2e-passphrase" class="login-input" type="password" placeholder="Only you know this passphrase">' +
+            '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS + E2E</button>' +
+            '    <p class="storage-mode-hint">BYOS data is encrypted before write when passphrase is set. Keep this passphrase safe.</p>' +
+            '  </div>' +
+            '  <div id="self-host-config" class="storage-mode-pane is-hidden">' +
+            '    <p class="storage-mode-hint">Run your own private server with one command:</p>' +
+            '    <div class="self-host-command-row">' +
+            '      <code id="self-host-command">' + C.escapeHtml(SELF_HOST_STARTER_COMMAND) + '</code>' +
+            '      <button class="btn btn-outline btn-sm" id="copy-self-host-command">Copy</button>' +
+            '    </div>' +
+            '    <ol class="self-host-steps">' +
+            '      <li>Run the command on your own machine or VPS.</li>' +
+            '      <li>Create your account on your own Cortex URL.</li>' +
+            '      <li>Import data there and keep full control of storage.</li>' +
+            '    </ol>' +
+            '  </div>' +
+            '</div>';
         area.innerHTML =
             storageCard +
             '<div class="card upload-priority-cue">' +
@@ -140,8 +139,10 @@
         var fileInput = document.getElementById('file-input');
         var sourceGuide = document.getElementById('source-guide-select');
         var byosPane = document.getElementById('byos-config');
+        var selfHostPane = document.getElementById('self-host-config');
         var byosProvider = document.getElementById('byos-provider');
         var byosLocation = document.getElementById('byos-location');
+        var e2ePassphrase = document.getElementById('e2e-passphrase');
         var modeButtons = Array.prototype.slice.call(document.querySelectorAll('.storage-mode-btn'));
 
         function getStoredPrefs() {
@@ -166,7 +167,7 @@
             return C.api('/api/storage/preferences', {
                 method: 'PUT',
                 body: JSON.stringify({
-                    mode: next.mode || 'local',
+                    mode: next.mode || 'byos',
                     byos_provider: next.byos_provider || '',
                     byos_location: next.byos_location || '',
                 }),
@@ -181,7 +182,7 @@
             return C.api('/api/storage/preferences/check', {
                 method: 'POST',
                 body: JSON.stringify({
-                    mode: next.mode || 'local',
+                    mode: next.mode || 'byos',
                     byos_provider: next.byos_provider || '',
                     byos_location: next.byos_location || '',
                 }),
@@ -198,6 +199,15 @@
             if (byosPane) {
                 byosPane.classList.toggle('is-hidden', safeMode !== 'byos');
             }
+            if (selfHostPane) {
+                selfHostPane.classList.toggle('is-hidden', safeMode !== 'self_host');
+            }
+            if (fileInput) {
+                fileInput.disabled = safeMode === 'self_host';
+            }
+            if (dropZone) {
+                dropZone.classList.toggle('upload-zone-disabled', safeMode === 'self_host');
+            }
             var prefs = getStoredPrefs();
             prefs.mode = safeMode;
             setStoredPrefs(prefs);
@@ -213,6 +223,7 @@
         var initialPrefs = getStoredPrefs();
         if (byosProvider) byosProvider.value = initialPrefs.byos_provider || '';
         if (byosLocation) byosLocation.value = initialPrefs.byos_location || '';
+        if (e2ePassphrase && C.getE2EKey) e2ePassphrase.value = C.getE2EKey() || '';
         setActiveStorageMode(initialPrefs.mode || defaultStorageMode, { silent: true });
         C.api('/api/storage/preferences')
             .then(function (remotePrefs) {
@@ -227,7 +238,7 @@
                 setActiveStorageMode(merged.mode, { silent: true });
             })
             .catch(function () {
-                // Keep local-only fallback in case API is unavailable.
+                // Keep local fallback in case API is unavailable.
             });
 
         modeButtons.forEach(function (btn) {
@@ -237,6 +248,13 @@
                 setActiveStorageMode(mode);
             });
         });
+
+        var copySelfHostBtn = document.getElementById('copy-self-host-command');
+        if (copySelfHostBtn) {
+            copySelfHostBtn.addEventListener('click', function () {
+                C.copyToClipboard(SELF_HOST_STARTER_COMMAND);
+            });
+        }
 
         var saveByosBtn = document.getElementById('save-byos-prefs');
         if (saveByosBtn) {
@@ -251,6 +269,9 @@
                 prefs.byos_provider = provider;
                 prefs.byos_location = location;
                 prefs.mode = 'byos';
+                if (C.setE2EKey) {
+                    C.setE2EKey(e2ePassphrase ? e2ePassphrase.value.trim() : '');
+                }
                 setStoredPrefs(prefs);
                 checkPrefsRemote(prefs).then(function (checkResult) {
                     if (!checkResult || checkResult.ok === false) {
@@ -263,6 +284,11 @@
                     C.showToast('Storage check failed: ' + err.message, 'error');
                 });
                 C.trackEvent('storage.byos_saved', { provider: provider });
+            });
+        }
+        if (e2ePassphrase) {
+            e2ePassphrase.addEventListener('change', function () {
+                if (C.setE2EKey) C.setE2EKey(e2ePassphrase.value.trim());
             });
         }
 
@@ -282,10 +308,17 @@
             C.trackEvent('upload.guide_selected', { source: this.value });
         });
 
-        dropZone.addEventListener('click', function () { fileInput.click(); });
+        dropZone.addEventListener('click', function () {
+            if (fileInput.disabled) {
+                C.showToast('Self-Host mode selected. Import data on your own hosted instance.', 'info');
+                return;
+            }
+            fileInput.click();
+        });
 
         dropZone.addEventListener('dragover', function (e) {
             e.preventDefault();
+            if (fileInput.disabled) return;
             dropZone.classList.add('dragover');
         });
 
@@ -296,6 +329,10 @@
         dropZone.addEventListener('drop', function (e) {
             e.preventDefault();
             dropZone.classList.remove('dragover');
+            if (fileInput.disabled) {
+                C.showToast('Self-Host mode selected. Import data on your own hosted instance.', 'info');
+                return;
+            }
             if (e.dataTransfer.files.length > 0) {
                 handleFiles(e.dataTransfer.files);
                 C.trackEvent('upload.drop', { count: e.dataTransfer.files.length });
@@ -312,6 +349,16 @@
     }
 
     function handleFiles(fileList) {
+        var prefs = {};
+        try {
+            prefs = JSON.parse(localStorage.getItem(STORAGE_PREFS_KEY) || '{}') || {};
+        } catch (_e) {
+            prefs = {};
+        }
+        if (String(prefs.mode || '').toLowerCase() === 'self_host') {
+            C.showToast('Self-Host mode selected. Run your own server and import data there.', 'info');
+            return;
+        }
         var files = Array.prototype.slice.call(fileList || []);
         if (!files.length) return;
 

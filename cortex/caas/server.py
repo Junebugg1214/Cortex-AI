@@ -45,6 +45,7 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import hashlib
 import threading
 import time as _time
 import urllib.parse
@@ -518,8 +519,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
     registration_open: bool = True  # Allow new user signups
     default_user_quota: int = 5_368_709_120  # 5GB default
     max_upload_bytes: int = 3_221_225_472  # 3GB max upload
-    storage_modes: list[str] = ["local", "byos"]  # Supported user storage modes
-    default_storage_mode: str = "local"  # Default storage mode shown in UI
+    storage_modes: list[str] = ["byos", "self_host"]  # Supported user storage modes
+    default_storage_mode: str = "byos"  # Default storage mode shown in UI
 
     _request_id: str = ""
     _current_user: Any = None  # Set during request processing for multi-user
@@ -552,6 +553,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         from cortex.graph import CortexGraph
         graph_data = resolver.get_user_graph(user_id)
+        if graph_data is None:
+            actor = f"user:{user_id}"
+            storage_prefs = self._load_storage_preferences_all().get(actor, {})
+            if isinstance(storage_prefs, dict) and str(storage_prefs.get("mode", "")).strip().lower() == "byos":
+                graph_data = self._load_graph_from_byos_preferences(storage_prefs, self._request_e2e_key())
         if isinstance(graph_data, dict):
             user_graph = CortexGraph.from_v5_json(graph_data)
         else:
@@ -3438,7 +3444,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             edge_count = len(graph_data.get("edges", []))
             print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}", file=sys.stderr, flush=True)
             storage_prefs = self._get_storage_preferences_for_request()
-            mode = str(storage_prefs.get("mode", "local")).strip().lower()
+            mode = str(storage_prefs.get("mode", "byos")).strip().lower()
             graph_json = json.dumps(graph_data, indent=2)
             persisted_local = False
 
@@ -3449,6 +3455,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 and resolver is not None
                 and current_user is not None
                 and getattr(current_user, "user_id", "")
+                and mode != "byos"
             ):
                 try:
                     resolver.save_user_graph(str(current_user.user_id), graph_data, create_version=False)
@@ -3459,30 +3466,15 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
             if mode == "byos":
                 byos_location = str(storage_prefs.get("byos_location", "")).strip()
-                parsed = urllib.parse.urlparse(byos_location)
-                mirrored = False
-                if parsed.scheme in {"http", "https"}:
-                    req = urllib.request.Request(
-                        byos_location,
-                        data=graph_json.encode("utf-8"),
-                        headers={"Content-Type": "application/json"},
-                        method="PUT",
-                    )
-                    with urllib.request.urlopen(req, timeout=12):
-                        mirrored = True
-                elif parsed.scheme == "file" or byos_location.startswith("/"):
-                    target = Path(parsed.path if parsed.scheme == "file" else byos_location)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(graph_json, encoding="utf-8")
-                    mirrored = True
-
-                if mirrored:
-                    print(f"[DEBUG _save_graph] BYOS write successful ({byos_location})", file=sys.stderr, flush=True)
+                if byos_location:
+                    try:
+                        payload = self._encrypt_graph_payload(graph_json, self._request_e2e_key())
+                        self._write_byos_text(byos_location, payload)
+                        print(f"[DEBUG _save_graph] BYOS write successful ({byos_location})", file=sys.stderr, flush=True)
+                    except Exception as exc:
+                        print(f"[DEBUG _save_graph] BYOS write failed: {exc}", file=sys.stderr, flush=True)
                 else:
-                    # Fallback for unsupported BYOS schemes until provider-specific SDKs are configured.
-                    if not persisted_local:
-                        Path(context_path).write_text(graph_json, encoding="utf-8")
-                    print("[DEBUG _save_graph] BYOS scheme unsupported for direct write; used local fallback", file=sys.stderr, flush=True)
+                    print("[DEBUG _save_graph] BYOS mode active but no byos_location configured; skipping local persistence", file=sys.stderr, flush=True)
             else:
                 if not persisted_local:
                     Path(context_path).write_text(graph_json, encoding="utf-8")
@@ -3595,11 +3587,94 @@ class CaaSHandler(BaseHTTPRequestHandler):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
+    def _request_e2e_key(self) -> str:
+        return str(self.headers.get("X-Cortex-E2E-Key", "")).strip()
+
+    def _build_e2e_encryptor(self, e2e_key: str):
+        if not e2e_key:
+            return None
+        try:
+            from cortex.caas.encryption import FieldEncryptor
+            master_key = hashlib.sha256(e2e_key.encode("utf-8")).digest()
+            return FieldEncryptor(master_key)
+        except Exception:
+            return None
+
+    def _encrypt_graph_payload(self, graph_json: str, e2e_key: str) -> str:
+        if not e2e_key:
+            raise ValueError("BYOS requires X-Cortex-E2E-Key")
+        encryptor = self._build_e2e_encryptor(e2e_key)
+        if encryptor is None:
+            raise ValueError("Invalid E2E key")
+        token = encryptor.encrypt(graph_json)
+        return json.dumps({"format": "cortex-e2e-v1", "ciphertext": token}, indent=2)
+
+    def _decrypt_graph_payload(self, payload: str, e2e_key: str) -> str:
+        payload = payload.strip()
+        if not payload:
+            return payload
+        try:
+            data = json.loads(payload)
+        except Exception:
+            return payload
+        if not isinstance(data, dict) or data.get("format") != "cortex-e2e-v1":
+            return payload
+        ciphertext = str(data.get("ciphertext", "")).strip()
+        if not ciphertext:
+            raise ValueError("Missing ciphertext in E2E payload")
+        encryptor = self._build_e2e_encryptor(e2e_key)
+        if encryptor is None:
+            raise ValueError("Encrypted BYOS payload requires X-Cortex-E2E-Key")
+        return encryptor.decrypt(ciphertext)
+
+    def _read_byos_text(self, byos_location: str) -> str:
+        parsed = urllib.parse.urlparse(byos_location)
+        if parsed.scheme in {"http", "https"}:
+            req = urllib.request.Request(byos_location, method="GET")
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                return resp.read().decode("utf-8")
+        if parsed.scheme == "file" or byos_location.startswith("/"):
+            target = Path(parsed.path if parsed.scheme == "file" else byos_location)
+            return target.read_text(encoding="utf-8")
+        raise ValueError("Unsupported BYOS location for direct read")
+
+    def _write_byos_text(self, byos_location: str, payload: str) -> None:
+        parsed = urllib.parse.urlparse(byos_location)
+        if parsed.scheme in {"http", "https"}:
+            req = urllib.request.Request(
+                byos_location,
+                data=payload.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="PUT",
+            )
+            with urllib.request.urlopen(req, timeout=12):
+                return
+        if parsed.scheme == "file" or byos_location.startswith("/"):
+            target = Path(parsed.path if parsed.scheme == "file" else byos_location)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+            return
+        raise ValueError("Unsupported BYOS location for direct write")
+
+    def _load_graph_from_byos_preferences(self, prefs: dict[str, Any], e2e_key: str) -> dict[str, Any] | None:
+        byos_location = str(prefs.get("byos_location", "")).strip()
+        if not byos_location:
+            return None
+        try:
+            raw = self._read_byos_text(byos_location)
+            plain = self._decrypt_graph_payload(raw, e2e_key)
+            data = json.loads(plain)
+            if isinstance(data, dict) and isinstance(data.get("nodes"), list):
+                return data
+        except Exception:
+            return None
+        return None
+
     def _validate_storage_preferences(self, payload: dict[str, Any]) -> tuple[bool, str]:
         mode = str(payload.get("mode", "")).strip().lower()
-        if mode not in {"local", "byos"}:
-            return False, "mode must be 'local' or 'byos'"
-        if mode == "local":
+        if mode not in {"byos", "self_host"}:
+            return False, "mode must be 'byos' or 'self_host'"
+        if mode == "self_host":
             return True, ""
         provider = str(payload.get("byos_provider", "")).strip()
         location = str(payload.get("byos_location", "")).strip()
@@ -3620,8 +3695,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _try_check_storage_preferences(self, payload: dict[str, Any]) -> dict[str, Any]:
         mode = str(payload.get("mode", "")).strip().lower()
-        if mode == "local":
-            return {"ok": True, "message": "Local Vault is ready.", "check": "local"}
+        if mode == "self_host":
+            return {"ok": True, "message": "Self-host mode selected.", "check": "self_host"}
 
         location = str(payload.get("byos_location", "")).strip()
         parsed = urllib.parse.urlparse(location)
@@ -3654,7 +3729,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not isinstance(prefs, dict):
             prefs = {}
         mode = str(prefs.get("mode", self.__class__.default_storage_mode)).strip().lower()
-        if mode not in {"local", "byos"}:
+        if mode not in {"byos", "self_host"}:
             mode = self.__class__.default_storage_mode
         return {
             "mode": mode,
@@ -4578,14 +4653,18 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not valid:
             self._error_response(ERR_INVALID_REQUEST(error))
             return
+        if str(body.get("mode", "")).strip().lower() == "byos" and not self._request_e2e_key():
+            self._error_response(ERR_INVALID_REQUEST("BYOS requires an E2E passphrase (X-Cortex-E2E-Key)."))
+            return
 
         actor = self._storage_actor_key()
         now = datetime.now(timezone.utc).isoformat()
         data = self._load_storage_preferences_all()
+        mode = str(body.get("mode", "byos")).strip().lower()
         data[actor] = {
-            "mode": str(body.get("mode", "local")).strip().lower(),
-            "byos_provider": str(body.get("byos_provider", "")).strip(),
-            "byos_location": str(body.get("byos_location", "")).strip(),
+            "mode": mode,
+            "byos_provider": (str(body.get("byos_provider", "")).strip() if mode == "byos" else ""),
+            "byos_location": (str(body.get("byos_location", "")).strip() if mode == "byos" else ""),
             "updated_at": now,
         }
         try:
@@ -4609,6 +4688,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         valid, error = self._validate_storage_preferences(body)
         if not valid:
             self._error_response(ERR_INVALID_REQUEST(error))
+            return
+        if str(body.get("mode", "")).strip().lower() == "byos" and not self._request_e2e_key():
+            self._error_response(ERR_INVALID_REQUEST("BYOS requires an E2E passphrase (X-Cortex-E2E-Key)."))
             return
 
         try:
@@ -5932,8 +6014,8 @@ def start_caas_server(
     CaaSHandler.multi_user_session_manager = None
     CaaSHandler.user_graph_resolver = None
     CaaSHandler.user_store = None
-    CaaSHandler.storage_modes = ["local", "byos"]
-    CaaSHandler.default_storage_mode = "local"
+    CaaSHandler.storage_modes = ["byos", "self_host"]
+    CaaSHandler.default_storage_mode = "byos"
     if config is not None:
         # Upload cap used by /api/upload (applies in both single-user and multi-user modes).
         _cfg_upload_max = config.getint(
@@ -5945,12 +6027,12 @@ def start_caas_server(
         _cfg_quota = config.getint("users", "default_quota_bytes", fallback=CaaSHandler.default_user_quota)
         if _cfg_quota > 0:
             CaaSHandler.default_user_quota = _cfg_quota
-        _cfg_modes_raw = config.get("users", "storage_modes", fallback="local,byos")
+        _cfg_modes_raw = config.get("users", "storage_modes", fallback="byos,self_host")
         _cfg_modes = [m.strip().lower() for m in _cfg_modes_raw.split(",") if m.strip()]
-        _valid_modes = [m for m in _cfg_modes if m in {"local", "byos"}]
+        _valid_modes = [m for m in _cfg_modes if m in {"byos", "self_host"}]
         if _valid_modes:
             CaaSHandler.storage_modes = _valid_modes
-        _cfg_default_mode = config.get("users", "default_storage_mode", fallback="local").strip().lower()
+        _cfg_default_mode = config.get("users", "default_storage_mode", fallback="byos").strip().lower()
         if _cfg_default_mode in CaaSHandler.storage_modes:
             CaaSHandler.default_storage_mode = _cfg_default_mode
 

@@ -90,6 +90,14 @@ cortex serve output/context.json --enable-webapp --port 8421
 # Open http://localhost:8421/app to upload, explore, and share
 ```
 
+### One-command self-host starter
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/main/deploy/self-host-starter.sh)
+```
+
+Then open `http://localhost:8421/app`, create your account, choose `BYOS Cloud` or `Self-Host`, and set an E2E passphrase for BYOS.
+
 ## Installation
 
 ```bash
