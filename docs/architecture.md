@@ -1,5 +1,9 @@
 # Cortex Architecture
 
+## Related Specs
+
+- [Zero-Knowledge Memory API Spec](./zero-knowledge-api-spec.md)
+
 ## System Overview
 
 ```
