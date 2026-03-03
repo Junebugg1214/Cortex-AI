@@ -20,10 +20,13 @@
     ];
 
     C.registerPage('profile', function (container) {
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>AI ID Card</h1>' +
-            '  <p>Your AI ID belongs to you. Keep one clear profile and share it with policy controls.</p>' +
+            '  <p>' + (isConsumer
+                ? 'Your AI ID belongs to you. Keep one clear profile and share it with simple controls.'
+                : 'Your AI ID belongs to you. Keep one clear profile and share it with policy controls.') + '</p>' +
             '</div>' +
             '<div class="profile-config card">' +
             '  <div class="profile-grid">' +
@@ -50,7 +53,7 @@
             '      <div class="profile-help">Optional link for coder-facing technical memory cards.</div>' +
             '    </div>' +
             '    <div class="profile-field">' +
-            '      <label class="profile-label" for="profile-policy">Privacy Level</label>' +
+            '      <label class="profile-label" for="profile-policy">' + (isConsumer ? 'Sharing Level' : 'Privacy Level') + '</label>' +
             '      <select id="profile-policy" class="login-input profile-policy-select"></select>' +
             '    </div>' +
             '  </div>' +

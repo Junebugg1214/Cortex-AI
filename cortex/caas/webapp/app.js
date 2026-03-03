@@ -199,6 +199,19 @@
         if (!btn) return;
         btn.textContent = 'Consumer Mode: ' + (consumerMode ? 'On' : 'Off');
         btn.classList.toggle('btn-consumer-on', !!consumerMode);
+        renderConsumerNavLabels();
+    }
+
+    function renderConsumerNavLabels() {
+        var labelMap = consumerMode
+            ? { upload: 'Add Data', memory: 'Memory', share: 'Share', connectors: 'Connect', profile: 'AI ID' }
+            : { upload: 'Upload', memory: 'My Memory', share: 'Share', connectors: 'Connectors', profile: 'Profile' };
+        document.querySelectorAll('.tab-link').forEach(function (link) {
+            var page = link.getAttribute('data-page');
+            var span = link.querySelector('span');
+            if (!span || !labelMap[page]) return;
+            span.textContent = labelMap[page];
+        });
     }
 
     function setConsumerMode(value) {
@@ -280,48 +293,60 @@
     function computeNextAction(state, visited) {
         if (!visited.connectors) {
             return {
-                title: 'Connect your AI tools first',
-                detail: 'Set up connectors for seamless memory continuity across assistants.',
-                ctaLabel: 'Open Connectors',
+                title: consumerMode ? 'Connect your AI apps first' : 'Connect your AI tools first',
+                detail: consumerMode
+                    ? 'Set up connectors so your context follows you across assistants.'
+                    : 'Set up connectors for seamless memory continuity across assistants.',
+                ctaLabel: consumerMode ? 'Open Connect' : 'Open Connectors',
                 ctaHref: '#connectors',
             };
         }
         if (!state.hasData) {
             return {
-                title: 'Add your first memory data',
-                detail: 'Use manual import for chat exports and resumes when connector sync is not available. Storage modes: Local Vault or BYOS only.',
-                ctaLabel: 'Go to Upload',
+                title: consumerMode ? 'Add your first data' : 'Add your first memory data',
+                detail: consumerMode
+                    ? 'Add chat exports, files, or a resume to build your AI ID.'
+                    : 'Use manual import for chat exports and resumes when connector sync is not available. Storage modes: Local Vault or BYOS only.',
+                ctaLabel: consumerMode ? 'Go to Add Data' : 'Go to Upload',
                 ctaHref: '#upload',
             };
         }
         if (!visited.memory) {
             return {
-                title: 'Explore what Cortex extracted',
-                detail: 'Review your graph so you can validate facts and see how your context connects.',
-                ctaLabel: 'Open My Memory',
+                title: consumerMode ? 'Review your memory' : 'Explore what Cortex extracted',
+                detail: consumerMode
+                    ? 'Check your summary to confirm your AI ID looks right.'
+                    : 'Review your graph so you can validate facts and see how your context connects.',
+                ctaLabel: consumerMode ? 'Open Memory' : 'Open My Memory',
                 ctaHref: '#memory',
             };
         }
-        if (!state.hasShareKey) {
+        if ((!consumerMode && !state.hasShareKey) || (consumerMode && !visited.share)) {
             return {
-                title: 'Create your first shareable API key',
-                detail: 'Use policy-based keys to share only the context each tool should access.',
+                title: consumerMode ? 'Create your first share card' : 'Create your first shareable API key',
+                detail: consumerMode
+                    ? 'Pick a sharing intent and copy the version of your AI ID you want to share.'
+                    : 'Use policy-based keys to share only the context each tool should access.',
                 ctaLabel: 'Open Share',
                 ctaHref: '#share',
             };
         }
         if (!visited.profile) {
             return {
-                title: 'Optional: configure your AI ID card',
-                detail: 'Set share policy, generate QR, and add optional GitHub URL for technical work.',
-                ctaLabel: 'Open Profile',
+                title: consumerMode ? 'Optional: customize your AI ID card' : 'Optional: configure your AI ID card',
+                detail: consumerMode
+                    ? 'Set sharing level and generate a QR card for quick sharing.'
+                    : 'Set share policy, generate QR, and add optional GitHub URL for technical work.',
+                ctaLabel: consumerMode ? 'Open AI ID' : 'Open Profile',
                 ctaHref: '#profile',
             };
         }
         return {
             title: 'Setup complete',
-            detail: 'Your memory is imported, explored, and ready to share.',
-            ctaLabel: 'View My Memory',
+            detail: consumerMode
+                ? 'Your AI ID is ready. You can now share context anywhere.'
+                : 'Your memory is imported, explored, and ready to share.',
+            ctaLabel: consumerMode ? 'View Memory' : 'View My Memory',
             ctaHref: '#memory',
         };
     }
@@ -337,9 +362,9 @@
         var visited = getVisitedPages();
         var steps = [
             { id: 'connect', label: 'Connect', done: !!visited.connectors },
-            { id: 'import', label: 'Import', done: onboardingState.hasData },
-            { id: 'explore', label: 'Explore', done: onboardingState.hasData && !!visited.memory },
-            { id: 'share', label: 'Share', done: onboardingState.hasShareKey },
+            { id: 'import', label: consumerMode ? 'Add Data' : 'Import', done: onboardingState.hasData },
+            { id: 'explore', label: consumerMode ? 'Review' : 'Explore', done: onboardingState.hasData && !!visited.memory },
+            { id: 'share', label: 'Share', done: consumerMode ? !!visited.share : onboardingState.hasShareKey },
         ];
         var firstIncomplete = null;
         for (var i = 0; i < steps.length; i++) {
@@ -352,7 +377,9 @@
         var next = onboardingState.nextAction || computeNextAction(onboardingState, visited);
         var tipsHtml =
             '<div class="hud-tip">' +
-            '  <strong>Tip</strong>: Use Share intents to generate safer, policy-scoped exports in one click.' +
+            '  <strong>Tip</strong>: ' + (consumerMode
+                ? 'Choose a Share intent to generate the right version of your AI ID in one click.'
+                : 'Use Share intents to generate safer, policy-scoped exports in one click.') +
             '</div>';
         var stepHtml = steps.map(function (step) {
             var cls = 'journey-step';
@@ -369,7 +396,7 @@
         hud.innerHTML =
             '<div class="app-hud-inner">' +
             '  <div class="journey-track">' +
-            '    <div class="journey-title">Setup Journey</div>' +
+            '    <div class="journey-title">' + (consumerMode ? 'Quick Setup' : 'Setup Journey') + '</div>' +
             '    <div class="journey-steps">' + stepHtml + '</div>' +
             '    ' + tipsHtml +
             '  </div>' +

@@ -9,14 +9,17 @@
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
 
     C.registerPage('upload', function (container) {
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         container.innerHTML =
             '<div class="page-header">' +
-            '  <h1>Import (Manual)</h1>' +
-            '  <p>Best flow: connect assistants first, then use manual imports as a fallback.</p>' +
+            '  <h1>' + (isConsumer ? 'Add Data' : 'Import (Manual)') + '</h1>' +
+            '  <p>' + (isConsumer
+                ? 'Add your chats, files, or resume to build your AI ID.'
+                : 'Best flow: connect assistants first, then use manual imports as a fallback.') + '</p>' +
             '</div>' +
             '<div class="card page-flow-cue">' +
             '  <span class="flow-step">1. Connectors</span>' +
-            '  <span class="flow-step flow-step-active">2. Import</span>' +
+            '  <span class="flow-step flow-step-active">' + (isConsumer ? '2. Add Data' : '2. Import') + '</span>' +
             '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div id="upload-area"></div>' +
@@ -62,10 +65,11 @@
             '  </div>' +
             '</div>' +
             '<div class="card upload-priority-cue">' +
-            '  <strong>Recommended:</strong> Start in <a href="#connectors">Connectors</a> for ongoing memory continuity. Use manual imports here when needed.' +
+            '  <strong>Recommended:</strong> Start in <a href="#connectors">Connectors</a> for ongoing memory continuity. ' +
+            (isConsumer ? 'Use Add Data here whenever you want to include new files.' : 'Use manual imports here when needed.') +
             '</div>' +
             '<div class="card upload-guide">' +
-            '  <h3>Import Wizard</h3>' +
+            '  <h3>' + (isConsumer ? 'Source Guide' : 'Import Wizard') + '</h3>' +
             '  <p class="upload-guide-sub">Choose a source to see what file to upload.</p>' +
             '  <div class="upload-guide-row">' +
             '    <select id="source-guide-select" class="import-input" aria-label="Choose import source">' +
@@ -429,7 +433,7 @@
             '        <polyline points="22 4 12 14.01 9 11.01"/>' +
             '      </svg>' +
             '    </div>' +
-            '    <div class="results-title">Import Complete</div>' +
+            '    <div class="results-title">' + ((C.isConsumerMode && C.isConsumerMode()) ? 'Data Added' : 'Import Complete') + '</div>' +
             '    <div class="results-summary">' + C.escapeHtml(summary) + '</div>' +
             '    <div class="results-stats">' +
             '      <div class="stat-item"><div class="stat-value">' + nodes + '</div><div class="stat-label">Facts</div></div>' +
@@ -441,7 +445,7 @@
             (successes.length
                 ? '      <a href="#memory" class="btn btn-primary btn-lg">View My Memory</a>'
                 : '') +
-            '      <button class="btn btn-outline btn-lg" id="upload-another">Upload More</button>' +
+            '      <button class="btn btn-outline btn-lg" id="upload-another">' + ((C.isConsumerMode && C.isConsumerMode()) ? 'Add More Data' : 'Upload More') + '</button>' +
             '    </div>' +
             '  </div>' +
             '</div>';

@@ -36,7 +36,9 @@
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Share</h1>' +
-            '  <p>Simple flow: choose intent, check preview, then copy or download.</p>' +
+            '  <p>' + (isConsumer
+                ? 'Choose what you are sharing for, check the preview, then copy or download.'
+                : 'Simple flow: choose intent, check preview, then copy or download.') + '</p>' +
             '</div>' +
             '<div class="card page-flow-cue">' +
             '  <span class="flow-step flow-step-active">1. Intent</span>' +
@@ -266,7 +268,7 @@
                     '<div class="empty-state">' +
                     '  <h3>No shareable data yet</h3>' +
                     '  <p>Import data first, then return here to generate exports.</p>' +
-                    '  <a class="btn btn-primary empty-state-action" href="#upload">Go to Import</a>' +
+                    '  <a class="btn btn-primary empty-state-action" href="#upload">' + ((C.isConsumerMode && C.isConsumerMode()) ? 'Go to Add Data' : 'Go to Import') + '</a>' +
                     '</div>';
                 count.textContent = '0 lines';
                 return;

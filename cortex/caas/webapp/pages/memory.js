@@ -270,11 +270,12 @@
     function renderSummary() {
         var container = document.getElementById('memory-summary');
         if (!graphData || !(graphData.nodes || []).length) {
+            var isConsumer = C.isConsumerMode && C.isConsumerMode();
             container.innerHTML =
                 '<div class="card empty-state">' +
                 '  <h3>Your memory is empty</h3>' +
                 '  <p>Try uploading a ChatGPT export zip or resume to generate your first graph.</p>' +
-                '  <a class="btn btn-primary empty-state-action" href="#upload">Go to Upload</a>' +
+                '  <a class="btn btn-primary empty-state-action" href="#upload">' + (isConsumer ? 'Go to Add Data' : 'Go to Upload') + '</a>' +
                 '</div>';
             return;
         }

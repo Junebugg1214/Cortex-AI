@@ -104,14 +104,17 @@
     }
 
     C.registerPage('connectors', function (container) {
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Connectors</h1>' +
-            '  <p>Connect AI providers so identity and memory persist across tools. Storage model: Local Vault or BYOS only.</p>' +
+            '  <p>' + (isConsumer
+                ? 'Connect your AI apps so your AI ID stays consistent across tools.'
+                : 'Connect AI providers so identity and memory persist across tools. Storage model: Local Vault or BYOS only.') + '</p>' +
             '</div>' +
             '<div class="card page-flow-cue">' +
-            '  <span class="flow-step flow-step-active">1. Connect Assistant</span>' +
-            '  <span class="flow-step">2. Import Fallback</span>' +
+            '  <span class="flow-step flow-step-active">1. Connect</span>' +
+            '  <span class="flow-step">2. ' + (isConsumer ? 'Add Data (Optional)' : 'Import Fallback') + '</span>' +
             '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div class="connector-layout">' +
