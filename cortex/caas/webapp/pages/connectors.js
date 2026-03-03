@@ -12,14 +12,6 @@
         return '<span class="connector-status connector-status-' + safe + '">' + safe + '</span>';
     }
 
-    function parseScopes(raw) {
-        if (!raw) return [];
-        return String(raw)
-            .split(',')
-            .map(function (s) { return s.trim(); })
-            .filter(Boolean);
-    }
-
     function loadConnectors() {
         C.api('/api/connectors')
             .then(function (resp) {
@@ -64,7 +56,6 @@
                 '  <div class="connector-scopes">' + (scopes || '<span class="connector-scope">none</span>') + '</div>' +
                 '  <div class="connector-actions">' +
                 '    <button class="btn btn-outline btn-connector-toggle" data-id="' + C.escapeHtml(c.connector_id) + '" data-status="' + C.escapeHtml(c.status || 'active') + '">' + ((c.status || 'active') === 'active' ? 'Pause' : 'Activate') + '</button>' +
-                '    <button class="btn btn-outline btn-connector-sync" data-id="' + C.escapeHtml(c.connector_id) + '">Mark Sync</button>' +
                 '    <button class="btn btn-outline btn-danger btn-connector-delete" data-id="' + C.escapeHtml(c.connector_id) + '">Delete</button>' +
                 '  </div>' +
                 '</article>'
@@ -96,17 +87,6 @@
             });
         });
 
-        document.querySelectorAll('.btn-connector-sync').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var connectorId = this.getAttribute('data-id');
-                updateConnector(
-                    connectorId,
-                    { last_sync_at: new Date().toISOString(), status: 'active' },
-                    'Sync timestamp updated'
-                );
-            });
-        });
-
         document.querySelectorAll('.btn-connector-delete').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var connectorId = this.getAttribute('data-id');
@@ -129,6 +109,11 @@
             '  <h1>Connectors</h1>' +
             '  <p>Connect AI providers so identity and memory persist across tools. Storage model: Local Vault or BYOS only.</p>' +
             '</div>' +
+            '<div class="card page-flow-cue">' +
+            '  <span class="flow-step flow-step-active">1. Connect Assistant</span>' +
+            '  <span class="flow-step">2. Import Fallback</span>' +
+            '  <span class="flow-step">3. Share</span>' +
+            '</div>' +
             '<div class="connector-layout">' +
             '  <section class="card connector-create">' +
             '    <h3>Add Connector</h3>' +
@@ -137,10 +122,6 @@
             '      <select id="connector-provider" class="login-input"></select>' +
             '      <label class="profile-label" for="connector-label">Account Label</label>' +
             '      <input id="connector-label" class="login-input" placeholder="Personal OpenAI">' +
-            '      <label class="profile-label" for="connector-external-id">External User ID (optional)</label>' +
-            '      <input id="connector-external-id" class="login-input" placeholder="user_123">' +
-            '      <label class="profile-label" for="connector-scopes">Scopes (comma-separated)</label>' +
-            '      <input id="connector-scopes" class="login-input" placeholder="memory:read, memory:write">' +
             '      <button type="submit" class="btn btn-primary">Create Connector</button>' +
             '    </form>' +
             '  </section>' +
@@ -160,8 +141,7 @@
             var payload = {
                 provider: providerSelect.value,
                 account_label: document.getElementById('connector-label').value.trim(),
-                external_user_id: document.getElementById('connector-external-id').value.trim(),
-                scopes: parseScopes(document.getElementById('connector-scopes').value),
+                scopes: ['memory:read'],
                 metadata: {
                     source: 'webapp',
                 },

@@ -49,11 +49,16 @@
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>My Memory</h1>' +
-            '  <p>Start with a summary, then dive into your graph when needed</p>' +
+            '  <p>Start with summary. Open advanced graph only when you need deeper inspection.</p>' +
+            '</div>' +
+            '<div class="card page-flow-cue">' +
+            '  <span class="flow-step flow-step-active">1. Review Summary</span>' +
+            '  <span class="flow-step">2. Advanced Graph</span>' +
+            '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div class="memory-view-toggle">' +
             '  <button class="memory-view-btn active" data-view="summary">Summary</button>' +
-            '  <button class="memory-view-btn" data-view="graph">Graph Explorer</button>' +
+            '  <button class="memory-view-btn" data-view="graph">Advanced Graph</button>' +
             '</div>' +
             '<section id="memory-summary" class="memory-summary"></section>' +
             '<section id="memory-graph" class="memory-graph is-hidden">' +
@@ -62,9 +67,7 @@
             '      <input type="text" class="search-input" id="mem-search" placeholder="Search your memory..." aria-label="Search memory graph">' +
             '      <button class="btn btn-outline btn-sm" id="graph-reset">Reset View</button>' +
             '      <button class="btn btn-outline btn-sm" id="graph-fit">Fit Graph</button>' +
-            '      <button class="btn btn-outline btn-sm" id="graph-legend-toggle">Legend</button>' +
             '    </div>' +
-            '    <div class="graph-legend is-hidden" id="graph-legend"></div>' +
             '    <div class="filter-chips" id="filter-chips"></div>' +
             '    <div class="graph-canvas-container">' +
             '      <canvas id="mem-canvas"></canvas>' +
@@ -154,11 +157,6 @@
             C.trackEvent('memory.graph_fit', {});
         });
 
-        document.getElementById('graph-legend-toggle').addEventListener('click', function () {
-            var legend = document.getElementById('graph-legend');
-            legend.classList.toggle('is-hidden');
-        });
-
         canvas.addEventListener('wheel', function (e) {
             e.preventDefault();
             var factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -230,7 +228,6 @@
             processGraph(function () {
                 renderSummary();
                 renderFilters();
-                renderLegend();
                 renderStats();
                 draw();
             });
@@ -325,10 +322,10 @@
             '<div class="card memory-cta-row">' +
             '  <div>' +
             '    <div class="memory-section-title">Next step</div>' +
-            '    <p class="memory-muted">Inspect relationships in Graph Explorer or generate a share-ready export.</p>' +
+            '    <p class="memory-muted">Inspect relationships in Advanced Graph or generate a share-ready export.</p>' +
             '  </div>' +
             '  <div class="memory-cta-actions">' +
-            '    <button class="btn btn-primary" data-memory-view="graph">Open Graph Explorer</button>' +
+            '    <button class="btn btn-primary" data-memory-view="graph">Open Advanced Graph</button>' +
             '    <a class="btn btn-outline" href="#share">Go to Share</a>' +
             '  </div>' +
             '</div>';
@@ -528,19 +525,6 @@
                 draw();
             });
         });
-    }
-
-    function renderLegend() {
-        var el = document.getElementById('graph-legend');
-        var topTags = getTopTagCounts(8);
-        if (!topTags.length) {
-            el.innerHTML = '<span class="memory-muted">No legend available.</span>';
-            return;
-        }
-        el.innerHTML = topTags.map(function (x) {
-            var color = TAG_COLORS[x.tag] || '#64748b';
-            return '<span class="legend-item"><span class="legend-dot legend-dot-toned"></span>' + C.escapeHtml(x.tag) + '</span>';
-        }).join('');
     }
 
     function renderStats() {

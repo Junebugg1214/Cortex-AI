@@ -14,6 +14,11 @@
             '  <h1>Import (Manual)</h1>' +
             '  <p>Best flow: connect assistants first, then use manual imports as a fallback.</p>' +
             '</div>' +
+            '<div class="card page-flow-cue">' +
+            '  <span class="flow-step">1. Connectors</span>' +
+            '  <span class="flow-step flow-step-active">2. Import</span>' +
+            '  <span class="flow-step">3. Share</span>' +
+            '</div>' +
             '<div id="upload-area"></div>' +
             '<div id="import-cards-area"></div>' +
             '<div id="api-keys-area"></div>';
@@ -505,12 +510,25 @@
         var area = document.getElementById('api-keys-area');
         area.innerHTML =
             '<div class="card api-keys-section">' +
-            '  <h2>Your Memory API</h2>' +
-            '  <p class="api-keys-desc">Generate API keys so external chatbots, agents, and coding tools can access your memory.</p>' +
-            '  <button class="btn btn-primary" id="show-create-key-btn">Generate API Key</button>' +
-            '  <div id="create-key-form" class="is-hidden"></div>' +
-            '  <div id="api-keys-list"></div>' +
+            '  <div class="api-keys-header">' +
+            '    <h2>Developer Access (Optional)</h2>' +
+            '    <button class="btn btn-outline" id="toggle-api-keys">Show</button>' +
+            '  </div>' +
+            '  <p class="api-keys-desc">Only needed if you want custom tools to read memory via API.</p>' +
+            '  <div id="api-keys-panel" class="is-hidden">' +
+            '    <button class="btn btn-primary" id="show-create-key-btn">Generate API Key</button>' +
+            '    <div id="create-key-form" class="is-hidden"></div>' +
+            '    <div id="api-keys-list"></div>' +
+            '  </div>' +
             '</div>';
+
+        document.getElementById('toggle-api-keys').addEventListener('click', function () {
+            var panel = document.getElementById('api-keys-panel');
+            var open = !panel.classList.contains('is-hidden');
+            panel.classList.toggle('is-hidden', open);
+            this.textContent = open ? 'Show' : 'Hide';
+            if (!open) loadApiKeys();
+        });
 
         document.getElementById('show-create-key-btn').addEventListener('click', function () {
             var formEl = document.getElementById('create-key-form');
@@ -525,7 +543,6 @@
             }
         });
 
-        loadApiKeys();
     }
 
     function renderCreateKeyForm() {

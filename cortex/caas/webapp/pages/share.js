@@ -9,8 +9,6 @@
     var contextData = null;
     var exposureStats = { facts: 0, categories: 0 };
 
-    var SHARE_PRESETS_KEY = 'cortex.webapp.share.presets.v1';
-
     var PLATFORMS = [
         { id: 'claude', name: 'Claude', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>' },
         { id: 'notion', name: 'Notion', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>' },
@@ -20,55 +18,43 @@
     ];
 
     var POLICIES = [
-        { id: 'full', name: 'Everything', desc: 'Share all your facts — the complete picture' },
-        { id: 'professional', name: 'Work Only', desc: 'Just your job, skills, and priorities' },
-        { id: 'technical', name: 'Tech Only', desc: 'Only your tech stack and preferences' },
-        { id: 'minimal', name: 'Minimal', desc: 'Almost nothing — just basic preferences' },
+        { id: 'full', name: 'Everything', desc: 'Share all your facts' },
+        { id: 'professional', name: 'Work Only', desc: 'Job, skills, and priorities' },
+        { id: 'technical', name: 'Tech Only', desc: 'Tools, projects, and coding style' },
+        { id: 'minimal', name: 'Minimal', desc: 'Lowest disclosure' },
     ];
 
     var INTENTS = [
-        { id: 'assistant', name: 'Coding Assistant', desc: 'Share technical context with coding copilots', platform: 'claude', policy: 'technical' },
-        { id: 'recruiter', name: 'Recruiter / ATS', desc: 'Share structured professional data for hiring', platform: 'jsonresume', policy: 'professional' },
-        { id: 'agent', name: 'Agent Handoff', desc: 'Give your custom AI agent full context', platform: 'prompt', policy: 'full' },
-        { id: 'public', name: 'Public Bio', desc: 'Keep it minimal for broad sharing', platform: 'docs', policy: 'minimal' },
+        { id: 'assistant', name: 'Coding Assistant', desc: 'Use for coding copilots', platform: 'claude', policy: 'technical' },
+        { id: 'recruiter', name: 'Recruiter / ATS', desc: 'Use for hiring workflows', platform: 'jsonresume', policy: 'professional' },
+        { id: 'agent', name: 'Agent Handoff', desc: 'Use for personal agent setup', platform: 'prompt', policy: 'full' },
+        { id: 'public', name: 'Public Bio', desc: 'Use for broad public sharing', platform: 'docs', policy: 'minimal' },
     ];
 
     C.registerPage('share', function (container) {
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Share</h1>' +
-            '  <p>Pick an intent first, then export with the right privacy level</p>' +
+            '  <p>Simple flow: choose intent, check preview, then copy or download.</p>' +
+            '</div>' +
+            '<div class="card page-flow-cue">' +
+            '  <span class="flow-step flow-step-active">1. Intent</span>' +
+            '  <span class="flow-step">2. Preview</span>' +
+            '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div class="share-layout">' +
             '  <div class="share-config">' +
-            '    <div>' +
-            '      <div class="section-label">Quick Intents</div>' +
+            '    <div class="card">' +
+            '      <div class="section-label">Intent</div>' +
             '      <div class="intent-cards" id="intent-cards"></div>' +
             '    </div>' +
-            '    <div class="card share-presets">' +
-            '      <div class="section-label">Saved Presets</div>' +
-            '      <div class="share-presets-row">' +
-            '        <select id="preset-select" class="import-input" aria-label="Saved presets"></select>' +
-            '        <button class="btn btn-outline" id="preset-apply">Apply</button>' +
-            '        <button class="btn btn-outline" id="preset-delete">Delete</button>' +
-            '      </div>' +
-            '      <div class="share-presets-row">' +
-            '        <input id="preset-name" class="import-input" placeholder="Preset name (e.g. recruiter-v1)" aria-label="Preset name">' +
-            '        <button class="btn btn-primary" id="preset-save">Save Current</button>' +
-            '      </div>' +
+            '    <div class="card">' +
+            '      <div class="section-label">Platform</div>' +
+            '      <div class="platform-cards" id="platform-cards"></div>' +
             '    </div>' +
-            '    <div class="share-advanced">' +
-            '      <button class="btn btn-outline" id="toggle-advanced">Customize manually</button>' +
-            '      <div id="advanced-panel" class="advanced-panel is-hidden">' +
-            '        <div>' +
-            '          <div class="section-label">Platform</div>' +
-            '          <div class="platform-cards" id="platform-cards"></div>' +
-            '        </div>' +
-            '        <div class="advanced-subsection">' +
-            '          <div class="section-label">Privacy Level</div>' +
-            '          <div class="privacy-options" id="privacy-options"></div>' +
-            '        </div>' +
-            '      </div>' +
+            '    <div class="card">' +
+            '      <div class="section-label">Privacy Level</div>' +
+            '      <div class="privacy-options" id="privacy-options"></div>' +
             '    </div>' +
             '  </div>' +
             '  <div class="share-preview card" id="share-preview">' +
@@ -89,15 +75,7 @@
         renderIntents();
         renderPlatforms();
         renderPolicies();
-        renderPresetOptions();
         applyIntent('assistant');
-
-        document.getElementById('toggle-advanced').addEventListener('click', function () {
-            var panel = document.getElementById('advanced-panel');
-            var open = !panel.classList.contains('is-hidden');
-            panel.classList.toggle('is-hidden', open);
-            this.textContent = open ? 'Customize manually' : 'Hide customization';
-        });
 
         document.getElementById('btn-copy').addEventListener('click', function () {
             var text = document.getElementById('preview-content').textContent;
@@ -108,97 +86,7 @@
         document.getElementById('btn-download').addEventListener('click', function () {
             downloadExport();
         });
-
-        bindPresetActions();
     });
-
-    function getPresets() {
-        try {
-            var raw = localStorage.getItem(SHARE_PRESETS_KEY);
-            if (!raw) return [];
-            var parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (_e) {
-            return [];
-        }
-    }
-
-    function savePresets(presets) {
-        try {
-            localStorage.setItem(SHARE_PRESETS_KEY, JSON.stringify(presets.slice(0, 30)));
-        } catch (_e) {
-            // Ignore storage failures.
-        }
-    }
-
-    function renderPresetOptions() {
-        var select = document.getElementById('preset-select');
-        var presets = getPresets();
-        var html = '<option value="">Select preset</option>';
-        presets.forEach(function (p, idx) {
-            html += '<option value="' + idx + '">' + C.escapeHtml(p.name) + '</option>';
-        });
-        select.innerHTML = html;
-    }
-
-    function bindPresetActions() {
-        document.getElementById('preset-save').addEventListener('click', function () {
-            var nameInput = document.getElementById('preset-name');
-            var name = nameInput.value.trim();
-            if (!name) {
-                C.showToast('Name the preset first.', 'error');
-                return;
-            }
-            var presets = getPresets();
-            presets.unshift({
-                name: name,
-                intent: selectedIntent,
-                platform: selectedPlatform,
-                policy: selectedPolicy,
-                saved_at: new Date().toISOString(),
-            });
-            savePresets(presets);
-            renderPresetOptions();
-            nameInput.value = '';
-            C.showToast('Preset saved.', 'success');
-            C.trackEvent('share.preset_saved', { name: name });
-        });
-
-        document.getElementById('preset-apply').addEventListener('click', function () {
-            var index = parseInt(document.getElementById('preset-select').value, 10);
-            var presets = getPresets();
-            var preset = presets[index];
-            if (!preset) {
-                C.showToast('Choose a preset first.', 'error');
-                return;
-            }
-            selectedIntent = preset.intent || 'custom';
-            selectedPlatform = preset.platform || 'claude';
-            selectedPolicy = preset.policy || 'professional';
-            renderIntents();
-            renderPlatforms();
-            renderPolicies();
-            loadPreview();
-            renderIntentSummary();
-            C.showToast('Preset applied.', 'success');
-            C.trackEvent('share.preset_applied', { name: preset.name });
-        });
-
-        document.getElementById('preset-delete').addEventListener('click', function () {
-            var select = document.getElementById('preset-select');
-            var index = parseInt(select.value, 10);
-            if (isNaN(index)) {
-                C.showToast('Choose a preset first.', 'error');
-                return;
-            }
-            var presets = getPresets();
-            var removed = presets.splice(index, 1)[0];
-            savePresets(presets);
-            renderPresetOptions();
-            C.showToast('Preset deleted.', 'success');
-            C.trackEvent('share.preset_deleted', { name: removed ? removed.name : '' });
-        });
-    }
 
     function renderIntents() {
         var container = document.getElementById('intent-cards');
@@ -304,7 +192,7 @@
     function updateTrustIndicator() {
         var el = document.getElementById('trust-indicator');
         if (!el) return;
-        el.textContent = 'This export exposes approximately ' + exposureStats.facts + ' facts across ' + exposureStats.categories + ' categories for policy "' + selectedPolicy + '".';
+        el.textContent = 'Current policy exposes about ' + exposureStats.facts + ' facts across ' + exposureStats.categories + ' categories.';
     }
 
     function loadExposureStats() {
@@ -373,7 +261,7 @@
                     '<div class="empty-state">' +
                     '  <h3>No shareable data yet</h3>' +
                     '  <p>Import data first, then return here to generate exports.</p>' +
-                    '  <a class="btn btn-primary empty-state-action" href="#upload">Go to Upload</a>' +
+                    '  <a class="btn btn-primary empty-state-action" href="#upload">Go to Import</a>' +
                     '</div>';
                 count.textContent = '0 lines';
                 return;
@@ -392,8 +280,6 @@
 
         if (selectedPlatform === 'prompt') {
             lines.push('# User Context');
-            lines.push('');
-            lines.push('The following is known about the user:');
             lines.push('');
             nodes.forEach(function (n) {
                 var tags = (n.tags || []).join(', ');
