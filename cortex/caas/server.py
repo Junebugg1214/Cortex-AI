@@ -48,6 +48,7 @@ import json
 import threading
 import time as _time
 import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -549,6 +550,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_create_timeline_entry()
         elif path == "/api/keys":
             self._handle_create_api_key()
+        elif path.startswith("/api/connectors/") and path.endswith("/sync"):
+            connector_id = path[len("/api/connectors/"):-len("/sync")]
+            if self._validate_path_id(connector_id):
+                self._handle_sync_connector(connector_id)
         elif path == "/api/connectors":
             self._handle_create_connector()
         # ── Webapp auth routes ────────────────────────────────────
@@ -3788,6 +3793,163 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self.__class__.connector_store = JsonConnectorStore()
         return ConnectorService(self.__class__.connector_store)
 
+    def _connector_memory_export_prompt(self, provider: str) -> str:
+        safe_provider = str(provider or "assistant").strip() or "assistant"
+        return (
+            "I'm moving to another service and need to export my data. "
+            "List every memory you have stored about me and any context learned from past conversations. "
+            "Output everything in one code block. Format each entry as: "
+            "[date saved, if available] - memory content. "
+            "Preserve wording verbatim where possible. Include response instructions, personal details, "
+            "projects/goals, tools/frameworks, preferences/corrections, and any other stored context. "
+            "Do not summarize, group, or omit entries. After the code block, confirm if complete.\n\n"
+            f"Run this exactly in {safe_provider}, then paste the full response back into Cortex connector sync."
+        )
+
+    def _import_connector_memory_dump(self, dump: str, provider: str) -> dict[str, Any]:
+        from cortex.graph import Edge, Node, make_edge_id, make_node_id
+
+        graph = self.__class__.graph
+        if graph is None:
+            return {"error": "No graph configured"}
+
+        cleaned_lines: list[str] = []
+        for raw_line in (dump or "").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("```"):
+                continue
+            cleaned_lines.append(line)
+
+        nodes_created = 0
+        edges_created = 0
+        prev_id = ""
+        for idx, line in enumerate(cleaned_lines):
+            date_saved = ""
+            content = line
+            if line.startswith("[") and "] - " in line:
+                prefix, content = line.split("] - ", 1)
+                date_saved = prefix[1:].strip()
+                content = content.strip()
+            if not content:
+                continue
+
+            label = content[:140].strip()
+            node_id = make_node_id(f"{provider}:{idx}:{label}")
+            props = {
+                "source": "connector_memory_export",
+                "provider": provider,
+            }
+            if date_saved:
+                props["date_saved"] = date_saved
+            node = Node(
+                id=node_id,
+                label=label,
+                tags=["memory_export", "connector", str(provider).lower()],
+                confidence=0.55,
+                brief=content[:500],
+                properties=props,
+                full_description=content[:2000],
+            )
+            graph.add_node(node)
+            nodes_created += 1
+
+            if prev_id:
+                relation = "follows"
+                edge_id = make_edge_id(prev_id, node_id, relation)
+                edge = Edge(id=edge_id, source_id=prev_id, target_id=node_id, relation=relation, confidence=0.5)
+                graph.add_edge(edge)
+                edges_created += 1
+            prev_id = node_id
+
+        if nodes_created or edges_created:
+            self._save_graph()
+        return {
+            "nodes_created": nodes_created,
+            "edges_created": edges_created,
+            "categories": 3 if nodes_created else 0,
+            "source_type": "connector_memory_export",
+        }
+
+    def _run_connector_job(self, connector: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+        metadata = connector.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        job = str(metadata.get("_job", "memory_pull_prompt")).strip().lower()
+        job_config = metadata.get("_job_config", {})
+        if not isinstance(job_config, dict):
+            job_config = {}
+        provider = str(connector.get("provider", "unknown")).strip().lower()
+
+        if job == "github_repo_sync":
+            url = str(body.get("url") or job_config.get("repo_url") or metadata.get("repo_url") or "").strip()
+            token = body.get("token") or job_config.get("token") or metadata.get("token") or None
+            if not url:
+                return {"error": "github_repo_sync requires repo_url in job_config or request body"}
+
+            from cortex.caas.importers import fetch_github_repo
+            import_result = fetch_github_repo(url, token=token)
+            if "error" in import_result and not import_result.get("nodes"):
+                return {"error": str(import_result["error"])}
+            result = self._import_nodes_edges(import_result)
+            if result.get("error"):
+                return {"error": str(result["error"])}
+            result["job"] = job
+            result["action_required"] = False
+            result["message"] = "GitHub repository sync completed."
+            return result
+
+        if job == "custom_json_sync":
+            url = str(body.get("url") or job_config.get("url") or "").strip()
+            if not url:
+                return {"error": "custom_json_sync requires url in job_config or request body"}
+            headers = job_config.get("headers", {})
+            if not isinstance(headers, dict):
+                headers = {}
+            req = urllib.request.Request(url, headers={str(k): str(v) for k, v in headers.items()}, method="GET")
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    payload = resp.read()
+            except Exception as exc:
+                return {"error": f"custom_json_sync fetch failed: {exc}"}
+            try:
+                parsed = json.loads(payload)
+            except (json.JSONDecodeError, ValueError):
+                return {"error": "custom_json_sync endpoint returned invalid JSON"}
+
+            if isinstance(parsed, dict) and ("nodes" in parsed or "edges" in parsed):
+                parsed.setdefault("source_type", "custom_json_sync")
+                result = self._import_nodes_edges(parsed)
+            else:
+                result = self._extract_from_upload(parsed)
+                result["source_type"] = "custom_json_sync"
+
+            if result.get("error"):
+                return {"error": str(result["error"])}
+            result["job"] = job
+            result["action_required"] = False
+            result["message"] = "Custom JSON sync completed."
+            return result
+
+        if job == "memory_pull_prompt":
+            memory_dump = str(body.get("memory_dump", "")).strip()
+            prompt = self._connector_memory_export_prompt(provider)
+            if not memory_dump:
+                return {
+                    "job": job,
+                    "action_required": True,
+                    "prompt": prompt,
+                    "message": "Action required: run this prompt in your connected assistant, then paste the response as memory_dump.",
+                }
+            result = self._import_connector_memory_dump(memory_dump, provider)
+            if result.get("error"):
+                return {"error": str(result["error"])}
+            result["job"] = job
+            result["action_required"] = False
+            result["message"] = "Memory export imported successfully."
+            return result
+
+        return {"error": f"Unsupported connector job: {job}"}
+
     def _handle_create_connector(self) -> None:
         """POST /api/connectors — create a connector link."""
         if not self.__class__.enable_webapp:
@@ -3867,6 +4029,64 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("connector"))
             return
         self._json_response({"deleted": True, "connector_id": connector_id})
+
+    def _handle_sync_connector(self, connector_id: str) -> None:
+        """POST /api/connectors/{id}/sync — run the connector's assigned job."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        svc = self._get_connector_service()
+        connector = svc.get(connector_id)
+        if connector is None:
+            self._error_response(ERR_NOT_FOUND("connector"))
+            return
+
+        result = self._run_connector_job(connector, body)
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = connector.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        updated_meta = dict(metadata)
+
+        if result.get("error"):
+            updated_meta["_last_sync_status"] = "error"
+            updated_meta["_last_sync_error"] = str(result["error"])
+            updated_meta["_last_sync_message"] = "Sync failed."
+            svc.update(connector_id, {
+                "status": "error",
+                "metadata": updated_meta,
+                "last_sync_at": now,
+            })
+            self._error_response(ERR_INVALID_REQUEST(str(result["error"])))
+            return
+
+        if result.get("action_required"):
+            updated_meta["_last_sync_status"] = "action_required"
+            updated_meta["_last_sync_error"] = ""
+            updated_meta["_last_sync_message"] = str(result.get("message", "Action required"))
+            svc.update(connector_id, {
+                "metadata": updated_meta,
+                "last_sync_at": now,
+            })
+            self._json_response(result, status=202)
+            return
+
+        updated_meta["_last_sync_status"] = "ok"
+        updated_meta["_last_sync_error"] = ""
+        updated_meta["_last_sync_message"] = str(result.get("message", "Sync complete"))
+        svc.update(connector_id, {
+            "status": "active",
+            "metadata": updated_meta,
+            "last_sync_at": now,
+        })
+        self._json_response(result, status=201)
 
     def _get_api_key_store(self):
         """Lazy-init the API key store."""

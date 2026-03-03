@@ -10,6 +10,7 @@ from cortex.caas.storage import AbstractConnectorStore
 
 SUPPORTED_PROVIDERS = frozenset({
     "anthropic",
+    "github",
     "google",
     "meta",
     "mistral",
@@ -19,6 +20,11 @@ SUPPORTED_PROVIDERS = frozenset({
 })
 
 VALID_STATUSES = frozenset({"active", "paused", "error"})
+VALID_JOBS = frozenset({"memory_pull_prompt", "github_repo_sync", "custom_json_sync"})
+
+DEFAULT_JOB_BY_PROVIDER = {
+    "github": "github_repo_sync",
+}
 
 
 def _utcnow() -> str:
@@ -49,6 +55,25 @@ class ConnectorService:
             metadata = {}
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be an object")
+        metadata = dict(metadata)
+
+        default_job = DEFAULT_JOB_BY_PROVIDER.get(provider, "memory_pull_prompt")
+        job = str(payload.get("job", metadata.get("_job", default_job))).strip().lower()
+        if job not in VALID_JOBS:
+            raise ValueError(
+                "Invalid job. Must be one of: "
+                + ", ".join(sorted(VALID_JOBS))
+            )
+        job_config = payload.get("job_config", metadata.get("_job_config", {}))
+        if job_config is None:
+            job_config = {}
+        if not isinstance(job_config, dict):
+            raise ValueError("job_config must be an object")
+        metadata["_job"] = job
+        metadata["_job_config"] = dict(job_config)
+        metadata.setdefault("_last_sync_status", "idle")
+        metadata.setdefault("_last_sync_error", "")
+        metadata.setdefault("_last_sync_message", "")
 
         status = str(payload.get("status", "active")).strip().lower()
         if status not in VALID_STATUSES:
@@ -66,7 +91,7 @@ class ConnectorService:
             "external_user_id": str(payload.get("external_user_id", "")).strip(),
             "scopes": list(scopes),
             "status": status,
-            "metadata": dict(metadata),
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
             "last_sync_at": "",
@@ -88,6 +113,11 @@ class ConnectorService:
             return None
 
         updates: dict[str, Any] = {}
+        current_metadata = current.get("metadata", {})
+        if not isinstance(current_metadata, dict):
+            current_metadata = {}
+        resolved_metadata: dict[str, Any] = dict(current_metadata)
+
         if "provider" in payload:
             provider = str(payload.get("provider", "")).strip().lower()
             if provider != current.get("provider", ""):
@@ -105,7 +135,26 @@ class ConnectorService:
             metadata = payload.get("metadata", {})
             if not isinstance(metadata, dict):
                 raise ValueError("metadata must be an object")
-            updates["metadata"] = dict(metadata)
+            resolved_metadata = dict(metadata)
+        if "job" in payload or "job_config" in payload:
+            provider = str(current.get("provider", "")).strip().lower()
+            default_job = DEFAULT_JOB_BY_PROVIDER.get(provider, "memory_pull_prompt")
+            next_job = str(payload.get("job", resolved_metadata.get("_job", default_job))).strip().lower()
+            if next_job not in VALID_JOBS:
+                raise ValueError(
+                    "Invalid job. Must be one of: "
+                    + ", ".join(sorted(VALID_JOBS))
+                )
+            next_job_config = payload.get("job_config", resolved_metadata.get("_job_config", {}))
+            if next_job_config is None:
+                next_job_config = {}
+            if not isinstance(next_job_config, dict):
+                raise ValueError("job_config must be an object")
+            resolved_metadata["_job"] = next_job
+            resolved_metadata["_job_config"] = dict(next_job_config)
+            resolved_metadata.setdefault("_last_sync_status", "idle")
+            resolved_metadata.setdefault("_last_sync_error", "")
+            resolved_metadata.setdefault("_last_sync_message", "")
         if "status" in payload:
             status = str(payload.get("status", "")).strip().lower()
             if status not in VALID_STATUSES:
@@ -116,6 +165,14 @@ class ConnectorService:
             updates["status"] = status
         if "last_sync_at" in payload:
             updates["last_sync_at"] = str(payload.get("last_sync_at", "")).strip()
+
+        metadata_changed = (
+            "metadata" in payload
+            or "job" in payload
+            or "job_config" in payload
+        )
+        if metadata_changed:
+            updates["metadata"] = resolved_metadata
 
         if not updates:
             return current
