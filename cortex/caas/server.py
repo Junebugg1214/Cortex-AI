@@ -3878,9 +3878,6 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
         if not self._webapp_or_multiuser_auth_check():
             return
-        if self._is_self_host_mode_for_request():
-            self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Run connector sync in your own hosted instance."))
-            return
 
         body = self._read_body()
         if body is None:
@@ -4592,6 +4589,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
         if not self._webapp_or_multiuser_auth_check():
+            return
+        if self._is_self_host_mode_for_request():
+            self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Run connector sync in your own hosted instance."))
             return
 
         body = self._read_body()
