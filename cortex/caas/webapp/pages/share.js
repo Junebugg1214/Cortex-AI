@@ -53,7 +53,6 @@
             '    </div>' +
             '    <div class="card technical-only">' +
             '      <div class="section-label">Platform</div>' +
-            '      <p class="feature-note">Template output only. Cortex does not directly push to these platforms yet.</p>' +
             '      <div class="platform-cards" id="platform-cards"></div>' +
             '    </div>' +
             '    <div class="card technical-only">' +

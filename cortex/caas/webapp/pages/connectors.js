@@ -48,12 +48,6 @@
             var metadata = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
             var job = metadata._job || inferDefaultJob((c.provider || '').toLowerCase());
             var syncNote = metadata._last_sync_message || '';
-            var jobHint = '';
-            if (job === 'memory_pull_prompt') {
-                jobHint = 'Manual export step required';
-            } else if (job === 'custom_json_sync') {
-                jobHint = 'Needs reachable JSON endpoint';
-            }
             var autoEnabled = metadata._auto_sync_enabled !== false;
             var autoEvery = parseInt(metadata._auto_sync_interval_seconds || 86400, 10);
             if (!autoEvery || autoEvery < 1) autoEvery = 86400;
@@ -71,7 +65,6 @@
                 '    <div>' + connectorStatusBadge(c.status) + '</div>' +
                 '  </div>' +
                 '  <div><strong>Job:</strong> ' + C.escapeHtml(job) + '</div>' +
-                (jobHint ? '  <div class="feature-note">' + C.escapeHtml(jobHint) + '</div>' : '') +
                 '  <div><strong>Auto-run:</strong> ' + (autoEnabled ? ('Every ' + autoHours + 'h') : 'Off') + '</div>' +
                 (syncNote ? '  <div><strong>Sync:</strong> ' + C.escapeHtml(syncNote) + '</div>' : '') +
                 '  <div class="connector-meta technical-only">' +

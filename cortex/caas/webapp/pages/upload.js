@@ -50,7 +50,6 @@
             '  <div class="storage-mode-head">' +
             '    <h3>Storage Mode</h3>' +
             '    <p>Only two modes are supported: <strong>Local Vault</strong> and <strong>BYOS</strong> (Bring Your Own Storage).</p>' +
-            '    <p class="feature-note technical-only">Local preference only in this web UI. Infrastructure-level storage is still configured at deployment/runtime.</p>' +
             '  </div>' +
             '  <div class="storage-mode-options">' +
             '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
