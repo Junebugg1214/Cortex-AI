@@ -2895,6 +2895,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             if not self._webapp_or_multiuser_auth_check():
                 return
+        if self._is_self_host_mode_for_request():
+            self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Upload data in your own hosted instance."))
+            return
 
         content_type = self.headers.get("Content-Type", "")
         content_length = self._parse_content_length()
@@ -3455,7 +3458,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 and resolver is not None
                 and current_user is not None
                 and getattr(current_user, "user_id", "")
-                and mode != "byos"
+                and mode not in {"byos", "self_host"}
             ):
                 try:
                     resolver.save_user_graph(str(current_user.user_id), graph_data, create_version=False)
@@ -3475,6 +3478,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                         print(f"[DEBUG _save_graph] BYOS write failed: {exc}", file=sys.stderr, flush=True)
                 else:
                     print("[DEBUG _save_graph] BYOS mode active but no byos_location configured; skipping local persistence", file=sys.stderr, flush=True)
+            elif mode == "self_host":
+                print("[DEBUG _save_graph] Self-host mode active; skipping local persistence on hosted instance", file=sys.stderr, flush=True)
             else:
                 if not persisted_local:
                     Path(context_path).write_text(graph_json, encoding="utf-8")
@@ -3502,6 +3507,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
         else:
             if not self._webapp_or_multiuser_auth_check():
                 return
+        if self._is_self_host_mode_for_request():
+            self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Run imports in your own hosted instance."))
+            return
 
         body = self._read_body()
         if body is None:
@@ -3738,6 +3746,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "updated_at": str(prefs.get("updated_at", "")).strip(),
         }
 
+    def _is_self_host_mode_for_request(self) -> bool:
+        prefs = self._get_storage_preferences_for_request()
+        return str(prefs.get("mode", "")).strip().lower() == "self_host"
+
     def _handle_get_profile(self) -> None:
         """GET /api/profile — get a profile config. ?handle= for specific, else first."""
         if not self.__class__.enable_webapp:
@@ -3865,6 +3877,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_NOT_FOUND("endpoint"))
             return
         if not self._webapp_or_multiuser_auth_check():
+            return
+        if self._is_self_host_mode_for_request():
+            self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Run connector sync in your own hosted instance."))
             return
 
         body = self._read_body()
