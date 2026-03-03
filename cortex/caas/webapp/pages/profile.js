@@ -67,6 +67,13 @@
             '    <button class="btn btn-outline" id="btn-auto-profile">Auto-fill from Memory</button>' +
             '    <button class="btn btn-outline" id="btn-qr-profile">QR Code</button>' +
             '  </div>' +
+            '  <div class="beta-status-card technical-only">' +
+            '    <div class="beta-status-head">' +
+            '      <h3>Beta Status</h3>' +
+            '      <button class="btn btn-outline btn-sm" id="btn-refresh-beta-status">Refresh</button>' +
+            '    </div>' +
+            '    <div id="beta-status-content" class="beta-status-content">Loading beta metrics...</div>' +
+            '  </div>' +
             '</div>' +
             '<div id="qr-modal" class="profile-modal is-hidden">' +
             '  <div class="profile-modal-card">' +
@@ -121,6 +128,42 @@
             C.api('/api/profile').then(function (data) {
                 if (data && data.handle) fillForm(data);
             }).catch(function () {});
+        }
+
+        function pct(value) {
+            return Math.round(Number(value || 0) * 1000) / 10 + '%';
+        }
+
+        function renderBetaStatus(data) {
+            var el = document.getElementById('beta-status-content');
+            if (!el) return;
+            if (!data || !data.counts) {
+                el.textContent = 'No beta metrics yet.';
+                return;
+            }
+            var c = data.counts;
+            var r = data.rates || {};
+            el.innerHTML =
+                '<div class="beta-status-grid">' +
+                '  <div class="beta-kpi"><span>Signup Success</span><strong>' + pct(r.signup_success_rate) + '</strong></div>' +
+                '  <div class="beta-kpi"><span>Sync Success</span><strong>' + pct(r.connector_sync_success_rate) + '</strong></div>' +
+                '  <div class="beta-kpi"><span>Storage Check Fail</span><strong>' + pct(r.storage_check_failure_rate) + '</strong></div>' +
+                '  <div class="beta-kpi"><span>Storage Save Fail</span><strong>' + pct(r.storage_save_failure_rate) + '</strong></div>' +
+                '</div>' +
+                '<div class="beta-status-raw">' +
+                '  <code>signups: ' + (c.signup_success + c.signup_failed) +
+                ' | syncs: ' + (c.connector_sync_success + c.connector_sync_failed + c.connector_sync_action_required) +
+                ' | issues: ' + c.issue_reports + '</code>' +
+                '</div>';
+        }
+
+        function loadBetaStatus() {
+            C.api('/api/beta/status').then(function (data) {
+                renderBetaStatus(data);
+            }).catch(function () {
+                var el = document.getElementById('beta-status-content');
+                if (el) el.textContent = 'Beta status unavailable.';
+            });
         }
 
         document.getElementById('btn-save-profile').addEventListener('click', function () {
@@ -191,10 +234,18 @@
             qrModal.classList.add('is-hidden');
         });
 
+        var refreshBetaBtn = document.getElementById('btn-refresh-beta-status');
+        if (refreshBetaBtn) {
+            refreshBetaBtn.addEventListener('click', function () {
+                loadBetaStatus();
+            });
+        }
+
         qrModal.addEventListener('click', function (e) {
             if (e.target === qrModal) qrModal.classList.add('is-hidden');
         });
 
         loadSingleProfile();
+        loadBetaStatus();
     });
 })();

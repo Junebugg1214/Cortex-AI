@@ -209,6 +209,36 @@
         void payload;
     }
 
+    function openIssueReporter() {
+        var page = currentPage || (location.hash.replace('#', '') || 'upload');
+        var action = window.prompt('What were you trying to do?', '');
+        if (action === null) return;
+        action = String(action || '').trim();
+        if (!action) {
+            showToast('Please add what you were trying to do.', 'error');
+            return;
+        }
+        var notes = window.prompt('What happened? (optional)', '') || '';
+        var severity = window.prompt('Severity: low, medium, or high (default: medium)', 'medium');
+        severity = String(severity || 'medium').trim().toLowerCase();
+        if (['low', 'medium', 'high'].indexOf(severity) < 0) severity = 'medium';
+
+        api('/api/beta/report', {
+            method: 'POST',
+            body: JSON.stringify({
+                page: page,
+                action: action,
+                notes: notes,
+                severity: severity,
+            }),
+        }).then(function () {
+            showToast('Issue reported. Thank you.', 'success');
+            trackEvent('beta.issue_reported', { page: page, severity: severity });
+        }).catch(function (err) {
+            showToast('Could not report issue: ' + err.message, 'error');
+        });
+    }
+
     function loadConsumerMode() {
         try {
             var raw = localStorage.getItem(CONSUMER_MODE_KEY);
@@ -605,6 +635,13 @@
                     currentPage = null;
                     showLogin();
                 });
+            });
+        }
+
+        var reportIssueBtn = document.getElementById('report-issue-btn');
+        if (reportIssueBtn) {
+            reportIssueBtn.addEventListener('click', function () {
+                openIssueReporter();
             });
         }
     }

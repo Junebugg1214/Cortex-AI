@@ -1719,6 +1719,60 @@ body {
     gap: 10px;
 }
 
+.beta-status-card {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+}
+
+.beta-status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.beta-status-head h3 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.beta-status-content {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.beta-status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+    gap: 8px;
+}
+
+.beta-kpi {
+    background: #f8fafc;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.beta-kpi span {
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.beta-kpi strong {
+    font-size: 16px;
+    color: var(--color-text);
+}
+
+.beta-status-raw {
+    margin-top: 8px;
+}
+
 .profile-modal {
     position: fixed;
     inset: 0;

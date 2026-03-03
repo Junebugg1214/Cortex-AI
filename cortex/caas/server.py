@@ -521,6 +521,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
     max_upload_bytes: int = 3_221_225_472  # 3GB max upload
     storage_modes: list[str] = ["byos", "self_host"]  # Supported user storage modes
     default_storage_mode: str = "byos"  # Default storage mode shown in UI
+    beta_metrics: dict[str, int] = {}
+    beta_metrics_loaded: bool = False
+    beta_metrics_lock = threading.Lock()
 
     _request_id: str = ""
     _current_user: Any = None  # Set during request processing for multi-user
@@ -779,6 +782,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 self._handle_get_connector(connector_id)
         elif path == "/api/storage/preferences":
             self._handle_get_storage_preferences()
+        elif path == "/api/beta/status":
+            self._handle_get_beta_status()
         elif path.startswith("/api/memory/"):
             self._handle_public_memory(path, query)
         elif path.startswith("/api/resume/"):
@@ -853,6 +858,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 self._handle_sync_connector(connector_id)
         elif path == "/api/storage/preferences/check":
             self._handle_check_storage_preferences()
+        elif path == "/api/beta/report":
+            self._handle_report_issue()
         elif path == "/api/connectors":
             self._handle_create_connector()
         # ── Webapp auth routes ────────────────────────────────────
@@ -3568,6 +3575,68 @@ class CaaSHandler(BaseHTTPRequestHandler):
     def _storage_preferences_path(self) -> Path:
         return self._get_store_base_dir() / "storage_prefs.json"
 
+    def _beta_metrics_path(self) -> Path:
+        return self._get_store_base_dir() / "beta_metrics.json"
+
+    def _issue_reports_path(self) -> Path:
+        return self._get_store_base_dir() / "issue_reports.jsonl"
+
+    @staticmethod
+    def _default_beta_metrics() -> dict[str, int]:
+        return {
+            "signup_success": 0,
+            "signup_failed": 0,
+            "connector_sync_success": 0,
+            "connector_sync_failed": 0,
+            "connector_sync_action_required": 0,
+            "storage_save_success": 0,
+            "storage_save_failed": 0,
+            "storage_check_success": 0,
+            "storage_check_failed": 0,
+            "issue_reports": 0,
+        }
+
+    def _ensure_beta_metrics_loaded(self) -> None:
+        with self.__class__.beta_metrics_lock:
+            if self.__class__.beta_metrics_loaded:
+                return
+            metrics = self._default_beta_metrics()
+            path = self._beta_metrics_path()
+            try:
+                if path.exists():
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(raw, dict):
+                        for key in metrics:
+                            value = raw.get(key, metrics[key])
+                            try:
+                                metrics[key] = int(value)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+            self.__class__.beta_metrics = metrics
+            self.__class__.beta_metrics_loaded = True
+
+    def _save_beta_metrics(self) -> None:
+        path = self._beta_metrics_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.__class__.beta_metrics, indent=2), encoding="utf-8")
+
+    def _record_beta_metric(self, key: str, delta: int = 1) -> None:
+        self._ensure_beta_metrics_loaded()
+        with self.__class__.beta_metrics_lock:
+            current = int(self.__class__.beta_metrics.get(key, 0))
+            self.__class__.beta_metrics[key] = current + int(delta)
+            try:
+                self._save_beta_metrics()
+            except Exception:
+                pass
+
+    def _beta_metrics_snapshot(self) -> dict[str, Any]:
+        self._ensure_beta_metrics_loaded()
+        with self.__class__.beta_metrics_lock:
+            return dict(self.__class__.beta_metrics)
+
     def _storage_actor_key(self) -> str:
         user = self._get_current_user()
         if user is not None and getattr(user, "user_id", ""):
@@ -4591,6 +4660,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if not self._webapp_or_multiuser_auth_check():
             return
         if self._is_self_host_mode_for_request():
+            self._record_beta_metric("connector_sync_failed")
             self._error_response(ERR_INVALID_REQUEST("Self-host mode is active. Run connector sync in your own hosted instance."))
             return
 
@@ -4612,6 +4682,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         updated_meta = dict(metadata)
 
         if result.get("error"):
+            self._record_beta_metric("connector_sync_failed")
             updated_meta["_last_sync_status"] = "error"
             updated_meta["_last_sync_error"] = str(result["error"])
             updated_meta["_last_sync_message"] = "Sync failed."
@@ -4624,6 +4695,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         if result.get("action_required"):
+            self._record_beta_metric("connector_sync_action_required")
             updated_meta["_last_sync_status"] = "action_required"
             updated_meta["_last_sync_error"] = ""
             updated_meta["_last_sync_message"] = str(result.get("message", "Action required"))
@@ -4642,6 +4714,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "metadata": updated_meta,
             "last_sync_at": now,
         })
+        self._record_beta_metric("connector_sync_success")
         self._json_response(result, status=201)
 
     def _handle_get_storage_preferences(self) -> None:
@@ -4666,9 +4739,11 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
         valid, error = self._validate_storage_preferences(body)
         if not valid:
+            self._record_beta_metric("storage_save_failed")
             self._error_response(ERR_INVALID_REQUEST(error))
             return
         if str(body.get("mode", "")).strip().lower() == "byos" and not self._request_e2e_key():
+            self._record_beta_metric("storage_save_failed")
             self._error_response(ERR_INVALID_REQUEST("BYOS requires an E2E passphrase (X-Cortex-E2E-Key)."))
             return
 
@@ -4685,8 +4760,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
         try:
             self._save_storage_preferences_all(data)
         except Exception as exc:
+            self._record_beta_metric("storage_save_failed")
             self._error_response(ERR_INTERNAL(f"Failed to save storage preferences: {exc}"))
             return
+        self._record_beta_metric("storage_save_success")
         self._json_response(data[actor])
 
     def _handle_check_storage_preferences(self) -> None:
@@ -4702,18 +4779,99 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
         valid, error = self._validate_storage_preferences(body)
         if not valid:
+            self._record_beta_metric("storage_check_failed")
             self._error_response(ERR_INVALID_REQUEST(error))
             return
         if str(body.get("mode", "")).strip().lower() == "byos" and not self._request_e2e_key():
+            self._record_beta_metric("storage_check_failed")
             self._error_response(ERR_INVALID_REQUEST("BYOS requires an E2E passphrase (X-Cortex-E2E-Key)."))
             return
 
         try:
             result = self._try_check_storage_preferences(body)
         except Exception as exc:
+            self._record_beta_metric("storage_check_failed")
             self._error_response(ERR_INVALID_REQUEST(f"Storage check failed: {exc}"))
             return
+        if result.get("ok"):
+            self._record_beta_metric("storage_check_success")
+        else:
+            self._record_beta_metric("storage_check_failed")
         self._json_response(result, status=(200 if result.get("ok") else 400))
+
+    def _handle_report_issue(self) -> None:
+        """POST /api/beta/report — capture in-app beta issue reports."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        page = str(body.get("page", "")).strip()[:64]
+        action = str(body.get("action", "")).strip()[:280]
+        notes = str(body.get("notes", "")).strip()[:4000]
+        severity = str(body.get("severity", "medium")).strip().lower()
+        if severity not in {"low", "medium", "high"}:
+            severity = "medium"
+        if not action:
+            self._error_response(ERR_INVALID_REQUEST("action is required"))
+            return
+
+        user = self._get_current_user()
+        report = {
+            "reported_at": datetime.now(timezone.utc).isoformat(),
+            "page": page,
+            "action": action,
+            "notes": notes,
+            "severity": severity,
+            "actor": self._storage_actor_key(),
+            "user_id": str(getattr(user, "user_id", "") or ""),
+            "email": str(getattr(user, "email", "") or ""),
+        }
+        path = self._issue_reports_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(report, ensure_ascii=False) + "\n")
+            self._record_beta_metric("issue_reports")
+        except Exception as exc:
+            self._error_response(ERR_INTERNAL(f"Could not save issue report: {exc}"))
+            return
+        self._json_response({"ok": True, "report": report}, status=201)
+
+    def _handle_get_beta_status(self) -> None:
+        """GET /api/beta/status — basic beta health counters."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        metrics = self._beta_metrics_snapshot()
+        signup_total = metrics.get("signup_success", 0) + metrics.get("signup_failed", 0)
+        connector_total = (
+            metrics.get("connector_sync_success", 0)
+            + metrics.get("connector_sync_failed", 0)
+            + metrics.get("connector_sync_action_required", 0)
+        )
+        storage_checks = metrics.get("storage_check_success", 0) + metrics.get("storage_check_failed", 0)
+        storage_saves = metrics.get("storage_save_success", 0) + metrics.get("storage_save_failed", 0)
+
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "counts": metrics,
+            "rates": {
+                "signup_success_rate": (metrics.get("signup_success", 0) / signup_total) if signup_total else 0.0,
+                "connector_sync_success_rate": (metrics.get("connector_sync_success", 0) / connector_total) if connector_total else 0.0,
+                "storage_check_failure_rate": (metrics.get("storage_check_failed", 0) / storage_checks) if storage_checks else 0.0,
+                "storage_save_failure_rate": (metrics.get("storage_save_failed", 0) / storage_saves) if storage_saves else 0.0,
+            },
+        }
+        self._json_response(payload)
 
     def _get_api_key_store(self):
         """Lazy-init the API key store."""
@@ -5064,15 +5222,18 @@ class CaaSHandler(BaseHTTPRequestHandler):
         user, errors = mu_sm.signup(request)
 
         if errors:
+            self._record_beta_metric("signup_failed")
             self._respond(400, "application/json",
                           json.dumps({"error": {"type": "validation_error", "messages": errors}}).encode())
             return
 
         if user is None:
+            self._record_beta_metric("signup_failed")
             self._error_response(ERR_INTERNAL("Failed to create user account"))
             return
 
         self._audit("user.signup", {"user_id": user.user_id, "email": user.email})
+        self._record_beta_metric("signup_success")
         self._json_response({
             "user_id": user.user_id,
             "email": user.email,
@@ -5217,6 +5378,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "connector_capabilities_url": "/api/connectors/capabilities",
             "storage_preferences_url": "/api/storage/preferences",
             "storage_preferences_check_url": "/api/storage/preferences/check",
+            "beta_status_url": "/api/beta/status",
+            "beta_report_url": "/api/beta/report",
         })
 
     def _check_admin_session(self) -> bool:
