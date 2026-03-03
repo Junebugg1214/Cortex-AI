@@ -695,7 +695,7 @@ def _put_json(port, path, body, cookie=None):
 
 @pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
 class TestWebappImportEndpoints:
-    """Test POST /api/import/github and /api/import/linkedin."""
+    """Test POST /api/import/github."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
@@ -717,15 +717,6 @@ class TestWebappImportEndpoints:
         cookie = _login(self.port, self.identity)
         data, status = _post_json(self.port, "/api/import/github",
                                   {"url": "https://example.com/notgithub"}, cookie=cookie)
-        assert status == 400
-
-    def test_linkedin_import_requires_auth(self):
-        data, status = _post_json(self.port, "/api/import/linkedin", {"url": "https://linkedin.com/in/test"})
-        assert status == 401
-
-    def test_linkedin_import_missing_url(self):
-        cookie = _login(self.port, self.identity)
-        data, status = _post_json(self.port, "/api/import/linkedin", {}, cookie=cookie)
         assert status == 400
 
 

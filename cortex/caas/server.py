@@ -539,8 +539,6 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._handle_webapp_upload()
         elif path == "/api/import/github":
             self._handle_github_import()
-        elif path == "/api/import/linkedin":
-            self._handle_linkedin_import()
         elif path == "/api/profile":
             self._handle_save_profile()
         elif path == "/api/attestations/request":
@@ -3133,7 +3131,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
             pass  # Best effort — don't fail the request if save fails
 
-    # ── GitHub / LinkedIn import endpoints ───────────────────────────
+    # ── GitHub import endpoint ────────────────────────────────────────
 
     def _handle_github_import(self) -> None:
         """POST /api/import/github — import a GitHub repository."""
@@ -3172,47 +3170,6 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if result.get("error"):
             self._error_response(ERR_NOT_CONFIGURED(result["error"]))
             return
-        self._json_response(result, status=201)
-
-    def _handle_linkedin_import(self) -> None:
-        """POST /api/import/linkedin — import from a LinkedIn profile URL."""
-        if not self.__class__.enable_webapp:
-            self._error_response(ERR_NOT_FOUND("endpoint"))
-            return
-
-        # Support both multi-user and single-user auth
-        if self.__class__.multi_user_enabled and _MULTI_USER_AVAILABLE:
-            is_auth, _ = self._multi_user_auth_check()
-            if not is_auth:
-                return
-        else:
-            if not self._webapp_or_multiuser_auth_check():
-                return
-
-        body = self._read_body()
-        if body is None:
-            return
-
-        url = body.get("url", "")
-        if not url:
-            self._error_response(ERR_INVALID_REQUEST("Missing 'url' field"))
-            return
-
-        from cortex.caas.importers import fetch_linkedin_profile
-        import_result = fetch_linkedin_profile(url)
-
-        if "error" in import_result and not import_result.get("nodes"):
-            self._error_response(ERR_INVALID_REQUEST(import_result["error"]))
-            return
-
-        result = self._import_nodes_edges(import_result)
-        if result.get("error"):
-            self._error_response(ERR_NOT_CONFIGURED(result["error"]))
-            return
-        if import_result.get("limited"):
-            result["limited"] = True
-            result["hint"] = ("LinkedIn blocks most scraping. "
-                              "For richer data, use a LinkedIn data export (Settings > Get a copy of your data).")
         self._json_response(result, status=201)
 
     # ── Profile endpoints ─────────────────────────────────────────────

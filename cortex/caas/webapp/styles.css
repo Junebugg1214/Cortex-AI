@@ -126,27 +126,14 @@ body {
     padding: 12px 14px;
 }
 
-.hud-whatsnew,
 .hud-tip {
     margin-top: 10px;
     font-size: 12px;
     color: var(--color-text-secondary);
 }
 
-.hud-whatsnew strong,
 .hud-tip strong {
     color: var(--color-text);
-}
-
-.hud-dismiss {
-    margin-left: 10px;
-    border: 1px solid var(--color-border);
-    background: #fff;
-    color: var(--color-text-secondary);
-    border-radius: 999px;
-    font-size: 11px;
-    padding: 3px 8px;
-    cursor: pointer;
 }
 
 .journey-title {
@@ -1482,7 +1469,6 @@ body {
 
 .import-success { color: var(--color-success); }
 .import-error { color: var(--color-danger); }
-.import-warning { color: var(--color-warning); }
 
 /* ── API Keys Section ─────────────────────────────────────── */
 

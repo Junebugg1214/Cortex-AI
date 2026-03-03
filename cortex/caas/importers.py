@@ -344,55 +344,6 @@ def parse_linkedin_export(zip_data: bytes) -> dict:
     return {"nodes": nodes, "edges": edges, "source_type": "linkedin_export"}
 
 
-# ── LinkedIn URL fetch (limited) ────────────────────────────────────
-
-def fetch_linkedin_profile(url: str) -> dict:
-    """Fetch minimal LinkedIn profile data from a public profile URL.
-
-    LinkedIn blocks most scraping, so this returns ``limited: True``
-    with whatever OG meta tags are available.
-    """
-    from cortex.graph import make_node_id_with_tag
-
-    if not re.match(r"https?://(www\.)?linkedin\.com/in/", url):
-        return {"nodes": [], "edges": [], "source_type": "linkedin_url",
-                "limited": True, "error": "Invalid LinkedIn profile URL"}
-
-    nodes: list[dict] = []
-    try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; CortexBot/1.0)",
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read(200_000).decode("utf-8", errors="replace")
-    except (urllib.error.URLError, OSError):
-        return {"nodes": [], "edges": [], "source_type": "linkedin_url",
-                "limited": True, "error": "Could not fetch LinkedIn profile"}
-
-    # Extract OG meta tags
-    og: dict[str, str] = {}
-    for m in re.finditer(
-        r'<meta\s+property="og:(\w+)"\s+content="([^"]*)"', html
-    ):
-        og[m.group(1)] = m.group(2)
-
-    title = og.get("title", "")
-    desc = og.get("description", "")
-
-    if title:
-        nid = make_node_id_with_tag(title, "identity")
-        nodes.append({"id": nid, "label": title, "tags": ["identity"],
-                      "confidence": 0.7, "brief": "LinkedIn profile (limited)"})
-    if desc:
-        nid = make_node_id_with_tag(desc[:80], "professional_context")
-        nodes.append({"id": nid, "label": desc[:100],
-                      "tags": ["professional_context"],
-                      "confidence": 0.6, "brief": desc[:500]})
-
-    return {"nodes": nodes, "edges": [], "source_type": "linkedin_url",
-            "limited": True}
-
-
 # ── GitHub repo fetch ────────────────────────────────────────────────
 
 def fetch_github_repo(url: str, token: str | None = None) -> dict:

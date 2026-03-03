@@ -18,8 +18,6 @@
     var lastOnboardingRefreshAt = 0;
     var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
     var ANALYTICS_KEY = 'cortex.webapp.analytics.v1';
-    var CHANGELOG_DISMISS_KEY = 'cortex.webapp.changelog.dismiss.v1';
-    var WEBAPP_RELEASE = '2026.03-ux2';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -346,24 +344,10 @@
         }
 
         var next = onboardingState.nextAction || computeNextAction(onboardingState, visited);
-        var changelogVisible = true;
-        try {
-            changelogVisible = localStorage.getItem(CHANGELOG_DISMISS_KEY) !== WEBAPP_RELEASE;
-        } catch (_e) {
-            changelogVisible = true;
-        }
-        var tipsHtml = changelogVisible
-            ? (
-                '<div class="hud-whatsnew">' +
-                '  <strong>What\'s New</strong>: Summary-first Memory, intent-based Share presets, and multi-file upload queue.' +
-                '  <button class="hud-dismiss" id="dismiss-whatsnew" aria-label="Dismiss updates">Dismiss</button>' +
-                '</div>'
-            )
-            : (
-                '<div class="hud-tip">' +
-                '  <strong>Tip</strong>: Use Share intents to generate safer, policy-scoped exports in one click.' +
-                '</div>'
-            );
+        var tipsHtml =
+            '<div class="hud-tip">' +
+            '  <strong>Tip</strong>: Use Share intents to generate safer, policy-scoped exports in one click.' +
+            '</div>';
         var stepHtml = steps.map(function (step) {
             var cls = 'journey-step';
             if (step.done) cls += ' done';
@@ -390,17 +374,6 @@
             '  </div>' +
             '</div>';
         hud.classList.remove('is-hidden');
-
-        var dismissBtn = document.getElementById('dismiss-whatsnew');
-        if (dismissBtn) {
-            dismissBtn.addEventListener('click', function () {
-                try {
-                    localStorage.setItem(CHANGELOG_DISMISS_KEY, WEBAPP_RELEASE);
-                } catch (_e) {}
-                renderHud();
-                trackEvent('changelog.dismissed', { release: WEBAPP_RELEASE });
-            });
-        }
     }
 
     function refreshOnboardingState(force) {

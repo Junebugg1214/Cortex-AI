@@ -15,7 +15,6 @@ from cortex.caas.importers import (
     extract_text_from_docx,
     extract_text_from_pdf,
     fetch_github_repo,
-    fetch_linkedin_profile,
     parse_linkedin_export,
     parse_resume_text,
 )
@@ -246,45 +245,6 @@ class TestLinkedInExport:
         labels = [n["label"] for n in result["nodes"]]
         assert "English" in labels
         assert "AWS Solutions Architect" in labels
-
-
-# ── LinkedIn URL ─────────────────────────────────────────────────────
-
-class TestLinkedInURL:
-    """Test fetch_linkedin_profile()."""
-
-    def test_invalid_url(self):
-        result = fetch_linkedin_profile("https://example.com/notlinkedin")
-        assert result["limited"] is True
-        assert "error" in result
-
-    @patch("cortex.caas.importers.urllib.request.urlopen")
-    def test_valid_url_with_og_tags(self, mock_urlopen):
-        html = (
-            '<html><head>'
-            '<meta property="og:title" content="Jane Doe - Engineer">'
-            '<meta property="og:description" content="Software engineer at Big Corp">'
-            '</head></html>'
-        ).encode()
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = html
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
-
-        result = fetch_linkedin_profile("https://www.linkedin.com/in/janedoe")
-        assert result["source_type"] == "linkedin_url"
-        assert result["limited"] is True
-        labels = [n["label"] for n in result["nodes"]]
-        assert "Jane Doe - Engineer" in labels
-
-    @patch("cortex.caas.importers.urllib.request.urlopen")
-    def test_network_error(self, mock_urlopen):
-        import urllib.error
-        mock_urlopen.side_effect = urllib.error.URLError("timeout")
-        result = fetch_linkedin_profile("https://linkedin.com/in/someone")
-        assert result["limited"] is True
-        assert "error" in result
 
 
 # ── GitHub Import ────────────────────────────────────────────────────

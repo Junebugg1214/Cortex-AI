@@ -272,7 +272,7 @@ cortex serve context.json --port 8421 --enable-webapp --enable-sse --enable-metr
 | Credentials | `POST/GET/DELETE /credentials` |
 | Policies | `POST/GET/PATCH/DELETE /policies` |
 | Audit | `/audit`, `/audit/verify` |
-| Import | `POST /api/upload`, `POST /api/import/github`, `POST /api/import/linkedin` |
+| Import | `POST /api/upload`, `POST /api/import/github` |
 | Memory API | `POST/GET /api/keys`, `DELETE /api/keys/{id}`, `GET /api/memory/{key}` (public) |
 | Federation | `/federation/export`, `/federation/import`, `/federation/peers` |
 | Events | `/events` (SSE with Last-Event-ID replay, including `profile.viewed`) |
