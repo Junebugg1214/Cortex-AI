@@ -214,6 +214,247 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 # ---------------------------------------------------------------------------
+# Connector auto-sync worker
+# ---------------------------------------------------------------------------
+
+CONNECTOR_AUTO_SYNC_INTERVAL_SECONDS = 24 * 60 * 60  # 24h
+CONNECTOR_AUTO_SYNC_POLL_SECONDS = 60  # scheduler loop
+
+
+def _parse_iso_ts(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+class ConnectorAutoSyncWorker:
+    """Background worker that auto-runs due connector jobs."""
+
+    def __init__(
+        self,
+        connector_store: AbstractConnectorStore,
+        graph_getter: Any,
+        context_path_getter: Any,
+    ) -> None:
+        self._connector_store = connector_store
+        self._graph_getter = graph_getter
+        self._context_path_getter = context_path_getter
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._logger = None
+
+    def _get_logger(self):
+        if self._logger is None:
+            import logging
+            self._logger = logging.getLogger("caas.connector_autosync")
+        return self._logger
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="connector-auto-sync")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    def _run_loop(self) -> None:
+        logger = self._get_logger()
+        logger.info("connector auto-sync worker started")
+        while not self._stop_event.wait(CONNECTOR_AUTO_SYNC_POLL_SECONDS):
+            try:
+                self._tick()
+            except Exception as exc:
+                logger.warning("connector auto-sync tick failed: %s", exc)
+        logger.info("connector auto-sync worker stopped")
+
+    def _tick(self) -> None:
+        from cortex.caas.connectors import ConnectorService
+
+        now = datetime.now(timezone.utc)
+        svc = ConnectorService(self._connector_store)
+        connectors = svc.list_all()
+        for connector in connectors:
+            if self._stop_event.is_set():
+                return
+            if str(connector.get("status", "active")).strip().lower() != "active":
+                continue
+            metadata = connector.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if metadata.get("_auto_sync_enabled", True) is False:
+                continue
+
+            interval_s = metadata.get("_auto_sync_interval_seconds", CONNECTOR_AUTO_SYNC_INTERVAL_SECONDS)
+            try:
+                interval_s = int(interval_s)
+            except Exception:
+                interval_s = CONNECTOR_AUTO_SYNC_INTERVAL_SECONDS
+            if interval_s <= 0:
+                continue
+
+            last_sync = _parse_iso_ts(connector.get("last_sync_at", ""))
+            if last_sync is not None and (now - last_sync).total_seconds() < interval_s:
+                continue
+
+            result = self._run_connector_job(connector)
+            updated_meta = dict(metadata)
+            updated_meta["_last_sync_error"] = ""
+            updated_meta["_last_sync_message"] = str(result.get("message", "Auto-sync complete"))
+            updated_meta["_last_sync_status"] = "ok"
+            if result.get("error"):
+                updated_meta["_last_sync_error"] = str(result["error"])
+                updated_meta["_last_sync_message"] = "Auto-sync failed."
+                updated_meta["_last_sync_status"] = "error"
+            svc.update(connector["connector_id"], {
+                "metadata": updated_meta,
+                "last_sync_at": now.isoformat(),
+            })
+
+    def _persist_graph(self, graph: Any) -> None:
+        context_path = self._context_path_getter()
+        if not context_path:
+            return
+        try:
+            payload = graph.export_v5()
+            Path(context_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception:
+            # Best effort persistence for auto-sync.
+            pass
+
+    def _import_nodes_edges(self, import_result: dict[str, Any]) -> dict[str, Any]:
+        from cortex.graph import Edge, Node, make_edge_id, make_node_id
+
+        graph = self._graph_getter()
+        if graph is None:
+            return {"error": "No graph configured"}
+
+        nodes_created = 0
+        edges_created = 0
+        tag_set: set[str] = set()
+        imported_node_ids: set[str] = set()
+
+        for nd in import_result.get("nodes", []):
+            label = nd.get("label", "")
+            if not label:
+                continue
+            node_id = nd.get("id") or make_node_id(label)
+            tags = nd.get("tags", [])
+            node = Node(
+                id=node_id,
+                label=label,
+                tags=tags,
+                confidence=nd.get("confidence", 0.5),
+                brief=nd.get("brief", ""),
+                properties=nd.get("properties", {}),
+                full_description=nd.get("full_description", ""),
+            )
+            graph.add_node(node)
+            imported_node_ids.add(node_id)
+            nodes_created += 1
+            tag_set.update(str(t).lower() for t in tags)
+
+        for ed in import_result.get("edges", []):
+            source_id = ed.get("source_id", "")
+            target_id = ed.get("target_id", "")
+            relation = ed.get("relation", "related_to")
+            if not source_id or not target_id:
+                continue
+            source_exists = source_id in imported_node_ids or graph.get_node(source_id) is not None
+            target_exists = target_id in imported_node_ids or graph.get_node(target_id) is not None
+            if not source_exists or not target_exists:
+                continue
+            edge_id = ed.get("id") or make_edge_id(source_id, target_id, relation)
+            edge = Edge(
+                id=edge_id,
+                source_id=source_id,
+                target_id=target_id,
+                relation=relation,
+                confidence=ed.get("confidence", 0.5),
+                properties=ed.get("properties", {}),
+            )
+            graph.add_edge(edge)
+            edges_created += 1
+
+        if nodes_created or edges_created:
+            self._persist_graph(graph)
+        return {
+            "nodes_created": nodes_created,
+            "edges_created": edges_created,
+            "categories": len(tag_set),
+            "source_type": import_result.get("source_type", "connector_auto_sync"),
+        }
+
+    def _run_connector_job(self, connector: dict[str, Any]) -> dict[str, Any]:
+        metadata = connector.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        job = str(metadata.get("_job", "memory_pull_prompt")).strip().lower()
+        job_config = metadata.get("_job_config", {})
+        if not isinstance(job_config, dict):
+            job_config = {}
+
+        if job == "memory_pull_prompt":
+            return {
+                "message": "Auto-sync pending manual memory export paste.",
+                "action_required": True,
+            }
+
+        if job == "github_repo_sync":
+            url = str(job_config.get("repo_url") or metadata.get("repo_url") or "").strip()
+            token = job_config.get("token") or metadata.get("token") or None
+            if not url:
+                return {"error": "github_repo_sync requires repo_url in connector job config"}
+            from cortex.caas.importers import fetch_github_repo
+            import_result = fetch_github_repo(url, token=token)
+            if "error" in import_result and not import_result.get("nodes"):
+                return {"error": str(import_result["error"])}
+            result = self._import_nodes_edges(import_result)
+            if result.get("error"):
+                return result
+            result["message"] = "Auto-synced GitHub repository."
+            return result
+
+        if job == "custom_json_sync":
+            url = str(job_config.get("url") or "").strip()
+            if not url:
+                return {"error": "custom_json_sync requires url in connector job config"}
+            headers = job_config.get("headers", {})
+            if not isinstance(headers, dict):
+                headers = {}
+            req = urllib.request.Request(url, headers={str(k): str(v) for k, v in headers.items()}, method="GET")
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    payload = resp.read()
+            except Exception as exc:
+                return {"error": f"custom_json_sync fetch failed: {exc}"}
+            try:
+                parsed = json.loads(payload)
+            except (json.JSONDecodeError, ValueError):
+                return {"error": "custom_json_sync endpoint returned invalid JSON"}
+
+            if isinstance(parsed, dict) and ("nodes" in parsed or "edges" in parsed):
+                parsed.setdefault("source_type", "custom_json_sync")
+                result = self._import_nodes_edges(parsed)
+            else:
+                return {"error": "custom_json_sync currently requires graph-style nodes/edges JSON"}
+
+            if result.get("error"):
+                return result
+            result["message"] = "Auto-synced custom JSON source."
+            return result
+
+        return {"error": f"Unsupported connector job: {job}"}
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -262,6 +503,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
     profile_store: Any = None  # Optional ProfileStore for public profiles
     connector_store: AbstractConnectorStore | None = None  # External connector store
+    connector_auto_sync_worker: Any = None  # Optional ConnectorAutoSyncWorker
     store_dir: str | None = None  # Storage directory for data files
     context_path: str | None = None  # Path to context.json for persistence
 
@@ -5584,6 +5826,18 @@ def start_caas_server(
     else:
         CaaSHandler.keychain = None
 
+    # Connector auto-sync worker (24h cadence, minute-level scheduler polling)
+    if CaaSHandler.connector_store is not None:
+        auto_worker = ConnectorAutoSyncWorker(
+            connector_store=CaaSHandler.connector_store,
+            graph_getter=lambda: CaaSHandler.graph,
+            context_path_getter=lambda: CaaSHandler.context_path,
+        )
+        auto_worker.start()
+        CaaSHandler.connector_auto_sync_worker = auto_worker
+    else:
+        CaaSHandler.connector_auto_sync_worker = None
+
     # Multi-user mode (signup/login + per-user sessions/graphs)
     if config is not None and config.getbool("users", "enabled", fallback=False):
         if not _MULTI_USER_AVAILABLE:
@@ -5646,6 +5900,8 @@ def start_caas_server(
         coordinator.register("sse", CaaSHandler.sse_manager.stop)
     if CaaSHandler.webhook_worker is not None:
         coordinator.register("webhook_worker", CaaSHandler.webhook_worker.stop)
+    if CaaSHandler.connector_auto_sync_worker is not None:
+        coordinator.register("connector_auto_sync_worker", CaaSHandler.connector_auto_sync_worker.stop)
     if pool is not None:
         coordinator.register("pg_pool", pool.close)
     coordinator.register("http_server", server.shutdown)

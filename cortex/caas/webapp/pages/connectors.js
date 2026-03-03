@@ -48,6 +48,10 @@
             var metadata = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
             var job = metadata._job || inferDefaultJob((c.provider || '').toLowerCase());
             var syncNote = metadata._last_sync_message || '';
+            var autoEnabled = metadata._auto_sync_enabled !== false;
+            var autoEvery = parseInt(metadata._auto_sync_interval_seconds || 86400, 10);
+            if (!autoEvery || autoEvery < 1) autoEvery = 86400;
+            var autoHours = Math.round(autoEvery / 3600);
             var scopes = (c.scopes || []).map(function (s) {
                 return '<span class="connector-scope">' + C.escapeHtml(s) + '</span>';
             }).join('');
@@ -61,6 +65,7 @@
                 '    <div>' + connectorStatusBadge(c.status) + '</div>' +
                 '  </div>' +
                 '  <div><strong>Job:</strong> ' + C.escapeHtml(job) + '</div>' +
+                '  <div><strong>Auto-run:</strong> ' + (autoEnabled ? ('Every ' + autoHours + 'h') : 'Off') + '</div>' +
                 (syncNote ? '  <div><strong>Sync:</strong> ' + C.escapeHtml(syncNote) + '</div>' : '') +
                 '  <div class="connector-meta technical-only">' +
                 '    <div><strong>Created:</strong> ' + C.escapeHtml(c.created_at || '-') + '</div>' +

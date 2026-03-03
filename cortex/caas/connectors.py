@@ -71,6 +71,8 @@ class ConnectorService:
             raise ValueError("job_config must be an object")
         metadata["_job"] = job
         metadata["_job_config"] = dict(job_config)
+        metadata.setdefault("_auto_sync_enabled", True)
+        metadata.setdefault("_auto_sync_interval_seconds", 24 * 60 * 60)
         metadata.setdefault("_last_sync_status", "idle")
         metadata.setdefault("_last_sync_error", "")
         metadata.setdefault("_last_sync_message", "")
@@ -152,6 +154,8 @@ class ConnectorService:
                 raise ValueError("job_config must be an object")
             resolved_metadata["_job"] = next_job
             resolved_metadata["_job_config"] = dict(next_job_config)
+            resolved_metadata.setdefault("_auto_sync_enabled", True)
+            resolved_metadata.setdefault("_auto_sync_interval_seconds", 24 * 60 * 60)
             resolved_metadata.setdefault("_last_sync_status", "idle")
             resolved_metadata.setdefault("_last_sync_error", "")
             resolved_metadata.setdefault("_last_sync_message", "")
