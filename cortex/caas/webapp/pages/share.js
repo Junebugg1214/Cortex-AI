@@ -32,6 +32,7 @@
     ];
 
     C.registerPage('share', function (container) {
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>Share</h1>' +
@@ -48,11 +49,11 @@
             '      <div class="section-label">Intent</div>' +
             '      <div class="intent-cards" id="intent-cards"></div>' +
             '    </div>' +
-            '    <div class="card">' +
+            '    <div class="card technical-only">' +
             '      <div class="section-label">Platform</div>' +
             '      <div class="platform-cards" id="platform-cards"></div>' +
             '    </div>' +
-            '    <div class="card">' +
+            '    <div class="card technical-only">' +
             '      <div class="section-label">Privacy Level</div>' +
             '      <div class="privacy-options" id="privacy-options"></div>' +
             '    </div>' +
@@ -73,8 +74,10 @@
             '</div>';
 
         renderIntents();
-        renderPlatforms();
-        renderPolicies();
+        if (!isConsumer) {
+            renderPlatforms();
+            renderPolicies();
+        }
         applyIntent('assistant');
 
         document.getElementById('btn-copy').addEventListener('click', function () {
@@ -114,8 +117,10 @@
         selectedPlatform = intent.platform;
         selectedPolicy = intent.policy;
         renderIntents();
-        renderPlatforms();
-        renderPolicies();
+        if (!(C.isConsumerMode && C.isConsumerMode())) {
+            renderPlatforms();
+            renderPolicies();
+        }
         loadPreview();
         renderIntentSummary();
         C.trackEvent('share.intent_selected', { intent: selectedIntent, platform: selectedPlatform, policy: selectedPolicy });

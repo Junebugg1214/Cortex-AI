@@ -44,18 +44,18 @@
                 '  <div class="connector-head">' +
                 '    <div>' +
                 '      <h3>' + C.escapeHtml(account) + '</h3>' +
-                '      <p>' + C.escapeHtml(c.provider) + ' · ' + C.escapeHtml(c.connector_id) + '</p>' +
+                '      <p class="technical-only">' + C.escapeHtml(c.provider) + ' · ' + C.escapeHtml(c.connector_id) + '</p>' +
                 '    </div>' +
                 '    <div>' + connectorStatusBadge(c.status) + '</div>' +
                 '  </div>' +
-                '  <div class="connector-meta">' +
+                '  <div class="connector-meta technical-only">' +
                 '    <div><strong>Created:</strong> ' + C.escapeHtml(c.created_at || '-') + '</div>' +
                 '    <div><strong>Updated:</strong> ' + C.escapeHtml(c.updated_at || '-') + '</div>' +
                 '    <div><strong>Last Sync:</strong> ' + C.escapeHtml(c.last_sync_at || '-') + '</div>' +
                 '  </div>' +
-                '  <div class="connector-scopes">' + (scopes || '<span class="connector-scope">none</span>') + '</div>' +
+                '  <div class="connector-scopes technical-only">' + (scopes || '<span class="connector-scope">none</span>') + '</div>' +
                 '  <div class="connector-actions">' +
-                '    <button class="btn btn-outline btn-connector-toggle" data-id="' + C.escapeHtml(c.connector_id) + '" data-status="' + C.escapeHtml(c.status || 'active') + '">' + ((c.status || 'active') === 'active' ? 'Pause' : 'Activate') + '</button>' +
+                '    <button class="btn btn-outline btn-connector-toggle technical-only" data-id="' + C.escapeHtml(c.connector_id) + '" data-status="' + C.escapeHtml(c.status || 'active') + '">' + ((c.status || 'active') === 'active' ? 'Pause' : 'Activate') + '</button>' +
                 '    <button class="btn btn-outline btn-danger btn-connector-delete" data-id="' + C.escapeHtml(c.connector_id) + '">Delete</button>' +
                 '  </div>' +
                 '</article>'

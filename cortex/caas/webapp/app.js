@@ -7,6 +7,7 @@
     var registrationOpen = false;
     var storageModes = ['local', 'byos'];
     var defaultStorageMode = 'local';
+    var consumerMode = true;
     var currentUser = null;
     var onboardingState = {
         hasData: false,
@@ -17,6 +18,7 @@
     var onboardingRefreshPromise = null;
     var lastOnboardingRefreshAt = 0;
     var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
+    var CONSUMER_MODE_KEY = 'cortex.webapp.consumer_mode.v1';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -176,6 +178,40 @@
     function trackEvent(name, payload) {
         void name;
         void payload;
+    }
+
+    function loadConsumerMode() {
+        try {
+            var raw = localStorage.getItem(CONSUMER_MODE_KEY);
+            if (raw === null) return true;
+            return raw !== 'false';
+        } catch (_e) {
+            return true;
+        }
+    }
+
+    function applyConsumerModeClass() {
+        document.body.classList.toggle('consumer-mode', !!consumerMode);
+    }
+
+    function renderConsumerModeToggle() {
+        var btn = document.getElementById('consumer-mode-btn');
+        if (!btn) return;
+        btn.textContent = 'Consumer Mode: ' + (consumerMode ? 'On' : 'Off');
+        btn.classList.toggle('btn-consumer-on', !!consumerMode);
+    }
+
+    function setConsumerMode(value) {
+        consumerMode = !!value;
+        try {
+            localStorage.setItem(CONSUMER_MODE_KEY, consumerMode ? 'true' : 'false');
+        } catch (_e) {
+            // Ignore localStorage failures.
+        }
+        applyConsumerModeClass();
+        renderConsumerModeToggle();
+        currentPage = null;
+        route();
     }
 
     // ── Login / Logout ──────────────────────────────────────────
@@ -390,6 +426,14 @@
     }
 
     function setupAuth() {
+        // Consumer mode toggle
+        var consumerBtn = document.getElementById('consumer-mode-btn');
+        if (consumerBtn) {
+            consumerBtn.addEventListener('click', function () {
+                setConsumerMode(!consumerMode);
+            });
+        }
+
         // Admin login form (single-user mode)
         var adminForm = document.getElementById('login-form');
         if (adminForm) {
@@ -550,6 +594,10 @@
         return refreshOnboardingState(true);
     }
 
+    function isConsumerMode() {
+        return !!consumerMode;
+    }
+
     // ── Exports ─────────────────────────────────────────────────
     window.CortexApp = {
         api: api,
@@ -562,6 +610,8 @@
         showLogin: showLogin,
         getCurrentUser: getCurrentUser,
         isMultiUserMode: isMultiUserMode,
+        isConsumerMode: isConsumerMode,
+        setConsumerMode: setConsumerMode,
         getStorageConfig: getStorageConfig,
         signalProgressChanged: signalProgressChanged,
         refreshOnboardingState: refreshOnboardingState,
@@ -569,6 +619,9 @@
     };
 
     // Boot
+    consumerMode = loadConsumerMode();
+    applyConsumerModeClass();
+    renderConsumerModeToggle();
     setupAuth();
     bootCheck();
 })();

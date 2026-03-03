@@ -33,6 +33,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 .is-hidden { display: none !important; }
+.consumer-mode .technical-only { display: none !important; }
 
 body {
     font-family: var(--font-sans);
@@ -669,6 +670,18 @@ body {
 .btn-logout {
     font-size: 13px;
     padding: 6px 14px;
+}
+
+.btn-consumer {
+    margin-right: 8px;
+    font-size: 13px;
+    padding: 6px 12px;
+}
+
+.btn-consumer-on {
+    border-color: var(--color-success);
+    color: #065f46;
+    background: var(--color-success-light);
 }
 
 .btn-block-center {

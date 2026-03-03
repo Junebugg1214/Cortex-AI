@@ -46,22 +46,23 @@
     var MAX_RENDER_NODES = 350;
 
     C.registerPage('memory', function (container) {
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>My Memory</h1>' +
-            '  <p>Start with summary. Open advanced graph only when you need deeper inspection.</p>' +
+            '  <p>Start with summary.' + (isConsumer ? '' : ' Open advanced graph only when you need deeper inspection.') + '</p>' +
             '</div>' +
             '<div class="card page-flow-cue">' +
             '  <span class="flow-step flow-step-active">1. Review Summary</span>' +
-            '  <span class="flow-step">2. Advanced Graph</span>' +
+            '  <span class="flow-step technical-only">2. Advanced Graph</span>' +
             '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div class="memory-view-toggle">' +
             '  <button class="memory-view-btn active" data-view="summary">Summary</button>' +
-            '  <button class="memory-view-btn" data-view="graph">Advanced Graph</button>' +
+            '  <button class="memory-view-btn technical-only" data-view="graph">Advanced Graph</button>' +
             '</div>' +
             '<section id="memory-summary" class="memory-summary"></section>' +
-            '<section id="memory-graph" class="memory-graph is-hidden">' +
+            '<section id="memory-graph" class="memory-graph technical-only is-hidden">' +
             '  <div class="graph-wrapper">' +
             '    <div class="graph-toolbar">' +
             '      <input type="text" class="search-input" id="mem-search" placeholder="Search your memory..." aria-label="Search memory graph">' +
@@ -113,6 +114,9 @@
     }
 
     function setActiveView(view) {
+        if ((C.isConsumerMode && C.isConsumerMode()) && view === 'graph') {
+            view = 'summary';
+        }
         activeView = view === 'graph' ? 'graph' : 'summary';
         var summaryEl = document.getElementById('memory-summary');
         var graphEl = document.getElementById('memory-graph');
@@ -322,10 +326,12 @@
             '<div class="card memory-cta-row">' +
             '  <div>' +
             '    <div class="memory-section-title">Next step</div>' +
-            '    <p class="memory-muted">Inspect relationships in Advanced Graph or generate a share-ready export.</p>' +
+            '    <p class="memory-muted">' + ((C.isConsumerMode && C.isConsumerMode())
+                ? 'Generate a share-ready export from your current memory summary.'
+                : 'Inspect relationships in Advanced Graph or generate a share-ready export.') + '</p>' +
             '  </div>' +
             '  <div class="memory-cta-actions">' +
-            '    <button class="btn btn-primary" data-memory-view="graph">Open Advanced Graph</button>' +
+            '    <button class="btn btn-primary technical-only" data-memory-view="graph">Open Advanced Graph</button>' +
             '    <a class="btn btn-outline" href="#share">Go to Share</a>' +
             '  </div>' +
             '</div>';

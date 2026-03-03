@@ -44,7 +44,7 @@
             '      <label class="profile-label" for="profile-bio">Bio</label>' +
             '      <textarea id="profile-bio" class="login-input profile-textarea" rows="3" placeholder="A short bio..."></textarea>' +
             '    </div>' +
-            '    <div class="profile-field profile-wide">' +
+            '    <div class="profile-field profile-wide technical-only">' +
             '      <label class="profile-label" for="profile-github-url">GitHub URL (Optional)</label>' +
             '      <input type="url" id="profile-github-url" class="login-input" placeholder="https://github.com/yourname">' +
             '      <div class="profile-help">Optional link for coder-facing technical memory cards.</div>' +

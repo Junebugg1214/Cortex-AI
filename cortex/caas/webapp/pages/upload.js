@@ -20,12 +20,14 @@
             '  <span class="flow-step">3. Share</span>' +
             '</div>' +
             '<div id="upload-area"></div>' +
-            '<div id="import-cards-area"></div>' +
-            '<div id="api-keys-area"></div>';
+            '<div id="import-cards-area" class="technical-only"></div>' +
+            '<div id="api-keys-area" class="technical-only"></div>';
 
         renderDropZone();
-        renderImportCards();
-        renderApiKeys();
+        if (!(C.isConsumerMode && C.isConsumerMode())) {
+            renderImportCards();
+            renderApiKeys();
+        }
         loadUploadConfig();
     });
 
@@ -33,6 +35,13 @@
 
     function renderDropZone() {
         var area = document.getElementById('upload-area');
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
+        var githubOption = isConsumer ? '' : '      <option value="github">GitHub Repository URL</option>';
+        var githubIcon = isConsumer ? '' :
+            '      <div class="platform-icon technical-only">' +
+            '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 10.42c-.2-.14-.42-.22-.65-.22H14.6l2.24-6.41c.16-.48-.05-1-.5-1.22a.99.99 0 00-1.17.25L5.32 13.58c-.18.2-.28.46-.28.73 0 .58.47 1.05 1.05 1.05h7.03l-2.24 6.41c-.16.48.05 1 .5 1.22.14.07.3.1.45.1.33 0 .64-.15.85-.42l9.85-10.76c.18-.2.28-.46.28-.73a1.03 1.03 0 00-.53-.76z"/></svg>' +
+            '        <span>GitHub</span>' +
+            '      </div>';
         area.innerHTML =
             '<div class="card storage-mode-card">' +
             '  <div class="storage-mode-head">' +
@@ -64,7 +73,7 @@
             '      <option value="claude">Claude Export</option>' +
             '      <option value="linkedin">LinkedIn Export</option>' +
             '      <option value="resume">Resume PDF/DOCX</option>' +
-            '      <option value="github">GitHub Repository URL</option>' +
+            githubOption +
             '    </select>' +
             '    <div id="source-guide-copy" class="upload-guide-copy"></div>' +
             '  </div>' +
@@ -99,6 +108,7 @@
             '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h14m-.5 15.5v-5.3a3.26 3.26 0 00-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 011.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 001.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 00-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>' +
             '        <span>LinkedIn</span>' +
             '      </div>' +
+            githubIcon +
             '    </div>' +
             '  </div>' +
             '</div>';
@@ -177,7 +187,7 @@
                 claude: 'Upload Claude export JSON; Cortex extracts facts, preferences, and project context.',
                 linkedin: 'Upload LinkedIn “Get a copy of your data” ZIP (manual export only).',
                 resume: 'Upload PDF or DOCX resume for role, company, skill, and education extraction.',
-                github: 'Use the GitHub import card below (optional) for technical memory from a repo.',
+                github: 'Use GitHub import in Technical mode for repo-based memory extraction.',
             };
             document.getElementById('source-guide-copy').textContent = copy[value] || copy.chatgpt;
         }
