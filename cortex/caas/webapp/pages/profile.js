@@ -2,7 +2,6 @@
 (function () {
     'use strict';
     var C = window.CortexApp;
-    var pendingDelete = null;
 
     var SECTIONS = [
         { id: 'about', name: 'About' },
@@ -24,19 +23,8 @@
         container.innerHTML =
             '<div class="page-header">' +
             '  <h1>AI ID Card</h1>' +
-            '  <p>Your AI ID belongs to you. Share a scoped identity card with QR and policy controls.</p>' +
+            '  <p>Your AI ID belongs to you. Keep one clear profile and share it with policy controls.</p>' +
             '</div>' +
-            '<div class="profile-toolbar">' +
-            '  <div class="profile-field">' +
-            '    <label class="profile-label" for="profile-selector">Profile</label>' +
-            '    <select id="profile-selector" class="login-input profile-select"></select>' +
-            '  </div>' +
-            '  <div class="profile-toolbar-actions">' +
-            '    <button class="btn btn-outline" id="btn-new-profile">+ New Profile</button>' +
-            '    <button class="btn btn-outline btn-danger is-hidden" id="btn-delete-profile">Delete</button>' +
-            '  </div>' +
-            '</div>' +
-            '<div id="profile-empty-hint" class="profile-empty-hint is-hidden">No profiles yet. Click <strong>+ New Profile</strong> to create your first one.</div>' +
             '<div class="profile-config card">' +
             '  <div class="profile-grid">' +
             '    <div class="profile-field">' +
@@ -59,7 +47,7 @@
             '    <div class="profile-field profile-wide">' +
             '      <label class="profile-label" for="profile-github-url">GitHub URL (Optional)</label>' +
             '      <input type="url" id="profile-github-url" class="login-input" placeholder="https://github.com/yourname">' +
-            '      <div class="profile-help">For coder sharing cards: include your technical work link without making it the main profile focus.</div>' +
+            '      <div class="profile-help">Optional link for coder-facing technical memory cards.</div>' +
             '    </div>' +
             '    <div class="profile-field">' +
             '      <label class="profile-label" for="profile-policy">Privacy Level</label>' +
@@ -106,9 +94,6 @@
         });
 
         var handleInput = document.getElementById('profile-handle');
-        var profileSelector = document.getElementById('profile-selector');
-        var deleteBtn = document.getElementById('btn-delete-profile');
-
         handleInput.addEventListener('input', function () {
             document.getElementById('handle-preview').textContent = handleInput.value || 'your-name';
         });
@@ -129,81 +114,11 @@
             }
         }
 
-        function loadProfiles() {
-            C.api('/api/profiles').then(function (resp) {
-                var profiles = resp.profiles || [];
-                var hint = document.getElementById('profile-empty-hint');
-                profileSelector.innerHTML = '';
-                profiles.forEach(function (p) {
-                    var opt = document.createElement('option');
-                    opt.value = p.handle;
-                    opt.textContent = p.display_name || p.handle;
-                    profileSelector.appendChild(opt);
-                });
-                deleteBtn.classList.toggle('is-hidden', profiles.length === 0);
-                if (profiles.length > 0) {
-                    fillForm(profiles[0]);
-                    hint.classList.add('is-hidden');
-                } else {
-                    profileSelector.innerHTML = '<option value="">No profiles yet</option>';
-                    hint.classList.remove('is-hidden');
-                }
-            }).catch(function () {
-                C.api('/api/profile').then(function (data) {
-                    if (data && data.handle) fillForm(data);
-                }).catch(function () {});
-            });
-        }
-
-        profileSelector.addEventListener('change', function () {
-            var handle = profileSelector.value;
-            if (!handle) return;
-            C.api('/api/profile?handle=' + encodeURIComponent(handle)).then(function (data) {
-                fillForm(data);
+        function loadSingleProfile() {
+            C.api('/api/profile').then(function (data) {
+                if (data && data.handle) fillForm(data);
             }).catch(function () {});
-        });
-
-        document.getElementById('btn-new-profile').addEventListener('click', function () {
-            handleInput.value = '';
-            document.getElementById('handle-preview').textContent = 'your-name';
-            document.getElementById('profile-name').value = '';
-            document.getElementById('profile-headline').value = '';
-            document.getElementById('profile-bio').value = '';
-            document.getElementById('profile-github-url').value = '';
-            policySelect.value = 'professional';
-            togglesDiv.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = true; });
-            handleInput.focus();
-            C.trackEvent('profile.new_clicked', {});
-        });
-
-        deleteBtn.addEventListener('click', function () {
-            var handle = profileSelector.value;
-            if (!handle) return;
-            if (pendingDelete) return;
-
-            pendingDelete = setTimeout(function () {
-                pendingDelete = null;
-                C.api('/api/profile?handle=' + encodeURIComponent(handle), { method: 'DELETE' })
-                    .then(function () {
-                        C.showToast('Profile deleted', 'success');
-                        loadProfiles();
-                        C.trackEvent('profile.deleted', { handle: handle });
-                    })
-                    .catch(function (err) { C.showToast('Error: ' + err.message, 'error'); });
-            }, 5000);
-
-            C.showToast('Profile scheduled for deletion.', {
-                type: 'info',
-                duration: 5200,
-                actionLabel: 'Undo',
-                onAction: function () {
-                    clearTimeout(pendingDelete);
-                    pendingDelete = null;
-                    C.showToast('Delete canceled.', 'success');
-                    C.trackEvent('profile.delete_undo', { handle: handle });
-                },
-            });
-        });
+        }
 
         document.getElementById('btn-save-profile').addEventListener('click', function () {
             var sections = [];
@@ -224,7 +139,7 @@
                 }),
             }).then(function () {
                 C.showToast('Profile saved!', 'success');
-                loadProfiles();
+                loadSingleProfile();
                 C.trackEvent('profile.saved', { handle: handleInput.value.toLowerCase().trim(), policy: policySelect.value });
             }).catch(function (err) {
                 C.showToast('Error: ' + err.message, 'error');
@@ -277,6 +192,6 @@
             if (e.target === qrModal) qrModal.classList.add('is-hidden');
         });
 
-        loadProfiles();
+        loadSingleProfile();
     });
 })();

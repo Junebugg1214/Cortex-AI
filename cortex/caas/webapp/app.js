@@ -17,7 +17,6 @@
     var onboardingRefreshPromise = null;
     var lastOnboardingRefreshAt = 0;
     var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
-    var ANALYTICS_KEY = 'cortex.webapp.analytics.v1';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -174,38 +173,9 @@
         }
     }
 
-    function getAnalyticsQueue() {
-        try {
-            var raw = localStorage.getItem(ANALYTICS_KEY);
-            if (!raw) return [];
-            var parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (_e) {
-            return [];
-        }
-    }
-
-    function saveAnalyticsQueue(queue) {
-        try {
-            localStorage.setItem(ANALYTICS_KEY, JSON.stringify(queue.slice(-200)));
-        } catch (_e) {
-            // Ignore localStorage failures.
-        }
-    }
-
     function trackEvent(name, payload) {
-        var event = {
-            name: String(name || 'unknown'),
-            payload: payload || {},
-            at: new Date().toISOString(),
-            page: location.hash.replace('#', '') || 'upload',
-        };
-        var queue = getAnalyticsQueue();
-        queue.push(event);
-        saveAnalyticsQueue(queue);
-        if (window.console && console.debug) {
-            console.debug('[CortexAnalytics]', event.name, event.payload);
-        }
+        void name;
+        void payload;
     }
 
     // ── Login / Logout ──────────────────────────────────────────
@@ -596,7 +566,6 @@
         signalProgressChanged: signalProgressChanged,
         refreshOnboardingState: refreshOnboardingState,
         trackEvent: trackEvent,
-        getAnalyticsQueue: getAnalyticsQueue,
     };
 
     // Boot
