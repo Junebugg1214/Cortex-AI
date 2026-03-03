@@ -3259,6 +3259,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                         edge = Edge(id=edge_id, source_id=source_id, target_id=target_id, relation=relation)
                         graph.add_edge(edge)
                         edges_created += 1
+                if nodes_created > 0 or edges_created > 0:
+                    self._save_graph()
                 return {
                     "nodes_created": nodes_created,
                     "edges_created": edges_created,
@@ -3273,6 +3275,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 node_id = make_node_id(label)
                 node = Node(id=node_id, label=label, tags=["import"], confidence=0.5, brief=text[:500])
                 graph.add_node(node)
+                self._save_graph()
                 return {"nodes_created": 1, "edges_created": 0, "categories": 1}
 
         # Process chat messages: extract unique topics/entities
@@ -3311,6 +3314,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             edge = Edge(id=eid, source_id=src, target_id=tgt, relation=rel)
             graph.add_edge(edge)
             edges_created += 1
+
+        if nodes_created > 0 or edges_created > 0:
+            self._save_graph()
 
         return {
             "nodes_created": nodes_created,
