@@ -3434,6 +3434,22 @@ class CaaSHandler(BaseHTTPRequestHandler):
             storage_prefs = self._get_storage_preferences_for_request()
             mode = str(storage_prefs.get("mode", "local")).strip().lower()
             graph_json = json.dumps(graph_data, indent=2)
+            persisted_local = False
+
+            current_user = self._current_user or self._get_current_user()
+            resolver = self.__class__.user_graph_resolver
+            if (
+                self.__class__.multi_user_enabled
+                and resolver is not None
+                and current_user is not None
+                and getattr(current_user, "user_id", "")
+            ):
+                try:
+                    resolver.save_user_graph(str(current_user.user_id), graph_data, create_version=False)
+                    persisted_local = True
+                    print(f"[DEBUG _save_graph] Persisted user graph for {current_user.user_id}", file=sys.stderr, flush=True)
+                except Exception as exc:
+                    print(f"[DEBUG _save_graph] User graph persist failed: {exc}", file=sys.stderr, flush=True)
 
             if mode == "byos":
                 byos_location = str(storage_prefs.get("byos_location", "")).strip()
@@ -3458,10 +3474,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
                     print(f"[DEBUG _save_graph] BYOS write successful ({byos_location})", file=sys.stderr, flush=True)
                 else:
                     # Fallback for unsupported BYOS schemes until provider-specific SDKs are configured.
-                    Path(context_path).write_text(graph_json, encoding="utf-8")
+                    if not persisted_local:
+                        Path(context_path).write_text(graph_json, encoding="utf-8")
                     print("[DEBUG _save_graph] BYOS scheme unsupported for direct write; used local fallback", file=sys.stderr, flush=True)
             else:
-                Path(context_path).write_text(graph_json, encoding="utf-8")
+                if not persisted_local:
+                    Path(context_path).write_text(graph_json, encoding="utf-8")
             print(f"[DEBUG _save_graph] Successfully saved to {context_path}", file=sys.stderr, flush=True)
         except (OSError, IOError) as e:
             print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
