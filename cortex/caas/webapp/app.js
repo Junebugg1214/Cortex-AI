@@ -10,6 +10,7 @@
     var consumerMode = true;
     var currentUser = null;
     var onboardingState = {
+        hasStorageChoice: false,
         hasData: false,
         hasShareKey: false,
         explored: false,
@@ -19,6 +20,7 @@
     var lastOnboardingRefreshAt = 0;
     var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
     var CONSUMER_MODE_KEY = 'cortex.webapp.consumer_mode.v1';
+    var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -290,7 +292,36 @@
         }
     }
 
+    function getStoragePrefs() {
+        try {
+            var raw = localStorage.getItem(STORAGE_PREFS_KEY);
+            if (!raw) return {};
+            var parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_e) {
+            return {};
+        }
+    }
+
+    function hasStorageChoiceCompleted() {
+        var prefs = getStoragePrefs();
+        var mode = String((prefs && prefs.mode) || '').toLowerCase();
+        if (mode === 'local') return true;
+        if (mode === 'byos') {
+            return !!(prefs.byos_provider && prefs.byos_location);
+        }
+        return false;
+    }
+
     function computeNextAction(state, visited) {
+        if (consumerMode && !state.hasStorageChoice) {
+            return {
+                title: 'Choose where your AI ID data lives',
+                detail: 'Pick Local Vault or connect your own cloud storage before importing data.',
+                ctaLabel: 'Choose Storage',
+                ctaHref: '#upload',
+            };
+        }
         if (!visited.connectors) {
             return {
                 title: consumerMode ? 'Connect your AI apps first' : 'Connect your AI tools first',
@@ -360,12 +391,16 @@
         }
 
         var visited = getVisitedPages();
-        var steps = [
+        var steps = [];
+        if (consumerMode) {
+            steps.push({ id: 'storage', label: 'Storage', done: onboardingState.hasStorageChoice });
+        }
+        steps.push(
             { id: 'connect', label: 'Connect', done: !!visited.connectors },
             { id: 'import', label: consumerMode ? 'Add Data' : 'Import', done: onboardingState.hasData },
             { id: 'explore', label: consumerMode ? 'Review' : 'Explore', done: onboardingState.hasData && !!visited.memory },
-            { id: 'share', label: 'Share', done: consumerMode ? !!visited.share : onboardingState.hasShareKey },
-        ];
+            { id: 'share', label: 'Share', done: consumerMode ? !!visited.share : onboardingState.hasShareKey }
+        );
         var firstIncomplete = null;
         for (var i = 0; i < steps.length; i++) {
             if (!steps[i].done) {
@@ -438,6 +473,7 @@
             var stats = results[0] || {};
             var keys = Array.isArray(results[1]) ? results[1] : [];
             var visited = getVisitedPages();
+            onboardingState.hasStorageChoice = hasStorageChoiceCompleted();
             onboardingState.hasData = (stats.node_count || 0) > 0;
             onboardingState.hasShareKey = keys.some(function (k) { return !!k.active; });
             onboardingState.explored = !!visited.memory;

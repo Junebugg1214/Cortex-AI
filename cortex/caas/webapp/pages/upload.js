@@ -45,25 +45,42 @@
             '        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.28 10.42c-.2-.14-.42-.22-.65-.22H14.6l2.24-6.41c.16-.48-.05-1-.5-1.22a.99.99 0 00-1.17.25L5.32 13.58c-.18.2-.28.46-.28.73 0 .58.47 1.05 1.05 1.05h7.03l-2.24 6.41c-.16.48.05 1 .5 1.22.14.07.3.1.45.1.33 0 .64-.15.85-.42l9.85-10.76c.18-.2.28-.46.28-.73a1.03 1.03 0 00-.53-.76z"/></svg>' +
             '        <span>GitHub</span>' +
             '      </div>';
-        var storageCard = isConsumer ? '' :
-            '<div class="card storage-mode-card">' +
-            '  <div class="storage-mode-head">' +
-            '    <h3>Storage Mode</h3>' +
-            '    <p>Only two modes are supported: <strong>Local Vault</strong> and <strong>BYOS</strong> (Bring Your Own Storage).</p>' +
-            '  </div>' +
-            '  <div class="storage-mode-options">' +
-            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
-            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS</button>' +
-            '  </div>' +
-            '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
-            '    <label class="profile-label" for="byos-provider">Provider</label>' +
-            '    <input id="byos-provider" class="login-input" placeholder="S3, R2, WebDAV, iCloud Drive">' +
-            '    <label class="profile-label" for="byos-location">Storage Location</label>' +
-            '    <input id="byos-location" class="login-input" placeholder="s3://my-cortex-vault or https://storage.example.com/bucket">' +
-            '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS Settings</button>' +
-            '    <p class="storage-mode-hint">Store encrypted memory in your own storage account. Cortex should not keep your plaintext data.</p>' +
-            '  </div>' +
-            '</div>';
+        var storageCard = isConsumer
+            ? '<div class="card storage-mode-card">' +
+                '  <div class="storage-mode-head">' +
+                '    <h3>Where should your AI ID data live?</h3>' +
+                '    <p>Choose one: keep it in Local Vault or use your own cloud storage.</p>' +
+                '  </div>' +
+                '  <div class="storage-mode-options">' +
+                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
+                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">My Cloud Storage</button>' +
+                '  </div>' +
+                '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
+                '    <label class="profile-label" for="byos-provider">Storage Provider</label>' +
+                '    <input id="byos-provider" class="login-input" placeholder="S3, R2, iCloud Drive, WebDAV">' +
+                '    <label class="profile-label" for="byos-location">Storage Path or URL</label>' +
+                '    <input id="byos-location" class="login-input" placeholder="s3://my-ai-id-vault or https://storage.example.com/vault">' +
+                '    <button class="btn btn-primary" id="save-byos-prefs">Save Storage</button>' +
+                '  </div>' +
+                '</div>'
+            : '<div class="card storage-mode-card">' +
+                '  <div class="storage-mode-head">' +
+                '    <h3>Storage Mode</h3>' +
+                '    <p>Only two modes are supported: <strong>Local Vault</strong> and <strong>BYOS</strong> (Bring Your Own Storage).</p>' +
+                '  </div>' +
+                '  <div class="storage-mode-options">' +
+                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="local">Local Vault</button>' +
+                '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS</button>' +
+                '  </div>' +
+                '  <div id="byos-config" class="storage-mode-byos is-hidden">' +
+                '    <label class="profile-label" for="byos-provider">Provider</label>' +
+                '    <input id="byos-provider" class="login-input" placeholder="S3, R2, WebDAV, iCloud Drive">' +
+                '    <label class="profile-label" for="byos-location">Storage Location</label>' +
+                '    <input id="byos-location" class="login-input" placeholder="s3://my-cortex-vault or https://storage.example.com/bucket">' +
+                '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS Settings</button>' +
+                '    <p class="storage-mode-hint">Store encrypted memory in your own storage account. Cortex should not keep your plaintext data.</p>' +
+                '  </div>' +
+                '</div>';
         area.innerHTML =
             storageCard +
             '<div class="card upload-priority-cue">' +
@@ -144,38 +161,45 @@
             }
         }
 
-        function setActiveStorageMode(mode) {
+        function setActiveStorageMode(mode, opts) {
+            opts = opts || {};
             var safeMode = storageModes.indexOf(mode) >= 0 ? mode : defaultStorageMode;
             modeButtons.forEach(function (btn) {
                 var isActive = btn.getAttribute('data-storage-mode') === safeMode;
                 btn.classList.toggle('storage-mode-btn-active', isActive);
             });
-            byosPane.classList.toggle('is-hidden', safeMode !== 'byos');
+            if (byosPane) {
+                byosPane.classList.toggle('is-hidden', safeMode !== 'byos');
+            }
             var prefs = getStoredPrefs();
             prefs.mode = safeMode;
             setStoredPrefs(prefs);
             C.trackEvent('storage.mode_changed', { mode: safeMode });
+            if (!opts.silent && C.signalProgressChanged) {
+                C.signalProgressChanged();
+            }
         }
 
-        if (!isConsumer) {
-            var initialPrefs = getStoredPrefs();
-            byosProvider.value = initialPrefs.byos_provider || '';
-            byosLocation.value = initialPrefs.byos_location || '';
-            setActiveStorageMode(initialPrefs.mode || defaultStorageMode);
+        var initialPrefs = getStoredPrefs();
+        if (byosProvider) byosProvider.value = initialPrefs.byos_provider || '';
+        if (byosLocation) byosLocation.value = initialPrefs.byos_location || '';
+        setActiveStorageMode(initialPrefs.mode || defaultStorageMode, { silent: true });
 
-            modeButtons.forEach(function (btn) {
-                var mode = btn.getAttribute('data-storage-mode');
-                btn.classList.toggle('is-hidden', storageModes.indexOf(mode) < 0);
-                btn.addEventListener('click', function () {
-                    setActiveStorageMode(mode);
-                });
+        modeButtons.forEach(function (btn) {
+            var mode = btn.getAttribute('data-storage-mode');
+            btn.classList.toggle('is-hidden', storageModes.indexOf(mode) < 0);
+            btn.addEventListener('click', function () {
+                setActiveStorageMode(mode);
             });
+        });
 
-            document.getElementById('save-byos-prefs').addEventListener('click', function () {
-                var provider = byosProvider.value.trim();
-                var location = byosLocation.value.trim();
+        var saveByosBtn = document.getElementById('save-byos-prefs');
+        if (saveByosBtn) {
+            saveByosBtn.addEventListener('click', function () {
+                var provider = byosProvider ? byosProvider.value.trim() : '';
+                var location = byosLocation ? byosLocation.value.trim() : '';
                 if (!provider || !location) {
-                    C.showToast('Enter both BYOS provider and storage location.', 'error');
+                    C.showToast('Enter both provider and storage location.', 'error');
                     return;
                 }
                 var prefs = getStoredPrefs();
@@ -184,7 +208,7 @@
                 prefs.mode = 'byos';
                 setStoredPrefs(prefs);
                 setActiveStorageMode('byos');
-                C.showToast('BYOS settings saved locally.', 'success');
+                C.showToast(isConsumer ? 'Cloud storage saved.' : 'BYOS settings saved locally.', 'success');
                 C.trackEvent('storage.byos_saved', { provider: provider });
             });
         }
