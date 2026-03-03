@@ -6,6 +6,16 @@
     var PROVIDERS = [
         'openai', 'anthropic', 'google', 'meta', 'mistral', 'perplexity', 'xai', 'github',
     ];
+    var PROVIDER_LABELS = {
+        openai: 'ChatGPT (OpenAI)',
+        anthropic: 'Claude (Anthropic)',
+        google: 'Gemini (Google)',
+        meta: 'Meta AI',
+        mistral: 'Mistral',
+        perplexity: 'Perplexity',
+        xai: 'Grok (xAI)',
+        github: 'GitHub',
+    };
     var JOBS = [
         { id: 'memory_pull_prompt', name: 'Memory Pull Prompt' },
         { id: 'github_repo_sync', name: 'GitHub Repo Sync' },
@@ -14,6 +24,11 @@
 
     function inferDefaultJob(provider) {
         return provider === 'github' ? 'github_repo_sync' : 'memory_pull_prompt';
+    }
+
+    function providerLabel(provider) {
+        var key = String(provider || '').toLowerCase();
+        return PROVIDER_LABELS[key] || key || 'Unknown';
     }
 
     function connectorStatusBadge(status) {
@@ -34,6 +49,7 @@
 
     function renderConnectors(items) {
         var el = document.getElementById('connectors-list');
+        var isConsumer = C.isConsumerMode && C.isConsumerMode();
         if (!items.length) {
             el.innerHTML =
                 '<div class="card connector-empty">' +
@@ -60,11 +76,12 @@
                 '  <div class="connector-head">' +
                 '    <div>' +
                 '      <h3>' + C.escapeHtml(account) + '</h3>' +
-                    '      <p class="technical-only">' + C.escapeHtml(c.provider) + ' · ' + C.escapeHtml(c.connector_id) + '</p>' +
+                '      <p>' + C.escapeHtml(providerLabel(c.provider)) + '</p>' +
+                '      <p class="technical-only">' + C.escapeHtml(c.provider) + ' · ' + C.escapeHtml(c.connector_id) + '</p>' +
                 '    </div>' +
                 '    <div>' + connectorStatusBadge(c.status) + '</div>' +
                 '  </div>' +
-                '  <div><strong>Job:</strong> ' + C.escapeHtml(job) + '</div>' +
+                (isConsumer ? '' : ('  <div><strong>Job:</strong> ' + C.escapeHtml(job) + '</div>')) +
                 '  <div><strong>Auto-run:</strong> ' + (autoEnabled ? ('Every ' + autoHours + 'h') : 'Off') + '</div>' +
                 (syncNote ? '  <div><strong>Sync:</strong> ' + C.escapeHtml(syncNote) + '</div>' : '') +
                 '  <div class="connector-meta technical-only">' +
@@ -74,10 +91,10 @@
                 '  </div>' +
                 '  <div class="connector-scopes technical-only">' + (scopes || '<span class="connector-scope">none</span>') + '</div>' +
                 '  <div class="connector-actions">' +
-                '    <button class="btn btn-primary btn-connector-sync" data-id="' + C.escapeHtml(c.connector_id) + '">Run now</button>' +
-                '    <button class="btn btn-outline btn-connector-auto-toggle" data-id="' + C.escapeHtml(c.connector_id) + '" data-auto-enabled="' + (autoEnabled ? 'true' : 'false') + '" data-meta="' + C.escapeHtml(encodeURIComponent(JSON.stringify(metadata))) + '">' + (autoEnabled ? 'Pause auto-run' : 'Resume auto-run') + '</button>' +
+                '    <button class="btn btn-primary btn-connector-sync" data-id="' + C.escapeHtml(c.connector_id) + '">' + (isConsumer ? 'Sync now' : 'Run now') + '</button>' +
+                '    <button class="btn btn-outline btn-connector-auto-toggle" data-id="' + C.escapeHtml(c.connector_id) + '" data-auto-enabled="' + (autoEnabled ? 'true' : 'false') + '" data-meta="' + C.escapeHtml(encodeURIComponent(JSON.stringify(metadata))) + '">' + (autoEnabled ? 'Pause auto-sync' : 'Resume auto-sync') + '</button>' +
                 '    <button class="btn btn-outline btn-connector-toggle technical-only" data-id="' + C.escapeHtml(c.connector_id) + '" data-status="' + C.escapeHtml(c.status || 'active') + '">' + ((c.status || 'active') === 'active' ? 'Pause' : 'Activate') + '</button>' +
-                '    <button class="btn btn-outline btn-danger btn-connector-delete" data-id="' + C.escapeHtml(c.connector_id) + '">Delete</button>' +
+                '    <button class="btn btn-outline btn-danger btn-connector-delete" data-id="' + C.escapeHtml(c.connector_id) + '">' + (isConsumer ? 'Disconnect' : 'Delete') + '</button>' +
                 '  </div>' +
                 '</article>'
             );
@@ -197,12 +214,12 @@
             '  <section class="card connector-create">' +
             '    <h3>Add Connector</h3>' +
             '    <form id="connector-form" class="connector-form">' +
-            '      <label class="profile-label" for="connector-provider">Provider</label>' +
+            '      <label class="profile-label" for="connector-provider">' + (isConsumer ? 'AI App' : 'Provider') + '</label>' +
             '      <select id="connector-provider" class="login-input"></select>' +
-            '      <label class="profile-label" for="connector-job">Job</label>' +
-            '      <select id="connector-job" class="login-input"></select>' +
+            '      <label class="profile-label technical-only" for="connector-job">Job</label>' +
+            '      <select id="connector-job" class="login-input technical-only"></select>' +
             '      <label class="profile-label" for="connector-label">Account Label</label>' +
-            '      <input id="connector-label" class="login-input" placeholder="Personal OpenAI">' +
+            '      <input id="connector-label" class="login-input" placeholder="' + (isConsumer ? 'Personal ChatGPT' : 'Personal OpenAI') + '">' +
             '      <label class="profile-label technical-only" for="connector-target">Job Target (optional)</label>' +
             '      <input id="connector-target" class="login-input technical-only" placeholder="GitHub URL or JSON endpoint URL">' +
             '      <button type="submit" class="btn btn-primary">Create Connector</button>' +
@@ -216,7 +233,7 @@
         PROVIDERS.forEach(function (p) {
             var opt = document.createElement('option');
             opt.value = p;
-            opt.textContent = p;
+            opt.textContent = providerLabel(p);
             providerSelect.appendChild(opt);
         });
         JOBS.forEach(function (job) {
@@ -232,15 +249,17 @@
 
         document.getElementById('connector-form').addEventListener('submit', function (ev) {
             ev.preventDefault();
+            var isConsumerMode = C.isConsumerMode && C.isConsumerMode();
             var target = document.getElementById('connector-target').value.trim();
+            var selectedJob = isConsumerMode ? inferDefaultJob(providerSelect.value) : jobSelect.value;
             var jobConfig = {};
             if (target) {
-                if (jobSelect.value === 'github_repo_sync') jobConfig.repo_url = target;
-                else if (jobSelect.value === 'custom_json_sync') jobConfig.url = target;
+                if (selectedJob === 'github_repo_sync') jobConfig.repo_url = target;
+                else if (selectedJob === 'custom_json_sync') jobConfig.url = target;
             }
             var payload = {
                 provider: providerSelect.value,
-                job: jobSelect.value,
+                job: selectedJob,
                 job_config: jobConfig,
                 account_label: document.getElementById('connector-label').value.trim(),
                 scopes: ['memory:read'],
