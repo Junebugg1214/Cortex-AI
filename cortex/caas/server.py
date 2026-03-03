@@ -722,10 +722,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
         # ── Connector routes ────────────────────────────────────
         elif path == "/api/connectors":
             self._handle_list_connectors()
+        elif path == "/api/connectors/capabilities":
+            self._handle_get_connector_capabilities()
         elif path.startswith("/api/connectors/"):
             connector_id = path[len("/api/connectors/"):]
             if self._validate_path_id(connector_id):
                 self._handle_get_connector(connector_id)
+        elif path == "/api/storage/preferences":
+            self._handle_get_storage_preferences()
         elif path.startswith("/api/memory/"):
             self._handle_public_memory(path, query)
         elif path.startswith("/api/resume/"):
@@ -796,6 +800,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             connector_id = path[len("/api/connectors/"):-len("/sync")]
             if self._validate_path_id(connector_id):
                 self._handle_sync_connector(connector_id)
+        elif path == "/api/storage/preferences/check":
+            self._handle_check_storage_preferences()
         elif path == "/api/connectors":
             self._handle_create_connector()
         # ── Webapp auth routes ────────────────────────────────────
@@ -907,6 +913,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             connector_id = path[len("/api/connectors/"):]
             if self._validate_path_id(connector_id):
                 self._handle_update_connector(connector_id)
+        elif path == "/api/storage/preferences":
+            self._handle_update_storage_preferences()
         else:
             self._error_response(ERR_NOT_FOUND("endpoint"))
 
@@ -3370,13 +3378,44 @@ class CaaSHandler(BaseHTTPRequestHandler):
             node_count = len(graph_data.get("nodes", []))
             edge_count = len(graph_data.get("edges", []))
             print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}", file=sys.stderr, flush=True)
-            Path(context_path).write_text(
-                json.dumps(graph_data, indent=2), encoding="utf-8"
-            )
+            storage_prefs = self._get_storage_preferences_for_request()
+            mode = str(storage_prefs.get("mode", "local")).strip().lower()
+            graph_json = json.dumps(graph_data, indent=2)
+
+            if mode == "byos":
+                byos_location = str(storage_prefs.get("byos_location", "")).strip()
+                parsed = urllib.parse.urlparse(byos_location)
+                mirrored = False
+                if parsed.scheme in {"http", "https"}:
+                    req = urllib.request.Request(
+                        byos_location,
+                        data=graph_json.encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="PUT",
+                    )
+                    with urllib.request.urlopen(req, timeout=12):
+                        mirrored = True
+                elif parsed.scheme == "file" or byos_location.startswith("/"):
+                    target = Path(parsed.path if parsed.scheme == "file" else byos_location)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(graph_json, encoding="utf-8")
+                    mirrored = True
+
+                if mirrored:
+                    print(f"[DEBUG _save_graph] BYOS write successful ({byos_location})", file=sys.stderr, flush=True)
+                else:
+                    # Fallback for unsupported BYOS schemes until provider-specific SDKs are configured.
+                    Path(context_path).write_text(graph_json, encoding="utf-8")
+                    print("[DEBUG _save_graph] BYOS scheme unsupported for direct write; used local fallback", file=sys.stderr, flush=True)
+            else:
+                Path(context_path).write_text(graph_json, encoding="utf-8")
             print(f"[DEBUG _save_graph] Successfully saved to {context_path}", file=sys.stderr, flush=True)
         except (OSError, IOError) as e:
             print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
             pass  # Best effort — don't fail the request if save fails
+        except Exception as e:
+            print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
+            pass
 
     # ── GitHub import endpoint ────────────────────────────────────────
 
@@ -3448,6 +3487,104 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         # Last resort: current working directory (non-persistent).
         return Path(".")
+
+    def _storage_preferences_path(self) -> Path:
+        return self._get_store_base_dir() / "storage_prefs.json"
+
+    def _storage_actor_key(self) -> str:
+        user = self._get_current_user()
+        if user is not None and getattr(user, "user_id", ""):
+            return f"user:{user.user_id}"
+        return "admin:default"
+
+    def _load_storage_preferences_all(self) -> dict[str, dict[str, Any]]:
+        path = self._storage_preferences_path()
+        try:
+            if not path.exists():
+                return {}
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return {}
+            out: dict[str, dict[str, Any]] = {}
+            for key, value in raw.items():
+                if isinstance(value, dict):
+                    out[str(key)] = dict(value)
+            return out
+        except Exception:
+            return {}
+
+    def _save_storage_preferences_all(self, data: dict[str, dict[str, Any]]) -> None:
+        path = self._storage_preferences_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _validate_storage_preferences(self, payload: dict[str, Any]) -> tuple[bool, str]:
+        mode = str(payload.get("mode", "")).strip().lower()
+        if mode not in {"local", "byos"}:
+            return False, "mode must be 'local' or 'byos'"
+        if mode == "local":
+            return True, ""
+        provider = str(payload.get("byos_provider", "")).strip()
+        location = str(payload.get("byos_location", "")).strip()
+        if not provider:
+            return False, "byos_provider is required for BYOS mode"
+        if not location:
+            return False, "byos_location is required for BYOS mode"
+        parsed = urllib.parse.urlparse(location)
+        if parsed.scheme in {"http", "https", "file"}:
+            return True, ""
+        if "://" in location:
+            scheme = location.split("://", 1)[0].lower()
+            if scheme in {"s3", "r2", "gs", "az", "webdav"}:
+                return True, ""
+        if location.startswith("/"):
+            return True, ""
+        return False, "Unsupported byos_location format"
+
+    def _try_check_storage_preferences(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mode = str(payload.get("mode", "")).strip().lower()
+        if mode == "local":
+            return {"ok": True, "message": "Local Vault is ready.", "check": "local"}
+
+        location = str(payload.get("byos_location", "")).strip()
+        parsed = urllib.parse.urlparse(location)
+        if parsed.scheme in {"http", "https"}:
+            req = urllib.request.Request(location, method="HEAD")
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                status = getattr(resp, "status", 200)
+            if status >= 400:
+                return {"ok": False, "message": f"BYOS endpoint health-check returned {status}", "check": "remote_head"}
+            return {"ok": True, "message": "BYOS endpoint is reachable.", "check": "remote_head"}
+
+        if parsed.scheme == "file" or location.startswith("/"):
+            target = Path(parsed.path if parsed.scheme == "file" else location)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            probe = target.with_name(target.name + ".probe")
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return {"ok": True, "message": "BYOS filesystem location is writable.", "check": "filesystem_write"}
+
+        return {
+            "ok": True,
+            "message": "BYOS location accepted. Runtime write checks depend on provider-specific credentials.",
+            "check": "syntax_only",
+        }
+
+    def _get_storage_preferences_for_request(self) -> dict[str, Any]:
+        all_prefs = self._load_storage_preferences_all()
+        actor = self._storage_actor_key()
+        prefs = all_prefs.get(actor, {})
+        if not isinstance(prefs, dict):
+            prefs = {}
+        mode = str(prefs.get("mode", self.__class__.default_storage_mode)).strip().lower()
+        if mode not in {"local", "byos"}:
+            mode = self.__class__.default_storage_mode
+        return {
+            "mode": mode,
+            "byos_provider": str(prefs.get("byos_provider", "")).strip(),
+            "byos_location": str(prefs.get("byos_location", "")).strip(),
+            "updated_at": str(prefs.get("updated_at", "")).strip(),
+        }
 
     def _handle_get_profile(self) -> None:
         """GET /api/profile — get a profile config. ?handle= for specific, else first."""
@@ -4222,6 +4359,16 @@ class CaaSHandler(BaseHTTPRequestHandler):
         connectors = self._get_connector_service().list_all()
         self._json_response({"connectors": connectors, "count": len(connectors)})
 
+    def _handle_get_connector_capabilities(self) -> None:
+        """GET /api/connectors/capabilities — supported jobs and provider matrix."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+        from cortex.caas.connectors import get_connector_capabilities
+        self._json_response(get_connector_capabilities())
+
     def _handle_get_connector(self, connector_id: str) -> None:
         """GET /api/connectors/{id} — get one connector."""
         if not self.__class__.enable_webapp:
@@ -4329,6 +4476,70 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "last_sync_at": now,
         })
         self._json_response(result, status=201)
+
+    def _handle_get_storage_preferences(self) -> None:
+        """GET /api/storage/preferences — get storage mode preferences for current actor."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+        self._json_response(self._get_storage_preferences_for_request())
+
+    def _handle_update_storage_preferences(self) -> None:
+        """PUT /api/storage/preferences — persist storage mode preferences."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+        valid, error = self._validate_storage_preferences(body)
+        if not valid:
+            self._error_response(ERR_INVALID_REQUEST(error))
+            return
+
+        actor = self._storage_actor_key()
+        now = datetime.now(timezone.utc).isoformat()
+        data = self._load_storage_preferences_all()
+        data[actor] = {
+            "mode": str(body.get("mode", "local")).strip().lower(),
+            "byos_provider": str(body.get("byos_provider", "")).strip(),
+            "byos_location": str(body.get("byos_location", "")).strip(),
+            "updated_at": now,
+        }
+        try:
+            self._save_storage_preferences_all(data)
+        except Exception as exc:
+            self._error_response(ERR_INTERNAL(f"Failed to save storage preferences: {exc}"))
+            return
+        self._json_response(data[actor])
+
+    def _handle_check_storage_preferences(self) -> None:
+        """POST /api/storage/preferences/check — verify storage connectivity."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+        valid, error = self._validate_storage_preferences(body)
+        if not valid:
+            self._error_response(ERR_INVALID_REQUEST(error))
+            return
+
+        try:
+            result = self._try_check_storage_preferences(body)
+        except Exception as exc:
+            self._error_response(ERR_INVALID_REQUEST(f"Storage check failed: {exc}"))
+            return
+        self._json_response(result, status=(200 if result.get("ok") else 400))
 
     def _get_api_key_store(self):
         """Lazy-init the API key store."""
@@ -4829,6 +5040,9 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "storage_modes": list(self.__class__.storage_modes),
             "default_storage_mode": self.__class__.default_storage_mode,
             "managed_cloud_enabled": False,
+            "connector_capabilities_url": "/api/connectors/capabilities",
+            "storage_preferences_url": "/api/storage/preferences",
+            "storage_preferences_check_url": "/api/storage/preferences/check",
         })
 
     def _check_admin_session(self) -> bool:

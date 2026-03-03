@@ -21,9 +21,16 @@
         { id: 'github_repo_sync', name: 'GitHub Repo Sync' },
         { id: 'custom_json_sync', name: 'Custom JSON Sync' },
     ];
+    var CAPABILITIES = {
+        providers: {},
+        valid_jobs: JOBS.map(function (j) { return j.id; }),
+    };
 
     function inferDefaultJob(provider) {
-        return provider === 'github' ? 'github_repo_sync' : 'memory_pull_prompt';
+        var key = String(provider || '').toLowerCase();
+        var caps = CAPABILITIES.providers[key] || {};
+        if (caps.default_job) return caps.default_job;
+        return key === 'github' ? 'github_repo_sync' : 'memory_pull_prompt';
     }
 
     function providerLabel(provider) {
@@ -45,6 +52,28 @@
                 document.getElementById('connectors-list').innerHTML =
                     '<div class="card"><p>Could not load connectors: ' + C.escapeHtml(err.message) + '</p></div>';
             });
+    }
+
+    function loadCapabilities() {
+        return C.api('/api/connectors/capabilities')
+            .then(function (resp) {
+                if (resp && resp.providers && typeof resp.providers === 'object') {
+                    CAPABILITIES = resp;
+                }
+                return CAPABILITIES;
+            })
+            .catch(function () {
+                return CAPABILITIES;
+            });
+    }
+
+    function getAllowedJobs(provider) {
+        var key = String(provider || '').toLowerCase();
+        var caps = CAPABILITIES.providers[key] || {};
+        var jobs = Array.isArray(caps.jobs) && caps.jobs.length ? caps.jobs.slice() : [inferDefaultJob(key)];
+        return jobs.filter(function (jobId) {
+            return CAPABILITIES.valid_jobs.indexOf(jobId) >= 0;
+        });
     }
 
     function renderConnectors(items) {
@@ -230,21 +259,31 @@
 
         var providerSelect = document.getElementById('connector-provider');
         var jobSelect = document.getElementById('connector-job');
-        PROVIDERS.forEach(function (p) {
-            var opt = document.createElement('option');
-            opt.value = p;
-            opt.textContent = providerLabel(p);
-            providerSelect.appendChild(opt);
-        });
-        JOBS.forEach(function (job) {
-            var opt = document.createElement('option');
-            opt.value = job.id;
-            opt.textContent = job.name;
-            jobSelect.appendChild(opt);
-        });
-        jobSelect.value = inferDefaultJob(providerSelect.value);
+        function renderProviderOptions() {
+            providerSelect.innerHTML = '';
+            var providers = Object.keys(CAPABILITIES.providers || {});
+            if (!providers.length) providers = PROVIDERS.slice();
+            providers.forEach(function (p) {
+                var opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = providerLabel(p);
+                providerSelect.appendChild(opt);
+            });
+        }
+        function renderJobOptions(provider) {
+            var allowed = getAllowedJobs(provider);
+            jobSelect.innerHTML = '';
+            allowed.forEach(function (jobId) {
+                var jobDef = JOBS.find(function (j) { return j.id === jobId; });
+                var opt = document.createElement('option');
+                opt.value = jobId;
+                opt.textContent = jobDef ? jobDef.name : jobId;
+                jobSelect.appendChild(opt);
+            });
+            jobSelect.value = inferDefaultJob(provider);
+        }
         providerSelect.addEventListener('change', function () {
-            jobSelect.value = inferDefaultJob(providerSelect.value);
+            renderJobOptions(providerSelect.value);
         });
 
         document.getElementById('connector-form').addEventListener('submit', function (ev) {
@@ -273,14 +312,18 @@
             }).then(function () {
                 C.showToast('Connector created', 'success');
                 document.getElementById('connector-form').reset();
-                providerSelect.value = PROVIDERS[0];
-                jobSelect.value = inferDefaultJob(providerSelect.value);
+                providerSelect.selectedIndex = 0;
+                renderJobOptions(providerSelect.value);
                 loadConnectors();
             }).catch(function (err) {
                 C.showToast('Error: ' + err.message, 'error');
             });
         });
 
-        loadConnectors();
+        loadCapabilities().then(function () {
+            renderProviderOptions();
+            renderJobOptions(providerSelect.value);
+            loadConnectors();
+        });
     });
 })();

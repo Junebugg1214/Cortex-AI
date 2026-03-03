@@ -26,6 +26,85 @@ DEFAULT_JOB_BY_PROVIDER = {
     "github": "github_repo_sync",
 }
 
+PROVIDER_JOB_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "openai": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "anthropic": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "google": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "meta": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "mistral": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "perplexity": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "xai": {
+        "jobs": ["memory_pull_prompt"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": False,
+        "note": "Use memory export prompt flow.",
+    },
+    "github": {
+        "jobs": ["github_repo_sync", "memory_pull_prompt"],
+        "default_job": "github_repo_sync",
+        "supports_auto_pull": True,
+        "note": "Repository sync is supported.",
+    },
+}
+
+
+def resolve_default_job(provider: str) -> str:
+    provider = str(provider or "").strip().lower()
+    caps = PROVIDER_JOB_CAPABILITIES.get(provider, {})
+    default_job = str(caps.get("default_job", "")).strip().lower()
+    if default_job in VALID_JOBS:
+        return default_job
+    return DEFAULT_JOB_BY_PROVIDER.get(provider, "memory_pull_prompt")
+
+
+def get_connector_capabilities() -> dict[str, Any]:
+    providers = {}
+    for provider in sorted(SUPPORTED_PROVIDERS):
+        caps = dict(PROVIDER_JOB_CAPABILITIES.get(provider, {}))
+        jobs = [j for j in caps.get("jobs", []) if j in VALID_JOBS]
+        if not jobs:
+            jobs = [resolve_default_job(provider)]
+        providers[provider] = {
+            "jobs": jobs,
+            "default_job": resolve_default_job(provider),
+            "supports_auto_pull": bool(caps.get("supports_auto_pull", False)),
+            "note": str(caps.get("note", "")).strip(),
+        }
+    return {
+        "providers": providers,
+        "valid_jobs": sorted(VALID_JOBS),
+    }
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -57,12 +136,21 @@ class ConnectorService:
             raise ValueError("metadata must be an object")
         metadata = dict(metadata)
 
-        default_job = DEFAULT_JOB_BY_PROVIDER.get(provider, "memory_pull_prompt")
+        default_job = resolve_default_job(provider)
         job = str(payload.get("job", metadata.get("_job", default_job))).strip().lower()
+        provider_caps = get_connector_capabilities()["providers"].get(provider, {})
+        allowed_jobs = provider_caps.get("jobs", [default_job])
         if job not in VALID_JOBS:
             raise ValueError(
                 "Invalid job. Must be one of: "
                 + ", ".join(sorted(VALID_JOBS))
+            )
+        if job not in allowed_jobs:
+            raise ValueError(
+                "Job not supported for provider "
+                + provider
+                + ". Allowed: "
+                + ", ".join(allowed_jobs)
             )
         job_config = payload.get("job_config", metadata.get("_job_config", {}))
         if job_config is None:
@@ -140,12 +228,21 @@ class ConnectorService:
             resolved_metadata = dict(metadata)
         if "job" in payload or "job_config" in payload:
             provider = str(current.get("provider", "")).strip().lower()
-            default_job = DEFAULT_JOB_BY_PROVIDER.get(provider, "memory_pull_prompt")
+            default_job = resolve_default_job(provider)
             next_job = str(payload.get("job", resolved_metadata.get("_job", default_job))).strip().lower()
+            provider_caps = get_connector_capabilities()["providers"].get(provider, {})
+            allowed_jobs = provider_caps.get("jobs", [default_job])
             if next_job not in VALID_JOBS:
                 raise ValueError(
                     "Invalid job. Must be one of: "
                     + ", ".join(sorted(VALID_JOBS))
+                )
+            if next_job not in allowed_jobs:
+                raise ValueError(
+                    "Job not supported for provider "
+                    + provider
+                    + ". Allowed: "
+                    + ", ".join(allowed_jobs)
                 )
             next_job_config = payload.get("job_config", resolved_metadata.get("_job_config", {}))
             if next_job_config is None:

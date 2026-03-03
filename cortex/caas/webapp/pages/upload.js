@@ -161,6 +161,33 @@
             }
         }
 
+        function savePrefsRemote(next, opts) {
+            opts = opts || {};
+            return C.api('/api/storage/preferences', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    mode: next.mode || 'local',
+                    byos_provider: next.byos_provider || '',
+                    byos_location: next.byos_location || '',
+                }),
+            }).then(function () {
+                if (!opts.silent) C.showToast('Storage preference saved.', 'success');
+            }).catch(function (err) {
+                if (!opts.silent) C.showToast('Could not save storage preference: ' + err.message, 'error');
+            });
+        }
+
+        function checkPrefsRemote(next) {
+            return C.api('/api/storage/preferences/check', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mode: next.mode || 'local',
+                    byos_provider: next.byos_provider || '',
+                    byos_location: next.byos_location || '',
+                }),
+            });
+        }
+
         function setActiveStorageMode(mode, opts) {
             opts = opts || {};
             var safeMode = storageModes.indexOf(mode) >= 0 ? mode : defaultStorageMode;
@@ -174,6 +201,9 @@
             var prefs = getStoredPrefs();
             prefs.mode = safeMode;
             setStoredPrefs(prefs);
+            if (!opts.silent) {
+                savePrefsRemote(prefs, { silent: true });
+            }
             C.trackEvent('storage.mode_changed', { mode: safeMode });
             if (!opts.silent && C.signalProgressChanged) {
                 C.signalProgressChanged();
@@ -184,6 +214,21 @@
         if (byosProvider) byosProvider.value = initialPrefs.byos_provider || '';
         if (byosLocation) byosLocation.value = initialPrefs.byos_location || '';
         setActiveStorageMode(initialPrefs.mode || defaultStorageMode, { silent: true });
+        C.api('/api/storage/preferences')
+            .then(function (remotePrefs) {
+                if (!remotePrefs || typeof remotePrefs !== 'object') return;
+                var merged = getStoredPrefs();
+                merged.mode = remotePrefs.mode || merged.mode || defaultStorageMode;
+                merged.byos_provider = remotePrefs.byos_provider || merged.byos_provider || '';
+                merged.byos_location = remotePrefs.byos_location || merged.byos_location || '';
+                setStoredPrefs(merged);
+                if (byosProvider) byosProvider.value = merged.byos_provider;
+                if (byosLocation) byosLocation.value = merged.byos_location;
+                setActiveStorageMode(merged.mode, { silent: true });
+            })
+            .catch(function () {
+                // Keep local-only fallback in case API is unavailable.
+            });
 
         modeButtons.forEach(function (btn) {
             var mode = btn.getAttribute('data-storage-mode');
@@ -207,8 +252,16 @@
                 prefs.byos_location = location;
                 prefs.mode = 'byos';
                 setStoredPrefs(prefs);
-                setActiveStorageMode('byos');
-                C.showToast(isConsumer ? 'Cloud storage saved.' : 'BYOS settings saved locally.', 'success');
+                checkPrefsRemote(prefs).then(function (checkResult) {
+                    if (!checkResult || checkResult.ok === false) {
+                        C.showToast((checkResult && checkResult.message) || 'Storage check failed.', 'error');
+                        return;
+                    }
+                    setActiveStorageMode('byos');
+                    C.showToast((checkResult && checkResult.message) || (isConsumer ? 'Cloud storage saved.' : 'BYOS settings saved locally.'), 'success');
+                }).catch(function (err) {
+                    C.showToast('Storage check failed: ' + err.message, 'error');
+                });
                 C.trackEvent('storage.byos_saved', { provider: provider });
             });
         }
