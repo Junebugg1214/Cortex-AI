@@ -74,7 +74,8 @@
                 '  </div>' +
                 '  <div class="connector-scopes technical-only">' + (scopes || '<span class="connector-scope">none</span>') + '</div>' +
                 '  <div class="connector-actions">' +
-                '    <button class="btn btn-primary btn-connector-sync" data-id="' + C.escapeHtml(c.connector_id) + '">Run Job</button>' +
+                '    <button class="btn btn-primary btn-connector-sync" data-id="' + C.escapeHtml(c.connector_id) + '">Run now</button>' +
+                '    <button class="btn btn-outline btn-connector-auto-toggle" data-id="' + C.escapeHtml(c.connector_id) + '" data-auto-enabled="' + (autoEnabled ? 'true' : 'false') + '" data-meta="' + C.escapeHtml(encodeURIComponent(JSON.stringify(metadata))) + '">' + (autoEnabled ? 'Pause auto-run' : 'Resume auto-run') + '</button>' +
                 '    <button class="btn btn-outline btn-connector-toggle technical-only" data-id="' + C.escapeHtml(c.connector_id) + '" data-status="' + C.escapeHtml(c.status || 'active') + '">' + ((c.status || 'active') === 'active' ? 'Pause' : 'Activate') + '</button>' +
                 '    <button class="btn btn-outline btn-danger btn-connector-delete" data-id="' + C.escapeHtml(c.connector_id) + '">Delete</button>' +
                 '  </div>' +
@@ -127,6 +128,29 @@
                     C.showToast('Sync failed: ' + err.message, 'error');
                     loadConnectors();
                 });
+            });
+        });
+
+        document.querySelectorAll('.btn-connector-auto-toggle').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var connectorId = this.getAttribute('data-id');
+                var enabled = this.getAttribute('data-auto-enabled') !== 'false';
+                var metaRaw = this.getAttribute('data-meta') || '';
+                var metadata = {};
+                try {
+                    metadata = JSON.parse(decodeURIComponent(metaRaw));
+                } catch (_e) {
+                    metadata = {};
+                }
+                metadata._auto_sync_enabled = !enabled;
+                if (!metadata._auto_sync_interval_seconds) {
+                    metadata._auto_sync_interval_seconds = 24 * 60 * 60;
+                }
+                updateConnector(
+                    connectorId,
+                    { metadata: metadata },
+                    enabled ? 'Auto-run paused' : 'Auto-run resumed'
+                );
             });
         });
 
