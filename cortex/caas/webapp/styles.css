@@ -408,12 +408,6 @@ body {
     background: var(--color-primary-light);
 }
 
-.storage-mode-byos {
-    margin-top: 12px;
-    border-top: 1px solid var(--color-border);
-    padding-top: 12px;
-}
-
 .storage-mode-pane {
     margin-top: 12px;
     border-top: 1px solid var(--color-border);

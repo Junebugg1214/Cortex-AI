@@ -232,7 +232,7 @@
             '  <h1>Connectors</h1>' +
             '  <p>' + (isConsumer
                 ? 'Connect your AI apps so your AI ID stays consistent across tools.'
-                : 'Connect AI providers so identity and memory persist across tools. Storage model: Local Vault or BYOS only.') + '</p>' +
+                : 'Connect AI providers so identity and memory persist across tools. Storage model: BYOS or Self-Host only.') + '</p>' +
             '</div>' +
             '<div class="card page-flow-cue">' +
             '  <span class="flow-step flow-step-active">1. Connect</span>' +
