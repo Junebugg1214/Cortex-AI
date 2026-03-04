@@ -933,6 +933,22 @@ class TestWebappConnectors:
         body, status, _ = _get_raw(self.port, f"/api/connectors/{connector_id}", cookie=cookie)
         assert status == 404
 
+    def test_create_gemini_and_grok_connectors(self):
+        cookie = _login(self.port, self.identity)
+        for provider in ("gemini", "grok"):
+            created, status = _post_json(
+                self.port,
+                "/api/connectors",
+                {
+                    "provider": provider,
+                    "account_label": "Alias Provider",
+                    "scopes": ["memory:read"],
+                },
+                cookie=cookie,
+            )
+            assert status == 201
+            assert created["provider"] == provider
+
 
 @pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
 class TestWebappSelfHostPrereqs:

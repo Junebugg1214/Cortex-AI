@@ -10,8 +10,10 @@ from cortex.caas.storage import AbstractConnectorStore
 
 SUPPORTED_PROVIDERS = frozenset({
     "anthropic",
+    "gemini",
     "github",
     "google",
+    "grok",
     "meta",
     "mistral",
     "openai",
@@ -34,6 +36,12 @@ PROVIDER_JOB_CAPABILITIES: dict[str, dict[str, Any]] = {
         "note": "Supports prompt flow and optional bridge-based auto pull.",
     },
     "anthropic": {
+        "jobs": ["memory_pull_prompt", "custom_json_sync"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": True,
+        "note": "Supports prompt flow and optional bridge-based auto pull.",
+    },
+    "gemini": {
         "jobs": ["memory_pull_prompt", "custom_json_sync"],
         "default_job": "memory_pull_prompt",
         "supports_auto_pull": True,
@@ -74,6 +82,12 @@ PROVIDER_JOB_CAPABILITIES: dict[str, dict[str, Any]] = {
         "default_job": "github_repo_sync",
         "supports_auto_pull": True,
         "note": "Repository sync is supported.",
+    },
+    "grok": {
+        "jobs": ["memory_pull_prompt", "custom_json_sync"],
+        "default_job": "memory_pull_prompt",
+        "supports_auto_pull": True,
+        "note": "Supports prompt flow and optional bridge-based auto pull.",
     },
 }
 

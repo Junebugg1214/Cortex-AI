@@ -4,11 +4,13 @@
     var C = window.CortexApp;
 
     var PROVIDERS = [
-        'openai', 'anthropic', 'google', 'meta', 'mistral', 'perplexity', 'xai', 'github',
+        'openai', 'anthropic', 'gemini', 'grok', 'google', 'meta', 'mistral', 'perplexity', 'xai', 'github',
     ];
     var PROVIDER_LABELS = {
         openai: 'ChatGPT (OpenAI)',
         anthropic: 'Claude (Anthropic)',
+        gemini: 'Gemini',
+        grok: 'Grok',
         google: 'Gemini (Google)',
         meta: 'Meta AI',
         mistral: 'Mistral',

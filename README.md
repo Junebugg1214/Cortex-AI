@@ -65,7 +65,7 @@ CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=<tag-or-com
 ## Connector System
 
 - Providers:
-  - `openai`, `anthropic`, `google`, `meta`, `mistral`, `perplexity`, `xai`, `github`
+  - `openai`, `anthropic`, `gemini`, `grok`, `google`, `meta`, `mistral`, `perplexity`, `xai`, `github`
 - Jobs:
   - `memory_pull_prompt`
   - `github_repo_sync`
