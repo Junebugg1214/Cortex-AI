@@ -1,30 +1,31 @@
 # Cortex
 
-Own your AI memory and identity.
+Own your AI ID.
 
-Cortex gives users one portable AI ID that can sync across assistants, with user-controlled storage:
-- `Self-Host` on user infrastructure
+Cortex is a self-host-first platform for portable AI memory and identity.
+Your memory/context belongs to you, lives on your infrastructure, and can be shared in scoped formats (`professional`, `technical`, etc.) instead of all-or-nothing dumps.
 
-No Local Vault mode in the consumer flow.
+## Product Direction
 
-## What Changed (Current Product Direction)
+- Self-host only storage model (no BYOS, no local-vault mode in consumer flow)
+- Connector-first UX for continuity across AI tools
+- Scoped sharing controls and policy-based exports
+- Consumer Mode for non-technical users
 
-- Connector-first UX: connect providers first, manual upload second
-- Storage is now `Self-Host` only
-- Consumer Mode hides technical controls by default
-- Per-connector controls include `Run now` and `Pause/Resume auto-sync`
-- Connector auto-sync worker runs every 24h
-- Dashboard static/API issues fixed and shipping from `main`
+## Beta Website
 
-## Core User Flow
+- Web app: [https://gollumgo.com/app](https://gollumgo.com/app)
 
-1. Sign up / log in on `/app`
-2. Use `Self-Host` mode (default and only mode)
-3. Add connectors (OpenAI, Anthropic, Google, Meta, Mistral, Perplexity, xAI, GitHub)
-4. Sync memory via connector jobs
-5. Add manual files only when needed (fallback path)
-6. Review memory graph / summary
-7. Share selected memory via policies/formats/API keys/profile card
+Use the beta website to test UX and flow.
+For real data ownership/privacy guarantees, run your own self-host instance.
+
+## Core Flow (Web App)
+
+1. Open `/app` and create an account
+2. Add connectors
+3. Sync memory/context
+4. Review memory graph and summaries
+5. Share selected slices (professional/technical/minimal/full)
 
 ## One-Command Self-Host Starter
 
@@ -32,94 +33,59 @@ No Local Vault mode in the consumer flow.
 git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh
 ```
 
-Then:
-1. Run on your machine or VPS
-2. Open your own `/app` URL
-3. Create your account and continue onboarding there
+After install:
 
-To install from a private/authenticated repo URL:
+1. Open your own `/app` URL
+2. Create your account on your own server
+3. Connect tools, import/sync memory, and share scoped views
+
+Private repo fallback:
 
 ```bash
 CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=<tag-or-commit> bash deploy/self-host-starter.sh
 ```
 
-## Web App
-
-- `/app` tabs:
-  - `Add Data` / `Import (Manual)` (consumer vs technical label)
-  - `My Memory`
-  - `Share`
-  - `Connectors`
-  - `AI ID Card`
-- Multi-user signup/login supported
-- Consumer Mode supported
-- Onboarding progress HUD supported
-
-## Storage Mode
-
-### Self-Host
-
-- Consumer flow disables manual upload on hosted instance and directs user to run their own Cortex server
-- Intended ownership model: user runs server and keeps control of infra/data
-
 ## Connector System
 
-- Providers:
-  - `openai`, `anthropic`, `gemini`, `grok`, `google`, `meta`, `mistral`, `perplexity`, `xai`, `github`
-- Jobs:
-  - `memory_pull_prompt`
-  - `github_repo_sync`
-  - `custom_json_sync`
-- Controls:
-  - create/update/delete
-  - run now
-  - pause/resume auto-sync
-- Scheduler:
-  - background auto-sync worker
-  - 24h interval per connector metadata default
+### Providers
 
-## Share and AI ID
+`openai`, `anthropic`, `gemini`, `grok`, `google`, `meta`, `mistral`, `perplexity`, `xai`, `github`
 
-- Disclosure policies:
-  - `full`, `professional`, `technical`, `minimal`
-- Export/share targets:
-  - Claude XML
-  - system prompt
-  - markdown/docs-style
-  - JSON resume format for ATS flow
-- API key memory endpoint:
-  - `GET /api/memory/{key}`
-- Public profile cards:
-  - `/p/{handle}`
-  - QR generation supported
+### Jobs
 
-## Dashboard
+- `memory_pull_prompt`
+- `github_repo_sync`
+- `custom_json_sync`
 
-- `/dashboard` pages:
-  - Overview
-  - Graph
-  - Grants
-  - Versions
-  - Health
-  - Settings
-- Auth:
-  - dashboard session cookie
-  - optional explicit password via `CORTEX_DASHBOARD_PASSWORD`
+### Controls
 
-## Install (Package)
+- Create/update/delete connector
+- `Run now`
+- `Pause/Resume auto-sync`
+- Auto-sync scheduler (24h default)
 
-```bash
-pip install cortex-identity
-```
+### Automatic Sync Note
 
-Optional extras:
+For providers without direct memory APIs, Cortex supports a bridge-based automatic path:
 
-```bash
-pip install cortex-identity[crypto]
-pip install cortex-identity[fast]
-pip install cortex-identity[postgres]
-pip install cortex-identity[full]
-```
+- Set `bridge_url` (and optional `bridge_token`) in connector job config
+- Scheduler can pull structured memory payloads automatically
+- If not configured, prompt/paste fallback remains available
+
+## Sharing and AI ID
+
+- Policies: `full`, `professional`, `technical`, `minimal`
+- Public profile cards: `/p/{handle}`
+- QR generation for profile sharing
+- API memory access: `GET /api/memory/{key}`
+
+## Web App Areas
+
+- `Add Data`
+- `My Memory`
+- `Share`
+- `Connectors`
+- `AI ID Card`
 
 ## CLI Quickstart
 
@@ -134,29 +100,36 @@ cortex stats context.json
 cortex serve context.json --enable-webapp --port 8421
 ```
 
-## API / Docs
+## Install
+
+```bash
+pip install cortex-identity
+```
+
+Extras:
+
+```bash
+pip install cortex-identity[crypto]
+pip install cortex-identity[fast]
+pip install cortex-identity[postgres]
+pip install cortex-identity[full]
+```
+
+## API and Docs
 
 - OpenAPI: `spec/openapi.json`
 - Interactive docs: `/docs`
-- Main guides:
+- Guides:
   - `docs/user-guide.md`
   - `docs/deployment.md`
   - `docs/security.md`
   - `docs/codebase-feature-guide.md`
 
-## Repo Media
+## Launch Content Drafts
 
-Regenerated assets are in:
-- `assets/cortexai_x_45s.mp4`
-- `assets/cortexai_webapp_x_45s.mp4`
-- `assets/demo-own.mp4`, `assets/demo-own.gif`
-- `assets/demo-share.mp4`, `assets/demo-share.gif`
-- `assets/demo-api.mp4`, `assets/demo-api.gif`
-
-Tape sources:
-- `assets/demo-own.tape`
-- `assets/demo-share.tape`
-- `assets/demo-api.tape`
+- Long-form X article: `docs/x-article-philosophy.md`
+- Dev invitation post: `docs/x-post-dev-invite.md`
+- Beta tester guide: `docs/beta-tester-guide.md`
 
 ## License
 
