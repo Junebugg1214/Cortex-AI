@@ -6,13 +6,21 @@
     async function api(path, opts) {
         opts = opts || {};
         opts.credentials = 'same-origin';
+        opts.cache = 'no-store';
         opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
         var resp = await fetch('/dashboard/api' + path, opts);
         if (resp.status === 401) {
             showLogin();
             throw new Error('unauthorized');
         }
-        var data = await resp.json();
+        var data = null;
+        var raw = '';
+        try {
+            raw = await resp.text();
+            data = raw ? JSON.parse(raw) : {};
+        } catch (_e) {
+            data = {};
+        }
         if (!resp.ok) {
             var msg = (data.error && data.error.message) || data.error || 'Request failed';
             throw new Error(msg);
