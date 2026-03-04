@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from urllib.parse import unquote
 
 # Ensure common web MIME types are registered
 mimetypes.add_type("application/javascript", ".js")
@@ -23,16 +24,20 @@ def resolve_dashboard_path(url_path: str) -> Path | None:
     does not exist.  ``/dashboard`` and ``/dashboard/`` resolve to
     ``index.html``.
     """
-    # Strip the /dashboard prefix
-    rel = url_path.lstrip("/")
-    if rel.startswith("dashboard"):
-        rel = rel[len("dashboard"):]
-    rel = rel.lstrip("/")
+    # Decode and normalize incoming URL path before resolving to disk.
+    rel = unquote(url_path or "").split("?", 1)[0].split("#", 1)[0].lstrip("/")
+    while rel == "dashboard" or rel.startswith("dashboard/"):
+        rel = rel[len("dashboard"):].lstrip("/")
 
     if not rel or rel == "":
         rel = "index.html"
 
-    resolved = (DASHBOARD_DIR / rel).resolve()
+    # Reject traversal attempts after path normalization.
+    normalized = Path(rel)
+    if ".." in normalized.parts:
+        return None
+
+    resolved = (DASHBOARD_DIR / normalized).resolve()
 
     # Prevent directory traversal
     if not str(resolved).startswith(str(DASHBOARD_DIR.resolve())):

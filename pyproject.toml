@@ -42,7 +42,7 @@ include = ["cortex*"]
 
 [tool.setuptools.package-data]
 "cortex.caas.webapp" = ["*.html", "*.css", "*.js", "pages/*.html", "pages/*.js"]
-"cortex.caas.dashboard" = ["*.html", "*.css", "*.js"]
+"cortex.caas.dashboard" = ["*.html", "*.css", "*.js", "pages/*.html", "pages/*.js"]
 
 [tool.ruff]
 target-version = "py310"
