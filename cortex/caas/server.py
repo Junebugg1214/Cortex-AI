@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import threading
 import time as _time
 import urllib.parse
@@ -6182,7 +6183,11 @@ def start_caas_server(
     CaaSHandler.identity = identity
     CaaSHandler.version_store = version_store
     CaaSHandler.nonce_cache = NonceCache()
-    CaaSHandler.session_manager = DashboardSessionManager(identity)
+    explicit_dashboard_password = os.environ.get("CORTEX_DASHBOARD_PASSWORD", "").strip() or None
+    CaaSHandler.session_manager = DashboardSessionManager(
+        identity,
+        explicit_password=explicit_dashboard_password,
+    )
 
     # Token verification cache
     from cortex.caas.token_cache import TokenCache

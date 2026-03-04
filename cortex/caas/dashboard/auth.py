@@ -27,13 +27,18 @@ class DashboardSessionManager:
     private key so the owner doesn't need to configure a separate secret.
     """
 
-    def __init__(self, identity: UPAIIdentity, session_ttl: float = DEFAULT_SESSION_TTL) -> None:
+    def __init__(
+        self,
+        identity: UPAIIdentity,
+        session_ttl: float = DEFAULT_SESSION_TTL,
+        explicit_password: str | None = None,
+    ) -> None:
         self._identity = identity
         self._session_ttl = session_ttl
         self._sessions: dict[str, float] = {}  # token -> expiry timestamp
         self._session_meta: dict[str, dict] = {}  # token -> {auth_method, provider, email}
         self._lock = threading.Lock()
-        self._password = self._derive_password()
+        self._password = str(explicit_password or "").strip() or self._derive_password()
         self._csrf_secret = self._derive_csrf_secret()
 
     def _derive_password(self) -> str:
