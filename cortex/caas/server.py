@@ -47,6 +47,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import shutil
 import threading
 import time as _time
 import urllib.parse
@@ -781,6 +782,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             connector_id = path[len("/api/connectors/"):]
             if self._validate_path_id(connector_id):
                 self._handle_get_connector(connector_id)
+        elif path == "/api/self-host/prereqs":
+            self._handle_get_self_host_prereqs()
         elif path == "/api/storage/preferences":
             self._handle_get_storage_preferences()
         elif path == "/api/beta/status":
@@ -4800,6 +4803,36 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._record_beta_metric("storage_check_failed")
         self._json_response(result, status=(200 if result.get("ok") else 400))
 
+    def _handle_get_self_host_prereqs(self) -> None:
+        """GET /api/self-host/prereqs — report installer prerequisite availability."""
+        if not self.__class__.enable_webapp:
+            self._error_response(ERR_NOT_FOUND("endpoint"))
+            return
+        if not self._webapp_or_multiuser_auth_check():
+            return
+
+        checks = {
+            "git": shutil.which("git") is not None,
+            "bash": shutil.which("bash") is not None,
+            "curl": shutil.which("curl") is not None,
+            "docker": shutil.which("docker") is not None,
+            "docker_compose": (
+                shutil.which("docker-compose") is not None
+                or bool(shutil.which("docker"))
+            ),
+        }
+        missing = sorted([name for name, ok in checks.items() if not ok])
+        self._json_response({
+            "ok": len(missing) == 0,
+            "checks": checks,
+            "missing": missing,
+            "message": (
+                "Installer prerequisites look good."
+                if not missing
+                else "Missing prerequisites: " + ", ".join(missing)
+            ),
+        })
+
     def _handle_report_issue(self) -> None:
         """POST /api/beta/report — capture in-app beta issue reports."""
         if not self.__class__.enable_webapp:
@@ -5379,6 +5412,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "connector_capabilities_url": "/api/connectors/capabilities",
             "storage_preferences_url": "/api/storage/preferences",
             "storage_preferences_check_url": "/api/storage/preferences/check",
+            "self_host_prereqs_url": "/api/self-host/prereqs",
             "beta_status_url": "/api/beta/status",
             "beta_report_url": "/api/beta/report",
         })

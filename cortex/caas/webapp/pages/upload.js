@@ -8,6 +8,7 @@
     var defaultStorageMode = 'byos';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
     var SELF_HOST_STARTER_COMMAND = 'git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
+    var SELF_HOST_PRIVATE_REPO_COMMAND = 'CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
 
     C.registerPage('upload', function (container) {
         var isConsumer = C.isConsumerMode && C.isConsumerMode();
@@ -73,11 +74,21 @@
             '      <code id="self-host-command">' + C.escapeHtml(SELF_HOST_STARTER_COMMAND) + '</code>' +
             '      <button class="btn btn-outline btn-sm" id="copy-self-host-command">Copy</button>' +
             '    </div>' +
+            '    <p id="self-host-prereq-status" class="self-host-prereq-status">Checking installer prerequisites...</p>' +
             '    <ol class="self-host-steps">' +
             '      <li>Run the command on your own machine or VPS.</li>' +
             '      <li>Create your account on your own Cortex URL.</li>' +
             '      <li>Import data there and keep full control of storage.</li>' +
             '    </ol>' +
+            '    <div class="self-host-private-repo-fallback">' +
+            '      <h4>Private repo auth fallback</h4>' +
+            '      <p>If clone fails, use SSH auth or a token-based HTTPS URL.</p>' +
+            '      <div class="self-host-command-row">' +
+            '        <code id="self-host-private-command">' + C.escapeHtml(SELF_HOST_PRIVATE_REPO_COMMAND) + '</code>' +
+            '        <button class="btn btn-outline btn-sm" id="copy-self-host-private-command">Copy</button>' +
+            '      </div>' +
+            '      <p class="storage-mode-hint">Example HTTPS fallback: <code>CORTEX_REPO_URL=https://&lt;TOKEN&gt;@github.com/Junebugg1214/Cortex-AI.git</code></p>' +
+            '    </div>' +
             '  </div>' +
             '</div>';
         area.innerHTML =
@@ -255,6 +266,13 @@
                 C.copyToClipboard(SELF_HOST_STARTER_COMMAND);
             });
         }
+        var copySelfHostPrivateBtn = document.getElementById('copy-self-host-private-command');
+        if (copySelfHostPrivateBtn) {
+            copySelfHostPrivateBtn.addEventListener('click', function () {
+                C.copyToClipboard(SELF_HOST_PRIVATE_REPO_COMMAND);
+            });
+        }
+        loadSelfHostPrereqs();
 
         var saveByosBtn = document.getElementById('save-byos-prefs');
         if (saveByosBtn) {
@@ -346,6 +364,31 @@
                 C.trackEvent('upload.pick', { count: fileInput.files.length });
             }
         });
+
+        function loadSelfHostPrereqs() {
+            var prereqEl = document.getElementById('self-host-prereq-status');
+            if (!prereqEl) return;
+            C.api('/api/self-host/prereqs')
+                .then(function (result) {
+                    if (!result || typeof result !== 'object') {
+                        prereqEl.textContent = 'Installer check unavailable.';
+                        prereqEl.className = 'self-host-prereq-status';
+                        return;
+                    }
+                    var missing = Array.isArray(result.missing) ? result.missing : [];
+                    if (result.ok) {
+                        prereqEl.textContent = 'Installer prerequisites check: ready.';
+                        prereqEl.className = 'self-host-prereq-status is-ready';
+                    } else {
+                        prereqEl.textContent = 'Missing on this host: ' + (missing.length ? missing.join(', ') : 'unknown');
+                        prereqEl.className = 'self-host-prereq-status is-warning';
+                    }
+                })
+                .catch(function () {
+                    prereqEl.textContent = 'Installer prerequisites check unavailable.';
+                    prereqEl.className = 'self-host-prereq-status';
+                });
+        }
     }
 
     function handleFiles(fileList) {

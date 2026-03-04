@@ -444,6 +444,39 @@ body {
     padding-left: 18px;
 }
 
+.self-host-prereq-status {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.self-host-prereq-status.is-ready {
+    color: #0f766e;
+}
+
+.self-host-prereq-status.is-warning {
+    color: #b45309;
+}
+
+.self-host-private-repo-fallback {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: #fafcff;
+}
+
+.self-host-private-repo-fallback h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+}
+
+.self-host-private-repo-fallback p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
 .upload-guide h3 {
     font-size: 16px;
     margin-bottom: 4px;

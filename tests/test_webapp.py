@@ -934,6 +934,139 @@ class TestWebappConnectors:
         assert status == 404
 
 
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappSelfHostPrereqs:
+    """Test self-host installer prereq endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def test_self_host_prereqs_requires_auth(self):
+        body, status, _ = _get_raw(self.port, "/api/self-host/prereqs")
+        assert status == 401
+        data = json.loads(body.decode("utf-8", errors="replace"))
+        assert "error" in data
+
+    def test_self_host_prereqs_returns_check_payload(self):
+        cookie = _login(self.port, self.identity)
+        body, status, _ = _get_raw(self.port, "/api/self-host/prereqs", cookie=cookie)
+        assert status == 200
+        data = json.loads(body.decode("utf-8", errors="replace"))
+        assert "ok" in data
+        assert "checks" in data
+        assert "missing" in data
+        for key in ("git", "bash", "curl", "docker", "docker_compose"):
+            assert key in data["checks"]
+            assert isinstance(data["checks"][key], bool)
+
+
+@pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
+class TestWebappStorageConnectorAdversarialMatrix:
+    """Adversarial smoke matrix for storage mode transitions + connector sync paths."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
+        CaaSHandler.connector_store = None
+        self.byos_target = str(tmp_path / "vault" / "context.json")
+        yield
+        if self.server:
+            self.server.shutdown()
+
+    def _request_json(self, method, path, body, cookie=None, extra_headers=None):
+        url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method=method)
+        req.add_header("Content-Type", "application/json")
+        if cookie:
+            req.add_header("Cookie", cookie)
+        for key, value in (extra_headers or {}).items():
+            req.add_header(key, value)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+                return payload, resp.status
+        except urllib.error.HTTPError as err:
+            payload = json.loads(err.read().decode("utf-8"))
+            return payload, err.code
+
+    def test_storage_mode_transitions_and_connector_sync(self):
+        cookie = _login(self.port, self.identity)
+
+        # 1) BYOS check without E2E key should fail hard.
+        result, status = self._request_json(
+            "POST",
+            "/api/storage/preferences/check",
+            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
+            cookie=cookie,
+        )
+        assert status == 400
+        assert "E2E passphrase" in json.dumps(result)
+
+        # 2) BYOS check with E2E key should pass.
+        result, status = self._request_json(
+            "POST",
+            "/api/storage/preferences/check",
+            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
+            cookie=cookie,
+            extra_headers={"X-Cortex-E2E-Key": "matrix-passphrase"},
+        )
+        assert status == 200
+        assert result.get("ok") is True
+
+        # 3) Persist BYOS mode (encrypted path).
+        result, status = self._request_json(
+            "PUT",
+            "/api/storage/preferences",
+            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
+            cookie=cookie,
+            extra_headers={"X-Cortex-E2E-Key": "matrix-passphrase"},
+        )
+        assert status == 200
+        assert result.get("mode") == "byos"
+
+        # 4) Connector sync in BYOS should return action_required for prompt job.
+        created, status = self._request_json(
+            "POST",
+            "/api/connectors",
+            {
+                "provider": "openai",
+                "account_label": "Matrix",
+                "metadata": {"job": "memory_pull_prompt", "auto_sync_hours": 24},
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+        connector_id = created["connector_id"]
+        sync, status = self._request_json(
+            "POST",
+            f"/api/connectors/{connector_id}/sync",
+            {},
+            cookie=cookie,
+        )
+        assert status == 202
+        assert sync.get("action_required") is True
+
+        # 5) Switch to self_host mode; connector sync should be blocked.
+        result, status = self._request_json(
+            "PUT",
+            "/api/storage/preferences",
+            {"mode": "self_host"},
+            cookie=cookie,
+        )
+        assert status == 200
+        assert result.get("mode") == "self_host"
+        blocked, status = self._request_json(
+            "POST",
+            f"/api/connectors/{connector_id}/sync",
+            {},
+            cookie=cookie,
+        )
+        assert status == 400
+        assert "Self-host mode is active" in json.dumps(blocked)
 # ============================================================================
 # Public memory query endpoint
 # ============================================================================
