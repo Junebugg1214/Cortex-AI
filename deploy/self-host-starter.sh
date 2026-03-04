@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/Junebugg1214/Cortex-AI.git"
+REPO_URL="${CORTEX_REPO_URL:-https://github.com/Junebugg1214/Cortex-AI.git}"
 INSTALL_DIR="${CORTEX_INSTALL_DIR:-$HOME/cortex-ai-self-host}"
 PORT="${CORTEX_PORT:-8421}"
-PINNED_REF="99bbcf0b877a7d558b9b5d360d14b6c7a20cef09"
+PINNED_REF="ae5b9d0b57e00aa27ac8d46bd635e9325934ca97"
 REF="${CORTEX_REF:-$PINNED_REF}"
 
 need_cmd() {
@@ -23,10 +23,14 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 echo "Installing Cortex ref: $REF"
+echo "Repository: $REPO_URL"
 
 if [ ! -d "$INSTALL_DIR/.git" ]; then
   echo "Cloning Cortex into $INSTALL_DIR"
-  git clone "$REPO_URL" "$INSTALL_DIR"
+  if ! git clone "$REPO_URL" "$INSTALL_DIR"; then
+    echo "Clone failed. If the repo is private, set CORTEX_REPO_URL to an authenticated URL or SSH URL."
+    exit 1
+  fi
   git -C "$INSTALL_DIR" fetch --tags origin
   git -C "$INSTALL_DIR" checkout --detach "$REF"
 else

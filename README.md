@@ -30,7 +30,7 @@ No Local Vault mode in the consumer flow.
 ## One-Command Self-Host Starter
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/99bbcf0b877a7d558b9b5d360d14b6c7a20cef09/deploy/self-host-starter.sh)
+git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh
 ```
 
 Then:
@@ -38,10 +38,10 @@ Then:
 2. Open your own `/app` URL
 3. Create your account and continue onboarding there
 
-To install a specific ref:
+To install from a private/authenticated repo URL:
 
 ```bash
-CORTEX_REF=<tag-or-commit> bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/99bbcf0b877a7d558b9b5d360d14b6c7a20cef09/deploy/self-host-starter.sh)
+CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=<tag-or-commit> bash deploy/self-host-starter.sh
 ```
 
 ## Web App
