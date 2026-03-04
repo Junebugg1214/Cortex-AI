@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
-from http.server import HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -1046,6 +1046,56 @@ class TestWebappStorageConnectorAdversarialMatrix:
         )
         assert status == 202
         assert again.get("action_required") is True
+
+    def test_memory_pull_prompt_auto_bridge_sync(self):
+        cookie = _login(self.port, self.identity)
+
+        class _BridgeHandler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 - stdlib handler signature
+                payload = {
+                    "nodes": [
+                        {"label": "Bridge Synced Memory", "tags": ["memory_export"], "confidence": 0.8},
+                    ],
+                    "edges": [],
+                }
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        bridge_server = HTTPServer(("127.0.0.1", 0), _BridgeHandler)
+        bridge_port = bridge_server.server_address[1]
+        bridge_thread = threading.Thread(target=bridge_server.serve_forever, daemon=True)
+        bridge_thread.start()
+        try:
+            created, status = self._request_json(
+                "POST",
+                "/api/connectors",
+                {
+                    "provider": "openai",
+                    "account_label": "Bridge Auto",
+                    "job": "memory_pull_prompt",
+                    "job_config": {"bridge_url": f"http://127.0.0.1:{bridge_port}/memory/export"},
+                },
+                cookie=cookie,
+            )
+            assert status == 201
+            connector_id = created["connector_id"]
+
+            sync, status = self._request_json(
+                "POST",
+                f"/api/connectors/{connector_id}/sync",
+                {},
+                cookie=cookie,
+            )
+            assert status == 201
+            assert sync.get("action_required") in (None, False)
+            assert "automatically" in str(sync.get("message", "")).lower()
+        finally:
+            bridge_server.shutdown()
+            bridge_server.server_close()
 # ============================================================================
 # Public memory query endpoint
 # ============================================================================

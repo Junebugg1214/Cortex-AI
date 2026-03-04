@@ -112,6 +112,9 @@
                 '  </div>' +
                 (isConsumer ? '' : ('  <div><strong>Job:</strong> ' + C.escapeHtml(job) + '</div>')) +
                 '  <div><strong>Auto-run:</strong> ' + (autoEnabled ? ('Every ' + autoHours + 'h') : 'Off') + '</div>' +
+                ((job === 'memory_pull_prompt' && metadata._job_config && metadata._job_config.bridge_url)
+                    ? '  <div><strong>Mode:</strong> Auto bridge configured</div>'
+                    : '') +
                 (syncNote ? '  <div><strong>Sync:</strong> ' + C.escapeHtml(syncNote) + '</div>' : '') +
                 '  <div class="connector-meta technical-only">' +
                 '    <div><strong>Created:</strong> ' + C.escapeHtml(c.created_at || '-') + '</div>' +
@@ -251,6 +254,10 @@
             '      <input id="connector-label" class="login-input" placeholder="' + (isConsumer ? 'Personal ChatGPT' : 'Personal OpenAI') + '">' +
             '      <label class="profile-label technical-only" for="connector-target">Job Target (optional)</label>' +
             '      <input id="connector-target" class="login-input technical-only" placeholder="GitHub URL or JSON endpoint URL">' +
+            '      <label class="profile-label technical-only" for="connector-bridge-url">Auto Bridge URL (optional)</label>' +
+            '      <input id="connector-bridge-url" class="login-input technical-only" placeholder="https://bridge.example.com/memory/export">' +
+            '      <label class="profile-label technical-only" for="connector-bridge-token">Bridge Token (optional)</label>' +
+            '      <input id="connector-bridge-token" type="password" class="login-input technical-only" placeholder="Bearer token for bridge endpoint">' +
             '      <button type="submit" class="btn btn-primary">Create Connector</button>' +
             '    </form>' +
             '  </section>' +
@@ -290,11 +297,19 @@
             ev.preventDefault();
             var isConsumerMode = C.isConsumerMode && C.isConsumerMode();
             var target = document.getElementById('connector-target').value.trim();
+            var bridgeUrl = document.getElementById('connector-bridge-url').value.trim();
+            var bridgeToken = document.getElementById('connector-bridge-token').value.trim();
             var selectedJob = isConsumerMode ? inferDefaultJob(providerSelect.value) : jobSelect.value;
             var jobConfig = {};
             if (target) {
                 if (selectedJob === 'github_repo_sync') jobConfig.repo_url = target;
                 else if (selectedJob === 'custom_json_sync') jobConfig.url = target;
+            }
+            if (bridgeUrl && selectedJob === 'memory_pull_prompt') {
+                jobConfig.bridge_url = bridgeUrl;
+            }
+            if (bridgeToken && selectedJob === 'memory_pull_prompt') {
+                jobConfig.bridge_token = bridgeToken;
             }
             var payload = {
                 provider: providerSelect.value,

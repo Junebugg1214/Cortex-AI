@@ -404,10 +404,40 @@ class ConnectorAutoSyncWorker:
             job_config = {}
 
         if job == "memory_pull_prompt":
-            return {
-                "message": "Auto-sync pending manual memory export paste.",
-                "action_required": True,
-            }
+            bridge_url = str(job_config.get("bridge_url") or job_config.get("url") or "").strip()
+            if not bridge_url:
+                return {
+                    "message": "Auto-sync pending manual memory export paste.",
+                    "action_required": True,
+                }
+            headers = job_config.get("headers", {})
+            if not isinstance(headers, dict):
+                headers = {}
+            bridge_token = str(job_config.get("bridge_token") or "").strip()
+            if bridge_token:
+                headers.setdefault("Authorization", "Bearer " + bridge_token)
+            req = urllib.request.Request(
+                bridge_url,
+                headers={str(k): str(v) for k, v in headers.items()},
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    payload = resp.read()
+            except Exception as exc:
+                return {"error": f"memory_pull_prompt bridge fetch failed: {exc}"}
+            try:
+                parsed = json.loads(payload)
+            except (json.JSONDecodeError, ValueError):
+                return {"error": "memory_pull_prompt bridge returned invalid JSON"}
+            if not isinstance(parsed, dict) or ("nodes" not in parsed and "edges" not in parsed):
+                return {"error": "memory_pull_prompt bridge must return graph-style JSON (nodes/edges)"}
+            parsed.setdefault("source_type", "memory_pull_prompt_bridge")
+            result = self._import_nodes_edges(parsed)
+            if result.get("error"):
+                return result
+            result["message"] = "Auto-synced memory via bridge."
+            return result
 
         if job == "github_repo_sync":
             url = str(job_config.get("repo_url") or metadata.get("repo_url") or "").strip()
@@ -4392,7 +4422,45 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
         if job == "memory_pull_prompt":
             memory_dump = str(body.get("memory_dump", "")).strip()
+            bridge_url = str(body.get("bridge_url") or job_config.get("bridge_url") or job_config.get("url") or "").strip()
+            bridge_headers = job_config.get("headers", {})
+            if not isinstance(bridge_headers, dict):
+                bridge_headers = {}
+            bridge_headers = {str(k): str(v) for k, v in bridge_headers.items()}
+            bridge_token = str(body.get("bridge_token") or job_config.get("bridge_token") or "").strip()
+            if bridge_token:
+                bridge_headers.setdefault("Authorization", "Bearer " + bridge_token)
             prompt = self._connector_memory_export_prompt(provider)
+            if not memory_dump and bridge_url:
+                req = urllib.request.Request(bridge_url, headers=bridge_headers, method="GET")
+                try:
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        raw = resp.read()
+                except Exception as exc:
+                    return {"error": f"memory_pull_prompt bridge fetch failed: {exc}"}
+                parsed: Any
+                try:
+                    parsed = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    parsed = raw.decode("utf-8", errors="replace").strip()
+
+                if isinstance(parsed, dict) and ("nodes" in parsed or "edges" in parsed):
+                    parsed.setdefault("source_type", "memory_pull_prompt_bridge")
+                    result = self._import_nodes_edges(parsed)
+                else:
+                    if isinstance(parsed, dict):
+                        memory_dump = str(parsed.get("memory_dump", "")).strip()
+                    elif isinstance(parsed, str):
+                        memory_dump = parsed.strip()
+                    if not memory_dump:
+                        return {"error": "memory_pull_prompt bridge returned no memory_dump or graph payload"}
+                    result = self._import_connector_memory_dump(memory_dump, provider)
+                if result.get("error"):
+                    return {"error": str(result["error"])}
+                result["job"] = job
+                result["action_required"] = False
+                result["message"] = "Memory bridge sync completed automatically."
+                return result
             if not memory_dump:
                 return {
                     "job": job,
