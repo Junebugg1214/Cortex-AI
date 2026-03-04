@@ -3,7 +3,6 @@
 Own your AI memory and identity.
 
 Cortex gives users one portable AI ID that can sync across assistants, with user-controlled storage:
-- `BYOS` (bring your own storage) with end-to-end encryption passphrase
 - `Self-Host` on user infrastructure
 
 No Local Vault mode in the consumer flow.
@@ -11,7 +10,7 @@ No Local Vault mode in the consumer flow.
 ## What Changed (Current Product Direction)
 
 - Connector-first UX: connect providers first, manual upload second
-- Storage choices are now only `BYOS` or `Self-Host`
+- Storage is now `Self-Host` only
 - Consumer Mode hides technical controls by default
 - Per-connector controls include `Run now` and `Pause/Resume auto-sync`
 - Connector auto-sync worker runs every 24h
@@ -20,7 +19,7 @@ No Local Vault mode in the consumer flow.
 ## Core User Flow
 
 1. Sign up / log in on `/app`
-2. Choose storage mode: `BYOS` or `Self-Host`
+2. Use `Self-Host` mode (default and only mode)
 3. Add connectors (OpenAI, Anthropic, Google, Meta, Mistral, Perplexity, xAI, GitHub)
 4. Sync memory via connector jobs
 5. Add manual files only when needed (fallback path)
@@ -56,16 +55,7 @@ CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=<tag-or-com
 - Consumer Mode supported
 - Onboarding progress HUD supported
 
-## Storage Modes
-
-### BYOS
-
-- User provides:
-  - provider name
-  - location/path/URL
-  - E2E passphrase
-- Passphrase is sent as `X-Cortex-E2E-Key` for encrypted BYOS write/read paths
-- Storage preference can be validated with `/api/storage/preferences/check`
+## Storage Mode
 
 ### Self-Host
 

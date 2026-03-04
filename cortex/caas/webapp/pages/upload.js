@@ -4,8 +4,8 @@
     var C = window.CortexApp;
     var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
     var pendingRevokes = {};
-    var storageModes = ['byos', 'self_host'];
-    var defaultStorageMode = 'byos';
+    var storageModes = ['self_host'];
+    var defaultStorageMode = 'self_host';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
     var SELF_HOST_STARTER_COMMAND = 'git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
     var SELF_HOST_PRIVATE_REPO_COMMAND = 'CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
@@ -49,26 +49,10 @@
             '      </div>';
         var storageCard = '<div class="card storage-mode-card">' +
             '  <div class="storage-mode-head">' +
-            '    <h3>' + (isConsumer ? 'Choose Your Storage' : 'Storage Mode') + '</h3>' +
-            '    <p>' + (isConsumer
-                ? 'Use your own cloud storage or run your own Cortex server.'
-                : 'Local vault is removed. Choose BYOS or Self-Host only.') + '</p>' +
+            '    <h3>' + (isConsumer ? 'Self-Host Required' : 'Storage Mode: Self-Host') + '</h3>' +
+            '    <p>Run Cortex on your own infrastructure so you keep full control of your AI ID data.</p>' +
             '  </div>' +
-            '  <div class="storage-mode-options">' +
-            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="byos">BYOS Cloud</button>' +
-            '    <button class="btn btn-outline storage-mode-btn" data-storage-mode="self_host">Self-Host</button>' +
-            '  </div>' +
-            '  <div id="byos-config" class="storage-mode-pane is-hidden">' +
-            '    <label class="profile-label" for="byos-provider">Storage Provider</label>' +
-            '    <input id="byos-provider" class="login-input" placeholder="S3, R2, iCloud Drive, WebDAV">' +
-            '    <label class="profile-label" for="byos-location">Storage Path or URL</label>' +
-            '    <input id="byos-location" class="login-input" placeholder="s3://my-ai-id-vault/context.json or https://storage.example.com/vault/context.json">' +
-            '    <label class="profile-label" for="e2e-passphrase">E2E Passphrase</label>' +
-            '    <input id="e2e-passphrase" class="login-input" type="password" placeholder="Only you know this passphrase">' +
-            '    <button class="btn btn-primary" id="save-byos-prefs">Save BYOS + E2E</button>' +
-            '    <p class="storage-mode-hint">BYOS data is encrypted before write when passphrase is set. Keep this passphrase safe.</p>' +
-            '  </div>' +
-            '  <div id="self-host-config" class="storage-mode-pane is-hidden">' +
+            '  <div id="self-host-config" class="storage-mode-pane">' +
             '    <p class="storage-mode-hint">Run your own private server with one command:</p>' +
             '    <div class="self-host-command-row">' +
             '      <code id="self-host-command">' + C.escapeHtml(SELF_HOST_STARTER_COMMAND) + '</code>' +
@@ -149,116 +133,22 @@
         var dropZone = document.getElementById('drop-zone');
         var fileInput = document.getElementById('file-input');
         var sourceGuide = document.getElementById('source-guide-select');
-        var byosPane = document.getElementById('byos-config');
-        var selfHostPane = document.getElementById('self-host-config');
-        var byosProvider = document.getElementById('byos-provider');
-        var byosLocation = document.getElementById('byos-location');
-        var e2ePassphrase = document.getElementById('e2e-passphrase');
-        var modeButtons = Array.prototype.slice.call(document.querySelectorAll('.storage-mode-btn'));
-
-        function getStoredPrefs() {
-            try {
-                var raw = localStorage.getItem(STORAGE_PREFS_KEY);
-                return raw ? JSON.parse(raw) : {};
-            } catch (_e) {
-                return {};
-            }
+        var prefs = { mode: 'self_host' };
+        try {
+            localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify(prefs));
+        } catch (_e) {
+            // Ignore local storage errors.
         }
-
-        function setStoredPrefs(next) {
-            try {
-                localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify(next));
-            } catch (_e) {
-                // Ignore local storage errors.
-            }
-        }
-
-        function savePrefsRemote(next, opts) {
-            opts = opts || {};
-            return C.api('/api/storage/preferences', {
-                method: 'PUT',
-                body: JSON.stringify({
-                    mode: next.mode || 'byos',
-                    byos_provider: next.byos_provider || '',
-                    byos_location: next.byos_location || '',
-                }),
-            }).then(function () {
-                if (!opts.silent) C.showToast('Storage preference saved.', 'success');
-            }).catch(function (err) {
-                if (!opts.silent) C.showToast('Could not save storage preference: ' + err.message, 'error');
-            });
-        }
-
-        function checkPrefsRemote(next) {
-            return C.api('/api/storage/preferences/check', {
-                method: 'POST',
-                body: JSON.stringify({
-                    mode: next.mode || 'byos',
-                    byos_provider: next.byos_provider || '',
-                    byos_location: next.byos_location || '',
-                }),
-            });
-        }
-
-        function setActiveStorageMode(mode, opts) {
-            opts = opts || {};
-            var safeMode = storageModes.indexOf(mode) >= 0 ? mode : defaultStorageMode;
-            modeButtons.forEach(function (btn) {
-                var isActive = btn.getAttribute('data-storage-mode') === safeMode;
-                btn.classList.toggle('storage-mode-btn-active', isActive);
-            });
-            if (byosPane) {
-                byosPane.classList.toggle('is-hidden', safeMode !== 'byos');
-            }
-            if (selfHostPane) {
-                selfHostPane.classList.toggle('is-hidden', safeMode !== 'self_host');
-            }
-            if (fileInput) {
-                fileInput.disabled = safeMode === 'self_host';
-            }
-            if (dropZone) {
-                dropZone.classList.toggle('upload-zone-disabled', safeMode === 'self_host');
-            }
-            var prefs = getStoredPrefs();
-            prefs.mode = safeMode;
-            setStoredPrefs(prefs);
-            if (!opts.silent) {
-                savePrefsRemote(prefs, { silent: true });
-            }
-            C.trackEvent('storage.mode_changed', { mode: safeMode });
-            if (!opts.silent && C.signalProgressChanged) {
-                C.signalProgressChanged();
-            }
-        }
-
-        var initialPrefs = getStoredPrefs();
-        if (byosProvider) byosProvider.value = initialPrefs.byos_provider || '';
-        if (byosLocation) byosLocation.value = initialPrefs.byos_location || '';
-        if (e2ePassphrase && C.getE2EKey) e2ePassphrase.value = C.getE2EKey() || '';
-        setActiveStorageMode(initialPrefs.mode || defaultStorageMode, { silent: true });
-        C.api('/api/storage/preferences')
-            .then(function (remotePrefs) {
-                if (!remotePrefs || typeof remotePrefs !== 'object') return;
-                var merged = getStoredPrefs();
-                merged.mode = remotePrefs.mode || merged.mode || defaultStorageMode;
-                merged.byos_provider = remotePrefs.byos_provider || merged.byos_provider || '';
-                merged.byos_location = remotePrefs.byos_location || merged.byos_location || '';
-                setStoredPrefs(merged);
-                if (byosProvider) byosProvider.value = merged.byos_provider;
-                if (byosLocation) byosLocation.value = merged.byos_location;
-                setActiveStorageMode(merged.mode, { silent: true });
-            })
-            .catch(function () {
-                // Keep local fallback in case API is unavailable.
-            });
-
-        modeButtons.forEach(function (btn) {
-            var mode = btn.getAttribute('data-storage-mode');
-            btn.classList.toggle('is-hidden', storageModes.indexOf(mode) < 0);
-            btn.addEventListener('click', function () {
-                setActiveStorageMode(mode);
-            });
+        C.api('/api/storage/preferences', {
+            method: 'PUT',
+            body: JSON.stringify({ mode: 'self_host' }),
+        }).catch(function () {
+            // Keep local fallback in case API is unavailable.
         });
+        C.trackEvent('storage.mode_changed', { mode: 'self_host' });
+        if (C.signalProgressChanged) {
+            C.signalProgressChanged();
+        }
 
         var copySelfHostBtn = document.getElementById('copy-self-host-command');
         if (copySelfHostBtn) {
@@ -273,42 +163,6 @@
             });
         }
         loadSelfHostPrereqs();
-
-        var saveByosBtn = document.getElementById('save-byos-prefs');
-        if (saveByosBtn) {
-            saveByosBtn.addEventListener('click', function () {
-                var provider = byosProvider ? byosProvider.value.trim() : '';
-                var location = byosLocation ? byosLocation.value.trim() : '';
-                if (!provider || !location) {
-                    C.showToast('Enter both provider and storage location.', 'error');
-                    return;
-                }
-                var prefs = getStoredPrefs();
-                prefs.byos_provider = provider;
-                prefs.byos_location = location;
-                prefs.mode = 'byos';
-                if (C.setE2EKey) {
-                    C.setE2EKey(e2ePassphrase ? e2ePassphrase.value.trim() : '');
-                }
-                setStoredPrefs(prefs);
-                checkPrefsRemote(prefs).then(function (checkResult) {
-                    if (!checkResult || checkResult.ok === false) {
-                        C.showToast((checkResult && checkResult.message) || 'Storage check failed.', 'error');
-                        return;
-                    }
-                    setActiveStorageMode('byos');
-                    C.showToast((checkResult && checkResult.message) || (isConsumer ? 'Cloud storage saved.' : 'BYOS settings saved locally.'), 'success');
-                }).catch(function (err) {
-                    C.showToast('Storage check failed: ' + err.message, 'error');
-                });
-                C.trackEvent('storage.byos_saved', { provider: provider });
-            });
-        }
-        if (e2ePassphrase) {
-            e2ePassphrase.addEventListener('change', function () {
-                if (C.setE2EKey) C.setE2EKey(e2ePassphrase.value.trim());
-            });
-        }
 
         function renderGuide(value) {
             var copy = {
@@ -392,16 +246,6 @@
     }
 
     function handleFiles(fileList) {
-        var prefs = {};
-        try {
-            prefs = JSON.parse(localStorage.getItem(STORAGE_PREFS_KEY) || '{}') || {};
-        } catch (_e) {
-            prefs = {};
-        }
-        if (String(prefs.mode || '').toLowerCase() === 'self_host') {
-            C.showToast('Self-Host mode selected. Run your own server and import data there.', 'info');
-            return;
-        }
         var files = Array.prototype.slice.call(fileList || []);
         if (!files.length) return;
 

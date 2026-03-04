@@ -969,10 +969,9 @@ class TestWebappStorageConnectorAdversarialMatrix:
     """Adversarial smoke matrix for storage mode transitions + connector sync paths."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, tmp_path):
+    def setup(self):
         self.server, self.port, self.identity = _setup_webapp_server(enable_webapp=True)
         CaaSHandler.connector_store = None
-        self.byos_target = str(tmp_path / "vault" / "context.json")
         yield
         if self.server:
             self.server.shutdown()
@@ -996,39 +995,27 @@ class TestWebappStorageConnectorAdversarialMatrix:
     def test_storage_mode_transitions_and_connector_sync(self):
         cookie = _login(self.port, self.identity)
 
-        # 1) BYOS check without E2E key should fail hard.
+        # 1) self_host storage check should pass.
         result, status = self._request_json(
             "POST",
             "/api/storage/preferences/check",
-            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
+            {"mode": "self_host"},
             cookie=cookie,
-        )
-        assert status == 400
-        assert "E2E passphrase" in json.dumps(result)
-
-        # 2) BYOS check with E2E key should pass.
-        result, status = self._request_json(
-            "POST",
-            "/api/storage/preferences/check",
-            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
-            cookie=cookie,
-            extra_headers={"X-Cortex-E2E-Key": "matrix-passphrase"},
         )
         assert status == 200
         assert result.get("ok") is True
 
-        # 3) Persist BYOS mode (encrypted path).
+        # 2) Persist self_host mode.
         result, status = self._request_json(
             "PUT",
             "/api/storage/preferences",
-            {"mode": "byos", "byos_provider": "filesystem", "byos_location": self.byos_target},
+            {"mode": "self_host"},
             cookie=cookie,
-            extra_headers={"X-Cortex-E2E-Key": "matrix-passphrase"},
         )
         assert status == 200
-        assert result.get("mode") == "byos"
+        assert result.get("mode") == "self_host"
 
-        # 4) Connector sync in BYOS should return action_required for prompt job.
+        # 3) Connector sync should return action_required for prompt job.
         created, status = self._request_json(
             "POST",
             "/api/connectors",
@@ -1050,23 +1037,15 @@ class TestWebappStorageConnectorAdversarialMatrix:
         assert status == 202
         assert sync.get("action_required") is True
 
-        # 5) Switch to self_host mode; connector sync should be blocked.
-        result, status = self._request_json(
-            "PUT",
-            "/api/storage/preferences",
-            {"mode": "self_host"},
-            cookie=cookie,
-        )
-        assert status == 200
-        assert result.get("mode") == "self_host"
-        blocked, status = self._request_json(
+        # 4) Additional sync attempts remain actionable and do not hard-fail in self_host mode.
+        again, status = self._request_json(
             "POST",
             f"/api/connectors/{connector_id}/sync",
             {},
             cookie=cookie,
         )
-        assert status == 400
-        assert "Self-host mode is active" in json.dumps(blocked)
+        assert status == 202
+        assert again.get("action_required") is True
 # ============================================================================
 # Public memory query endpoint
 # ============================================================================

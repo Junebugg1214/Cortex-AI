@@ -5,8 +5,8 @@
     // State
     var multiUserEnabled = false;
     var registrationOpen = false;
-    var storageModes = ['byos', 'self_host'];
-    var defaultStorageMode = 'byos';
+    var storageModes = ['self_host'];
+    var defaultStorageMode = 'self_host';
     var consumerMode = true;
     var currentUser = null;
     var onboardingState = {
@@ -21,7 +21,6 @@
     var VISITED_PAGES_KEY = 'cortex.webapp.visited.v1';
     var CONSUMER_MODE_KEY = 'cortex.webapp.consumer_mode.v1';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
-    var E2E_KEY_SESSION_KEY = 'cortex.e2e.key.v1';
 
     // ── API helper ──────────────────────────────────────────────
     function shouldBypassLoginOverlay() {
@@ -68,10 +67,6 @@
         opts.credentials = 'same-origin';
         if (opts.cache === undefined) opts.cache = 'no-store';
         opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-        var e2eKey = getE2EKey();
-        if (e2eKey) {
-            opts.headers['X-Cortex-E2E-Key'] = e2eKey;
-        }
         return fetch(path, opts).then(function (resp) { return consume(resp, true); });
     }
 
@@ -80,28 +75,7 @@
         opts.credentials = 'same-origin';
         if (opts.cache === undefined) opts.cache = 'no-store';
         opts.headers = Object.assign({}, opts.headers || {});
-        var e2eKey = getE2EKey();
-        if (e2eKey) {
-            opts.headers['X-Cortex-E2E-Key'] = e2eKey;
-        }
         return fetch(path, opts);
-    }
-
-    function getE2EKey() {
-        try {
-            return sessionStorage.getItem(E2E_KEY_SESSION_KEY) || '';
-        } catch (_e) {
-            return '';
-        }
-    }
-
-    function setE2EKey(value) {
-        try {
-            if (!value) sessionStorage.removeItem(E2E_KEY_SESSION_KEY);
-            else sessionStorage.setItem(E2E_KEY_SESSION_KEY, String(value));
-        } catch (_e) {
-            // ignore storage failures
-        }
     }
 
     // ── Router ──────────────────────────────────────────────────
@@ -363,9 +337,6 @@
     function hasStorageChoiceCompleted() {
         var prefs = getStoragePrefs();
         var mode = String((prefs && prefs.mode) || '').toLowerCase();
-        if (mode === 'byos') {
-            return !!(prefs.byos_provider && prefs.byos_location);
-        }
         if (mode === 'self_host') return true;
         return false;
     }
@@ -374,7 +345,7 @@
         if (consumerMode && !state.hasStorageChoice) {
             return {
                 title: 'Choose where your AI ID data lives',
-                detail: 'Pick BYOS cloud storage or self-host your own Cortex instance.',
+                detail: 'Run your own Cortex instance to keep your AI ID on your infrastructure.',
                 ctaLabel: 'Choose Storage',
                 ctaHref: '#upload',
             };
@@ -394,7 +365,7 @@
                 title: consumerMode ? 'Add your first data' : 'Add your first memory data',
                 detail: consumerMode
                     ? 'Add chat exports, files, or a resume to build your AI ID.'
-                    : 'Use manual import for chat exports and resumes when connector sync is not available. Storage modes: BYOS or Self-Host only.',
+                    : 'Use manual import for chat exports and resumes when connector sync is not available.',
                 ctaLabel: consumerMode ? 'Go to Add Data' : 'Go to Upload',
                 ctaHref: '#upload',
             };
@@ -665,8 +636,8 @@
             .catch(function () {
                 multiUserEnabled = false;
                 registrationOpen = false;
-                storageModes = ['byos', 'self_host'];
-                defaultStorageMode = 'byos';
+                storageModes = ['self_host'];
+                defaultStorageMode = 'self_host';
             });
     }
 
@@ -740,8 +711,6 @@
         isConsumerMode: isConsumerMode,
         setConsumerMode: setConsumerMode,
         getStorageConfig: getStorageConfig,
-        getE2EKey: getE2EKey,
-        setE2EKey: setE2EKey,
         signalProgressChanged: signalProgressChanged,
         refreshOnboardingState: refreshOnboardingState,
         trackEvent: trackEvent,

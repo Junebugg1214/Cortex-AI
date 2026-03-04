@@ -58,8 +58,8 @@ db_path = /data/cortex.db
 [users]
 enabled = true
 registration_open = true
-default_storage_mode = byos
-storage_modes = byos,self_host
+default_storage_mode = self_host
+storage_modes = self_host
 INI
 fi
 
