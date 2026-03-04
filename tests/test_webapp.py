@@ -949,6 +949,56 @@ class TestWebappConnectors:
             assert status == 201
             assert created["provider"] == provider
 
+    def test_connector_response_redacts_bridge_secret(self):
+        cookie = _login(self.port, self.identity)
+        created, status = _post_json(
+            self.port,
+            "/api/connectors",
+            {
+                "provider": "openai",
+                "job": "memory_pull_prompt",
+                "job_config": {
+                    "bridge_url": "https://example.com/memory/export",
+                    "bridge_token": "super-secret-token",
+                },
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+        connector_id = created["connector_id"]
+        assert created["metadata"]["_job_config"]["bridge_token"] == "***redacted***"
+
+        body, status, _ = _get_raw(self.port, f"/api/connectors/{connector_id}", cookie=cookie)
+        assert status == 200
+        fetched = json.loads(body.decode("utf-8", errors="replace"))
+        assert fetched["metadata"]["_job_config"]["bridge_token"] == "***redacted***"
+
+    def test_connector_bridge_rejects_non_http_scheme(self):
+        cookie = _login(self.port, self.identity)
+        created, status = _post_json(
+            self.port,
+            "/api/connectors",
+            {
+                "provider": "openai",
+                "job": "memory_pull_prompt",
+                "job_config": {
+                    "bridge_url": "file:///etc/passwd",
+                },
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+        connector_id = created["connector_id"]
+
+        sync, status = _post_json(
+            self.port,
+            f"/api/connectors/{connector_id}/sync",
+            {},
+            cookie=cookie,
+        )
+        assert status == 400
+        assert "http/https" in json.dumps(sync)
+
 
 @pytest.mark.skipif(not has_crypto(), reason="cryptography not available")
 class TestWebappSelfHostPrereqs:

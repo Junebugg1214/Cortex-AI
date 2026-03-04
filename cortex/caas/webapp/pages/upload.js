@@ -4,8 +4,6 @@
     var C = window.CortexApp;
     var maxUploadBytes = 3 * 1024 * 1024 * 1024; // Fallback default: 3GB
     var pendingRevokes = {};
-    var storageModes = ['self_host'];
-    var defaultStorageMode = 'self_host';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
     var SELF_HOST_STARTER_COMMAND = 'git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
     var SELF_HOST_PRIVATE_REPO_COMMAND = 'CORTEX_REPO_URL=git@github.com:Junebugg1214/Cortex-AI.git CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh';
@@ -280,13 +278,6 @@
     }
 
     function loadUploadConfig() {
-        var appStorage = (C.getStorageConfig && C.getStorageConfig()) || null;
-        if (appStorage && Array.isArray(appStorage.modes) && appStorage.modes.length) {
-            storageModes = appStorage.modes.slice();
-        }
-        if (appStorage && typeof appStorage.defaultMode === 'string' && appStorage.defaultMode) {
-            defaultStorageMode = appStorage.defaultMode;
-        }
         C.apiRaw('/api/users/config', { method: 'GET' })
             .then(function (resp) {
                 if (!resp.ok) return null;
@@ -296,12 +287,6 @@
                 if (!cfg) return;
                 if (typeof cfg.max_upload_bytes === 'number' && cfg.max_upload_bytes > 0) {
                     maxUploadBytes = cfg.max_upload_bytes;
-                }
-                if (Array.isArray(cfg.storage_modes) && cfg.storage_modes.length) {
-                    storageModes = cfg.storage_modes.slice();
-                }
-                if (typeof cfg.default_storage_mode === 'string' && cfg.default_storage_mode) {
-                    defaultStorageMode = cfg.default_storage_mode;
                 }
             })
             .catch(function () {
@@ -491,7 +476,7 @@
             '    <p class="import-card-desc">Import repo metadata, languages, topics, and README</p>' +
             '    <div class="import-card-body">' +
             '      <input type="text" id="github-url" class="import-input" placeholder="https://github.com/owner/repo">' +
-            '      <input type="text" id="github-token" class="import-input" placeholder="Token (optional, for private repos)">' +
+            '      <input type="password" id="github-token" class="import-input" placeholder="Token (optional, for private repos)" autocomplete="off">' +
             '      <button class="btn btn-primary" id="github-import-btn">Import</button>' +
             '      <div id="github-status" class="import-status"></div>' +
             '    </div>' +

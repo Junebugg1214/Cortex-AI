@@ -221,6 +221,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 CONNECTOR_AUTO_SYNC_INTERVAL_SECONDS = 24 * 60 * 60  # 24h
 CONNECTOR_AUTO_SYNC_POLL_SECONDS = 60  # scheduler loop
+CONNECTOR_REMOTE_FETCH_MAX_BYTES = 10 * 1024 * 1024  # 10MB safety cap
 
 
 def _parse_iso_ts(value: str) -> datetime | None:
@@ -231,6 +232,34 @@ def _parse_iso_ts(value: str) -> datetime | None:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+def _validate_connector_remote_url(url: str) -> tuple[bool, str]:
+    target = str(url or "").strip()
+    if not target:
+        return False, "URL is required"
+    parsed = urllib.parse.urlparse(target)
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Only http/https URLs are allowed"
+    if not parsed.netloc:
+        return False, "URL host is required"
+    return True, ""
+
+
+def _fetch_remote_payload(url: str, headers: dict[str, str] | None = None, timeout: int = 20) -> bytes:
+    ok, err = _validate_connector_remote_url(url)
+    if not ok:
+        raise ValueError(err)
+    req = urllib.request.Request(
+        str(url).strip(),
+        headers={str(k): str(v) for k, v in (headers or {}).items()},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = resp.read(CONNECTOR_REMOTE_FETCH_MAX_BYTES + 1)
+    if len(payload) > CONNECTOR_REMOTE_FETCH_MAX_BYTES:
+        raise ValueError("Remote payload exceeds connector safety limit (10MB)")
+    return payload
 
 
 class ConnectorAutoSyncWorker:
@@ -416,14 +445,8 @@ class ConnectorAutoSyncWorker:
             bridge_token = str(job_config.get("bridge_token") or "").strip()
             if bridge_token:
                 headers.setdefault("Authorization", "Bearer " + bridge_token)
-            req = urllib.request.Request(
-                bridge_url,
-                headers={str(k): str(v) for k, v in headers.items()},
-                method="GET",
-            )
             try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    payload = resp.read()
+                payload = _fetch_remote_payload(bridge_url, headers=headers, timeout=20)
             except Exception as exc:
                 return {"error": f"memory_pull_prompt bridge fetch failed: {exc}"}
             try:
@@ -461,10 +484,8 @@ class ConnectorAutoSyncWorker:
             headers = job_config.get("headers", {})
             if not isinstance(headers, dict):
                 headers = {}
-            req = urllib.request.Request(url, headers={str(k): str(v) for k, v in headers.items()}, method="GET")
             try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    payload = resp.read()
+                payload = _fetch_remote_payload(url, headers=headers, timeout=20)
             except Exception as exc:
                 return {"error": f"custom_json_sync fetch failed: {exc}"}
             try:
@@ -4283,6 +4304,23 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self.__class__.connector_store = JsonConnectorStore()
         return ConnectorService(self.__class__.connector_store)
 
+    def _sanitize_connector_for_response(self, connector: dict[str, Any]) -> dict[str, Any]:
+        """Redact sensitive connector fields before returning JSON responses."""
+        safe = dict(connector or {})
+        metadata = safe.get("metadata", {})
+        if isinstance(metadata, dict):
+            metadata_safe = dict(metadata)
+            job_config = metadata_safe.get("_job_config", {})
+            if isinstance(job_config, dict):
+                cfg_safe = dict(job_config)
+                for key in list(cfg_safe.keys()):
+                    lowered = str(key).strip().lower()
+                    if any(secret in lowered for secret in ("token", "secret", "password", "authorization", "api_key")):
+                        cfg_safe[key] = "***redacted***"
+                metadata_safe["_job_config"] = cfg_safe
+            safe["metadata"] = metadata_safe
+        return safe
+
     def _connector_memory_export_prompt(self, provider: str) -> str:
         safe_provider = str(provider or "assistant").strip() or "assistant"
         return (
@@ -4395,10 +4433,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
             headers = job_config.get("headers", {})
             if not isinstance(headers, dict):
                 headers = {}
-            req = urllib.request.Request(url, headers={str(k): str(v) for k, v in headers.items()}, method="GET")
             try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    payload = resp.read()
+                payload = _fetch_remote_payload(url, headers=headers, timeout=20)
             except Exception as exc:
                 return {"error": f"custom_json_sync fetch failed: {exc}"}
             try:
@@ -4432,10 +4468,8 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 bridge_headers.setdefault("Authorization", "Bearer " + bridge_token)
             prompt = self._connector_memory_export_prompt(provider)
             if not memory_dump and bridge_url:
-                req = urllib.request.Request(bridge_url, headers=bridge_headers, method="GET")
                 try:
-                    with urllib.request.urlopen(req, timeout=20) as resp:
-                        raw = resp.read()
+                    raw = _fetch_remote_payload(bridge_url, headers=bridge_headers, timeout=20)
                 except Exception as exc:
                     return {"error": f"memory_pull_prompt bridge fetch failed: {exc}"}
                 parsed: Any
@@ -4495,7 +4529,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._error_response(ERR_INVALID_REQUEST(str(exc)))
             return
-        self._json_response(connector, status=201)
+        self._json_response(self._sanitize_connector_for_response(connector), status=201)
 
     def _handle_list_connectors(self) -> None:
         """GET /api/connectors — list all connector links."""
@@ -4506,7 +4540,10 @@ class CaaSHandler(BaseHTTPRequestHandler):
             return
 
         connectors = self._get_connector_service().list_all()
-        self._json_response({"connectors": connectors, "count": len(connectors)})
+        self._json_response({
+            "connectors": [self._sanitize_connector_for_response(c) for c in connectors],
+            "count": len(connectors),
+        })
 
     def _handle_get_connector_capabilities(self) -> None:
         """GET /api/connectors/capabilities — supported jobs and provider matrix."""
@@ -4530,7 +4567,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if connector is None:
             self._error_response(ERR_NOT_FOUND("connector"))
             return
-        self._json_response(connector)
+        self._json_response(self._sanitize_connector_for_response(connector))
 
     def _handle_update_connector(self, connector_id: str) -> None:
         """PUT /api/connectors/{id} — update connector metadata/status."""
@@ -4552,7 +4589,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         if connector is None:
             self._error_response(ERR_NOT_FOUND("connector"))
             return
-        self._json_response(connector)
+        self._json_response(self._sanitize_connector_for_response(connector))
 
     def _handle_delete_connector(self, connector_id: str) -> None:
         """DELETE /api/connectors/{id} — delete connector link."""
