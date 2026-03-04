@@ -4,6 +4,8 @@ set -euo pipefail
 REPO_URL="https://github.com/Junebugg1214/Cortex-AI.git"
 INSTALL_DIR="${CORTEX_INSTALL_DIR:-$HOME/cortex-ai-self-host}"
 PORT="${CORTEX_PORT:-8421}"
+PINNED_REF="4d7ec223104bac186429746594370881a813fdba"
+REF="${CORTEX_REF:-$PINNED_REF}"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -20,14 +22,22 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "Installing Cortex ref: $REF"
+
 if [ ! -d "$INSTALL_DIR/.git" ]; then
   echo "Cloning Cortex into $INSTALL_DIR"
   git clone "$REPO_URL" "$INSTALL_DIR"
+  git -C "$INSTALL_DIR" fetch --tags origin
+  git -C "$INSTALL_DIR" checkout --detach "$REF"
 else
   echo "Updating existing Cortex install in $INSTALL_DIR"
-  git -C "$INSTALL_DIR" fetch origin main
-  git -C "$INSTALL_DIR" checkout main
-  git -C "$INSTALL_DIR" pull --ff-only origin main
+  git -C "$INSTALL_DIR" fetch --tags origin
+  if [ "$REF" = "main" ]; then
+    git -C "$INSTALL_DIR" checkout main
+    git -C "$INSTALL_DIR" pull --ff-only origin main
+  else
+    git -C "$INSTALL_DIR" checkout --detach "$REF"
+  fi
 fi
 
 cd "$INSTALL_DIR"
