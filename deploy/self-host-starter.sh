@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_URL="https://github.com/Junebugg1214/Cortex-AI.git"
 INSTALL_DIR="${CORTEX_INSTALL_DIR:-$HOME/cortex-ai-self-host}"
 PORT="${CORTEX_PORT:-8421}"
-PINNED_REF="1a73473f628f34bf9fd5eca5f68b5cb6c16029bf"
+PINNED_REF="99bbcf0b877a7d558b9b5d360d14b6c7a20cef09"
 REF="${CORTEX_REF:-$PINNED_REF}"
 
 need_cmd() {
