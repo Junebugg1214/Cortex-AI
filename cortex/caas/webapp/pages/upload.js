@@ -7,7 +7,7 @@
     var storageModes = ['byos', 'self_host'];
     var defaultStorageMode = 'byos';
     var STORAGE_PREFS_KEY = 'cortex.storage.prefs.v1';
-    var SELF_HOST_STARTER_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/main/deploy/self-host-starter.sh)';
+    var SELF_HOST_STARTER_COMMAND = 'bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/99bbcf0b877a7d558b9b5d360d14b6c7a20cef09/deploy/self-host-starter.sh)';
 
     C.registerPage('upload', function (container) {
         var isConsumer = C.isConsumerMode && C.isConsumerMode();
