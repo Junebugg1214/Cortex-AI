@@ -5781,7 +5781,13 @@ class CaaSHandler(BaseHTTPRequestHandler):
         limit = self._parse_int_param(query, "limit", 50, min_val=1, max_val=1000)
         if limit is None:
             return
-        entries = log.recent(limit=limit)
+        # Support both legacy and storage-backed audit log interfaces.
+        if hasattr(log, "recent"):
+            entries = log.recent(limit=limit)
+        elif hasattr(log, "query"):
+            entries = log.query(limit=limit)
+        else:
+            entries = []
         self._json_response({"entries": entries})
 
     def _dashboard_api_list_webhooks(self) -> None:
