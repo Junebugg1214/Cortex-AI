@@ -93,14 +93,14 @@ cortex serve output/context.json --enable-webapp --port 8421
 ### One-command self-host starter
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/4d7ec223104bac186429746594370881a813fdba/deploy/self-host-starter.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/1a73473f628f34bf9fd5eca5f68b5cb6c16029bf/deploy/self-host-starter.sh)
 ```
 
 Then open `http://localhost:8421/app`, create your account, choose `BYOS Cloud` or `Self-Host`, and set an E2E passphrase for BYOS.
 
 To install a different version explicitly:
 ```bash
-CORTEX_REF=<tag-or-commit> bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/4d7ec223104bac186429746594370881a813fdba/deploy/self-host-starter.sh)
+CORTEX_REF=<tag-or-commit> bash <(curl -fsSL https://raw.githubusercontent.com/Junebugg1214/Cortex-AI/1a73473f628f34bf9fd5eca5f68b5cb6c16029bf/deploy/self-host-starter.sh)
 ```
 
 ## Installation
