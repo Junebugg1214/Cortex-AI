@@ -181,6 +181,5 @@ except CortexSDKError as e:
 ## Next Steps
 
 - [TypeScript SDK Quickstart](quickstart-typescript.md) — same flow in TypeScript
-- [CLI Walkthrough](cli-walkthrough.md) — explore all CLI commands
 - [Error Reference](error-guide.md) — all 17 UPAI error codes explained
 - [Interactive API Docs](http://localhost:8421/docs) — Swagger UI (start server first)

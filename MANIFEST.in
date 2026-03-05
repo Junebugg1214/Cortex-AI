@@ -1,5 +1,3 @@
 include LICENSE
 include README.md
 recursive-include cortex *.py
-recursive-include cortex/caas/webapp *.html *.css *.js
-recursive-include cortex/caas/dashboard *.html *.css *.js
