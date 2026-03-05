@@ -18,13 +18,6 @@ Your memory/context belongs to you, lives on your infrastructure, and can be sha
 - Scoped sharing controls and policy-based exports
 - Consumer Mode for non-technical users
 
-## Beta Website
-
-- Web app: [https://gollumgo.com/app](https://gollumgo.com/app)
-
-Use the beta website to test UX and flow.
-For real data ownership/privacy guarantees, run your own self-host instance.
-
 ## Core Flow (Web App)
 
 1. Open `/app` and create an account
@@ -137,12 +130,6 @@ pip install cortex-identity[full]
 - Dashboard CSRF protection enabled by default
 - Dashboard/webapp session cookies support `Secure` in HTTPS/proxy deployments (`security.secure_cookies`)
 - Connector secrets redacted from API responses
-
-## Launch Content Drafts
-
-- Long-form X article: `docs/x-article-philosophy.md`
-- Dev invitation post: `docs/x-post-dev-invite.md`
-- Beta tester guide: `docs/beta-tester-guide.md`
 
 ## License
 
