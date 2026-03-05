@@ -5,6 +5,12 @@ Own your AI ID.
 Cortex is a self-host-first platform for portable AI memory and identity.
 Your memory/context belongs to you, lives on your infrastructure, and can be shared in scoped formats (`professional`, `technical`, etc.) instead of all-or-nothing dumps.
 
+## Open Source Release Focus
+
+- Primary release path: `CLI + Self-host`
+- Beta path: `Webapp + Self-host`
+- No hosted user-memory mode in product direction
+
 ## Product Direction
 
 - Self-host only storage model (no BYOS, no local-vault mode in consumer flow)
@@ -30,7 +36,7 @@ For real data ownership/privacy guarantees, run your own self-host instance.
 ## One-Command Self-Host Starter
 
 ```bash
-git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ae5b9d0b57e00aa27ac8d46bd635e9325934ca97 bash deploy/self-host-starter.sh
+git clone https://github.com/Junebugg1214/Cortex-AI.git && cd Cortex-AI && CORTEX_REF=ac97d8163d0f2b9510f369742d4df6f679d4bd09 bash deploy/self-host-starter.sh
 ```
 
 After install:
@@ -124,6 +130,13 @@ pip install cortex-identity[full]
   - `docs/deployment.md`
   - `docs/security.md`
   - `docs/codebase-feature-guide.md`
+
+## Security Notes (Current)
+
+- Self-host-only storage mode enforcement
+- Dashboard CSRF protection enabled by default
+- Dashboard/webapp session cookies support `Secure` in HTTPS/proxy deployments (`security.secure_cookies`)
+- Connector secrets redacted from API responses
 
 ## Launch Content Drafts
 
