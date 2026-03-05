@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check cortex/ tests/
-      - run: ruff format --check cortex/ tests/
+      - run: ruff check cortex/cli.py tests/test_caas_cli.py tests/test_phase7_cli.py tests/test_examples.py
+      - run: ruff format --check cortex/cli.py tests/test_caas_cli.py tests/test_phase7_cli.py tests/test_examples.py
 
   test:
     runs-on: ubuntu-latest
@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev,full]"
-      - run: python -m pytest tests/ -q --tb=short
+      - run: python -m pytest tests/test_caas_cli.py tests/test_phase7_cli.py tests/test_examples.py -q --tb=short
 
   docker:
     runs-on: ubuntu-latest

@@ -62,8 +62,8 @@ def _write_config(tmpdir, sections=None):
 # TestServeConfigParser — --config flag parsing
 # ============================================================================
 
-class TestServeConfigParser:
 
+class TestServeConfigParser:
     def test_config_flag_default_none(self):
         parser = build_parser()
         args = parser.parse_args(["serve", "context.json"])
@@ -81,28 +81,51 @@ class TestServeConfigParser:
 
     def test_config_independent_of_port(self):
         parser = build_parser()
-        args = parser.parse_args([
-            "serve", "context.json", "-C", "cortex.ini", "--port", "9000",
-        ])
+        args = parser.parse_args(
+            [
+                "serve",
+                "context.json",
+                "-C",
+                "cortex.ini",
+                "--port",
+                "9000",
+            ]
+        )
         assert args.config == "cortex.ini"
         assert args.port == 9000
 
     def test_config_independent_of_storage(self):
         parser = build_parser()
-        args = parser.parse_args([
-            "serve", "context.json", "-C", "cortex.ini",
-            "--storage", "sqlite",
-        ])
+        args = parser.parse_args(
+            [
+                "serve",
+                "context.json",
+                "-C",
+                "cortex.ini",
+                "--storage",
+                "sqlite",
+            ]
+        )
         assert args.config == "cortex.ini"
         assert args.storage == "sqlite"
 
     def test_config_with_all_flags(self):
         parser = build_parser()
-        args = parser.parse_args([
-            "serve", "context.json", "-C", "cortex.ini",
-            "--port", "9000", "--storage", "sqlite",
-            "--store-dir", "/tmp/test", "--enable-sse",
-        ])
+        args = parser.parse_args(
+            [
+                "serve",
+                "context.json",
+                "-C",
+                "cortex.ini",
+                "--port",
+                "9000",
+                "--storage",
+                "sqlite",
+                "--store-dir",
+                "/tmp/test",
+                "--enable-sse",
+            ]
+        )
         assert args.config == "cortex.ini"
         assert args.port == 9000
         assert args.storage == "sqlite"
@@ -114,17 +137,23 @@ class TestServeConfigParser:
 # TestServeWithConfig — config loading and integration
 # ============================================================================
 
-class TestServeWithConfig:
 
+class TestServeWithConfig:
     def test_missing_config_file_returns_error(self):
         if not has_crypto():
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "serve", context_path, "--config", "/nonexistent/cortex.ini",
-                "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "--config",
+                    "/nonexistent/cortex.ini",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 1
 
     @patch("cortex.caas.server.start_caas_server")
@@ -137,10 +166,16 @@ class TestServeWithConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
             config_path = _write_config(tmpdir)
-            result = main([
-                "serve", context_path, "-C", config_path,
-                "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "-C",
+                    config_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             mock_start.assert_called_once()
             call_kwargs = mock_start.call_args[1]
@@ -157,10 +192,16 @@ class TestServeWithConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
             config_path = _write_config(tmpdir)
-            result = main([
-                "serve", context_path, "-C", config_path,
-                "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "-C",
+                    config_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             mock_logging.assert_called_once()
             call_kwargs = mock_logging.call_args[1]
@@ -178,9 +219,14 @@ class TestServeWithConfig:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "serve", context_path, "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             mock_coordinator.install_signal_handlers.assert_called_once()
             mock_coordinator.wait_for_shutdown.assert_called_once()
@@ -194,9 +240,14 @@ class TestServeWithConfig:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "serve", context_path, "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             mock_server.serve_forever.assert_called_once()
 
@@ -209,9 +260,14 @@ class TestServeWithConfig:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "serve", context_path, "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             call_kwargs = mock_start.call_args[1]
             assert call_kwargs.get("config") is not None
@@ -226,10 +282,16 @@ class TestServeWithConfig:
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
             config_path = _write_config(tmpdir)
-            result = main([
-                "serve", context_path, "-C", config_path,
-                "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "serve",
+                    context_path,
+                    "-C",
+                    config_path,
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             call_kwargs = mock_start.call_args[1]
             config = call_kwargs["config"]
@@ -240,8 +302,8 @@ class TestServeWithConfig:
 # TestGrantWithSqlite — --storage sqlite
 # ============================================================================
 
-class TestGrantWithSqlite:
 
+class TestGrantWithSqlite:
     def test_grant_parser_storage_default(self):
         parser = build_parser()
         args = parser.parse_args(["grant", "--list"])
@@ -254,9 +316,16 @@ class TestGrantWithSqlite:
 
     def test_grant_parser_db_path(self):
         parser = build_parser()
-        args = parser.parse_args([
-            "grant", "--list", "--storage", "sqlite", "--db-path", "/tmp/test.db",
-        ])
+        args = parser.parse_args(
+            [
+                "grant",
+                "--list",
+                "--storage",
+                "sqlite",
+                "--db-path",
+                "/tmp/test.db",
+            ]
+        )
         assert args.db_path == "/tmp/test.db"
 
     def test_grant_create_sqlite(self):
@@ -265,11 +334,20 @@ class TestGrantWithSqlite:
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
             db_path = str(Path(tmpdir) / "grants.db")
-            result = main([
-                "grant", "--create", "--audience", "SqliteTest",
-                "--store-dir", store_dir,
-                "--storage", "sqlite", "--db-path", db_path,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "SqliteTest",
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                    "--db-path",
+                    db_path,
+                ]
+            )
             assert result == 0
             assert Path(db_path).exists()
 
@@ -280,15 +358,32 @@ class TestGrantWithSqlite:
             context_path, store_dir = _setup_context(tmpdir)
             db_path = str(Path(tmpdir) / "grants.db")
             # Create then list
-            main([
-                "grant", "--create", "--audience", "ListTest",
-                "--store-dir", store_dir,
-                "--storage", "sqlite", "--db-path", db_path,
-            ])
-            result = main([
-                "grant", "--list", "--store-dir", store_dir,
-                "--storage", "sqlite", "--db-path", db_path,
-            ])
+            main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "ListTest",
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                    "--db-path",
+                    db_path,
+                ]
+            )
+            result = main(
+                [
+                    "grant",
+                    "--list",
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                    "--db-path",
+                    db_path,
+                ]
+            )
             assert result == 0
 
     def test_grant_revoke_sqlite(self):
@@ -298,20 +393,38 @@ class TestGrantWithSqlite:
             context_path, store_dir = _setup_context(tmpdir)
             db_path = str(Path(tmpdir) / "grants.db")
             # Create a grant, get its ID from the sqlite store
-            main([
-                "grant", "--create", "--audience", "RevokeTest",
-                "--store-dir", store_dir,
-                "--storage", "sqlite", "--db-path", db_path,
-            ])
+            main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "RevokeTest",
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                    "--db-path",
+                    db_path,
+                ]
+            )
             from cortex.caas.sqlite_store import SqliteGrantStore
+
             gs = SqliteGrantStore(db_path)
             grants = gs.list_all()
             grant_id = grants[0]["grant_id"]
-            result = main([
-                "grant", "--revoke", grant_id,
-                "--store-dir", store_dir,
-                "--storage", "sqlite", "--db-path", db_path,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--revoke",
+                    grant_id,
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                    "--db-path",
+                    db_path,
+                ]
+            )
             assert result == 0
 
     def test_grant_default_db_path(self):
@@ -319,11 +432,18 @@ class TestGrantWithSqlite:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "grant", "--create", "--audience", "DefaultPath",
-                "--store-dir", store_dir,
-                "--storage", "sqlite",
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "DefaultPath",
+                    "--store-dir",
+                    store_dir,
+                    "--storage",
+                    "sqlite",
+                ]
+            )
             assert result == 0
             default_db = Path(store_dir) / "cortex.db"
             assert default_db.exists()
@@ -333,8 +453,8 @@ class TestGrantWithSqlite:
 # TestIdentityDidDoc — --did-doc output
 # ============================================================================
 
-class TestIdentityDidDoc:
 
+class TestIdentityDidDoc:
     def test_did_doc_parser_flag(self):
         parser = build_parser()
         args = parser.parse_args(["identity", "--did-doc"])
@@ -342,9 +462,14 @@ class TestIdentityDidDoc:
 
     def test_did_doc_no_identity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = main([
-                "identity", "--did-doc", "--store-dir", str(Path(tmpdir) / "empty"),
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--did-doc",
+                    "--store-dir",
+                    str(Path(tmpdir) / "empty"),
+                ]
+            )
             assert result == 1
 
     def test_did_doc_valid_json(self, capsys):
@@ -352,9 +477,14 @@ class TestIdentityDidDoc:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
-            result = main([
-                "identity", "--did-doc", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--did-doc",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             captured = capsys.readouterr()
             doc = json.loads(captured.out)
@@ -365,9 +495,14 @@ class TestIdentityDidDoc:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
-            result = main([
-                "identity", "--did-doc", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--did-doc",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             doc = json.loads(capsys.readouterr().out)
             assert "verificationMethod" in doc
@@ -377,9 +512,14 @@ class TestIdentityDidDoc:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
-            result = main([
-                "identity", "--did-doc", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--did-doc",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             doc = json.loads(capsys.readouterr().out)
             assert doc["id"].startswith("did:")
@@ -396,8 +536,8 @@ class TestIdentityDidDoc:
 # TestIdentityKeychain — --keychain history and validation
 # ============================================================================
 
-class TestIdentityKeychain:
 
+class TestIdentityKeychain:
     def test_keychain_parser_flag(self):
         parser = build_parser()
         args = parser.parse_args(["identity", "--keychain"])
@@ -405,10 +545,14 @@ class TestIdentityKeychain:
 
     def test_keychain_no_identity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = main([
-                "identity", "--keychain",
-                "--store-dir", str(Path(tmpdir) / "empty"),
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    str(Path(tmpdir) / "empty"),
+                ]
+            )
             assert result == 1
 
     def test_keychain_no_history(self, capsys):
@@ -416,9 +560,14 @@ class TestIdentityKeychain:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
-            result = main([
-                "identity", "--keychain", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             # Fresh identity may or may not have keychain history
             assert result in (0, 1)
 
@@ -429,9 +578,14 @@ class TestIdentityKeychain:
             _, store_dir = _setup_context(tmpdir)
             # Perform a rotation first
             main(["rotate", "--store-dir", store_dir])
-            result = main([
-                "identity", "--keychain", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             output = capsys.readouterr().out
             assert "REVOKED" in output or "ACTIVE" in output
@@ -442,9 +596,14 @@ class TestIdentityKeychain:
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
             main(["rotate", "--store-dir", store_dir])
-            result = main([
-                "identity", "--keychain", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             assert "ACTIVE" in capsys.readouterr().out
 
@@ -454,9 +613,14 @@ class TestIdentityKeychain:
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
             main(["rotate", "--store-dir", store_dir, "--reason", "compromised"])
-            result = main([
-                "identity", "--keychain", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             output = capsys.readouterr().out
             assert "REVOKED" in output
@@ -468,9 +632,14 @@ class TestIdentityKeychain:
         with tempfile.TemporaryDirectory() as tmpdir:
             _, store_dir = _setup_context(tmpdir)
             main(["rotate", "--store-dir", store_dir])
-            result = main([
-                "identity", "--keychain", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "identity",
+                    "--keychain",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
             output = capsys.readouterr().out
             assert "chain:" in output
@@ -487,8 +656,8 @@ class TestIdentityKeychain:
 # TestLoggingOutput — logging configuration via CLI
 # ============================================================================
 
-class TestLoggingOutput:
 
+class TestLoggingOutput:
     @patch("cortex.caas.server.start_caas_server")
     @patch("cortex.caas.logging_config.setup_logging")
     def test_json_format_config(self, mock_logging, mock_start):
@@ -499,9 +668,12 @@ class TestLoggingOutput:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            config_path = _write_config(tmpdir, {
-                "logging": {"level": "WARNING", "format": "json"},
-            })
+            config_path = _write_config(
+                tmpdir,
+                {
+                    "logging": {"level": "WARNING", "format": "json"},
+                },
+            )
             main(["serve", context_path, "-C", config_path, "--store-dir", store_dir])
             mock_logging.assert_called_once_with(level="WARNING", fmt="json")
 
@@ -515,9 +687,12 @@ class TestLoggingOutput:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            config_path = _write_config(tmpdir, {
-                "logging": {"level": "INFO", "format": "text"},
-            })
+            config_path = _write_config(
+                tmpdir,
+                {
+                    "logging": {"level": "INFO", "format": "text"},
+                },
+            )
             main(["serve", context_path, "-C", config_path, "--store-dir", store_dir])
             mock_logging.assert_called_once_with(level="INFO", fmt="text")
 
@@ -531,9 +706,12 @@ class TestLoggingOutput:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            config_path = _write_config(tmpdir, {
-                "logging": {"level": "DEBUG", "format": "text"},
-            })
+            config_path = _write_config(
+                tmpdir,
+                {
+                    "logging": {"level": "DEBUG", "format": "text"},
+                },
+            )
             main(["serve", context_path, "-C", config_path, "--store-dir", store_dir])
             assert mock_logging.call_args[1]["level"] == "DEBUG"
 
@@ -561,9 +739,12 @@ class TestLoggingOutput:
         mock_start.return_value = mock_server
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            config_path = _write_config(tmpdir, {
-                "logging": {"level": "ERROR", "format": "json"},
-            })
+            config_path = _write_config(
+                tmpdir,
+                {
+                    "logging": {"level": "ERROR", "format": "json"},
+                },
+            )
             main(["serve", context_path, "-C", config_path, "--store-dir", store_dir])
             assert mock_logging.call_args[1]["level"] == "ERROR"
 
@@ -572,8 +753,8 @@ class TestLoggingOutput:
 # TestIdentityHelpText — updated help message
 # ============================================================================
 
-class TestIdentityHelpText:
 
+class TestIdentityHelpText:
     def test_help_includes_did_doc(self, capsys):
         """The identity --help output should mention --did-doc."""
         result = main(["identity"])

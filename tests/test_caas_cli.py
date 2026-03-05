@@ -38,8 +38,8 @@ def _setup_context(tmpdir):
 # Parser tests
 # ============================================================================
 
-class TestCaaSParser:
 
+class TestCaaSParser:
     def test_serve_subcommand(self):
         parser = build_parser()
         args = parser.parse_args(["serve", "context.json"])
@@ -87,6 +87,7 @@ class TestCaaSParser:
         import inspect
 
         from cortex.cli import main
+
         source = inspect.getsource(main)
         assert '"serve"' in source
         assert '"grant"' in source
@@ -97,17 +98,25 @@ class TestCaaSParser:
 # Grant CLI integration
 # ============================================================================
 
-class TestGrantCLI:
 
+class TestGrantCLI:
     def test_grant_create_e2e(self):
         if not has_crypto():
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "grant", "--create", "--audience", "TestAudience",
-                "--policy", "professional", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "TestAudience",
+                    "--policy",
+                    "professional",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
 
     def test_grant_list_e2e(self):
@@ -115,9 +124,14 @@ class TestGrantCLI:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "grant", "--list", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--list",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
 
     def test_grant_missing_audience(self):
@@ -125,9 +139,14 @@ class TestGrantCLI:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "grant", "--create", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--create",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 1  # missing audience
 
 
@@ -135,16 +154,20 @@ class TestGrantCLI:
 # Rotate CLI integration
 # ============================================================================
 
-class TestRotateCLI:
 
+class TestRotateCLI:
     def test_rotate_e2e(self):
         if not has_crypto():
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "rotate", "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "rotate",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
 
             # Verify new identity was saved
@@ -155,9 +178,13 @@ class TestRotateCLI:
         if not has_crypto():
             return
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = main([
-                "rotate", "--store-dir", str(Path(tmpdir) / "nonexistent"),
-            ])
+            result = main(
+                [
+                    "rotate",
+                    "--store-dir",
+                    str(Path(tmpdir) / "nonexistent"),
+                ]
+            )
             assert result == 1
 
     def test_rotate_passes_reason(self):
@@ -165,13 +192,20 @@ class TestRotateCLI:
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "rotate", "--store-dir", store_dir, "--reason", "compromised",
-            ])
+            result = main(
+                [
+                    "rotate",
+                    "--store-dir",
+                    store_dir,
+                    "--reason",
+                    "compromised",
+                ]
+            )
             assert result == 0
 
             # Verify keychain has correct reason
             from cortex.upai.keychain import Keychain
+
             kc = Keychain(Path(store_dir))
             history = kc.get_history()
             revoked = [r for r in history if r.revoked_at]
@@ -183,17 +217,23 @@ class TestRotateCLI:
 # Grant persistence tests
 # ============================================================================
 
-class TestGrantPersistence:
 
+class TestGrantPersistence:
     def test_grant_create_persists(self):
         if not has_crypto():
             return
         with tempfile.TemporaryDirectory() as tmpdir:
             context_path, store_dir = _setup_context(tmpdir)
-            result = main([
-                "grant", "--create", "--audience", "PersistTest",
-                "--store-dir", store_dir,
-            ])
+            result = main(
+                [
+                    "grant",
+                    "--create",
+                    "--audience",
+                    "PersistTest",
+                    "--store-dir",
+                    store_dir,
+                ]
+            )
             assert result == 0
 
             # Verify grants.json was created with the grant
@@ -210,8 +250,8 @@ class TestGrantPersistence:
 # Serve parser with storage flags
 # ============================================================================
 
-class TestServeStorageFlags:
 
+class TestServeStorageFlags:
     def test_serve_default_storage(self):
         parser = build_parser()
         args = parser.parse_args(["serve", "context.json"])
