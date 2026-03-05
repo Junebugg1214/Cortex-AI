@@ -39,8 +39,19 @@ def _load_real_psycopg():
             continue
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
-        spec.loader.exec_module(module)
-        return module
+        # Real psycopg imports submodules via `import psycopg...`; temporarily
+        # bind the real module under that name so imports do not recurse here.
+        previous = sys.modules.get("psycopg")
+        try:
+            sys.modules["psycopg"] = module
+            spec.loader.exec_module(module)
+            return module
+        except Exception:
+            if previous is None:
+                sys.modules.pop("psycopg", None)
+            else:
+                sys.modules["psycopg"] = previous
+            continue
     return None
 
 
@@ -52,6 +63,7 @@ if _real is not None:
             globals()[_name] = getattr(_real, _name)
     __all__ = [n for n in dir(_real) if not n.startswith("__")]
 else:
+
     def connect(*args, **kwargs):
         raise RuntimeError("psycopg is not installed in this environment")
 
