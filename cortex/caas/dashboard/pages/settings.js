@@ -147,6 +147,17 @@
             html += configRow('Grants', config.grant_count);
             html += configRow('Webhooks', config.webhook_count);
             html += configRow('Credentials', config.credential_count || 0);
+            html += configRow('Connectors', config.connector_count || 0);
+            if (config.connector_status) {
+                var cs = config.connector_status;
+                html += configRow('Connector Status', 'active ' + (cs.active || 0) + ' / paused ' + (cs.paused || 0) + ' / error ' + (cs.error || 0));
+            }
+            if (config.connector_auto_sync) {
+                var as = config.connector_auto_sync;
+                html += configRow('Auto-sync', 'enabled ' + (as.enabled || 0) + ' / paused ' + (as.paused || 0));
+            }
+            html += configRow('Storage Mode', 'self_host only');
+            html += configRow('Storage Pref Actors', config.storage_preferences_total || 0);
             html += configRow('SSE', config.sse_enabled ? '<span class="badge badge-active">Enabled</span>' : '<span class="badge badge-revoked">Disabled</span>');
             html += configRow('Policies', (config.policies || []).join(', '));
             html += '</tbody></table>';
@@ -163,6 +174,11 @@
             }
             if (config.oauth_allowed_emails) {
                 authHtml += configRow('Allowed Emails', config.oauth_allowed_emails.join(', '));
+            }
+            if (config.beta_metrics) {
+                authHtml += configRow('Beta Reports', config.beta_metrics.issue_reports || 0);
+                authHtml += configRow('Connector Sync OK', config.beta_metrics.connector_sync_success || 0);
+                authHtml += configRow('Connector Sync Fail', config.beta_metrics.connector_sync_failed || 0);
             }
             authHtml += '</tbody></table>';
             document.getElementById('settings-auth').innerHTML = authHtml;

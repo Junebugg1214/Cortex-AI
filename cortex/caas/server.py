@@ -1033,7 +1033,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self._respond(204, "text/plain", b"", extra_headers={
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Authorization, Content-Type",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, X-CSRF-Token, X-Request-ID",
         })
 
     # ── Rate limiting ─────────────────────────────────────────────────
@@ -5796,6 +5796,28 @@ class CaaSHandler(BaseHTTPRequestHandler):
         om = self.__class__.oauth_manager
         cs = self.__class__.credential_store
         port = getattr(self.server, "server_port", 8421)
+        connector_store = self.__class__.connector_store
+        connectors = connector_store.list_all() if connector_store is not None else []
+        connector_status = {"active": 0, "paused": 0, "error": 0}
+        auto_sync = {"enabled": 0, "paused": 0}
+        for connector in connectors:
+            status = str(connector.get("status", "")).strip().lower()
+            if status in connector_status:
+                connector_status[status] += 1
+            metadata = connector.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("_auto_sync_enabled", True) is False:
+                auto_sync["paused"] += 1
+            else:
+                auto_sync["enabled"] += 1
+
+        prefs = self._load_storage_preferences_all()
+        pref_modes: dict[str, int] = {}
+        for pref in prefs.values():
+            mode = "self_host"
+            if isinstance(pref, dict):
+                mode = str(pref.get("mode", "self_host")).strip().lower() or "self_host"
+            pref_modes[mode] = int(pref_modes.get(mode, 0)) + 1
+
         self._json_response({
             "port": port,
             "did": identity.did if identity else None,
@@ -5809,6 +5831,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
             "oauth_providers": om.provider_names if om and om.enabled else [],
             "oauth_allowed_emails": sorted(om._allowed_emails) if om and om._allowed_emails else None,
             "sse_enabled": self.__class__.sse_manager is not None,
+            "webapp_enabled": self.__class__.enable_webapp,
+            "multi_user_enabled": self.__class__.multi_user_enabled,
+            "connector_count": len(connectors),
+            "connector_status": connector_status,
+            "connector_auto_sync": auto_sync,
+            "storage_preferences_total": len(prefs),
+            "storage_preferences_modes": pref_modes,
+            "beta_metrics": self._beta_metrics_snapshot(),
         })
 
     # ── Dashboard: Graph Health & Changelog ────────────────────────
@@ -6014,13 +6044,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; script-src 'self' 'unsafe-inline'; "
                              "style-src 'self' 'unsafe-inline'")
-            # Include CSRF token if available
-            csrf = getattr(self, "_csrf_token_for_response", None)
-            if csrf:
-                self.send_header("X-CSRF-Token", csrf)
-                self._csrf_token_for_response = None
         else:
             self.send_header("Content-Security-Policy", "default-src 'none'")
+
+        # Include CSRF token for authenticated dashboard flows when present.
+        csrf = getattr(self, "_csrf_token_for_response", None)
+        if csrf:
+            self.send_header("X-CSRF-Token", csrf)
+            self._csrf_token_for_response = None
 
         # HSTS (opt-in — only safe behind TLS reverse proxy)
         if self.__class__.hsts_enabled:

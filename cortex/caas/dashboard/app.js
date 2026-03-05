@@ -2,13 +2,21 @@
 (function () {
     'use strict';
 
+    var csrfToken = '';
+
     // ── API helper ──────────────────────────────────────────────
     async function api(path, opts) {
         opts = opts || {};
         opts.credentials = 'same-origin';
         opts.cache = 'no-store';
         opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+        var method = String(opts.method || 'GET').toUpperCase();
+        if (csrfToken && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+            opts.headers['X-CSRF-Token'] = csrfToken;
+        }
         var resp = await fetch('/dashboard/api' + path, opts);
+        var nextCsrf = resp.headers.get('X-CSRF-Token');
+        if (nextCsrf) csrfToken = nextCsrf;
         if (resp.status === 401) {
             showLogin();
             throw new Error('unauthorized');

@@ -49,6 +49,7 @@ def _setup_dashboard_server():
     CaaSHandler.rate_limiter = None
     CaaSHandler.login_rate_limiter = None
     CaaSHandler.webhook_worker = None
+    CaaSHandler.csrf_enabled = True
     CaaSHandler._allowed_origins = set()
 
     sm = DashboardSessionManager(identity)
@@ -224,7 +225,16 @@ class TestDashboardHTTPEndpoints:
         cookie = headers.get("Set-Cookie", headers.get("set-cookie", ""))
         # Extract just the cookie name=value
         cookie_val = cookie.split(";")[0] if cookie else ""
-        return {"Cookie": cookie_val}
+        # Prime CSRF token from a dashboard GET endpoint.
+        _, id_status, id_headers = _request(
+            self.port, "/dashboard/api/identity", headers={"Cookie": cookie_val}
+        )
+        assert id_status == 200
+        csrf = id_headers.get("X-CSRF-Token", id_headers.get("x-csrf-token", ""))
+        out = {"Cookie": cookie_val}
+        if csrf:
+            out["X-CSRF-Token"] = csrf
+        return out
 
     def test_serve_index_html(self):
         if self.port is None:
@@ -389,6 +399,19 @@ class TestDashboardHTTPEndpoints:
         assert status == 200
         assert body["revoked"] is True
 
+    def test_api_mutation_rejects_missing_csrf(self):
+        if self.port is None:
+            return
+        auth = self._login()
+        cookie_only = {"Cookie": auth.get("Cookie", "")}
+        body, status, _ = _request(
+            self.port, "/dashboard/api/grants", method="POST",
+            body={"audience": "csrf-check", "policy": "professional", "ttl_hours": 1},
+            headers=cookie_only, expect_error=True,
+        )
+        assert status == 403
+        assert body.get("error") == "csrf_validation_failed"
+
     def test_api_versions_empty(self):
         if self.port is None:
             return
@@ -424,6 +447,8 @@ class TestDashboardHTTPEndpoints:
         assert "did" in body
         assert "node_count" in body
         assert body["node_count"] == 3
+        assert "connector_count" in body
+        assert "beta_metrics" in body
 
     def test_api_unknown_endpoint_404(self):
         if self.port is None:
