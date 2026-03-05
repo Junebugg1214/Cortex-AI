@@ -551,6 +551,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
     tracing_manager: Any = None  # Optional TracingManager
     federation_manager: Any = None  # Optional FederationManager
     hsts_enabled: bool = False  # Add Strict-Transport-Security header
+    force_secure_cookies: bool = False  # Force Secure cookie attribute regardless of request scheme
     enable_webapp: bool = False  # Enable /app web UI
     token_cache: Any = None  # Optional TokenCache for verified token caching
     api_key_store: Any = None  # Optional ApiKeyStore for shareable memory
@@ -1366,6 +1367,20 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 if request_id:
                     d["request_id"] = request_id
                 log.log(event_type, d)
+
+    def _request_uses_https(self) -> bool:
+        """Best-effort HTTPS detection when running behind a reverse proxy."""
+        xfp = (self.headers.get("X-Forwarded-Proto", "") or "").split(",", 1)[0].strip().lower()
+        if xfp == "https":
+            return True
+        forwarded = (self.headers.get("Forwarded", "") or "").lower()
+        return "proto=https" in forwarded
+
+    def _cookie_secure_suffix(self) -> str:
+        """Return '; Secure' when session cookies should be marked secure."""
+        if self.__class__.force_secure_cookies or self._request_uses_https():
+            return "; Secure"
+        return ""
 
     # ── Webhook fire helper ──────────────────────────────────────────
 
@@ -2817,12 +2832,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         email = userinfo.get("email", "")
         name = userinfo.get("name", userinfo.get("login", ""))
         token = sm.create_oauth_session(provider_or_error, email, name)
-        self._audit("dashboard.oauth_login", {"provider": provider_or_error, "email": email})
+        self._audit("dashboard.oauth_login", {"provider": provider_or_error})
 
         # SameSite=Lax because this is a cross-site redirect from the OAuth provider
         self._respond(302, "text/plain", b"Redirecting to dashboard...", extra_headers={
             "Location": "/dashboard",
-            "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Lax; Path=/dashboard",
+            "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Lax; Path=/dashboard{self._cookie_secure_suffix()}",
         })
 
     def _oauth_redirect_to_dashboard(self, error: str = "") -> None:
@@ -2905,7 +2920,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         grant_str = grant.sign(identity)
 
         self.__class__.grant_store.add(grant.grant_id, grant_str, grant.to_dict())
-        self._audit("token_exchange", {"provider": provider, "email": email, "audience": audience})
+        self._audit("token_exchange", {"provider": provider, "audience": audience})
 
         self._json_response({
             "grant_id": grant.grant_id,
@@ -3466,11 +3481,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 edges_created += 1
 
         # Persist the graph to context.json
-        import sys
-        print(f"[DEBUG _import_nodes_edges] nodes_created={nodes_created}, edges_created={edges_created}", file=sys.stderr, flush=True)
-        print(f"[DEBUG _import_nodes_edges] graph id={id(graph)}, nodes={len(graph.nodes)}, edges={len(graph.edges)}", file=sys.stderr, flush=True)
         if nodes_created > 0 or edges_created > 0:
-            print(f"[DEBUG _import_nodes_edges] Calling _save_graph()", file=sys.stderr, flush=True)
             self._save_graph()
 
         result = {
@@ -3485,19 +3496,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
 
     def _save_graph(self) -> None:
         """Persist the current graph to context.json."""
-        import sys
         graph = self.__class__.graph
         context_path = self.__class__.context_path
-        print(f"[DEBUG _save_graph] graph id={id(graph) if graph else None}, context_path={context_path}", file=sys.stderr, flush=True)
-        print(f"[DEBUG _save_graph] graph.nodes count={len(graph.nodes) if graph else 0}", file=sys.stderr, flush=True)
         if graph is None or context_path is None:
-            print(f"[DEBUG _save_graph] Skipping save: graph or context_path is None", file=sys.stderr, flush=True)
             return
         try:
             graph_data = graph.export_v5()
-            node_count = len(graph_data.get("nodes", []))
-            edge_count = len(graph_data.get("edges", []))
-            print(f"[DEBUG _save_graph] Saving {node_count} nodes, {edge_count} edges to {context_path}", file=sys.stderr, flush=True)
             graph_json = json.dumps(graph_data, indent=2)
             persisted_local = False
 
@@ -3512,18 +3516,14 @@ class CaaSHandler(BaseHTTPRequestHandler):
                 try:
                     resolver.save_user_graph(str(current_user.user_id), graph_data, create_version=False)
                     persisted_local = True
-                    print(f"[DEBUG _save_graph] Persisted user graph for {current_user.user_id}", file=sys.stderr, flush=True)
-                except Exception as exc:
-                    print(f"[DEBUG _save_graph] User graph persist failed: {exc}", file=sys.stderr, flush=True)
+                except Exception:
+                    pass
 
             if not persisted_local:
                 Path(context_path).write_text(graph_json, encoding="utf-8")
-            print(f"[DEBUG _save_graph] Successfully saved to {context_path}", file=sys.stderr, flush=True)
-        except (OSError, IOError) as e:
-            print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
+        except (OSError, IOError):
             pass  # Best effort — don't fail the request if save fails
-        except Exception as e:
-            print(f"[DEBUG _save_graph] Save failed: {e}", file=sys.stderr, flush=True)
+        except Exception:
             pass
 
     # ── GitHub import endpoint ────────────────────────────────────────
@@ -5131,7 +5131,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         resp_body = json.dumps({"ok": True}).encode()
         self._respond(200, "application/json", resp_body, dashboard=True,
                       extra_headers={
-                          "Set-Cookie": f"cortex_app_session={token}; HttpOnly; SameSite=Strict; Path=/",
+                          "Set-Cookie": f"cortex_app_session={token}; HttpOnly; SameSite=Strict; Path=/{self._cookie_secure_suffix()}",
                       })
 
     def _handle_webapp_logout(self) -> None:
@@ -5155,7 +5155,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         resp_body = json.dumps({"ok": True}).encode()
         self._respond(200, "application/json", resp_body, dashboard=True,
                       extra_headers={
-                          "Set-Cookie": "cortex_app_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                          "Set-Cookie": f"cortex_app_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{self._cookie_secure_suffix()}",
                       })
 
     # ── Multi-user authentication ─────────────────────────────────
@@ -5201,7 +5201,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
             self._error_response(ERR_INTERNAL("Failed to create user account"))
             return
 
-        self._audit("user.signup", {"user_id": user.user_id, "email": user.email})
+        self._audit("user.signup", {"user_id": user.user_id})
         self._record_beta_metric("signup_success")
         self._json_response({
             "user_id": user.user_id,
@@ -5241,12 +5241,12 @@ class CaaSHandler(BaseHTTPRequestHandler):
         token, user, errors = mu_sm.login(request, ip_address=ip_address, user_agent=user_agent)
 
         if errors:
-            self._audit("user.login_failed", {"email": email})
+            self._audit("user.login_failed", {})
             self._respond(401, "application/json",
                           json.dumps({"error": {"type": "auth_error", "messages": errors}}).encode())
             return
 
-        self._audit("user.login", {"user_id": user.user_id, "email": user.email})
+        self._audit("user.login", {"user_id": user.user_id})
         resp_body = json.dumps({
             "user_id": user.user_id,
             "email": user.email,
@@ -5255,7 +5255,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         }).encode()
         self._respond(200, "application/json", resp_body,
                       extra_headers={
-                          "Set-Cookie": f"cortex_user_session={token}; HttpOnly; SameSite=Strict; Path=/",
+                          "Set-Cookie": f"cortex_user_session={token}; HttpOnly; SameSite=Strict; Path=/{self._cookie_secure_suffix()}",
                       })
 
     def _handle_user_logout(self) -> None:
@@ -5279,7 +5279,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         resp_body = json.dumps({"ok": True}).encode()
         self._respond(200, "application/json", resp_body,
                       extra_headers={
-                          "Set-Cookie": "cortex_user_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                          "Set-Cookie": f"cortex_user_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{self._cookie_secure_suffix()}",
                       })
 
     def _handle_get_current_user(self) -> None:
@@ -5463,7 +5463,7 @@ class CaaSHandler(BaseHTTPRequestHandler):
         resp_body = json.dumps({"ok": True}).encode()
         self._respond(200, "application/json", resp_body, dashboard=True,
                       extra_headers={
-                          "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Strict; Path=/dashboard",
+                          "Set-Cookie": f"cortex_session={token}; HttpOnly; SameSite=Strict; Path=/dashboard{self._cookie_secure_suffix()}",
                       })
 
     def _dashboard_auth_check(self, check_csrf: bool = False) -> bool:
@@ -6194,20 +6194,23 @@ def start_caas_server(
         if _cfg_default_mode in CaaSHandler.storage_modes:
             CaaSHandler.default_storage_mode = _cfg_default_mode
 
-    # HSTS (opt-in)
+    # HSTS + secure cookie behavior
     if config is not None:
         CaaSHandler.hsts_enabled = config.getbool("security", "hsts_enabled", fallback=False)
+        CaaSHandler.force_secure_cookies = config.getbool("security", "secure_cookies", fallback=False)
+    else:
+        CaaSHandler.force_secure_cookies = False
 
     # Rate limiters — tiered by default
     from cortex.caas.rate_limit import RateLimiter, TieredRateLimiter
     CaaSHandler.rate_limiter = TieredRateLimiter()
     CaaSHandler.login_rate_limiter = RateLimiter(max_requests=10, window=60)
     CaaSHandler.policy_registry = PolicyRegistry()
-    # CSRF: enable via config
+    # CSRF: enabled by default
     if config is not None:
         CaaSHandler.csrf_enabled = config.getbool("security", "csrf_enabled", fallback=True)
     else:
-        CaaSHandler.csrf_enabled = False  # off by default when no config provided
+        CaaSHandler.csrf_enabled = True
 
     # OAuth setup
     if oauth_providers:
@@ -6354,8 +6357,6 @@ def start_caas_server(
     CaaSHandler.store_dir = store_dir
     CaaSHandler.context_path = context_path
     CaaSHandler.admin_context_path = context_path
-    print(f"[DEBUG start_caas_server] Set CaaSHandler.context_path = {context_path}")
-    print(f"[DEBUG start_caas_server] Set CaaSHandler.store_dir = {store_dir}")
     if store_dir:
         from cortex.upai.keychain import Keychain
         CaaSHandler.keychain = Keychain(Path(store_dir))

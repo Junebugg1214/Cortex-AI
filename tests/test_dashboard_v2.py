@@ -275,6 +275,20 @@ class TestDashboardHTTPEndpoints:
         assert "HttpOnly" in cookie
         assert "SameSite=Strict" in cookie
 
+    def test_login_sets_secure_cookie_when_forwarded_https(self):
+        if self.port is None:
+            return
+        body, status, headers = _request(
+            self.port, "/dashboard/auth", method="POST",
+            body={"password": self.sm.password},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        assert status == 200
+        assert body.get("ok") is True
+        cookie = headers.get("Set-Cookie", headers.get("set-cookie", ""))
+        assert "cortex_session=" in cookie
+        assert "Secure" in cookie
+
     def test_login_failure(self):
         if self.port is None:
             return

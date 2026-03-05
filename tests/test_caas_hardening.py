@@ -12,7 +12,7 @@ import urllib.request
 from http.server import HTTPServer
 
 from cortex.caas.rate_limit import RateLimiter
-from cortex.caas.server import CaaSHandler, GrantStore, NonceCache
+from cortex.caas.server import CaaSHandler, GrantStore, NonceCache, start_caas_server
 from cortex.caas.storage import InMemoryAuditLog, JsonWebhookStore
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.upai.identity import UPAIIdentity, has_crypto
@@ -166,6 +166,31 @@ class TestRateLimiter:
         limiter._requests["old"] = [_time.monotonic() - 10]  # clearly expired
         limiter.cleanup()
         assert "old" not in limiter._requests
+
+
+class TestSecurityDefaults:
+
+    def test_csrf_enabled_without_config(self):
+        if not has_crypto():
+            return
+        identity = UPAIIdentity.generate("Test User")
+        graph = _build_test_graph()
+        server = start_caas_server(
+            graph=graph,
+            identity=identity,
+            port=0,
+            enable_webapp=True,
+        )
+        try:
+            assert CaaSHandler.csrf_enabled is True
+        finally:
+            if CaaSHandler.connector_auto_sync_worker is not None:
+                CaaSHandler.connector_auto_sync_worker.stop()
+                CaaSHandler.connector_auto_sync_worker = None
+            if CaaSHandler.webhook_worker is not None:
+                CaaSHandler.webhook_worker.stop()
+                CaaSHandler.webhook_worker = None
+            server.server_close()
 
 
 class TestRateLimitIntegration:
