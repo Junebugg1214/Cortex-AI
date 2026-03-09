@@ -184,6 +184,107 @@ def resolve_memory_conflict(graph: CortexGraph, conflict_id: str, action: str) -
             "nodes_removed": 0,
         }
 
+    if conflict.type == "tag_conflict" and action in {"accept-new", "keep-old"}:
+        node = graph.get_node(conflict.node_ids[0]) if conflict.node_ids else None
+        if node is None:
+            return {
+                "status": "error",
+                "error": "node_not_found",
+                "conflict_id": conflict_id,
+            }
+        chosen_tag = conflict.new_value if action == "accept-new" else conflict.old_value
+        dropped_tag = conflict.old_value if action == "accept-new" else conflict.new_value
+        node.tags = [tag for tag in node.tags if tag != dropped_tag]
+        if chosen_tag and chosen_tag not in node.tags:
+            node.tags.append(chosen_tag)
+        return {
+            "status": "ok",
+            "conflict_id": conflict_id,
+            "action": action,
+            "nodes_updated": 1,
+            "nodes_removed": 0,
+        }
+
+    if conflict.type == "temporal_flip" and action in {"accept-new", "keep-old"}:
+        node = graph.get_node(conflict.node_ids[0]) if conflict.node_ids else None
+        if node is None:
+            return {
+                "status": "error",
+                "error": "node_not_found",
+                "conflict_id": conflict_id,
+            }
+        chosen = conflict.new_value if action == "accept-new" else conflict.old_value
+        try:
+            node.confidence = float(chosen)
+        except (TypeError, ValueError):
+            return {
+                "status": "error",
+                "error": "invalid_confidence",
+                "conflict_id": conflict_id,
+            }
+        return {
+            "status": "ok",
+            "conflict_id": conflict_id,
+            "action": action,
+            "nodes_updated": 1,
+            "nodes_removed": 0,
+        }
+
+    if conflict.type == "source_conflict":
+        nodes = [graph.get_node(node_id) for node_id in conflict.node_ids]
+        nodes = [node for node in nodes if node is not None]
+        if not nodes:
+            return {
+                "status": "error",
+                "error": "node_not_found",
+                "conflict_id": conflict_id,
+            }
+
+        def _latest_ts(node: Node) -> str:
+            return max((snap.get("timestamp", "") for snap in node.snapshots), default="")
+
+        def _earliest_ts(node: Node) -> str:
+            return min((snap.get("timestamp", "") for snap in node.snapshots), default="")
+
+        if action == "merge":
+            target = max(nodes, key=lambda node: (node.confidence, _latest_ts(node)))
+        elif action == "accept-new":
+            target = max(nodes, key=_latest_ts)
+        elif action == "keep-old":
+            target = min(nodes, key=_earliest_ts)
+        else:
+            target = None
+
+        if target is not None:
+            removed_ids = []
+            for node in nodes:
+                if node.id == target.id:
+                    continue
+                target.tags = list(dict.fromkeys(target.tags + node.tags))
+                target.metrics = list(dict.fromkeys(target.metrics + node.metrics))
+                target.timeline = list(dict.fromkeys(target.timeline + node.timeline))
+                target.source_quotes = list(dict.fromkeys(target.source_quotes + node.source_quotes))
+                target.snapshots = sorted(
+                    target.snapshots + node.snapshots,
+                    key=lambda snap: snap.get("timestamp", ""),
+                )
+                if len(node.brief) > len(target.brief):
+                    target.brief = node.brief
+                if len(node.full_description) > len(target.full_description):
+                    target.full_description = node.full_description
+                for key, value in node.properties.items():
+                    target.properties.setdefault(key, value)
+                removed_ids.append(node.id)
+            nodes_removed = graph.remove_nodes(removed_ids)
+            return {
+                "status": "ok",
+                "conflict_id": conflict_id,
+                "action": action,
+                "nodes_updated": 1,
+                "nodes_removed": nodes_removed,
+                "target_node_id": target.id,
+            }
+
     return {
         "status": "error",
         "error": "not_yet_supported",

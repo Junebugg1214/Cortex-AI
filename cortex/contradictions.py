@@ -180,8 +180,16 @@ class ContradictionEngine:
                         detected_at=now,
                         resolution="prefer_newer",
                         node_label=node.label,
+                        old_value=str(confidences[0]),
+                        new_value=str(confidences[-1]),
                         source_quotes=list(node.source_quotes),
-                        metadata={"direction_changes": direction_changes},
+                        metadata={
+                            "direction_changes": direction_changes,
+                            "first_confidence": confidences[0],
+                            "last_confidence": confidences[-1],
+                            "latest_timestamp": sorted_snaps[-1].get("timestamp", ""),
+                            "earliest_timestamp": sorted_snaps[0].get("timestamp", ""),
+                        },
                     )
                 )
 
@@ -226,6 +234,14 @@ class ContradictionEngine:
             unique_hashes = set(per_source_latest.values())
             if len(unique_hashes) >= 2:
                 node_ids = [n.id for n in nodes]
+                newest_node = max(
+                    nodes,
+                    key=lambda n: max((snap.get("timestamp", "") for snap in n.snapshots), default=""),
+                )
+                oldest_node = min(
+                    nodes,
+                    key=lambda n: min((snap.get("timestamp", "") for snap in n.snapshots), default=""),
+                )
                 severity = min(1.0, 0.5 + (len(unique_hashes) * 0.15))
                 contradictions.append(
                     Contradiction(
@@ -241,7 +257,12 @@ class ContradictionEngine:
                         resolution="prefer_higher_confidence",
                         node_label=nodes[0].label,
                         source_quotes=list(nodes[0].source_quotes),
-                        metadata={"sources": sorted(source_latest), "hashes": sorted(unique_hashes)},
+                        metadata={
+                            "sources": sorted(source_latest),
+                            "hashes": sorted(unique_hashes),
+                            "newest_node_id": newest_node.id,
+                            "oldest_node_id": oldest_node.id,
+                        },
                     )
                 )
 

@@ -109,3 +109,67 @@ def test_resolve_memory_conflict_unknown_id():
     result = resolve_memory_conflict(graph, "missing", "ignore")
     assert result["status"] == "error"
     assert result["error"] == "conflict_not_found"
+
+
+def test_resolve_tag_conflict_accept_new():
+    graph = CortexGraph()
+    node = Node(
+        id=make_node_id("Java"),
+        label="Java",
+        tags=["technical_expertise"],
+        snapshots=[
+            {"timestamp": "2025-01-01T00:00:00Z", "tags": ["technical_expertise"]},
+            {"timestamp": "2025-02-01T00:00:00Z", "tags": ["negations"]},
+        ],
+    )
+    graph.add_node(node)
+    conflict = list_memory_conflicts(graph)[0]
+    result = resolve_memory_conflict(graph, conflict.id, "accept-new")
+    assert result["status"] == "ok"
+    assert "negations" in graph.get_node(node.id).tags
+
+
+def test_resolve_temporal_flip_accept_new():
+    graph = CortexGraph()
+    node = Node(
+        id=make_node_id("Python"),
+        label="Python",
+        tags=["technical_expertise"],
+        snapshots=[
+            {"timestamp": "2025-01-01T00:00:00Z", "confidence": 0.2, "tags": ["technical_expertise"]},
+            {"timestamp": "2025-02-01T00:00:00Z", "confidence": 0.8, "tags": ["technical_expertise"]},
+            {"timestamp": "2025-03-01T00:00:00Z", "confidence": 0.3, "tags": ["technical_expertise"]},
+            {"timestamp": "2025-04-01T00:00:00Z", "confidence": 0.9, "tags": ["technical_expertise"]},
+        ],
+    )
+    graph.add_node(node)
+    conflict = next(item for item in list_memory_conflicts(graph) if item.type == "temporal_flip")
+    result = resolve_memory_conflict(graph, conflict.id, "accept-new")
+    assert result["status"] == "ok"
+    assert graph.get_node(node.id).confidence == 0.9
+
+
+def test_resolve_source_conflict_merge():
+    graph = CortexGraph()
+    node_a = Node(
+        id=make_node_id("Go"),
+        label="Go",
+        tags=["technical_expertise"],
+        confidence=0.7,
+        snapshots=[{"timestamp": "2025-01-01T00:00:00Z", "source": "a", "description_hash": "h1"}],
+        source_quotes=["older quote"],
+    )
+    node_b = Node(
+        id=make_node_id("Go") + "x",
+        label="Go",
+        tags=["domain_knowledge"],
+        confidence=0.9,
+        snapshots=[{"timestamp": "2025-02-01T00:00:00Z", "source": "b", "description_hash": "h2"}],
+        source_quotes=["newer quote"],
+    )
+    graph.add_node(node_a)
+    graph.add_node(node_b)
+    conflict = next(item for item in list_memory_conflicts(graph) if item.type == "source_conflict")
+    result = resolve_memory_conflict(graph, conflict.id, "merge")
+    assert result["status"] == "ok"
+    assert len(graph.find_nodes(label="Go")) == 1
