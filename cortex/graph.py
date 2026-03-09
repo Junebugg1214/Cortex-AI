@@ -314,6 +314,13 @@ class CortexGraph:
         self._invalidate_adjacency()
         return True
 
+    def remove_nodes(self, node_ids: list[str]) -> int:
+        removed = 0
+        for node_id in node_ids:
+            if self.remove_node(node_id):
+                removed += 1
+        return removed
+
     def remove_edge(self, edge_id: str) -> bool:
         if edge_id not in self.edges:
             return False
@@ -409,6 +416,13 @@ class CortexGraph:
                 continue
             results.append(node)
         return results
+
+    def find_node_ids_by_label(self, label: str) -> list[str]:
+        norm_label = _normalize_label(label)
+        return sorted(node.id for node in self.nodes.values() if _normalize_label(node.label) == norm_label)
+
+    def find_node_ids_by_tag(self, tag: str) -> list[str]:
+        return sorted(node.id for node in self.nodes.values() if tag in node.tags)
 
     def get_neighbors(self, node_id: str, relation: str | None = None) -> list[tuple[Edge, Node]]:
         adj = self._get_adjacency()

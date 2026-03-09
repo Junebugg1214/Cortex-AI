@@ -10,8 +10,10 @@ Four detector types:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from cortex.graph import CortexGraph, Node, _normalize_label
 
@@ -50,12 +52,39 @@ _CONTRADICTORY_TAG_PAIRS = [
 
 @dataclass
 class Contradiction:
+    id: str
     type: str  # "negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"
     node_ids: list[str]
     severity: float  # 0.0-1.0
     description: str
     detected_at: str  # ISO-8601
     resolution: str  # "prefer_newer", "prefer_higher_confidence", "needs_review"
+    node_label: str = ""
+    old_value: str = ""
+    new_value: str = ""
+    source_quotes: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "node_ids": list(self.node_ids),
+            "severity": self.severity,
+            "description": self.description,
+            "detected_at": self.detected_at,
+            "resolution": self.resolution,
+            "node_label": self.node_label,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "source_quotes": list(self.source_quotes or []),
+            "metadata": dict(self.metadata or {}),
+        }
+
+
+def _make_conflict_id(kind: str, node_ids: list[str], description: str) -> str:
+    payload = f"{kind}:{','.join(sorted(node_ids))}:{description.strip().lower()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 class ContradictionEngine:
@@ -94,12 +123,18 @@ class ContradictionEngine:
             severity = min(1.0, 0.6 + (node.confidence * 0.4))
             contradictions.append(
                 Contradiction(
+                    id=_make_conflict_id("negation_conflict", [node.id], node.label),
                     type="negation_conflict",
                     node_ids=[node.id],
                     severity=round(severity, 2),
                     description=(f"Node '{node.label}' has both negation and positive tags: {positive_tags}"),
                     detected_at=now,
                     resolution="needs_review",
+                    node_label=node.label,
+                    old_value=", ".join(positive_tags),
+                    new_value="negations",
+                    source_quotes=list(node.source_quotes),
+                    metadata={"positive_tags": positive_tags},
                 )
             )
 
@@ -134,6 +169,7 @@ class ContradictionEngine:
                 severity = min(1.0, 0.4 + (direction_changes * 0.2))
                 contradictions.append(
                     Contradiction(
+                        id=_make_conflict_id("temporal_flip", [node.id], node.label),
                         type="temporal_flip",
                         node_ids=[node.id],
                         severity=round(severity, 2),
@@ -143,6 +179,9 @@ class ContradictionEngine:
                         ),
                         detected_at=now,
                         resolution="prefer_newer",
+                        node_label=node.label,
+                        source_quotes=list(node.source_quotes),
+                        metadata={"direction_changes": direction_changes},
                     )
                 )
 
@@ -190,6 +229,7 @@ class ContradictionEngine:
                 severity = min(1.0, 0.5 + (len(unique_hashes) * 0.15))
                 contradictions.append(
                     Contradiction(
+                        id=_make_conflict_id("source_conflict", node_ids, nodes[0].label),
                         type="source_conflict",
                         node_ids=node_ids,
                         severity=round(severity, 2),
@@ -199,6 +239,9 @@ class ContradictionEngine:
                         ),
                         detected_at=now,
                         resolution="prefer_higher_confidence",
+                        node_label=nodes[0].label,
+                        source_quotes=list(nodes[0].source_quotes),
+                        metadata={"sources": sorted(source_latest), "hashes": sorted(unique_hashes)},
                     )
                 )
 
@@ -231,6 +274,7 @@ class ContradictionEngine:
                         severity = 0.7
                         contradictions.append(
                             Contradiction(
+                                id=_make_conflict_id("tag_conflict", [node.id], f"{node.label}:{pos_tag}:{neg_tag}"),
                                 type="tag_conflict",
                                 node_ids=[node.id],
                                 severity=severity,
@@ -239,6 +283,10 @@ class ContradictionEngine:
                                 ),
                                 detected_at=now,
                                 resolution="prefer_newer",
+                                node_label=node.label,
+                                old_value=pos_tag,
+                                new_value=neg_tag,
+                                source_quotes=list(node.source_quotes),
                             )
                         )
                     # Was in negation, moved to positive
@@ -246,6 +294,7 @@ class ContradictionEngine:
                         severity = 0.6
                         contradictions.append(
                             Contradiction(
+                                id=_make_conflict_id("tag_conflict", [node.id], f"{node.label}:{neg_tag}:{pos_tag}"),
                                 type="tag_conflict",
                                 node_ids=[node.id],
                                 severity=severity,
@@ -254,6 +303,10 @@ class ContradictionEngine:
                                 ),
                                 detected_at=now,
                                 resolution="prefer_newer",
+                                node_label=node.label,
+                                old_value=neg_tag,
+                                new_value=pos_tag,
+                                source_quotes=list(node.source_quotes),
                             )
                         )
 

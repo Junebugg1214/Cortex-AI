@@ -35,6 +35,13 @@ from cortex.import_memory import (
     export_summary,
     export_system_prompt,
 )
+from cortex.memory_ops import (
+    forget_nodes,
+    list_memory_conflicts,
+    resolve_memory_conflict,
+    set_memory_node,
+    show_memory_nodes,
+)
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -204,6 +211,57 @@ def build_parser():
     imp.add_argument("--confidence", "-c", choices=["high", "medium", "low", "all"], default="medium")
     imp.add_argument("--dry-run", action="store_true")
     imp.add_argument("--verbose", "-v", action="store_true")
+
+    mem = sub.add_parser("memory", help="Inspect and edit local memory graph")
+    mem_sub = mem.add_subparsers(dest="memory_subcommand")
+
+    mem_conf = mem_sub.add_parser("conflicts", help="List memory conflicts")
+    mem_conf.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_conf.add_argument("--severity", type=float, default=0.0, help="Minimum severity threshold (0.0-1.0)")
+    mem_conf.add_argument("--format", choices=["json", "text"], default="text")
+
+    mem_show = mem_sub.add_parser("show", help="Show memory nodes")
+    mem_show.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_show.add_argument("--label", help="Exact node label")
+    mem_show.add_argument("--tag", help="Filter by tag")
+    mem_show.add_argument("--limit", type=int, default=20, help="Max nodes to show")
+    mem_show.add_argument("--format", choices=["json", "text"], default="text")
+
+    mem_forget = mem_sub.add_parser("forget", help="Forget memory nodes")
+    mem_forget.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_forget.add_argument("--node-id", help="Delete by node ID")
+    mem_forget.add_argument("--label", help="Delete by exact label")
+    mem_forget.add_argument("--tag", help="Delete all nodes with tag")
+    mem_forget.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    mem_forget.add_argument("--commit-message", help="Optional version commit message")
+    mem_forget.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mem_forget.add_argument("--format", choices=["json", "text"], default="text")
+
+    mem_set = mem_sub.add_parser("set", help="Create or update a memory node")
+    mem_set.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_set.add_argument("--label", required=True, help="Node label")
+    mem_set.add_argument("--tag", action="append", required=True, help="Tag to apply (repeatable)")
+    mem_set.add_argument("--brief", default="", help="Short summary")
+    mem_set.add_argument("--description", default="", help="Long description")
+    mem_set.add_argument("--property", action="append", help="Node property key=value (repeatable)")
+    mem_set.add_argument("--confidence", type=float, default=0.95, help="Confidence score")
+    mem_set.add_argument("--replace-label", help="Update first node matching this label")
+    mem_set.add_argument("--commit-message", help="Optional version commit message")
+    mem_set.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mem_set.add_argument("--format", choices=["json", "text"], default="text")
+
+    mem_resolve = mem_sub.add_parser("resolve", help="Resolve a memory conflict")
+    mem_resolve.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_resolve.add_argument("--conflict-id", required=True, help="Conflict ID from memory conflicts")
+    mem_resolve.add_argument(
+        "--action",
+        required=True,
+        choices=["accept-new", "keep-old", "merge", "ignore"],
+        help="Resolution action",
+    )
+    mem_resolve.add_argument("--commit-message", help="Optional version commit message")
+    mem_resolve.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mem_resolve.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- query (Phase 1 + Phase 5) -----------------------------------------
     qry = sub.add_parser("query", help="Query a context/graph file")
@@ -830,6 +888,44 @@ def _load_graph(input_path: Path) -> CortexGraph:
     return upgrade_v4_to_v5(data)
 
 
+def _save_graph(graph: CortexGraph, output_path: Path) -> None:
+    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+
+def _parse_properties(items: list[str] | None) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in items or []:
+        if "=" not in item:
+            print(f"Invalid property: {item!r} (expected key=value)", file=sys.stderr)
+            raise SystemExit(1)
+        key, value = item.split("=", 1)
+        result[key] = value
+    return result
+
+
+def _load_identity(store_dir: Path) -> UPAIIdentity | None:
+    id_path = store_dir / "identity.json"
+    if id_path.exists():
+        return UPAIIdentity.load(store_dir)
+    return None
+
+
+def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None) -> str | None:
+    if not message:
+        return None
+    store = VersionStore(store_dir)
+    identity = _load_identity(store_dir)
+    version = store.commit(graph, message, source="manual", identity=identity)
+    return version.version_id
+
+
+def _emit_result(result, output_format: str) -> int:
+    if output_format == "json":
+        print(json.dumps(result, indent=2))
+        return 0
+    return -1
+
+
 def run_timeline(args):
     """Generate a timeline from a context/graph file."""
     input_path = Path(args.input_file)
@@ -845,6 +941,111 @@ def run_timeline(args):
         print(gen.to_html(events))
     else:
         print(gen.to_markdown(events))
+    return 0
+
+
+def run_memory_conflicts(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    conflicts = [item.to_dict() for item in list_memory_conflicts(graph, min_severity=args.severity)]
+    if _emit_result({"conflicts": conflicts}, args.format) == 0:
+        return 0
+    if not conflicts:
+        print("No memory conflicts.")
+        return 0
+    print(f"Found {len(conflicts)} memory conflict(s):")
+    for conflict in conflicts:
+        print(f"  {conflict['id']} [{conflict['type']}] severity={conflict['severity']:.2f}")
+        print(f"    {conflict['summary']}")
+    return 0
+
+
+def run_memory_show(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    nodes = show_memory_nodes(graph, label=args.label, tag=args.tag, limit=args.limit)
+    if _emit_result({"nodes": nodes}, args.format) == 0:
+        return 0
+    if not nodes:
+        print("No matching memory nodes.")
+        return 0
+    for node in nodes:
+        print(f"{node['label']} ({node['id']})")
+        print(f"  Tags: {', '.join(node['tags'])}")
+        print(f"  Confidence: {node['confidence']:.2f}")
+        if node.get("brief"):
+            print(f"  Brief: {node['brief']}")
+    return 0
+
+
+def run_memory_forget(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    result = forget_nodes(graph, node_id=args.node_id, label=args.label, tag=args.tag, dry_run=args.dry_run)
+    if not args.dry_run:
+        _save_graph(graph, input_path)
+        commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+        if commit_id:
+            result["commit_id"] = commit_id
+    if _emit_result(result, args.format) == 0:
+        return 0
+    print(f"Removed {result['nodes_removed']} node(s).")
+    return 0
+
+
+def run_memory_set(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    result = set_memory_node(
+        graph,
+        label=args.label,
+        tags=args.tag,
+        brief=args.brief,
+        description=args.description,
+        properties=_parse_properties(args.property),
+        confidence=args.confidence,
+        replace_label=args.replace_label,
+    )
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    if commit_id:
+        result["commit_id"] = commit_id
+    if _emit_result(result, args.format) == 0:
+        return 0
+    print(f"{'Created' if result['created'] else 'Updated'} node {result['node_id']}.")
+    return 0
+
+
+def run_memory_resolve(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    result = resolve_memory_conflict(graph, args.conflict_id, args.action)
+    if result.get("status") == "ok" and args.action != "ignore":
+        _save_graph(graph, input_path)
+        commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+        if commit_id:
+            result["commit_id"] = commit_id
+    if _emit_result(result, args.format) == 0:
+        return 0
+    if result.get("status") != "ok":
+        print(f"Error: {result.get('error', 'unknown error')}")
+        return 1
+    print(f"Resolved {result['conflict_id']} with action {result['action']}.")
     return 0
 
 
@@ -1700,6 +1901,7 @@ def main(argv=None):
     known_subcommands = (
         "extract",
         "import",
+        "memory",
         "migrate",
         "query",
         "stats",
@@ -1740,6 +1942,19 @@ def main(argv=None):
         return run_extract(args)
     elif args.subcommand == "import":
         return run_import(args)
+    elif args.subcommand == "memory":
+        if args.memory_subcommand == "conflicts":
+            return run_memory_conflicts(args)
+        elif args.memory_subcommand == "show":
+            return run_memory_show(args)
+        elif args.memory_subcommand == "forget":
+            return run_memory_forget(args)
+        elif args.memory_subcommand == "set":
+            return run_memory_set(args)
+        elif args.memory_subcommand == "resolve":
+            return run_memory_resolve(args)
+        print("Specify a memory subcommand: conflicts, show, forget, set, resolve")
+        return 1
     elif args.subcommand == "query":
         return run_query(args)
     elif args.subcommand == "stats":

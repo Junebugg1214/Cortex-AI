@@ -47,6 +47,8 @@ cortex query context.json --node "Python"
 cortex timeline context.json --format md
 cortex contradictions context.json
 cortex identity --init --name "Your Name"
+cortex memory show context.json --tag technical_expertise
+cortex memory set context.json --label "Response Style" --tag communication_preferences --brief "Prefers concise answers"
 ```
 
 ## Repository Layout
