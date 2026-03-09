@@ -4,7 +4,7 @@ Chatbot Memory — end-to-end example.
 
 Demonstrates the full Cortex pipeline:
 1. Extract context from a chat export
-2. Serve it via CaaS
+2. Load it into a graph
 3. Query the knowledge graph
 
 Prerequisites:
@@ -70,8 +70,8 @@ def main():
     stats = graph.get_stats()
     print(f"5. Stats: {stats}")
 
-    print("\nDone! To serve via HTTP, run:")
-    print(f"  cortex serve {export_path}")
+    print("\nDone! To continue with the CLI, run:")
+    print(f"  cortex extract {export_path} -o context.json")
 
 
 if __name__ == "__main__":

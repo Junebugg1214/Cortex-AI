@@ -519,7 +519,6 @@ class TestExportFormats:
         assert "query_engine" in v5["meta"]["features"]
         assert "intelligence" in v5["meta"]["features"]
         assert "visualization" in v5["meta"]["features"]
-        assert "dashboard" in v5["meta"]["features"]
 
     def test_v4_categories_include_relationship_labels(self):
         g = self._sample_graph()

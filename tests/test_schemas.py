@@ -19,7 +19,6 @@ from cortex.upai.schemas import (
     DISCLOSURE_POLICY_SCHEMA,
     EDGE_SCHEMA,
     ENVELOPE_SCHEMA,
-    GRANT_TOKEN_SCHEMA,
     GRAPH_SCHEMA,
     IDENTITY_SCHEMA,
     NODE_SCHEMA,
@@ -77,20 +76,6 @@ def _good_identity() -> dict:
     }
 
 
-def _good_grant_token() -> dict:
-    return {
-        "grant_id": "g-12345",
-        "subject_did": "did:key:z6MkTest",
-        "issuer_did": "did:key:z6MkTest",
-        "audience": "Claude",
-        "policy": "professional",
-        "scopes": ["context:read"],
-        "issued_at": "2024-01-01T00:00:00+00:00",
-        "expires_at": "2024-01-02T00:00:00+00:00",
-        "not_before": "",
-    }
-
-
 def _good_version() -> dict:
     return {
         "version_id": "abcd1234abcd1234abcd1234abcd1234",
@@ -144,9 +129,6 @@ class TestSchemaPositive:
 
     def test_identity_valid(self):
         assert is_valid(_good_identity(), IDENTITY_SCHEMA)
-
-    def test_grant_token_valid(self):
-        assert is_valid(_good_grant_token(), GRANT_TOKEN_SCHEMA)
 
     def test_version_valid(self):
         assert is_valid(_good_version(), VERSION_SCHEMA)
@@ -242,24 +224,6 @@ class TestSchemaNegative:
         errors = validate(d, IDENTITY_SCHEMA)
         assert any("pattern" in e for e in errors)
 
-    def test_grant_token_missing_scopes(self):
-        d = _good_grant_token()
-        del d["scopes"]
-        errors = validate(d, GRANT_TOKEN_SCHEMA)
-        assert any("scopes" in e for e in errors)
-
-    def test_grant_token_empty_scopes(self):
-        d = _good_grant_token()
-        d["scopes"] = []
-        errors = validate(d, GRANT_TOKEN_SCHEMA)
-        assert any("minItems" in e for e in errors)
-
-    def test_grant_token_bad_policy(self):
-        d = _good_grant_token()
-        d["policy"] = "nonexistent"
-        errors = validate(d, GRANT_TOKEN_SCHEMA)
-        assert any("enum" in e for e in errors)
-
     def test_version_short_hash(self):
         d = _good_version()
         d["graph_hash"] = "tooshort"
@@ -344,11 +308,8 @@ class TestSchemaRegistry:
     def test_all_schemas_present(self):
         expected = {
             "node", "edge", "graph", "identity", "envelope",
-            "grant_token", "disclosure_policy", "version", "did_document",
-            "credential", "credential_proof",
+            "disclosure_policy", "version", "did_document",
             "work_history_properties", "education_history_properties",
-            "attestation_request", "employment_attestation_claims",
-            "skill_endorsement_claims", "reference_attestation_claims",
         }
         assert set(SCHEMAS.keys()) == expected
 

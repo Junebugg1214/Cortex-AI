@@ -10,13 +10,9 @@ import copy
 import re
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
 from cortex.graph import CortexGraph
-
-if TYPE_CHECKING:
-    from cortex.caas.storage import AbstractPolicyStore
-
 
 @dataclass
 class DisclosurePolicy:
@@ -72,7 +68,7 @@ _POLICY_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,63}$")
 class PolicyRegistry:
     """Thread-safe registry that wraps built-in + custom disclosure policies."""
 
-    def __init__(self, store: AbstractPolicyStore | None = None) -> None:
+    def __init__(self, store: Any | None = None) -> None:
         self._custom: dict[str, DisclosurePolicy] = {}
         self._lock = threading.Lock()
         self._store = store

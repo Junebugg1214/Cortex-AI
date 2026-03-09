@@ -2,14 +2,14 @@
 
 Own your AI ID.
 
-Cortex is a CLI-first toolkit for portable AI memory and identity.
-You control your data and run it on your own infrastructure.
+Cortex is a CLI-only toolkit for portable AI memory and identity.
+You control your data and work with local files you can inspect and version.
 
 ## Open Source Scope
 
-- CLI + self-host workflows
-- No hosted data model in this release
-- Designed for developer-owned storage and portability
+- Local CLI workflows only
+- No HTTP server, web app, hosted backend, or SDK surface
+- Designed for developer-owned files, portability, and versioned graph history
 
 ## Install
 
@@ -22,7 +22,6 @@ Extras:
 ```bash
 pip install cortex-identity[crypto]
 pip install cortex-identity[fast]
-pip install cortex-identity[postgres]
 pip install cortex-identity[full]
 ```
 
@@ -50,12 +49,11 @@ cortex contradictions context.json
 cortex identity --init --name "Your Name"
 ```
 
-## Documentation
+## Repository Layout
 
-- Python quickstart: `docs/quickstart-python.md`
-- Security model: `docs/security.md`
-- Threat model: `docs/threat-model.md`
-- API spec: `spec/openapi.json`
+- `cortex/`: core CLI, graph, extraction, import/export, identity, and versioning code
+- `examples/chatbot-memory/`: simple local end-to-end example
+- `tests/`: CLI/core-library test suite
 
 ## License
 

@@ -4,7 +4,7 @@ UPAI JSON Schemas — Draft-07 schema dicts + stdlib-only validator.
 Covers all UPAI data structures:
 - Node, Edge, CortexGraph (v5/v6 export)
 - Identity, DID Document
-- Signed envelopes, grant tokens
+- Signed envelopes
 - Disclosure policies, context versions
 """
 
@@ -118,32 +118,6 @@ ENVELOPE_SCHEMA: dict = {
     },
 }
 
-GRANT_TOKEN_SCHEMA: dict = {
-    "type": "object",
-    "required": [
-        "grant_id", "subject_did", "issuer_did",
-        "audience", "policy", "scopes", "issued_at", "expires_at",
-    ],
-    "properties": {
-        "grant_id": {"type": "string", "minLength": 1},
-        "subject_did": {"type": "string", "pattern": r"^did:"},
-        "issuer_did": {"type": "string", "pattern": r"^did:"},
-        "audience": {"type": "string", "minLength": 1},
-        "policy": {
-            "type": "string",
-            "enum": ["full", "professional", "technical", "minimal"],
-        },
-        "scopes": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-        },
-        "issued_at": {"type": "string", "minLength": 1},
-        "expires_at": {"type": "string", "minLength": 1},
-        "not_before": {"type": "string"},
-    },
-}
-
 DISCLOSURE_POLICY_SCHEMA: dict = {
     "type": "object",
     "required": ["name", "include_tags", "exclude_tags", "min_confidence", "redact_properties"],
@@ -225,42 +199,6 @@ DID_DOCUMENT_SCHEMA: dict = {
     },
 }
 
-CREDENTIAL_PROOF_SCHEMA: dict = {
-    "type": "object",
-    "required": ["type", "created", "verificationMethod", "proofPurpose", "proofValue"],
-    "properties": {
-        "type": {"type": "string", "minLength": 1},
-        "created": {"type": "string", "minLength": 1},
-        "verificationMethod": {"type": "string", "minLength": 1},
-        "proofPurpose": {"type": "string", "enum": ["assertionMethod", "authentication"]},
-        "proofValue": {"type": "string", "minLength": 1},
-    },
-}
-
-CREDENTIAL_SCHEMA: dict = {
-    "type": "object",
-    "required": ["@context", "id", "type", "issuer", "issuanceDate", "credentialSubject", "proof"],
-    "properties": {
-        "@context": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "id": {"type": "string", "minLength": 1},
-        "type": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "issuer": {"type": "string", "pattern": r"^did:"},
-        "issuanceDate": {"type": "string", "minLength": 1},
-        "expirationDate": {"type": "string"},
-        "credentialSubject": {
-            "type": "object",
-            "required": ["id"],
-            "properties": {
-                "id": {"type": "string", "pattern": r"^did:"},
-            },
-        },
-        "proof": CREDENTIAL_PROOF_SCHEMA,
-        "status": {"type": "string", "enum": ["active", "revoked", "expired"]},
-        "boundNodeId": {"type": "string"},
-    },
-}
-
-
 WORK_HISTORY_PROPERTIES_SCHEMA: dict = {
     "type": "object",
     "required": ["employer", "role", "start_date"],
@@ -296,62 +234,6 @@ EDUCATION_HISTORY_PROPERTIES_SCHEMA: dict = {
     },
 }
 
-ATTESTATION_REQUEST_SCHEMA: dict = {
-    "type": "object",
-    "required": ["request_id", "subject_did", "attestor_did", "attestation_type", "proposed_claims"],
-    "properties": {
-        "request_id": {"type": "string", "minLength": 1},
-        "subject_did": {"type": "string", "pattern": r"^did:"},
-        "attestor_did": {"type": "string", "pattern": r"^did:"},
-        "attestation_type": {
-            "type": "string",
-            "enum": ["EmploymentAttestation", "SkillEndorsement", "ReferenceAttestation"],
-        },
-        "bound_node_id": {"type": "string"},
-        "proposed_claims": {"type": "object"},
-        "created_at": {"type": "string"},
-    },
-}
-
-EMPLOYMENT_ATTESTATION_CLAIMS_SCHEMA: dict = {
-    "type": "object",
-    "required": ["subject_name", "employer", "role", "relationship"],
-    "properties": {
-        "subject_name": {"type": "string", "minLength": 1},
-        "employer": {"type": "string", "minLength": 1},
-        "role": {"type": "string", "minLength": 1},
-        "relationship": {"type": "string", "minLength": 1},
-        "start_date": {"type": "string"},
-        "end_date": {"type": "string"},
-        "description": {"type": "string"},
-    },
-}
-
-SKILL_ENDORSEMENT_CLAIMS_SCHEMA: dict = {
-    "type": "object",
-    "required": ["subject_name", "skill", "proficiency_level"],
-    "properties": {
-        "subject_name": {"type": "string", "minLength": 1},
-        "skill": {"type": "string", "minLength": 1},
-        "proficiency_level": {"type": "string", "minLength": 1},
-        "context": {"type": "string"},
-        "years_experience": {"type": "string"},
-    },
-}
-
-REFERENCE_ATTESTATION_CLAIMS_SCHEMA: dict = {
-    "type": "object",
-    "required": ["subject_name", "relationship", "reference_text"],
-    "properties": {
-        "subject_name": {"type": "string", "minLength": 1},
-        "relationship": {"type": "string", "minLength": 1},
-        "reference_text": {"type": "string", "minLength": 1},
-        "employer": {"type": "string"},
-        "duration": {"type": "string"},
-    },
-}
-
-
 # Schema registry
 SCHEMAS: dict[str, dict] = {
     "node": NODE_SCHEMA,
@@ -359,18 +241,11 @@ SCHEMAS: dict[str, dict] = {
     "graph": GRAPH_SCHEMA,
     "identity": IDENTITY_SCHEMA,
     "envelope": ENVELOPE_SCHEMA,
-    "grant_token": GRANT_TOKEN_SCHEMA,
     "disclosure_policy": DISCLOSURE_POLICY_SCHEMA,
     "version": VERSION_SCHEMA,
     "did_document": DID_DOCUMENT_SCHEMA,
-    "credential": CREDENTIAL_SCHEMA,
-    "credential_proof": CREDENTIAL_PROOF_SCHEMA,
     "work_history_properties": WORK_HISTORY_PROPERTIES_SCHEMA,
     "education_history_properties": EDUCATION_HISTORY_PROPERTIES_SCHEMA,
-    "attestation_request": ATTESTATION_REQUEST_SCHEMA,
-    "employment_attestation_claims": EMPLOYMENT_ATTESTATION_CLAIMS_SCHEMA,
-    "skill_endorsement_claims": SKILL_ENDORSEMENT_CLAIMS_SCHEMA,
-    "reference_attestation_claims": REFERENCE_ATTESTATION_CLAIMS_SCHEMA,
 }
 
 

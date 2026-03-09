@@ -242,7 +242,7 @@ class TestDidDocumentCompliance:
             return
         identity = UPAIIdentity.generate("Test")
         services = [
-            {"id": f"{identity.did}#caas", "type": "ContextService", "serviceEndpoint": "http://localhost:8421"}
+            {"id": f"{identity.did}#context", "type": "ContextService", "serviceEndpoint": "file:///tmp/context.json"}
         ]
         doc = identity.to_did_document(service_endpoints=services)
         assert "service" in doc

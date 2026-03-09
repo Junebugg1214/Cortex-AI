@@ -1,5 +1,5 @@
 """
-UPAI Error Code Registry — Structured error responses for CaaS API.
+UPAI Error Code Registry — Structured error responses for local CLI and library workflows.
 
 Error codes follow the pattern:
 - UPAI-4xxx: Client errors

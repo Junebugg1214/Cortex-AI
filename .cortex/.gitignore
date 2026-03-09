@@ -1,5 +1,7 @@
 identity.key
 identity.json
 api_keys.json
+beta_metrics.json
+storage_prefs.json
 *.key
 *.pem
