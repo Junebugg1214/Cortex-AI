@@ -93,3 +93,27 @@ def test_memory_resolve_ignore(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert out["status"] == "ok"
+
+
+def test_contradictions_json(tmp_path, capsys):
+    graph = CortexGraph()
+    graph.add_node(Node(id=make_node_id("Rust"), label="Rust", tags=["technical_expertise", "negations"]))
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    rc = main(["contradictions", str(graph_path), "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["contradictions"]
+    assert out["contradictions"][0]["id"]
+
+
+def test_contradictions_json_empty(tmp_path, capsys):
+    graph = CortexGraph()
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    rc = main(["contradictions", str(graph_path), "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out == {"contradictions": []}

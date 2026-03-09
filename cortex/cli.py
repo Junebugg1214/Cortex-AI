@@ -302,6 +302,7 @@ def build_parser():
         choices=["negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"],
         help="Filter by contradiction type",
     )
+    ct.add_argument("--format", choices=["json", "text"], default="text", help="Output format (default: text)")
 
     # -- drift (Phase 2) ---------------------------------------------------
     dr = sub.add_parser("drift", help="Compute identity drift between two graphs")
@@ -1062,6 +1063,10 @@ def run_contradictions(args):
 
     if args.contradiction_type:
         contradictions = [c for c in contradictions if c.type == args.contradiction_type]
+
+    if args.format == "json":
+        print(json.dumps({"contradictions": [c.to_dict() for c in contradictions]}, indent=2))
+        return 0
 
     if not contradictions:
         print("No contradictions detected.")
