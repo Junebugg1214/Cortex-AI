@@ -37,8 +37,8 @@ from cortex.import_memory import NormalizedContext
 # Node / Edge CRUD
 # ============================================================================
 
-class TestNodeEdgeCRUD:
 
+class TestNodeEdgeCRUD:
     def test_add_and_get_node(self):
         g = CortexGraph()
         n = Node(id="abc123", label="Python", tags=["technical_expertise"], confidence=0.9)
@@ -88,8 +88,8 @@ class TestNodeEdgeCRUD:
 # Query
 # ============================================================================
 
-class TestQuery:
 
+class TestQuery:
     def _sample_graph(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9))
@@ -154,15 +154,23 @@ class TestQuery:
 # Merge
 # ============================================================================
 
-class TestMergeNodes:
 
+class TestMergeNodes:
     def test_merge_combines_fields(self):
         g = CortexGraph()
-        g.add_node(Node(id="a", label="Python", tags=["technical_expertise"],
-                        confidence=0.8, mention_count=3, brief="Lang"))
-        g.add_node(Node(id="b", label="Python", tags=["domain_knowledge"],
-                        confidence=0.9, mention_count=2,
-                        brief="A programming language"))
+        g.add_node(
+            Node(id="a", label="Python", tags=["technical_expertise"], confidence=0.8, mention_count=3, brief="Lang")
+        )
+        g.add_node(
+            Node(
+                id="b",
+                label="Python",
+                tags=["domain_knowledge"],
+                confidence=0.9,
+                mention_count=2,
+                brief="A programming language",
+            )
+        )
         result = g.merge_nodes("a", "b")
         assert result.confidence == 0.9
         assert result.mention_count == 5
@@ -201,8 +209,8 @@ class TestMergeNodes:
 # Node ID helpers
 # ============================================================================
 
-class TestNodeIdHelpers:
 
+class TestNodeIdHelpers:
     def test_make_node_id_deterministic(self):
         assert make_node_id("Python") == make_node_id("Python")
 
@@ -228,26 +236,44 @@ class TestNodeIdHelpers:
 # v4 → v5 Upgrade
 # ============================================================================
 
-class TestUpgradeV4ToV5:
 
+class TestUpgradeV4ToV5:
     def _minimal_v4(self):
         return {
             "schema_version": "4.0",
             "meta": {"method": "aggressive_extraction_v4"},
             "categories": {
                 "technical_expertise": [
-                    {"topic": "Python", "brief": "Lang", "confidence": 0.9,
-                     "mention_count": 5, "extraction_method": "self_reference",
-                     "metrics": [], "relationships": [], "timeline": ["current"],
-                     "source_quotes": ["I use Python"], "first_seen": None, "last_seen": None}
+                    {
+                        "topic": "Python",
+                        "brief": "Lang",
+                        "confidence": 0.9,
+                        "mention_count": 5,
+                        "extraction_method": "self_reference",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": ["current"],
+                        "source_quotes": ["I use Python"],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
                 ],
                 "identity": [
-                    {"topic": "Marc", "brief": "Marc", "confidence": 0.95,
-                     "mention_count": 3, "extraction_method": "explicit_statement",
-                     "metrics": [], "relationships": [], "timeline": [],
-                     "source_quotes": [], "first_seen": None, "last_seen": None}
+                    {
+                        "topic": "Marc",
+                        "brief": "Marc",
+                        "confidence": 0.95,
+                        "mention_count": 3,
+                        "extraction_method": "explicit_statement",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
                 ],
-            }
+            },
         }
 
     def test_basic_upgrade(self):
@@ -263,13 +289,9 @@ class TestUpgradeV4ToV5:
             "schema_version": "4.0",
             "meta": {},
             "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "confidence": 0.8, "mention_count": 3}
-                ],
-                "domain_knowledge": [
-                    {"topic": "Python", "confidence": 0.9, "mention_count": 2}
-                ]
-            }
+                "technical_expertise": [{"topic": "Python", "confidence": 0.8, "mention_count": 3}],
+                "domain_knowledge": [{"topic": "Python", "confidence": 0.9, "mention_count": 2}],
+            },
         }
         graph = upgrade_v4_to_v5(v4)
         python_nodes = graph.find_nodes(label="Python")
@@ -286,13 +308,9 @@ class TestUpgradeV4ToV5:
             "schema_version": "4.0",
             "meta": {},
             "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "confidence": 0.8, "relationships": ["Healthcare"]}
-                ],
-                "domain_knowledge": [
-                    {"topic": "Healthcare", "confidence": 0.7}
-                ]
-            }
+                "technical_expertise": [{"topic": "Python", "confidence": 0.8, "relationships": ["Healthcare"]}],
+                "domain_knowledge": [{"topic": "Healthcare", "confidence": 0.7}],
+            },
         }
         graph = upgrade_v4_to_v5(v4)
         assert len(graph.edges) >= 1
@@ -306,11 +324,8 @@ class TestUpgradeV4ToV5:
             "schema_version": "4.0",
             "meta": {},
             "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "confidence": 0.8,
-                     "relationships": ["UnknownThing"]}
-                ]
-            }
+                "technical_expertise": [{"topic": "Python", "confidence": 0.8, "relationships": ["UnknownThing"]}]
+            },
         }
         graph = upgrade_v4_to_v5(v4)
         stub_nodes = graph.find_nodes(label="UnknownThing")
@@ -325,14 +340,10 @@ class TestUpgradeV4ToV5:
             "meta": {},
             "categories": {
                 "relationships": [
-                    {"topic": "Acme Corp", "confidence": 0.9,
-                     "relationship_type": "partner",
-                     "relationships": ["Marc"]}
+                    {"topic": "Acme Corp", "confidence": 0.9, "relationship_type": "partner", "relationships": ["Marc"]}
                 ],
-                "identity": [
-                    {"topic": "Marc", "confidence": 0.95}
-                ]
-            }
+                "identity": [{"topic": "Marc", "confidence": 0.95}],
+            },
         }
         graph = upgrade_v4_to_v5(v4)
         acme = graph.find_nodes(label="Acme Corp")[0]
@@ -350,8 +361,8 @@ class TestUpgradeV4ToV5:
 # v5 → v4 Downgrade
 # ============================================================================
 
-class TestDowngradeV5ToV4:
 
+class TestDowngradeV5ToV4:
     def test_basic_downgrade(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9))
@@ -363,9 +374,7 @@ class TestDowngradeV5ToV4:
     def test_primary_tag_selection(self):
         """Multi-tag node → appears in first tag per CATEGORY_ORDER."""
         g = CortexGraph()
-        g.add_node(Node(id="n1", label="Python",
-                        tags=["domain_knowledge", "technical_expertise"],
-                        confidence=0.9))
+        g.add_node(Node(id="n1", label="Python", tags=["domain_knowledge", "technical_expertise"], confidence=0.9))
         v4 = downgrade_v5_to_v4(g)
         # technical_expertise comes before domain_knowledge in CATEGORY_ORDER
         assert "technical_expertise" in v4["categories"]
@@ -384,8 +393,7 @@ class TestDowngradeV5ToV4:
 
     def test_relationship_type_preserved(self):
         g = CortexGraph()
-        g.add_node(Node(id="n1", label="Acme", tags=["relationships"],
-                        relationship_type="partner", confidence=0.9))
+        g.add_node(Node(id="n1", label="Acme", tags=["relationships"], relationship_type="partner", confidence=0.9))
         v4 = downgrade_v5_to_v4(g)
         topic = v4["categories"]["relationships"][0]
         assert topic["relationship_type"] == "partner"
@@ -395,8 +403,8 @@ class TestDowngradeV5ToV4:
 # Roundtrip
 # ============================================================================
 
-class TestRoundtrip:
 
+class TestRoundtrip:
     def test_v4_roundtrip_identical(self):
         """v4 → v5 → v4 should produce identical categories."""
         v4 = {
@@ -404,22 +412,38 @@ class TestRoundtrip:
             "meta": {"method": "aggressive_extraction_v4"},
             "categories": {
                 "identity": [
-                    {"topic": "Marc Saint-Jour", "brief": "Marc Saint-Jour",
-                     "full_description": "", "confidence": 0.95,
-                     "mention_count": 3, "extraction_method": "explicit_statement",
-                     "metrics": [], "relationships": [],
-                     "timeline": [], "source_quotes": [],
-                     "first_seen": None, "last_seen": None}
+                    {
+                        "topic": "Marc Saint-Jour",
+                        "brief": "Marc Saint-Jour",
+                        "full_description": "",
+                        "confidence": 0.95,
+                        "mention_count": 3,
+                        "extraction_method": "explicit_statement",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
                 ],
                 "technical_expertise": [
-                    {"topic": "Python", "brief": "Lang", "full_description": "",
-                     "confidence": 0.9, "mention_count": 5,
-                     "extraction_method": "self_reference",
-                     "metrics": [], "relationships": [],
-                     "timeline": ["current"], "source_quotes": ["I use Python"],
-                     "first_seen": None, "last_seen": None}
-                ]
-            }
+                    {
+                        "topic": "Python",
+                        "brief": "Lang",
+                        "full_description": "",
+                        "confidence": 0.9,
+                        "mention_count": 5,
+                        "extraction_method": "self_reference",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": ["current"],
+                        "source_quotes": ["I use Python"],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
+                ],
+            },
         }
         result = roundtrip_v4(v4)
         assert result["schema_version"] == "4.0"
@@ -444,23 +468,39 @@ class TestRoundtrip:
             "meta": {},
             "categories": {
                 "relationships": [
-                    {"topic": "Acme Corp", "confidence": 0.8,
-                     "relationship_type": "partner",
-                     "mention_count": 1, "brief": "Acme Corp",
-                     "full_description": "", "extraction_method": "explicit_statement",
-                     "metrics": [], "relationships": ["Mayo Clinic"],
-                     "timeline": [], "source_quotes": [],
-                     "first_seen": None, "last_seen": None}
+                    {
+                        "topic": "Acme Corp",
+                        "confidence": 0.8,
+                        "relationship_type": "partner",
+                        "mention_count": 1,
+                        "brief": "Acme Corp",
+                        "full_description": "",
+                        "extraction_method": "explicit_statement",
+                        "metrics": [],
+                        "relationships": ["Mayo Clinic"],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
                 ],
                 "domain_knowledge": [
-                    {"topic": "Mayo Clinic", "confidence": 0.7,
-                     "mention_count": 1, "brief": "Mayo Clinic",
-                     "full_description": "", "extraction_method": "contextual",
-                     "metrics": [], "relationships": [],
-                     "timeline": [], "source_quotes": [],
-                     "first_seen": None, "last_seen": None}
-                ]
-            }
+                    {
+                        "topic": "Mayo Clinic",
+                        "confidence": 0.7,
+                        "mention_count": 1,
+                        "brief": "Mayo Clinic",
+                        "full_description": "",
+                        "extraction_method": "contextual",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                    }
+                ],
+            },
         }
         result = roundtrip_v4(v4)
         assert "relationships" in result["categories"]
@@ -472,14 +512,16 @@ class TestRoundtrip:
 # Export formats
 # ============================================================================
 
-class TestExportFormats:
 
+class TestExportFormats:
     def _sample_graph(self):
         g = CortexGraph(meta={"generated_at": "2025-02-07T00:00:00Z"})
-        g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"],
-                        confidence=0.9, brief="languages: python"))
-        g.add_node(Node(id="n2", label="Healthcare", tags=["domain_knowledge"],
-                        confidence=0.8, brief="healthcare: clinical"))
+        g.add_node(
+            Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9, brief="languages: python")
+        )
+        g.add_node(
+            Node(id="n2", label="Healthcare", tags=["domain_knowledge"], confidence=0.8, brief="healthcare: clinical")
+        )
         g.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="used_in"))
         return g
 
@@ -539,8 +581,8 @@ class TestExportFormats:
 # Stats
 # ============================================================================
 
-class TestStats:
 
+class TestStats:
     def test_basic_stats(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A", tags=["t1"]))
@@ -590,8 +632,8 @@ class TestStats:
 # ExtractionContext.to_graph()
 # ============================================================================
 
-class TestExtractionToGraph:
 
+class TestExtractionToGraph:
     def test_to_graph_produces_cortex_graph(self):
         extractor = AggressiveExtractor()
         extractor.extract_from_text("My name is Alex and I use Python for data science work.")
@@ -625,23 +667,16 @@ class TestExtractionToGraph:
 # NormalizedContext v5 detection
 # ============================================================================
 
-class TestNormalizedContextV5:
 
+class TestNormalizedContextV5:
     def test_load_v5_schema(self):
         v5 = {
             "schema_version": "5.0",
             "meta": {"method": "aggressive_extraction_v5"},
-            "graph": {
-                "nodes": {"n1": {"id": "n1", "label": "Python", "tags": ["technical_expertise"]}},
-                "edges": {}
-            },
-            "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "brief": "Python", "confidence": 0.9}
-                ]
-            }
+            "graph": {"nodes": {"n1": {"id": "n1", "label": "Python", "tags": ["technical_expertise"]}}, "edges": {}},
+            "categories": {"technical_expertise": [{"topic": "Python", "brief": "Python", "confidence": 0.9}]},
         }
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(v5, f)
             path = Path(f.name)
 
@@ -658,7 +693,7 @@ class TestNormalizedContextV5:
             "schema_version": "5.0",
             "meta": {},
             "graph": {"nodes": {"n1": {"id": "n1", "label": "Test"}}, "edges": {}},
-            "categories": {"identity": [{"topic": "Test", "confidence": 0.9}]}
+            "categories": {"identity": [{"topic": "Test", "confidence": 0.9}]},
         }
         ctx = NormalizedContext.from_v5(v5)
         assert "_graph" in ctx.meta
@@ -669,13 +704,21 @@ class TestNormalizedContextV5:
 # Node/Edge serialization
 # ============================================================================
 
-class TestSerialization:
 
+class TestSerialization:
     def test_node_to_dict_and_back(self):
-        n = Node(id="abc", label="Python", tags=["t1", "t2"], confidence=0.85,
-                 properties={"key": "val"}, brief="Lang", mention_count=5,
-                 first_seen="2025-01-01", last_seen="2025-02-01",
-                 relationship_type="partner")
+        n = Node(
+            id="abc",
+            label="Python",
+            tags=["t1", "t2"],
+            confidence=0.85,
+            properties={"key": "val"},
+            brief="Lang",
+            mention_count=5,
+            first_seen="2025-01-01",
+            last_seen="2025-02-01",
+            relationship_type="partner",
+        )
         d = n.to_dict()
         n2 = Node.from_dict(d)
         assert n2.id == n.id
@@ -686,9 +729,16 @@ class TestSerialization:
         assert n2.relationship_type == "partner"
 
     def test_edge_to_dict_and_back(self):
-        e = Edge(id="e1", source_id="a", target_id="b", relation="uses",
-                 confidence=0.7, properties={"weight": 1},
-                 first_seen="2025-01-01", last_seen="2025-02-01")
+        e = Edge(
+            id="e1",
+            source_id="a",
+            target_id="b",
+            relation="uses",
+            confidence=0.7,
+            properties={"weight": 1},
+            first_seen="2025-01-01",
+            last_seen="2025-02-01",
+        )
         d = e.to_dict()
         e2 = Edge.from_dict(d)
         assert e2.id == e.id
@@ -702,10 +752,11 @@ class TestSerialization:
 # Migrate.py query/stats subcommands
 # ============================================================================
 
-class TestMigrateSubcommands:
 
+class TestMigrateSubcommands:
     def _import_migrate(self):
         import cortex.cli
+
         return cortex.cli
 
     def test_query_subcommand_recognized(self):
@@ -726,13 +777,9 @@ class TestMigrateSubcommands:
         v4 = {
             "schema_version": "4.0",
             "meta": {},
-            "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "confidence": 0.9, "brief": "Lang"}
-                ]
-            }
+            "categories": {"technical_expertise": [{"topic": "Python", "confidence": 0.9, "brief": "Lang"}]},
         }
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(v4, f)
             path = f.name
 
@@ -748,15 +795,11 @@ class TestMigrateSubcommands:
             "schema_version": "4.0",
             "meta": {},
             "categories": {
-                "technical_expertise": [
-                    {"topic": "Python", "confidence": 0.9}
-                ],
-                "identity": [
-                    {"topic": "Marc", "confidence": 0.95}
-                ]
-            }
+                "technical_expertise": [{"topic": "Python", "confidence": 0.9}],
+                "identity": [{"topic": "Marc", "confidence": 0.95}],
+            },
         }
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(v4, f)
             path = f.name
 
@@ -771,16 +814,11 @@ class TestMigrateSubcommands:
         mod = self._import_migrate()
         with tempfile.TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "My name is Alex and I use Python."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "My name is Alex and I use Python."}]})
+            )
             out_dir = Path(tmpdir) / "out"
-            rc = mod.main([
-                "migrate", str(input_file), "--to", "claude",
-                "-o", str(out_dir), "--schema", "v5"
-            ])
+            rc = mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir), "--schema", "v5"])
             assert rc == 0
             ctx_path = out_dir / "context.json"
             assert ctx_path.exists()
@@ -806,13 +844,13 @@ class TestMigrateSubcommands:
         # query should NOT be treated as a file path
         argv = ["query", "file.json", "--node", "X"]
         # The main function routes known subcommands directly
-        assert argv[0] in ("extract", "import", "migrate", "query", "stats",
-                           "-h", "--help")
+        assert argv[0] in ("extract", "import", "migrate", "query", "stats", "-h", "--help")
 
 
 # ============================================================================
 # Runner
 # ============================================================================
+
 
 def run_tests():
     import traceback
@@ -838,9 +876,9 @@ def run_tests():
     failed = []
 
     for test_class in test_classes:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Running {test_class.__name__}")
-        print('='*60)
+        print("=" * 60)
 
         instance = test_class()
         methods = sorted(m for m in dir(instance) if m.startswith("test_"))
@@ -859,15 +897,15 @@ def run_tests():
                 print(f"  ❌ {method_name}: {type(e).__name__}: {e}")
                 failed.append((test_class.__name__, method_name, traceback.format_exc()))
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Results: {passed}/{total} passed")
-    print('='*60)
+    print("=" * 60)
 
     if failed:
         print("\nFailed tests:")
         for cls, method, error in failed:
             print(f"  - {cls}.{method}")
-            for line in error.split('\n')[:5]:
+            for line in error.split("\n")[:5]:
                 print(f"    {line}")
         return 1
 
@@ -879,8 +917,8 @@ def run_tests():
 # Adjacency list cache
 # ============================================================================
 
-class TestAdjacencyCache:
 
+class TestAdjacencyCache:
     def _make_graph(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A"))

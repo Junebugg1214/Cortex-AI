@@ -36,12 +36,12 @@ from typing import Any
 MENTION_COUNT_BOOST = {1: 0.0, 2: 0.1, 3: 0.15, 5: 0.2, 10: 0.25, 20: 0.3}
 
 TIME_DECAY = {
-    7: 1.0,       # Within a week
-    30: 0.9,      # Within a month
-    90: 0.7,      # Within 3 months
-    180: 0.5,     # Within 6 months
-    365: 0.3,     # Within a year
-    float('inf'): 0.1
+    7: 1.0,  # Within a week
+    30: 0.9,  # Within a month
+    90: 0.7,  # Within 3 months
+    180: 0.5,  # Within 6 months
+    365: 0.3,  # Within a year
+    float("inf"): 0.1,
 }
 
 BASE_CONFIDENCE = {
@@ -50,11 +50,17 @@ BASE_CONFIDENCE = {
     "direct_description": 0.75,
     "contextual": 0.6,
     "mentioned": 0.4,
-    "inferred": 0.3
+    "inferred": 0.3,
 }
 
 SIMILARITY_THRESHOLD = 0.85
-MERGEABLE_CATEGORIES = {"technical_expertise", "domain_knowledge", "active_priorities", "business_context", "relationships"}
+MERGEABLE_CATEGORIES = {
+    "technical_expertise",
+    "domain_knowledge",
+    "active_priorities",
+    "business_context",
+    "relationships",
+}
 
 # Patterns for hyphenated/compound names
 IDENTITY_PATTERNS = [
@@ -83,21 +89,175 @@ PROJECT_PATTERNS = [
 ]
 
 TECH_KEYWORDS = {
-    "languages": ["python", "javascript", "typescript", "java", "c++", "c#", "ruby", "rust", "swift", "kotlin", "php", "scala", "matlab", "sql", "html", "css", "golang"],
-    "frameworks": ["react", "angular", "vue", "django", "flask", "fastapi", "express", "next.js", "nextjs", "nuxt", "rails", "spring", "laravel", ".net", "tensorflow", "pytorch", "keras", "langchain"],
-    "platforms": ["aws", "gcp", "azure", "vercel", "netlify", "heroku", "docker", "kubernetes", "linux", "ubuntu", "windows", "macos", "ec2", "lambda", "cloudflare"],
-    "databases": ["postgresql", "postgres", "mysql", "mongodb", "redis", "elasticsearch", "dynamodb", "firebase", "supabase", "convex", "planetscale", "pinecone"],
-    "tools": ["git", "github", "gitlab", "jira", "confluence", "slack", "notion", "figma", "vscode", "vim", "cursor", "copilot"]
+    "languages": [
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c++",
+        "c#",
+        "ruby",
+        "rust",
+        "swift",
+        "kotlin",
+        "php",
+        "scala",
+        "matlab",
+        "sql",
+        "html",
+        "css",
+        "golang",
+    ],
+    "frameworks": [
+        "react",
+        "angular",
+        "vue",
+        "django",
+        "flask",
+        "fastapi",
+        "express",
+        "next.js",
+        "nextjs",
+        "nuxt",
+        "rails",
+        "spring",
+        "laravel",
+        ".net",
+        "tensorflow",
+        "pytorch",
+        "keras",
+        "langchain",
+    ],
+    "platforms": [
+        "aws",
+        "gcp",
+        "azure",
+        "vercel",
+        "netlify",
+        "heroku",
+        "docker",
+        "kubernetes",
+        "linux",
+        "ubuntu",
+        "windows",
+        "macos",
+        "ec2",
+        "lambda",
+        "cloudflare",
+    ],
+    "databases": [
+        "postgresql",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "redis",
+        "elasticsearch",
+        "dynamodb",
+        "firebase",
+        "supabase",
+        "convex",
+        "planetscale",
+        "pinecone",
+    ],
+    "tools": [
+        "git",
+        "github",
+        "gitlab",
+        "jira",
+        "confluence",
+        "slack",
+        "notion",
+        "figma",
+        "vscode",
+        "vim",
+        "cursor",
+        "copilot",
+    ],
 }
 
 TECH_FALSE_POSITIVES = {"go", "r", "c", "rust", "swift", "ruby"}
 
 DOMAIN_KEYWORDS = {
-    "healthcare": ["clinical", "medical", "health", "patient", "hospital", "physician", "doctor", "nurse", "diagnosis", "treatment", "fda", "hipaa", "ehr", "emr", "ctcae", "oncology", "cancer", "therapy", "pharmaceutical", "drug", "trial"],
-    "finance": ["financial", "banking", "investment", "trading", "portfolio", "stock", "bond", "crypto", "blockchain", "fintech", "payment", "lending", "insurance"],
-    "ai_ml": ["machine learning", "deep learning", "neural network", "nlp", "computer vision", "ai", "artificial intelligence", "model", "training", "inference", "llm", "gpt", "transformer", "rag", "embedding"],
-    "legal": ["legal", "law", "attorney", "lawyer", "contract", "compliance", "regulatory", "litigation", "intellectual property", "patent", "trademark"],
-    "education": ["education", "learning", "teaching", "student", "course", "curriculum", "school", "university", "academic", "research"],
+    "healthcare": [
+        "clinical",
+        "medical",
+        "health",
+        "patient",
+        "hospital",
+        "physician",
+        "doctor",
+        "nurse",
+        "diagnosis",
+        "treatment",
+        "fda",
+        "hipaa",
+        "ehr",
+        "emr",
+        "ctcae",
+        "oncology",
+        "cancer",
+        "therapy",
+        "pharmaceutical",
+        "drug",
+        "trial",
+    ],
+    "finance": [
+        "financial",
+        "banking",
+        "investment",
+        "trading",
+        "portfolio",
+        "stock",
+        "bond",
+        "crypto",
+        "blockchain",
+        "fintech",
+        "payment",
+        "lending",
+        "insurance",
+    ],
+    "ai_ml": [
+        "machine learning",
+        "deep learning",
+        "neural network",
+        "nlp",
+        "computer vision",
+        "ai",
+        "artificial intelligence",
+        "model",
+        "training",
+        "inference",
+        "llm",
+        "gpt",
+        "transformer",
+        "rag",
+        "embedding",
+    ],
+    "legal": [
+        "legal",
+        "law",
+        "attorney",
+        "lawyer",
+        "contract",
+        "compliance",
+        "regulatory",
+        "litigation",
+        "intellectual property",
+        "patent",
+        "trademark",
+    ],
+    "education": [
+        "education",
+        "learning",
+        "teaching",
+        "student",
+        "course",
+        "curriculum",
+        "school",
+        "university",
+        "academic",
+        "research",
+    ],
 }
 
 RELATIONSHIP_PATTERNS = [
@@ -139,7 +299,21 @@ VALUE_PATTERNS = [
     r"(?:my |our )(?:principle|value|philosophy|approach) is\s+([^.,]+)",
 ]
 
-CURRENT_INDICATORS = ["currently", "now", "right now", "at the moment", "these days", "lately", "recently", "this week", "this month", "this year", "2024", "2025", "2026"]
+CURRENT_INDICATORS = [
+    "currently",
+    "now",
+    "right now",
+    "at the moment",
+    "these days",
+    "lately",
+    "recently",
+    "this week",
+    "this month",
+    "this year",
+    "2024",
+    "2025",
+    "2026",
+]
 PAST_INDICATORS = ["used to", "previously", "formerly", "back when", "in the past", "years ago", "last year", "before"]
 FUTURE_INDICATORS = ["planning to", "going to", "will", "want to", "hope to", "aiming to", "targeting", "goal is"]
 
@@ -152,7 +326,25 @@ NEGATION_PATTERNS = [
     r"(?:switched|migrated|moved)\s+(?:from|away from)\s+([A-Za-z0-9]+)\s+(?:to|over to)",
     r"(?:i|we)\s+(?:quit|stopped|gave up on|abandoned)\s+([^.,]+)",
 ]
-NEGATION_KEYWORDS = {"never", "don't", "dont", "won't", "wont", "avoid", "hate", "dislike", "stopped", "quit", "abandoned", "dropped", "switched from", "no longer", "not anymore", "refuse", "against"}
+NEGATION_KEYWORDS = {
+    "never",
+    "don't",
+    "dont",
+    "won't",
+    "wont",
+    "avoid",
+    "hate",
+    "dislike",
+    "stopped",
+    "quit",
+    "abandoned",
+    "dropped",
+    "switched from",
+    "no longer",
+    "not anymore",
+    "refuse",
+    "against",
+}
 
 # Preference patterns for detecting user style/tool preferences
 PREFERENCES_PATTERNS = [
@@ -162,7 +354,20 @@ PREFERENCES_PATTERNS = [
     r"i(?:'m| am)\s+(?:a|an)\s+([A-Za-z-]+)\s+(?:person|type|kind of (?:person|developer|engineer))",
     r"(?:my|our)\s+(?:style|approach|way)\s+(?:is|involves?)\s+([^.,]+)",
 ]
-PREFERENCE_INDICATORS = {"prefer", "like", "love", "favor", "enjoy", "always", "usually", "typically", "my style", "my approach", "go-to", "favorite"}
+PREFERENCE_INDICATORS = {
+    "prefer",
+    "like",
+    "love",
+    "favor",
+    "enjoy",
+    "always",
+    "usually",
+    "typically",
+    "my style",
+    "my approach",
+    "go-to",
+    "favorite",
+}
 
 # Constraint patterns for budget/timeline/team/technical requirements
 CONSTRAINTS_PATTERNS = [
@@ -201,27 +406,108 @@ CORRECTIONS_PATTERNS = [
     r"(?:wait|hold on|no wait),?\s+(?:i meant?|it(?:'s| is)|that(?:'s| is))\s+([^.,]+)",
     r"(?:let me (?:rephrase|restate|clarify)|to be (?:clear|more precise)),?\s+([^.,]+)",
 ]
-CORRECTION_KEYWORDS = {"actually", "correction", "sorry", "i meant", "typo", "mistake", "wrong", "error", "let me correct", "to clarify", "i misspoke", "wait", "hold on"}
+CORRECTION_KEYWORDS = {
+    "actually",
+    "correction",
+    "sorry",
+    "i meant",
+    "typo",
+    "mistake",
+    "wrong",
+    "error",
+    "let me correct",
+    "to clarify",
+    "i misspoke",
+    "wait",
+    "hold on",
+}
 
 STRIP_PREFIXES = ["in ", "that ", "the ", "a ", "an ", "to ", "for ", "with ", "about "]
-NOISE_WORDS = {'strategies', 'doing', 'things', 'stuff', 'something', 'anything', 'working', 'building', 'creating', 'developing', 'using', 'good', 'great', 'best', 'better', 'important', 'new', 'old', 'first', 'last', 'next', 'other'}
-SKIP_WORDS = {'the', 'this', 'that', 'what', 'when', 'where', 'which', 'who', 'how', 'why', 'our', 'my', 'your', 'their', 'his', 'her', 'its', 'we', 'they', 'he', 'she', 'it', 'you', 'i', 'also', 'just', 'now', 'then', 'here', 'there', 'please', 'thanks', 'thank', 'hello', 'hi', 'hey', 'currently', 'recently', 'basically', 'actually'}
+NOISE_WORDS = {
+    "strategies",
+    "doing",
+    "things",
+    "stuff",
+    "something",
+    "anything",
+    "working",
+    "building",
+    "creating",
+    "developing",
+    "using",
+    "good",
+    "great",
+    "best",
+    "better",
+    "important",
+    "new",
+    "old",
+    "first",
+    "last",
+    "next",
+    "other",
+}
+SKIP_WORDS = {
+    "the",
+    "this",
+    "that",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "how",
+    "why",
+    "our",
+    "my",
+    "your",
+    "their",
+    "his",
+    "her",
+    "its",
+    "we",
+    "they",
+    "he",
+    "she",
+    "it",
+    "you",
+    "i",
+    "also",
+    "just",
+    "now",
+    "then",
+    "here",
+    "there",
+    "please",
+    "thanks",
+    "thank",
+    "hello",
+    "hi",
+    "hey",
+    "currently",
+    "recently",
+    "basically",
+    "actually",
+}
 
 # Order matters: longer/more specific patterns must come before PHONE to avoid
 # partial matches (e.g., PHONE matching trailing digits of a credit card number).
 PII_PATTERNS = [
-    ("EMAIL", r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
-    ("SSN", r'\b\d{3}-\d{2}-\d{4}\b'),
-    ("CREDIT_CARD", r'\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b'),
-    ("PRIVATE_KEY", r'-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'),
-    ("AWS_KEY", r'\bAKIA[0-9A-Z]{16}\b'),
-    ("GITHUB_TOKEN", r'\bgh[ps]_[A-Za-z0-9_]{36,}\b'),
-    ("API_KEY", r'(?:sk_live_[A-Za-z0-9]{24,}|sk-(?:ant-)?[A-Za-z0-9]{32,}|api[_-]?key[=:\s]+[A-Za-z0-9_\-]{20,})'),
-    ("BEARER_TOKEN", r'\bBearer\s+[A-Za-z0-9._\-]{20,}\b'),
-    ("DATABASE_URL", r'(?:postgres|mysql|mongodb|redis)://[^\s]+@[^\s]+'),
-    ("IP_ADDRESS", r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
-    ("STREET_ADDRESS", r'\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Ave|Blvd|Dr|Rd|Ln|Ct|Way|Pl|Cir|Ter|Pkwy)\.?\b'),
-    ("PHONE", r'(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?)[0-9]{3}[-.\s]?[0-9]{4}\b'),
+    ("EMAIL", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
+    ("SSN", r"\b\d{3}-\d{2}-\d{4}\b"),
+    (
+        "CREDIT_CARD",
+        r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b",
+    ),
+    ("PRIVATE_KEY", r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+    ("AWS_KEY", r"\bAKIA[0-9A-Z]{16}\b"),
+    ("GITHUB_TOKEN", r"\bgh[ps]_[A-Za-z0-9_]{36,}\b"),
+    ("API_KEY", r"(?:sk_live_[A-Za-z0-9]{24,}|sk-(?:ant-)?[A-Za-z0-9]{32,}|api[_-]?key[=:\s]+[A-Za-z0-9_\-]{20,})"),
+    ("BEARER_TOKEN", r"\bBearer\s+[A-Za-z0-9._\-]{20,}\b"),
+    ("DATABASE_URL", r"(?:postgres|mysql|mongodb|redis)://[^\s]+@[^\s]+"),
+    ("IP_ADDRESS", r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"),
+    ("STREET_ADDRESS", r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:St|Ave|Blvd|Dr|Rd|Ln|Ct|Way|Pl|Cir|Ter|Pkwy)\.?\b"),
+    ("PHONE", r"(?:\+?1[-.\s]?)?(?:\(?[0-9]{3}\)?[-.\s]?)[0-9]{3}[-.\s]?[0-9]{4}\b"),
 ]
 
 
@@ -241,10 +527,12 @@ class PIIRedactor:
     def redact(self, text: str) -> str:
         """Replace all PII matches with [TYPE] placeholders."""
         for label, compiled in self._patterns:
+
             def _replacer(match, _label=label):
                 self._counts[_label] += 1
                 self._total += 1
                 return f"[{_label}]"
+
             text = compiled.sub(_replacer, text)
         return text
 
@@ -261,11 +549,13 @@ class PIIRedactor:
 # SIMILARITY UTILITIES
 # ============================================================================
 
+
 def normalize_text(text: str) -> str:
     text = text.lower()
-    text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
+    text = unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode("ASCII")
     text = re.sub(r"[^\w\s-]", "", text)
     return " ".join(text.split())
+
 
 def get_similarity(s1: str, s2: str) -> float:
     n1, n2 = normalize_text(s1), normalize_text(s2)
@@ -275,14 +565,17 @@ def get_similarity(s1: str, s2: str) -> float:
         return min(len(n1), len(n2)) / max(len(n1), len(n2)) if max(len(n1), len(n2)) > 0 else 0
     return difflib.SequenceMatcher(None, n1, n2).ratio()
 
+
 def get_word_overlap(s1: str, s2: str) -> float:
     w1, w2 = set(normalize_text(s1).split()), set(normalize_text(s2).split())
     if not w1 or not w2:
         return 0.0
     return len(w1 & w2) / len(w1 | w2)
 
+
 def are_similar(s1: str, s2: str, threshold: float = SIMILARITY_THRESHOLD) -> bool:
     return max(get_similarity(s1, s2), get_word_overlap(s1, s2)) >= threshold
+
 
 def find_best_match(topic: str, existing: dict, threshold: float = SIMILARITY_THRESHOLD) -> str | None:
     best_key, best_score = None, threshold
@@ -296,6 +589,7 @@ def find_best_match(topic: str, existing: dict, threshold: float = SIMILARITY_TH
 # ============================================================================
 # TIME UTILITIES
 # ============================================================================
+
 
 def parse_timestamp(ts: Any) -> datetime | None:
     if ts is None:
@@ -315,6 +609,7 @@ def parse_timestamp(ts: Any) -> datetime | None:
                 continue
     return None
 
+
 def get_time_decay_multiplier(last_seen: datetime | None, reference: datetime | None = None) -> float:
     if last_seen is None:
         return 0.5
@@ -331,59 +626,65 @@ def get_time_decay_multiplier(last_seen: datetime | None, reference: datetime | 
 # TEXT UTILITIES
 # ============================================================================
 
+
 def clean_extracted_text(text: str) -> str:
     text = text.strip()
     lower = text.lower()
     for prefix in STRIP_PREFIXES:
         if lower.startswith(prefix):
-            text = text[len(prefix):]
+            text = text[len(prefix) :]
             break
-    text = text.rstrip('.,;:!?')
+    text = text.rstrip(".,;:!?")
     if text and text[0].islower():
         text = text[0].upper() + text[1:]
     return text.strip()
 
+
 def extract_numbers(text: str) -> list[str]:
     patterns = [
-        r'\$[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|M|B|k|K))?',
-        r'[\d,]+(?:\.\d+)?%',
-        r'[\d,]+(?:\.\d+)?\s*(?:million|billion|M|B|k|K)\b',
-        r'\b\d{4}\b(?!\d)',
-        r'(?:≥|>=|≤|<=|>|<)\s*[\d.]+',
-        r'\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?)\b',
-        r'\b\d+\s*(?:users?|customers?|clients?|employees?|people)\b',
+        r"\$[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|M|B|k|K))?",
+        r"[\d,]+(?:\.\d+)?%",
+        r"[\d,]+(?:\.\d+)?\s*(?:million|billion|M|B|k|K)\b",
+        r"\b\d{4}\b(?!\d)",
+        r"(?:≥|>=|≤|<=|>|<)\s*[\d.]+",
+        r"\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?)\b",
+        r"\b\d+\s*(?:users?|customers?|clients?|employees?|people)\b",
     ]
     results = []
     for pattern in patterns:
         results.extend(re.findall(pattern, text, re.IGNORECASE))
     return list(set(results))
 
+
 def extract_with_context(text: str, keyword: str, window: int = 50) -> str:
     pos = text.lower().find(keyword.lower())
     if pos == -1:
         return ""
     start, end = max(0, pos - window), min(len(text), pos + len(keyword) + window)
-    while start > 0 and text[start] not in ' \n\t':
+    while start > 0 and text[start] not in " \n\t":
         start -= 1
-    while end < len(text) and text[end] not in ' \n\t':
+    while end < len(text) and text[end] not in " \n\t":
         end += 1
     return text[start:end].strip()
+
 
 def extract_entities(text: str) -> list[tuple[str, str]]:
     entities = []
     # Hyphenated/apostrophe names
-    for match in re.finditer(r'\b([A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*)*)\b', text):
+    for match in re.finditer(r"\b([A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*)*)\b", text):
         entity = match.group(1)
         if len(entity) > 2 and entity.lower() not in SKIP_WORDS:
             entities.append((entity, "entity"))
     # Acronyms/CamelCase
-    for match in re.finditer(r'\b([A-Z][a-z]+[A-Z][A-Za-z]*|[A-Z]{2,})\b', text):
+    for match in re.finditer(r"\b([A-Z][a-z]+[A-Z][A-Za-z]*|[A-Z]{2,})\b", text):
         entities.append((match.group(1), "tech_entity"))
     return entities
+
 
 def is_user_message(message: dict) -> bool:
     role = message.get("role", message.get("author", {}).get("role", ""))
     return role in ["user", "human"]
+
 
 def get_message_text(message: dict) -> str:
     if "content" in message:
@@ -413,6 +714,7 @@ def get_message_text(message: dict) -> str:
 # DATA STRUCTURES
 # ============================================================================
 
+
 @dataclass
 class ExtractedTopic:
     topic: str
@@ -439,7 +741,7 @@ class ExtractedTopic:
         decay = get_time_decay_multiplier(self.last_seen, reference_time)
         self.confidence = min(0.95, self.confidence + (mention_boost * decay))
 
-    def merge_with(self, other: 'ExtractedTopic'):
+    def merge_with(self, other: "ExtractedTopic"):
         self.mention_count += other.mention_count
         self.confidence = max(self.confidence, other.confidence)
         if len(other.brief) > len(self.brief):
@@ -469,7 +771,7 @@ class ExtractedTopic:
             "extraction_method": self.extraction_method,
             "source_quotes": self.source_quotes[:3],
             "first_seen": self.first_seen.isoformat() if self.first_seen else None,
-            "last_seen": self.last_seen.isoformat() if self.last_seen else None
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
         }
         if self.relationship_type:
             result["relationship_type"] = self.relationship_type
@@ -483,11 +785,21 @@ class ExtractionContext:
     conflicts: list[dict] = field(default_factory=list)
     redaction_summary: dict | None = field(default=None)
 
-    def add_topic(self, category: str, topic: str, brief: str = "", full_description: str = "",
-                  confidence: float = None, extraction_method: str = "mentioned",
-                  metrics: list[str] = None, relationships: list[str] = None,
-                  timeline: list[str] = None, source_quote: str = "", timestamp: datetime | None = None,
-                  relationship_type: str = ""):
+    def add_topic(
+        self,
+        category: str,
+        topic: str,
+        brief: str = "",
+        full_description: str = "",
+        confidence: float = None,
+        extraction_method: str = "mentioned",
+        metrics: list[str] = None,
+        relationships: list[str] = None,
+        timeline: list[str] = None,
+        source_quote: str = "",
+        timestamp: datetime | None = None,
+        relationship_type: str = "",
+    ):
         if not topic or len(topic.strip()) < 2:
             return
         topic = topic.strip()
@@ -521,14 +833,20 @@ class ExtractionContext:
                 existing.relationship_type = relationship_type
         else:
             self.topics[category][key] = ExtractedTopic(
-                topic=topic, category=category, brief=brief or topic,
-                full_description=full_description, confidence=confidence,
-                extraction_method=extraction_method, metrics=metrics or [],
-                relationships=relationships or [], timeline=timeline or [],
+                topic=topic,
+                category=category,
+                brief=brief or topic,
+                full_description=full_description,
+                confidence=confidence,
+                extraction_method=extraction_method,
+                metrics=metrics or [],
+                relationships=relationships or [],
+                timeline=timeline or [],
                 source_quotes=[source_quote[:200]] if source_quote else [],
-                first_seen=timestamp, last_seen=timestamp,
+                first_seen=timestamp,
+                last_seen=timestamp,
                 mention_timestamps=[timestamp] if timestamp else [],
-                relationship_type=relationship_type
+                relationship_type=relationship_type,
             )
 
     def merge_similar_topics(self):
@@ -540,7 +858,7 @@ class ExtractionContext:
             for i, key1 in enumerate(keys):
                 if key1 in merged:
                     continue
-                for key2 in keys[i+1:]:
+                for key2 in keys[i + 1 :]:
                     if key2 in merged:
                         continue
                     topic1, topic2 = self.topics[category][key1], self.topics[category][key2]
@@ -594,17 +912,19 @@ class ExtractionContext:
                         else:
                             resolution = "needs_review"
 
-                        conflicts.append({
-                            "type": "negation_conflict",
-                            "positive_category": pos_category,
-                            "positive_topic": pos_topic.topic,
-                            "positive_confidence": round(pos_topic.confidence, 2),
-                            "positive_last_seen": pos_time.isoformat() if pos_time else None,
-                            "negative_topic": neg_topic.topic,
-                            "negative_confidence": round(neg_topic.confidence, 2),
-                            "negative_last_seen": neg_time.isoformat() if neg_time else None,
-                            "resolution": resolution
-                        })
+                        conflicts.append(
+                            {
+                                "type": "negation_conflict",
+                                "positive_category": pos_category,
+                                "positive_topic": pos_topic.topic,
+                                "positive_confidence": round(pos_topic.confidence, 2),
+                                "positive_last_seen": pos_time.isoformat() if pos_time else None,
+                                "negative_topic": neg_topic.topic,
+                                "negative_confidence": round(neg_topic.confidence, 2),
+                                "negative_last_seen": neg_time.isoformat() if neg_time else None,
+                                "resolution": resolution,
+                            }
+                        )
 
         return conflicts
 
@@ -614,9 +934,15 @@ class ExtractionContext:
             "meta": {
                 "generated_at": self.extraction_time.isoformat(),
                 "method": "aggressive_extraction_v4",
-                "features": ["semantic_dedup", "time_decay", "topic_merging", "conflict_detection", "typed_relationships"]
+                "features": [
+                    "semantic_dedup",
+                    "time_decay",
+                    "topic_merging",
+                    "conflict_detection",
+                    "typed_relationships",
+                ],
             },
-            "categories": {}
+            "categories": {},
         }
         for category, topics in self.topics.items():
             if topics:
@@ -643,12 +969,14 @@ class ExtractionContext:
         This avoids duplicating conversion logic.
         """
         from cortex.compat import upgrade_v4_to_v5
+
         return upgrade_v4_to_v5(self.export())
 
 
 # ============================================================================
 # EXTRACTOR
 # ============================================================================
+
 
 class AggressiveExtractor:
     def __init__(self, redactor: PIIRedactor | None = None):
@@ -685,56 +1013,134 @@ class AggressiveExtractor:
             for match in re.finditer(pattern, text):
                 name = match.group(1).strip()
                 if name.lower() not in SKIP_WORDS:
-                    self.context.add_topic("identity", name, brief=name, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-        for pattern in [r'\b(MD|PhD|JD|MBA|CPA|RN|DO|DDS|DVM|PE|PMP|FACS|FACP)\b']:
+                    self.context.add_topic(
+                        "identity",
+                        name,
+                        brief=name,
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for pattern in [r"\b(MD|PhD|JD|MBA|CPA|RN|DO|DDS|DVM|PE|PMP|FACS|FACP)\b"]:
             for match in re.finditer(pattern, text):
-                self.context.add_topic("identity", match.group(1), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+                self.context.add_topic(
+                    "identity",
+                    match.group(1),
+                    extraction_method="explicit_statement",
+                    source_quote=match.group(0),
+                    timestamp=timestamp,
+                )
 
     def _extract_roles(self, text: str, timestamp: datetime | None = None):
         for pattern in ROLE_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 role = match.group(1).strip()
                 if 3 < len(role) < 100:
-                    self.context.add_topic("professional_context", role, brief=role, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-        for match in re.finditer(r'\b(CEO|CTO|CFO|COO|CMO|CIO|CISO|VP|SVP|EVP|Director|Manager|Lead|Head|Chief|Principal|Senior|Junior|Staff)\s+(?:of\s+)?([A-Za-z\s]+?)(?:\s+at|\s+for|,|\.|$)', text, re.IGNORECASE):
-            self.context.add_topic("professional_context", f"{match.group(1)} {match.group(2)}".strip(), extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+                    self.context.add_topic(
+                        "professional_context",
+                        role,
+                        brief=role,
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for match in re.finditer(
+            r"\b(CEO|CTO|CFO|COO|CMO|CIO|CISO|VP|SVP|EVP|Director|Manager|Lead|Head|Chief|Principal|Senior|Junior|Staff)\s+(?:of\s+)?([A-Za-z\s]+?)(?:\s+at|\s+for|,|\.|$)",
+            text,
+            re.IGNORECASE,
+        ):
+            self.context.add_topic(
+                "professional_context",
+                f"{match.group(1)} {match.group(2)}".strip(),
+                extraction_method="explicit_statement",
+                source_quote=match.group(0),
+                timestamp=timestamp,
+            )
 
     def _extract_companies(self, text: str, timestamp: datetime | None = None):
         for pattern in COMPANY_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 company = match.group(1).strip()
                 if 1 < len(company) < 50:
-                    self.context.add_topic("business_context", company, brief=company, full_description=extract_with_context(text, company, 100), extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp)
-        for match in re.finditer(r'(?:my|our)\s+(company|startup|business|organization|team|product|platform|app|service|tool)\s+([^.,]+)', text, re.IGNORECASE):
+                    self.context.add_topic(
+                        "business_context",
+                        company,
+                        brief=company,
+                        full_description=extract_with_context(text, company, 100),
+                        extraction_method="self_reference",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for match in re.finditer(
+            r"(?:my|our)\s+(company|startup|business|organization|team|product|platform|app|service|tool)\s+([^.,]+)",
+            text,
+            re.IGNORECASE,
+        ):
             thing = match.group(2).strip()
-            cat = "business_context" if match.group(1) in ["company", "startup", "business", "organization"] else "active_priorities"
-            self.context.add_topic(cat, thing, extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp)
+            cat = (
+                "business_context"
+                if match.group(1) in ["company", "startup", "business", "organization"]
+                else "active_priorities"
+            )
+            self.context.add_topic(
+                cat, thing, extraction_method="self_reference", source_quote=match.group(0), timestamp=timestamp
+            )
 
     def _extract_projects(self, text: str, timestamp: datetime | None = None):
         for pattern in PROJECT_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 project = match.group(1).strip() if match.lastindex >= 1 else ""
                 if 3 < len(project) < 200:
-                    self.context.add_topic("active_priorities", project, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
-        for pattern in [r'(?:focused on|working on|building|developing|researching|exploring)\s+([^.,]+)', r'(?:my|our)\s+(?:current|main|primary|key)\s+(?:focus|priority|project|work)\s+(?:is\s+)?([^.,]+)']:
+                    self.context.add_topic(
+                        "active_priorities",
+                        project,
+                        extraction_method="direct_description",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for pattern in [
+            r"(?:focused on|working on|building|developing|researching|exploring)\s+([^.,]+)",
+            r"(?:my|our)\s+(?:current|main|primary|key)\s+(?:focus|priority|project|work)\s+(?:is\s+)?([^.,]+)",
+        ]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 focus = match.group(1).strip()
                 if 5 < len(focus) < 200:
-                    self.context.add_topic("active_priorities", focus, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
+                    self.context.add_topic(
+                        "active_priorities",
+                        focus,
+                        extraction_method="direct_description",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
 
     def _extract_technical(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
         for category, keywords in TECH_KEYWORDS.items():
             for keyword in keywords:
                 if len(keyword) <= 3:
-                    if not re.search(r'\b' + re.escape(keyword) + r'\b', lower):
+                    if not re.search(r"\b" + re.escape(keyword) + r"\b", lower):
                         continue
-                    if keyword in TECH_FALSE_POSITIVES and not any(tc in lower for tc in ["language", "programming", "code", "develop", "stack", "use", "prefer"]):
+                    if keyword in TECH_FALSE_POSITIVES and not any(
+                        tc in lower for tc in ["language", "programming", "code", "develop", "stack", "use", "prefer"]
+                    ):
                         continue
                 elif keyword not in lower:
                     continue
-                method = "self_reference" if any(p in lower for p in ["i use", "i prefer", "we use", "our stack", "i work with", "tech stack"]) else "mentioned"
-                self.context.add_topic("technical_expertise", keyword.title() if len(keyword) > 3 else keyword.upper(), brief=f"{category}: {keyword}", extraction_method=method, source_quote=extract_with_context(text, keyword, 30), timestamp=timestamp)
+                method = (
+                    "self_reference"
+                    if any(
+                        p in lower for p in ["i use", "i prefer", "we use", "our stack", "i work with", "tech stack"]
+                    )
+                    else "mentioned"
+                )
+                self.context.add_topic(
+                    "technical_expertise",
+                    keyword.title() if len(keyword) > 3 else keyword.upper(),
+                    brief=f"{category}: {keyword}",
+                    extraction_method=method,
+                    source_quote=extract_with_context(text, keyword, 30),
+                    timestamp=timestamp,
+                )
 
     def _extract_domains(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
@@ -742,9 +1148,21 @@ class AggressiveExtractor:
             matches = [kw for kw in keywords if kw in lower]
             if matches:
                 for kw in matches:
-                    self.context.add_topic("domain_knowledge", kw.title(), brief=f"{domain}: {kw}", extraction_method="contextual", source_quote=extract_with_context(text, kw, 50), timestamp=timestamp)
+                    self.context.add_topic(
+                        "domain_knowledge",
+                        kw.title(),
+                        brief=f"{domain}: {kw}",
+                        extraction_method="contextual",
+                        source_quote=extract_with_context(text, kw, 50),
+                        timestamp=timestamp,
+                    )
                 if len(matches) >= 2:
-                    self.context.add_topic("domain_knowledge", domain.replace("_", " ").title(), extraction_method="inferred", timestamp=timestamp)
+                    self.context.add_topic(
+                        "domain_knowledge",
+                        domain.replace("_", " ").title(),
+                        extraction_method="inferred",
+                        timestamp=timestamp,
+                    )
 
     def _extract_relationships(self, text: str, timestamp: datetime | None = None):
         """Extract relationships with type classification"""
@@ -760,13 +1178,14 @@ class AggressiveExtractor:
                         if key not in extracted:
                             extracted[key] = rel_type
                             self.context.add_topic(
-                                "relationships", entity,
+                                "relationships",
+                                entity,
                                 brief=f"{rel_type.title()}: {entity}",
                                 full_description=extract_with_context(text, entity, 100),
                                 extraction_method="explicit_statement",
                                 source_quote=match.group(0),
                                 timestamp=timestamp,
-                                relationship_type=rel_type
+                                relationship_type=rel_type,
                             )
 
         # Second pass: generic relationship patterns (untyped)
@@ -777,70 +1196,148 @@ class AggressiveExtractor:
                 if 2 < len(entity) < 100 and key not in extracted:
                     extracted[key] = ""
                     self.context.add_topic(
-                        "relationships", entity,
+                        "relationships",
+                        entity,
                         full_description=extract_with_context(text, entity, 100),
                         extraction_method="explicit_statement",
                         source_quote=match.group(0),
                         timestamp=timestamp,
-                        relationship_type=""
+                        relationship_type="",
                     )
 
         # Additional contextual patterns
-        for match in re.finditer(r'(?:working|partnering|collaborating|meeting)\s+with\s+([A-Z][A-Za-z\s-]+?)(?:\s+(?:on|to|for|about)|\.|,|$)', text):
+        for match in re.finditer(
+            r"(?:working|partnering|collaborating|meeting)\s+with\s+([A-Z][A-Za-z\s-]+?)(?:\s+(?:on|to|for|about)|\.|,|$)",
+            text,
+        ):
             entity = match.group(1).strip()
             key = normalize_text(entity)
             if len(entity) > 2 and key not in extracted:
                 extracted[key] = ""
-                self.context.add_topic("relationships", entity, extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+                self.context.add_topic(
+                    "relationships",
+                    entity,
+                    extraction_method="contextual",
+                    source_quote=match.group(0),
+                    timestamp=timestamp,
+                )
 
-        for pattern in [r'(?:validation|study|partnership|collaboration)\s+(?:with|from|at)\s+([A-Z][A-Za-z\s-]+?)(?:\.|,|$|\s+(?:for|to|which))', r'([A-Z][A-Za-z]+(?:\s+(?:Clinic|Hospital|Medical|Health|University|Institute|Platform|Labs?))?)\s+(?:validation|partnership|study)', r'(?:advisors?|network)\s+(?:from|includes?|at)\s+([A-Z][A-Za-z,\s-]+?)(?:\.|$)']:
+        for pattern in [
+            r"(?:validation|study|partnership|collaboration)\s+(?:with|from|at)\s+([A-Z][A-Za-z\s-]+?)(?:\.|,|$|\s+(?:for|to|which))",
+            r"([A-Z][A-Za-z]+(?:\s+(?:Clinic|Hospital|Medical|Health|University|Institute|Platform|Labs?))?)\s+(?:validation|partnership|study)",
+            r"(?:advisors?|network)\s+(?:from|includes?|at)\s+([A-Z][A-Za-z,\s-]+?)(?:\.|$)",
+        ]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 orgs = match.group(1).strip()
-                for org in re.split(r',\s*|\s+and\s+', orgs):
+                for org in re.split(r",\s*|\s+and\s+", orgs):
                     org = org.strip()
                     key = normalize_text(org)
                     if len(org) > 3 and org[0].isupper() and key not in extracted:
                         extracted[key] = ""
-                        self.context.add_topic("relationships", org, brief=extract_with_context(text, org, 50)[:100], extraction_method="contextual", source_quote=match.group(0), timestamp=timestamp)
+                        self.context.add_topic(
+                            "relationships",
+                            org,
+                            brief=extract_with_context(text, org, 50)[:100],
+                            extraction_method="contextual",
+                            source_quote=match.group(0),
+                            timestamp=timestamp,
+                        )
 
         # Competitor detection (goes to market_context)
-        for pattern in [r'(?:looked at|compared to|competitor|like)\s+(?:what\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)\s+(?:is doing|does|offers)?', r'([A-Z][A-Za-z]+(?:\s+Health)?)\s+(?:in this space|as a competitor|for comparison)']:
+        for pattern in [
+            r"(?:looked at|compared to|competitor|like)\s+(?:what\s+)?([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)\s+(?:is doing|does|offers)?",
+            r"([A-Z][A-Za-z]+(?:\s+Health)?)\s+(?:in this space|as a competitor|for comparison)",
+        ]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 competitor = match.group(1).strip()
                 if len(competitor) > 3:
-                    self.context.add_topic("market_context", competitor, brief=f"Competitor/reference: {competitor}", extraction_method="mentioned", source_quote=match.group(0), timestamp=timestamp)
+                    self.context.add_topic(
+                        "market_context",
+                        competitor,
+                        brief=f"Competitor/reference: {competitor}",
+                        extraction_method="mentioned",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
 
     def _extract_values(self, text: str, timestamp: datetime | None = None):
         for pattern in VALUE_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 value = clean_extracted_text(match.group(1))
                 if 5 < len(value) < 200:
-                    self.context.add_topic("values", value, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
-        for pattern in [r'i (?:prefer|like|want|need)\s+([^.,]+)', r'(?:please|always|never)\s+([^.,]+)']:
+                    self.context.add_topic(
+                        "values",
+                        value,
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for pattern in [r"i (?:prefer|like|want|need)\s+([^.,]+)", r"(?:please|always|never)\s+([^.,]+)"]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 pref = clean_extracted_text(match.group(1))
                 if 5 < len(pref) < 100:
-                    self.context.add_topic("communication_preferences", pref, extraction_method="explicit_statement", source_quote=match.group(0), timestamp=timestamp)
+                    self.context.add_topic(
+                        "communication_preferences",
+                        pref,
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
 
     def _extract_priorities(self, text: str, timestamp: datetime | None = None):
-        for pattern in [r'(?:my|our)\s+(?:goal|target|objective|priority|plan)\s+(?:is\s+)?(?:to\s+)?([^.,]+)', r'(?:trying to|aiming to|planning to|hoping to|want to|need to)\s+([^.,]+)', r'(?:preparing for|getting ready for|working towards)\s+([^.,]+)']:
+        for pattern in [
+            r"(?:my|our)\s+(?:goal|target|objective|priority|plan)\s+(?:is\s+)?(?:to\s+)?([^.,]+)",
+            r"(?:trying to|aiming to|planning to|hoping to|want to|need to)\s+([^.,]+)",
+            r"(?:preparing for|getting ready for|working towards)\s+([^.,]+)",
+        ]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 priority = match.group(1).strip()
                 if 5 < len(priority) < 200:
-                    self.context.add_topic("active_priorities", priority, extraction_method="direct_description", source_quote=match.group(0), timestamp=timestamp)
+                    self.context.add_topic(
+                        "active_priorities",
+                        priority,
+                        extraction_method="direct_description",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
 
     def _extract_metrics(self, text: str, timestamp: datetime | None = None):
         for num in extract_numbers(text):
             context_text = extract_with_context(text, num, 50)
-            cat = "business_context" if any(kw in context_text.lower() for kw in ["funding", "raise", "revenue", "cost", "price", "budget", "investment"]) else "metrics"
-            self.context.add_topic(cat, num, brief=context_text[:100], extraction_method="contextual", source_quote=context_text, timestamp=timestamp)
+            cat = (
+                "business_context"
+                if any(
+                    kw in context_text.lower()
+                    for kw in ["funding", "raise", "revenue", "cost", "price", "budget", "investment"]
+                )
+                else "metrics"
+            )
+            self.context.add_topic(
+                cat,
+                num,
+                brief=context_text[:100],
+                extraction_method="contextual",
+                source_quote=context_text,
+                timestamp=timestamp,
+            )
 
     def _extract_entities_generic(self, text: str, timestamp: datetime | None = None):
         for entity, entity_type in extract_entities(text):
             if entity.lower() in SKIP_WORDS | NOISE_WORDS or len(entity) < 3:
                 continue
-            if not any(find_best_match(normalize_text(entity), topics, threshold=0.8) for cat, topics in self.context.topics.items() if cat != "mentions"):
-                self.context.add_topic("mentions", entity, brief=extract_with_context(text, entity, 30)[:100] or entity, extraction_method="mentioned", source_quote=extract_with_context(text, entity, 30), timestamp=timestamp)
+            if not any(
+                find_best_match(normalize_text(entity), topics, threshold=0.8)
+                for cat, topics in self.context.topics.items()
+                if cat != "mentions"
+            ):
+                self.context.add_topic(
+                    "mentions",
+                    entity,
+                    brief=extract_with_context(text, entity, 30)[:100] or entity,
+                    extraction_method="mentioned",
+                    source_quote=extract_with_context(text, entity, 30),
+                    timestamp=timestamp,
+                )
 
     def _extract_temporal(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
@@ -877,7 +1374,7 @@ class AggressiveExtractor:
                         full_description=match.group(0)[:200],
                         extraction_method="explicit_statement",
                         source_quote=match.group(0)[:200],
-                        timestamp=timestamp
+                        timestamp=timestamp,
                     )
                     # Store normalized form for filtering other categories
                     self._negated_items.add(normalize_text(negated_item))
@@ -904,7 +1401,7 @@ class AggressiveExtractor:
                         brief=f"Prefers: {pref}",
                         extraction_method=method,
                         source_quote=match.group(0)[:200],
-                        timestamp=timestamp
+                        timestamp=timestamp,
                     )
 
         # Extract communication style preferences specifically
@@ -923,7 +1420,7 @@ class AggressiveExtractor:
                         brief=f"Communication: {pref}",
                         extraction_method="explicit_statement",
                         source_quote=match.group(0)[:200],
-                        timestamp=timestamp
+                        timestamp=timestamp,
                     )
 
     def _extract_constraints(self, text: str, timestamp: datetime | None = None):
@@ -949,7 +1446,7 @@ class AggressiveExtractor:
                     extraction_method="explicit_statement",
                     metrics=metrics,
                     source_quote=match.group(0)[:200],
-                    timestamp=timestamp
+                    timestamp=timestamp,
                 )
 
     def _classify_constraint(self, text: str) -> str:
@@ -1007,13 +1504,19 @@ class AggressiveExtractor:
                         full_description=match.group(0)[:200],
                         extraction_method="explicit_statement",
                         source_quote=match.group(0)[:200],
-                        timestamp=timestamp
+                        timestamp=timestamp,
                     )
 
     def post_process(self):
-        for cat in ['relationships', 'market_context', 'mentions']:
+        for cat in ["relationships", "market_context", "mentions"]:
             if cat in self.context.topics:
-                to_remove = {key for key, topic in list(self.context.topics[cat].items()) if key in NOISE_WORDS or topic.topic.lower() in NOISE_WORDS or (len(topic.topic.split()) == 1 and len(topic.topic) < 6 and topic.confidence < 0.6)}
+                to_remove = {
+                    key
+                    for key, topic in list(self.context.topics[cat].items())
+                    if key in NOISE_WORDS
+                    or topic.topic.lower() in NOISE_WORDS
+                    or (len(topic.topic.split()) == 1 and len(topic.topic) < 6 and topic.confidence < 0.6)
+                }
                 for key in to_remove:
                     if key in self.context.topics[cat]:
                         del self.context.topics[cat][key]
@@ -1043,7 +1546,11 @@ class AggressiveExtractor:
 
         if "mentions" in self.context.topics:
             better_topics = {key for cat, topics in self.context.topics.items() for key in topics if cat != "mentions"}
-            to_remove = {key for key in list(self.context.topics["mentions"].keys()) if any(are_similar(key, better, threshold=0.7) for better in better_topics)}
+            to_remove = {
+                key
+                for key in list(self.context.topics["mentions"].keys())
+                if any(are_similar(key, better, threshold=0.7) for better in better_topics)
+            }
             for key in to_remove:
                 if key in self.context.topics["mentions"]:
                     del self.context.topics["mentions"][key]
@@ -1063,12 +1570,14 @@ class AggressiveExtractor:
     def process_messages_list(self, messages: list) -> dict:
         for message in messages:
             if is_user_message(message):
-                self.extract_from_text(get_message_text(message), parse_timestamp(message.get("timestamp", message.get("created_at"))))
+                self.extract_from_text(
+                    get_message_text(message), parse_timestamp(message.get("timestamp", message.get("created_at")))
+                )
         self.post_process()
         return self.context.export()
 
     def process_plain_text(self, text: str) -> dict:
-        for chunk in text.split('\n\n'):
+        for chunk in text.split("\n\n"):
             if len(chunk.strip()) > 20:
                 self.extract_from_text(chunk)
         self.post_process()
@@ -1084,8 +1593,7 @@ class AggressiveExtractor:
                 for turn in conv["turns"]:
                     if turn.get("role") == "user":
                         self.extract_from_text(
-                            turn.get("text", ""),
-                            parse_timestamp(turn.get("timestamp", turn.get("create_time")))
+                            turn.get("text", ""), parse_timestamp(turn.get("timestamp", turn.get("create_time")))
                         )
             # Handle "messages" format
             elif "messages" in conv:
@@ -1095,13 +1603,9 @@ class AggressiveExtractor:
                         content = msg.get("content", msg.get("text", ""))
                         if isinstance(content, list):
                             content = " ".join(
-                                p.get("text", str(p)) if isinstance(p, dict) else str(p)
-                                for p in content
+                                p.get("text", str(p)) if isinstance(p, dict) else str(p) for p in content
                             )
-                        self.extract_from_text(
-                            content,
-                            parse_timestamp(msg.get("timestamp", msg.get("create_time")))
-                        )
+                        self.extract_from_text(content, parse_timestamp(msg.get("timestamp", msg.get("create_time"))))
 
         self.post_process()
         return self.context.export()
@@ -1113,10 +1617,7 @@ class AggressiveExtractor:
         for thread in threads:
             for msg in thread.get("messages", []):
                 if msg.get("role") == "user":
-                    self.extract_from_text(
-                        msg.get("content", ""),
-                        parse_timestamp(msg.get("created_at"))
-                    )
+                    self.extract_from_text(msg.get("content", ""), parse_timestamp(msg.get("created_at")))
 
         self.post_process()
         return self.context.export()
@@ -1126,8 +1627,7 @@ class AggressiveExtractor:
         for msg in messages:
             if is_user_message(msg):
                 self.extract_from_text(
-                    get_message_text(msg),
-                    parse_timestamp(msg.get("timestamp", msg.get("created_at")))
+                    get_message_text(msg), parse_timestamp(msg.get("timestamp", msg.get("created_at")))
                 )
 
         self.post_process()
@@ -1149,10 +1649,7 @@ class AggressiveExtractor:
                             for block in content
                             if isinstance(block, dict) and block.get("type") == "text"
                         )
-                    self.extract_from_text(
-                        content,
-                        parse_timestamp(req.get("timestamp", req.get("created_at")))
-                    )
+                    self.extract_from_text(content, parse_timestamp(req.get("timestamp", req.get("created_at"))))
 
         self.post_process()
         return self.context.export()
@@ -1162,19 +1659,20 @@ class AggressiveExtractor:
 # FILE HANDLERS
 # ============================================================================
 
-def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'AggressiveExtractor':
+
+def merge_contexts(existing_path: Path, extractor: "AggressiveExtractor") -> "AggressiveExtractor":
     """Merge new extraction with existing v4 context file.
 
     Loads topics from existing context file and adds them to the new extraction.
     Uses add_topic() which handles deduplication via find_best_match.
     """
     try:
-        with open(existing_path, 'r', encoding='utf-8') as f:
+        with open(existing_path, "r", encoding="utf-8") as f:
             existing = json.load(f)
     except (json.JSONDecodeError, OSError) as exc:
         import sys
-        print(f"[cortex] Warning: could not load merge file {existing_path.name}: {exc}",
-              file=sys.stderr)
+
+        print(f"[cortex] Warning: could not load merge file {existing_path.name}: {exc}", file=sys.stderr)
         return extractor
 
     # Load existing topics into the new context
@@ -1192,7 +1690,7 @@ def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'Ag
                 timeline=topic_data.get("timeline", []),
                 source_quote=topic_data.get("source_quotes", [""])[0] if topic_data.get("source_quotes") else "",
                 timestamp=parse_timestamp(topic_data.get("last_seen")),
-                relationship_type=topic_data.get("relationship_type", "")
+                relationship_type=topic_data.get("relationship_type", ""),
             )
 
     # Re-run merge for deduplication
@@ -1202,25 +1700,25 @@ def merge_contexts(existing_path: Path, extractor: 'AggressiveExtractor') -> 'Ag
 
 
 def load_file(file_path: Path) -> tuple[Any, str]:
-    if file_path.suffix == '.zip':
+    if file_path.suffix == ".zip":
         _MAX_ZIP_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB limit (#26)
-        with zipfile.ZipFile(file_path, 'r') as zf:
+        with zipfile.ZipFile(file_path, "r") as zf:
             # Single-pass: categorize safe entries by priority
             conversations_entry: str | None = None
             json_entry: str | None = None
             txt_entry: str | None = None
             for name in zf.namelist():
                 # Skip path traversal entries (#11)
-                if '..' in name or os.path.isabs(name):
+                if ".." in name or os.path.isabs(name):
                     continue
                 info = zf.getinfo(name)
                 if info.file_size > _MAX_ZIP_ENTRY_SIZE:
                     continue
-                if conversations_entry is None and 'conversations.json' in name:
+                if conversations_entry is None and "conversations.json" in name:
                     conversations_entry = name
-                elif json_entry is None and name.endswith('.json'):
+                elif json_entry is None and name.endswith(".json"):
                     json_entry = name
-                elif txt_entry is None and name.endswith('.txt'):
+                elif txt_entry is None and name.endswith(".txt"):
                     txt_entry = name
 
             # Load by priority: conversations.json > any .json > any .txt
@@ -1232,13 +1730,13 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                     return json.load(f), "generic"
             if txt_entry is not None:
                 with zf.open(txt_entry) as f:
-                    return f.read().decode('utf-8'), "text"
+                    return f.read().decode("utf-8"), "text"
         raise ValueError("No supported files in zip")
 
     # JSONL format: one JSON object per line
-    if file_path.suffix == '.jsonl':
+    if file_path.suffix == ".jsonl":
         messages = []
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -1249,18 +1747,15 @@ def load_file(file_path: Path) -> tuple[Any, str]:
         # Check if this is Claude Code session JSONL
         if messages and len(messages) >= 2:
             first_real = next(
-                (r for r in messages
-                 if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
+                (r for r in messages if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
                 None,
             )
-            if (first_real is not None
-                    and "sessionId" in first_real
-                    and "cwd" in first_real):
+            if first_real is not None and "sessionId" in first_real and "cwd" in first_real:
                 return messages, "claude_code"
         return messages, "jsonl"
 
-    if file_path.suffix == '.json':
-        with open(file_path, 'r', encoding='utf-8') as f:
+    if file_path.suffix == ".json":
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Detection order: most specific to most generic
@@ -1312,8 +1807,8 @@ def load_file(file_path: Path) -> tuple[Any, str]:
 
         return data, "generic"
 
-    if file_path.suffix in ['.txt', '.md']:
-        with open(file_path, 'r', encoding='utf-8') as f:
+    if file_path.suffix in [".txt", ".md"]:
+        with open(file_path, "r", encoding="utf-8") as f:
             return f.read(), "text"
     raise ValueError(f"Unsupported format: {file_path.suffix}")
 
@@ -1322,10 +1817,15 @@ def main():
     parser = argparse.ArgumentParser(description="Aggressive memory extraction v4")
     parser.add_argument("input_file", help="Path to export file")
     parser.add_argument("--output", "-o", help="Output file path")
-    parser.add_argument("--format", "-f", choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"], default="auto")
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        default="auto",
+    )
     parser.add_argument("--merge", "-m", help="Existing context file to merge with (incremental extraction)")
     parser.add_argument("--redact", action="store_true", help="Enable PII redaction (emails, phones, SSNs, etc.)")
-    parser.add_argument("--redact-patterns", help="Path to JSON file with custom redaction patterns {\"LABEL\": \"regex\"}")
+    parser.add_argument("--redact-patterns", help='Path to JSON file with custom redaction patterns {"LABEL": "regex"}')
     parser.add_argument("--stats", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
@@ -1352,7 +1852,7 @@ def main():
         if args.redact_patterns:
             patterns_path = Path(args.redact_patterns)
             if patterns_path.exists():
-                with open(patterns_path, 'r', encoding='utf-8') as f:
+                with open(patterns_path, "r", encoding="utf-8") as f:
                     custom_patterns = json.load(f)
                 print(f"🔒 Loaded {len(custom_patterns)} custom redaction patterns from {patterns_path}")
             else:
@@ -1398,11 +1898,13 @@ def main():
 
     stats = extractor.context.stats()
     print(f"✅ Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
-    print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
+    print(
+        f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low"
+    )
 
     if args.stats or args.verbose:
         print("\n📊 By category:")
-        for cat, count in sorted(stats['by_category'].items(), key=lambda x: -x[1]):
+        for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
             print(f"   {cat}: {count}")
 
     if args.verbose:
@@ -1410,15 +1912,19 @@ def main():
         for cat, topics in list(result["categories"].items())[:5]:
             print(f"\n  [{cat}]")
             for topic in topics[:3]:
-                rel_type = topic.get('relationship_type', '')
+                rel_type = topic.get("relationship_type", "")
                 rel_str = f", type: {rel_type}" if rel_type else ""
-                print(f"    • {topic['topic']} (conf: {topic['confidence']}, mentions: {topic['mention_count']}{rel_str})")
+                print(
+                    f"    • {topic['topic']} (conf: {topic['confidence']}, mentions: {topic['mention_count']}{rel_str})"
+                )
 
         # Show conflicts if any
         if result.get("conflicts"):
             print(f"\n⚠️  Detected {len(result['conflicts'])} conflicts:")
             for conflict in result["conflicts"][:5]:
-                print(f"    • {conflict['positive_category']}: '{conflict['positive_topic']}' vs negation '{conflict['negative_topic']}' → {conflict['resolution']}")
+                print(
+                    f"    • {conflict['positive_category']}: '{conflict['positive_topic']}' vs negation '{conflict['negative_topic']}' → {conflict['resolution']}"
+                )
 
     # Show redaction summary
     if result.get("redaction_summary"):
@@ -1429,7 +1935,7 @@ def main():
                 print(f"   {pii_type}: {count}")
 
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(f"\n💾 Saved to: {output_path}")
     return 0

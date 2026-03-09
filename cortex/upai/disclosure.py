@@ -17,12 +17,12 @@ from cortex.graph import CortexGraph
 
 @dataclass
 class DisclosurePolicy:
-    name: str                     # "professional", "technical", "full", "minimal"
-    include_tags: list[str]       # tags to include (empty = all)
-    exclude_tags: list[str]       # tags to exclude
-    min_confidence: float         # confidence floor
+    name: str  # "professional", "technical", "full", "minimal"
+    include_tags: list[str]  # tags to include (empty = all)
+    exclude_tags: list[str]  # tags to exclude
+    min_confidence: float  # confidence floor
     redact_properties: list[str]  # property keys to strip
-    max_nodes: int = 0            # 0 = unlimited
+    max_nodes: int = 0  # 0 = unlimited
 
 
 BUILTIN_POLICIES = {
@@ -36,9 +36,13 @@ BUILTIN_POLICIES = {
     "professional": DisclosurePolicy(
         name="professional",
         include_tags=[
-            "identity", "professional_context", "business_context",
-            "technical_expertise", "active_priorities",
-            "work_history", "education_history",
+            "identity",
+            "professional_context",
+            "business_context",
+            "technical_expertise",
+            "active_priorities",
+            "work_history",
+            "education_history",
         ],
         exclude_tags=["negations", "correction_history"],
         min_confidence=0.6,
@@ -47,7 +51,9 @@ BUILTIN_POLICIES = {
     "technical": DisclosurePolicy(
         name="technical",
         include_tags=[
-            "technical_expertise", "domain_knowledge", "active_priorities",
+            "technical_expertise",
+            "domain_knowledge",
+            "active_priorities",
         ],
         exclude_tags=[],
         min_confidence=0.5,
@@ -177,7 +183,7 @@ def apply_disclosure(graph: CortexGraph, policy: DisclosurePolicy) -> CortexGrap
 
     # Cap at max_nodes
     if policy.max_nodes > 0:
-        candidates = candidates[:policy.max_nodes]
+        candidates = candidates[: policy.max_nodes]
 
     # Build result graph
     included_ids = set()

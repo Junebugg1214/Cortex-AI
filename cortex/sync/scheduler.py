@@ -18,18 +18,21 @@ from typing import Any
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SyncSchedule:
     """A single platform sync schedule."""
-    platform: str           # "claude", "system-prompt", "notion", "gdocs"
-    policy: str             # "full", "professional", "technical", "minimal"
-    interval_minutes: int   # sync interval
-    output_dir: str         # where to write output files
+
+    platform: str  # "claude", "system-prompt", "notion", "gdocs"
+    policy: str  # "full", "professional", "technical", "minimal"
+    interval_minutes: int  # sync interval
+    output_dir: str  # where to write output files
 
 
 @dataclass
 class SyncConfig:
     """Configuration for the sync scheduler."""
+
     schedules: list[SyncSchedule]
     graph_path: str
     store_dir: str = ".cortex"
@@ -43,14 +46,10 @@ class SyncConfig:
             sched = SyncSchedule(**s)
             # Validate interval (#15)
             if sched.interval_minutes < 1 or sched.interval_minutes > 10080:
-                raise ValueError(
-                    f"interval_minutes must be 1-10080, got {sched.interval_minutes}"
-                )
+                raise ValueError(f"interval_minutes must be 1-10080, got {sched.interval_minutes}")
             # Validate output_dir: reject path traversal (#9)
             if ".." in sched.output_dir:
-                raise ValueError(
-                    f"output_dir must not contain '..', got {sched.output_dir}"
-                )
+                raise ValueError(f"output_dir must not contain '..', got {sched.output_dir}")
             schedules.append(sched)
         return cls(
             schedules=schedules,
@@ -78,6 +77,7 @@ class SyncConfig:
 # Graph loader (inline to avoid circular imports)
 # ---------------------------------------------------------------------------
 
+
 def _load_graph_from_path(path: Path):
     """Load a v4 or v5 JSON file and return a CortexGraph."""
     from cortex.compat import upgrade_v4_to_v5
@@ -94,6 +94,7 @@ def _load_graph_from_path(path: Path):
 # ---------------------------------------------------------------------------
 # Scheduler
 # ---------------------------------------------------------------------------
+
 
 class SyncScheduler:
     """Run periodic platform syncs on schedule using threading.Timer."""
@@ -149,6 +150,7 @@ class SyncScheduler:
             self._execute_sync(schedule)
         except Exception as exc:
             import sys
+
             print(f"[cortex scheduler] Error syncing {schedule.platform}: {exc}", file=sys.stderr)
         finally:
             self._schedule_next(schedule)

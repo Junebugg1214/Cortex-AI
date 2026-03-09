@@ -22,6 +22,7 @@ from cortex.context import (  # noqa: E402
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_sample_graph_file(tmp_path: Path) -> Path:
     """Create a minimal v4 context JSON file for testing."""
     data = {
@@ -68,6 +69,7 @@ def _make_sample_graph_file(tmp_path: Path) -> Path:
 # ===========================================================================
 # TestWriteNonDestructive
 # ===========================================================================
+
 
 class TestWriteNonDestructive:
     """Tests for _write_non_destructive()."""
@@ -176,6 +178,7 @@ class TestWriteNonDestructive:
 # TestPlatformFormatting
 # ===========================================================================
 
+
 class TestPlatformFormatting:
     """Tests for platform-specific formatters."""
 
@@ -197,8 +200,7 @@ class TestPlatformFormatting:
 
     def test_all_targets_in_registry(self):
         """All expected platforms are in the registry."""
-        expected = {"claude-code", "claude-code-project", "cursor",
-                    "copilot", "windsurf", "gemini-cli"}
+        expected = {"claude-code", "claude-code-project", "cursor", "copilot", "windsurf", "gemini-cli"}
         assert set(CONTEXT_TARGETS.keys()) == expected
 
     def test_target_fields(self):
@@ -226,6 +228,7 @@ class TestPlatformFormatting:
 # TestResolvePath
 # ===========================================================================
 
+
 class TestResolvePath:
     """Tests for _resolve_path()."""
 
@@ -237,13 +240,13 @@ class TestResolvePath:
 
     def test_resolve_project(self):
         """Expands {project} to provided project directory."""
-        result = _resolve_path("{project}/.cursor/rules/cortex.mdc",
-                               project_dir="/tmp/myproject")
+        result = _resolve_path("{project}/.cursor/rules/cortex.mdc", project_dir="/tmp/myproject")
         assert str(result) == "/tmp/myproject/.cursor/rules/cortex.mdc"
 
     def test_resolve_project_default_cwd(self):
         """Uses cwd when no project_dir provided."""
         import os
+
         result = _resolve_path("{project}/GEMINI.md")
         assert str(result).startswith(os.getcwd())
 
@@ -251,6 +254,7 @@ class TestResolvePath:
 # ===========================================================================
 # TestWriteContext
 # ===========================================================================
+
 
 class TestWriteContext:
     """Tests for write_context() main function."""
@@ -406,6 +410,7 @@ class TestWriteContext:
 # TestWatchAndRefresh
 # ===========================================================================
 
+
 class TestWatchAndRefresh:
     """Tests for watch_and_refresh()."""
 
@@ -451,15 +456,18 @@ class TestWatchAndRefresh:
 # TestMigrateSubcommand
 # ===========================================================================
 
+
 class TestMigrateSubcommand:
     """Tests for the context-write subcommand in migrate.py."""
 
     def test_context_write_help(self):
         """context-write --help doesn't error."""
         import subprocess
+
         result = subprocess.run(
             [sys.executable, str(_ROOT / "migrate.py"), "context-write", "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "context-write" in result.stdout or "platforms" in result.stdout
@@ -467,22 +475,33 @@ class TestMigrateSubcommand:
     def test_context_write_missing_file(self):
         """context-write with missing file returns error."""
         import subprocess
+
         result = subprocess.run(
-            [sys.executable, str(_ROOT / "migrate.py"), "context-write",
-             "/nonexistent/graph.json"],
-            capture_output=True, text=True,
+            [sys.executable, str(_ROOT / "migrate.py"), "context-write", "/nonexistent/graph.json"],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 1
 
     def test_context_write_dry_run(self, tmp_path):
         """context-write --dry-run shows platforms without writing."""
         import subprocess
+
         graph_path = _make_sample_graph_file(tmp_path)
         result = subprocess.run(
-            [sys.executable, str(_ROOT / "migrate.py"), "context-write",
-             str(graph_path), "--platforms", "gemini-cli", "--dry-run",
-             "--project", str(tmp_path)],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                str(_ROOT / "migrate.py"),
+                "context-write",
+                str(graph_path),
+                "--platforms",
+                "gemini-cli",
+                "--dry-run",
+                "--project",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "dry-run" in result.stdout

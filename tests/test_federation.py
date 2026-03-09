@@ -21,11 +21,17 @@ from cortex.upai.identity import UPAIIdentity
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _node(label, tags=None, confidence=0.9, brief="", props=None):
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label, tags=tags or [], confidence=confidence,
-        properties=props or {}, brief=brief, full_description="",
+        id=nid,
+        label=label,
+        tags=tags or [],
+        confidence=confidence,
+        properties=props or {},
+        brief=brief,
+        full_description="",
     )
 
 
@@ -36,11 +42,39 @@ def graph():
     g.add_node(_node("Machine Learning", tags=["technology", "ai"], confidence=0.9, brief="Subset of AI"))
     g.add_node(_node("Healthcare", tags=["domain"], confidence=0.8, brief="Medical services"))
     marc_id = make_node_id("Marc")
-    g.add_node(Node(id=marc_id, label="Marc", tags=["person"], confidence=0.99, properties={}, brief="Developer", full_description=""))
+    g.add_node(
+        Node(
+            id=marc_id,
+            label="Marc",
+            tags=["person"],
+            confidence=0.99,
+            properties={},
+            brief="Developer",
+            full_description="",
+        )
+    )
     python_id = make_node_id("Python")
     ml_id = make_node_id("Machine Learning")
-    g.add_edge(Edge(id=make_edge_id(marc_id, python_id, "uses"), source_id=marc_id, target_id=python_id, relation="uses", confidence=0.9, properties={}))
-    g.add_edge(Edge(id=make_edge_id(python_id, ml_id, "used_in"), source_id=python_id, target_id=ml_id, relation="used_in", confidence=0.8, properties={}))
+    g.add_edge(
+        Edge(
+            id=make_edge_id(marc_id, python_id, "uses"),
+            source_id=marc_id,
+            target_id=python_id,
+            relation="uses",
+            confidence=0.9,
+            properties={},
+        )
+    )
+    g.add_edge(
+        Edge(
+            id=make_edge_id(python_id, ml_id, "used_in"),
+            source_id=python_id,
+            target_id=ml_id,
+            relation="used_in",
+            confidence=0.8,
+            properties={},
+        )
+    )
     return g
 
 
@@ -58,17 +92,22 @@ def identity_b():
 # Bundle serialization
 # ---------------------------------------------------------------------------
 
+
 class TestFederationBundle:
     def test_round_trip(self):
         bundle = FederationBundle(
-            version="1.0", exporter_did="did:key:z6Mk123",
-            exporter_public_key_b64="cHViX2tleQ==", nonce="abc123",
+            version="1.0",
+            exporter_did="did:key:z6Mk123",
+            exporter_public_key_b64="cHViX2tleQ==",
+            nonce="abc123",
             created_at="2026-01-01T00:00:00+00:00",
             expires_at="2026-01-01T01:00:00+00:00",
             policy="full",
             graph_data={"nodes": {}, "edges": {}},
-            node_count=0, edge_count=0,
-            content_hash="abc", signature="sig",
+            node_count=0,
+            edge_count=0,
+            content_hash="abc",
+            signature="sig",
             metadata={"source": "test"},
         )
         d = bundle.to_dict()
@@ -92,6 +131,7 @@ class TestFederationBundle:
 # Import result
 # ---------------------------------------------------------------------------
 
+
 class TestImportResult:
     def test_to_dict(self):
         r = ImportResult(success=True, nodes_added=3, edges_added=1, errors=["warn"])
@@ -104,6 +144,7 @@ class TestImportResult:
 # ---------------------------------------------------------------------------
 # Content hashing
 # ---------------------------------------------------------------------------
+
 
 class TestContentHash:
     def test_deterministic(self):
@@ -123,13 +164,19 @@ class TestContentHash:
 # Export policies
 # ---------------------------------------------------------------------------
 
+
 class TestExportPolicies:
     def test_full_policy(self):
         nd = {
-            "id": "n1", "label": "Test", "tags": ["t"],
-            "confidence": 0.9, "brief": "A node",
-            "full_description": "Full desc", "properties": {"k": "v"},
-            "timeline": [{"date": "2026-01-01"}], "first_seen": "2026-01-01",
+            "id": "n1",
+            "label": "Test",
+            "tags": ["t"],
+            "confidence": 0.9,
+            "brief": "A node",
+            "full_description": "Full desc",
+            "properties": {"k": "v"},
+            "timeline": [{"date": "2026-01-01"}],
+            "first_seen": "2026-01-01",
             "last_seen": "2026-01-02",
         }
         result = _apply_policy(nd, "full")
@@ -140,10 +187,16 @@ class TestExportPolicies:
 
     def test_summary_policy(self):
         nd = {
-            "id": "n1", "label": "Test", "tags": [],
-            "confidence": 0.9, "brief": "A node",
-            "full_description": "Full", "properties": {"k": "v"},
-            "timeline": [{"x": 1}], "first_seen": "d1", "last_seen": "d2",
+            "id": "n1",
+            "label": "Test",
+            "tags": [],
+            "confidence": 0.9,
+            "brief": "A node",
+            "full_description": "Full",
+            "properties": {"k": "v"},
+            "timeline": [{"x": 1}],
+            "first_seen": "d1",
+            "last_seen": "d2",
         }
         result = _apply_policy(nd, "summary")
         assert result["confidence"] == 0.9
@@ -153,8 +206,11 @@ class TestExportPolicies:
 
     def test_minimal_policy(self):
         nd = {
-            "id": "n1", "label": "Test", "tags": ["a"],
-            "confidence": 0.9, "brief": "A node",
+            "id": "n1",
+            "label": "Test",
+            "tags": ["a"],
+            "confidence": 0.9,
+            "brief": "A node",
         }
         result = _apply_policy(nd, "minimal")
         assert result["id"] == "n1"
@@ -172,6 +228,7 @@ class TestExportPolicies:
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
+
 
 class TestExportBundle:
     def test_basic_export(self, graph, identity_a):
@@ -220,6 +277,7 @@ class TestExportBundle:
 # Signing and verification
 # ---------------------------------------------------------------------------
 
+
 class TestSigning:
     def test_signed_export(self, graph, identity_a):
         mgr = FederationManager(identity=identity_a, sign_exports=True)
@@ -238,6 +296,7 @@ class TestSigning:
 # ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------
+
 
 class TestImportBundle:
     def test_basic_import(self, graph, identity_a, identity_b):
@@ -279,7 +338,8 @@ class TestImportBundle:
 
         target = CortexGraph()
         mgr_b = FederationManager(
-            identity=identity_b, trusted_dids=[identity_a.did],
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
         )
         # First import succeeds
         r1 = mgr_b.import_bundle(target, bundle, verify_signature=False)
@@ -298,7 +358,8 @@ class TestImportBundle:
 
         target = CortexGraph()
         mgr_b = FederationManager(
-            identity=identity_b, trusted_dids=[identity_a.did],
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
         )
         result = mgr_b.import_bundle(target, bundle, verify_signature=False)
         assert result.success is False
@@ -311,7 +372,8 @@ class TestImportBundle:
 
         target = CortexGraph()
         mgr_b = FederationManager(
-            identity=identity_b, trusted_dids=[identity_a.did],
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
         )
         result = mgr_b.import_bundle(target, bundle, verify_signature=False)
         assert result.success is False
@@ -326,7 +388,8 @@ class TestImportBundle:
         target.add_node(_node("Python", tags=["old-tag"], confidence=0.5, brief=""))
 
         mgr_b = FederationManager(
-            identity=identity_b, trusted_dids=[identity_a.did],
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
         )
         result = mgr_b.import_bundle(target, bundle, verify_signature=False)
         assert result.success is True
@@ -346,7 +409,8 @@ class TestImportBundle:
 
         target = CortexGraph()
         mgr_b = FederationManager(
-            identity=identity_b, trusted_dids=[identity_a.did],
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
         )
         result = mgr_b.import_bundle(target, bundle, verify_signature=True)
         # Should succeed if Ed25519 is available, or succeed without sig check
@@ -361,6 +425,7 @@ class TestImportBundle:
 # ---------------------------------------------------------------------------
 # Peer management
 # ---------------------------------------------------------------------------
+
 
 class TestPeerManagement:
     def test_add_trusted_did(self, identity_a):
@@ -393,17 +458,21 @@ class TestPeerManagement:
 # Signing input
 # ---------------------------------------------------------------------------
 
+
 class TestSigningInput:
     def test_deterministic(self):
-        d = {"version": "1.0", "exporter_did": "did:key:z6Mk1",
-             "nonce": "abc", "created_at": "2026-01-01", "content_hash": "hash1"}
+        d = {
+            "version": "1.0",
+            "exporter_did": "did:key:z6Mk1",
+            "nonce": "abc",
+            "created_at": "2026-01-01",
+            "content_hash": "hash1",
+        }
         s1 = _compute_signing_input(d)
         s2 = _compute_signing_input(d)
         assert s1 == s2
 
     def test_different_nonces(self):
-        d1 = {"version": "1.0", "exporter_did": "d", "nonce": "a",
-              "created_at": "t", "content_hash": "h"}
-        d2 = {"version": "1.0", "exporter_did": "d", "nonce": "b",
-              "created_at": "t", "content_hash": "h"}
+        d1 = {"version": "1.0", "exporter_did": "d", "nonce": "a", "created_at": "t", "content_hash": "h"}
+        d2 = {"version": "1.0", "exporter_did": "d", "nonce": "b", "created_at": "t", "content_hash": "h"}
         assert _compute_signing_input(d1) != _compute_signing_input(d2)

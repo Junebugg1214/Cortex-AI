@@ -22,32 +22,44 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 TAG_COLORS: dict[str, str] = {
-    "identity":                   "#e74c3c",
-    "professional_context":       "#3498db",
-    "business_context":           "#2ecc71",
-    "active_priorities":          "#f39c12",
-    "work_history":               "#2c3e50",
-    "education_history":          "#8e44ad",
-    "relationships":              "#9b59b6",
-    "technical_expertise":        "#1abc9c",
-    "domain_knowledge":           "#e67e22",
-    "market_context":             "#34495e",
-    "metrics":                    "#16a085",
-    "constraints":                "#c0392b",
-    "values":                     "#8e44ad",
-    "negations":                  "#7f8c8d",
-    "user_preferences":           "#2980b9",
-    "communication_preferences":  "#27ae60",
-    "correction_history":         "#d35400",
-    "history":                    "#95a5a6",
-    "mentions":                   "#bdc3c7",
+    "identity": "#e74c3c",
+    "professional_context": "#3498db",
+    "business_context": "#2ecc71",
+    "active_priorities": "#f39c12",
+    "work_history": "#2c3e50",
+    "education_history": "#8e44ad",
+    "relationships": "#9b59b6",
+    "technical_expertise": "#1abc9c",
+    "domain_knowledge": "#e67e22",
+    "market_context": "#34495e",
+    "metrics": "#16a085",
+    "constraints": "#c0392b",
+    "values": "#8e44ad",
+    "negations": "#7f8c8d",
+    "user_preferences": "#2980b9",
+    "communication_preferences": "#27ae60",
+    "correction_history": "#d35400",
+    "history": "#95a5a6",
+    "mentions": "#bdc3c7",
 }
 
 # Extra colors for custom tags (hash-indexed)
 _EXTRA_COLORS = [
-    "#e6194b", "#3cb44b", "#ffe119", "#4363d8", "#f58231",
-    "#911eb4", "#42d4f4", "#f032e6", "#bfef45", "#fabed4",
-    "#469990", "#dcbeff", "#9a6324", "#800000", "#aaffc3",
+    "#e6194b",
+    "#3cb44b",
+    "#ffe119",
+    "#4363d8",
+    "#f58231",
+    "#911eb4",
+    "#42d4f4",
+    "#f032e6",
+    "#bfef45",
+    "#fabed4",
+    "#469990",
+    "#dcbeff",
+    "#9a6324",
+    "#800000",
+    "#aaffc3",
 ]
 
 
@@ -61,11 +73,9 @@ def _tag_color(tag: str) -> str:
 
 def _html_escape(s: str) -> str:
     """Basic HTML escaping."""
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;")
-             .replace('"', "&quot;")
-             .replace("'", "&#39;"))
+    return (
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
+    )
 
 
 def _node_radius(confidence: float, min_r: float = 8.0, max_r: float = 24.0) -> float:
@@ -76,6 +86,7 @@ def _node_radius(confidence: float, min_r: float = 8.0, max_r: float = 24.0) -> 
 # ---------------------------------------------------------------------------
 # HTML Renderer
 # ---------------------------------------------------------------------------
+
 
 def render_html(
     graph: CortexGraph,
@@ -98,17 +109,19 @@ def render_html(
             continue
         node_id_to_idx[nid] = len(nodes_data)
         primary_tag = node.tags[0] if node.tags else "mentions"
-        nodes_data.append({
-            "id": nid,
-            "label": node.label,
-            "x": round(pos[0] * width, 2),
-            "y": round(pos[1] * height, 2),
-            "r": round(_node_radius(node.confidence), 1),
-            "color": _tag_color(primary_tag),
-            "tags": list(node.tags),
-            "confidence": round(node.confidence, 2),
-            "brief": node.brief or "",
-        })
+        nodes_data.append(
+            {
+                "id": nid,
+                "label": node.label,
+                "x": round(pos[0] * width, 2),
+                "y": round(pos[1] * height, 2),
+                "r": round(_node_radius(node.confidence), 1),
+                "color": _tag_color(primary_tag),
+                "tags": list(node.tags),
+                "confidence": round(node.confidence, 2),
+                "brief": node.brief or "",
+            }
+        )
 
     # Build edge data array
     edges_data: list[dict] = []
@@ -116,12 +129,14 @@ def render_html(
         si = node_id_to_idx.get(edge.source_id)
         ti = node_id_to_idx.get(edge.target_id)
         if si is not None and ti is not None:
-            edges_data.append({
-                "s": si,
-                "t": ti,
-                "relation": edge.relation,
-                "confidence": round(edge.confidence, 2),
-            })
+            edges_data.append(
+                {
+                    "s": si,
+                    "t": ti,
+                    "relation": edge.relation,
+                    "confidence": round(edge.confidence, 2),
+                }
+            )
 
     # Build legend (only tags present in layout)
     present_tags: set[str] = set()
@@ -137,7 +152,7 @@ def render_html(
     legend_html = "\n".join(
         f'<div><span style="display:inline-block;width:12px;height:12px;'
         f'background:{color};border-radius:50%;margin-right:4px;vertical-align:middle;">'
-        f'</span>{_html_escape(tag)}</div>'
+        f"</span>{_html_escape(tag)}</div>"
         for tag, color in legend_items
     )
     stats_text = f"{len(nodes_data)} nodes, {len(edges_data)} edges"
@@ -252,6 +267,7 @@ resize();
 # SVG Renderer
 # ---------------------------------------------------------------------------
 
+
 def render_svg(
     graph: CortexGraph,
     layout: LayoutResult,
@@ -262,14 +278,15 @@ def render_svg(
     """Render a static SVG graph for documents/presentations."""
     parts: list[str] = []
     parts.append(
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-        f'width="{width}" height="{height}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">'
     )
-    parts.append('<style>'
-                 'text { font-family: -apple-system, sans-serif; font-size: 10px; fill: #2c3e50; }'
-                 '.edge { stroke: #bdc3c7; stroke-width: 1; }'
-                 '.title { font-size: 16px; font-weight: bold; }'
-                 '</style>')
+    parts.append(
+        "<style>"
+        "text { font-family: -apple-system, sans-serif; font-size: 10px; fill: #2c3e50; }"
+        ".edge { stroke: #bdc3c7; stroke-width: 1; }"
+        ".title { font-size: 16px; font-weight: bold; }"
+        "</style>"
+    )
 
     # Background
     parts.append(f'<rect width="{width}" height="{height}" fill="#f8f9fa"/>')
@@ -286,13 +303,15 @@ def render_svg(
             continue
         node_id_to_idx[nid] = len(node_positions)
         primary_tag = node.tags[0] if node.tags else "mentions"
-        node_positions.append({
-            "x": round(pos[0] * width, 2),
-            "y": round(pos[1] * height, 2),
-            "r": round(_node_radius(node.confidence), 1),
-            "color": _tag_color(primary_tag),
-            "label": node.label,
-        })
+        node_positions.append(
+            {
+                "x": round(pos[0] * width, 2),
+                "y": round(pos[1] * height, 2),
+                "r": round(_node_radius(node.confidence), 1),
+                "color": _tag_color(primary_tag),
+                "label": node.label,
+            }
+        )
 
     # Edges
     for edge in graph.edges.values():
@@ -302,8 +321,7 @@ def render_svg(
             a, b = node_positions[si], node_positions[ti]
             opacity = round(min(1.0, max(0.0, 0.2 + edge.confidence * 0.6)), 2)
             parts.append(
-                f'<line x1="{a["x"]}" y1="{a["y"]}" x2="{b["x"]}" y2="{b["y"]}" '
-                f'class="edge" opacity="{opacity}"/>'
+                f'<line x1="{a["x"]}" y1="{a["y"]}" x2="{b["x"]}" y2="{b["y"]}" class="edge" opacity="{opacity}"/>'
             )
             # Edge label at midpoint
             mx = round((a["x"] + b["x"]) / 2, 1)
@@ -324,5 +342,5 @@ def render_svg(
             f'text-anchor="middle">{_html_escape(np_["label"])}</text>'
         )
 
-    parts.append('</svg>')
+    parts.append("</svg>")
     return "\n".join(parts)

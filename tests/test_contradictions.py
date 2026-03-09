@@ -13,6 +13,7 @@ Covers:
 - detect_all() aggregates all types, sorted by severity
 - Filter by minimum severity
 """
+
 from __future__ import annotations
 
 import sys
@@ -24,6 +25,7 @@ from cortex.graph import CortexGraph, Node, make_node_id
 # Helpers
 # ============================================================================
 
+
 def _make_graph(*nodes: Node) -> CortexGraph:
     g = CortexGraph()
     for n in nodes:
@@ -31,11 +33,13 @@ def _make_graph(*nodes: Node) -> CortexGraph:
     return g
 
 
-def _make_node(label: str, tags: list[str] | None = None,
-               confidence: float = 0.5, snapshots: list[dict] | None = None) -> Node:
+def _make_node(
+    label: str, tags: list[str] | None = None, confidence: float = 0.5, snapshots: list[dict] | None = None
+) -> Node:
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label,
+        id=nid,
+        label=label,
         tags=tags or ["technical_expertise"],
         confidence=confidence,
         snapshots=snapshots or [],
@@ -46,8 +50,8 @@ def _make_node(label: str, tags: list[str] | None = None,
 # Negation conflicts
 # ============================================================================
 
-class TestNegationConflicts:
 
+class TestNegationConflicts:
     def test_detect_negation_conflict(self):
         """Node with both technical_expertise and negations = conflict."""
         node = _make_node("Python", tags=["technical_expertise", "negations"], confidence=0.8)
@@ -91,19 +95,43 @@ class TestNegationConflicts:
 # Temporal flips
 # ============================================================================
 
-class TestTemporalFlips:
 
+class TestTemporalFlips:
     def test_detect_temporal_flip(self):
         """Confidence flip-flopping across snapshots = temporal flip."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "confidence": 0.3, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-02-01T00:00:00Z", "confidence": 0.8, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-03-01T00:00:00Z", "confidence": 0.4, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-04-01T00:00:00Z", "confidence": 0.9, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "confidence": 0.3,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-02-01T00:00:00Z",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-03-01T00:00:00Z",
+                "confidence": 0.4,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-04-01T00:00:00Z",
+                "confidence": 0.9,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -115,10 +143,22 @@ class TestTemporalFlips:
     def test_no_temporal_flip_with_insufficient_snapshots(self):
         """< 3 snapshots = no temporal flip detection."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "confidence": 0.3, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-02-01T00:00:00Z", "confidence": 0.8, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "confidence": 0.3,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-02-01T00:00:00Z",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -129,14 +169,38 @@ class TestTemporalFlips:
     def test_no_temporal_flip_with_monotonic_confidence(self):
         """Steadily increasing confidence = no flip."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "confidence": 0.3, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-02-01T00:00:00Z", "confidence": 0.5, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-03-01T00:00:00Z", "confidence": 0.8, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-04-01T00:00:00Z", "confidence": 0.9, "tags": ["technical_expertise"],
-             "source": "extraction", "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "confidence": 0.3,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-02-01T00:00:00Z",
+                "confidence": 0.5,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-03-01T00:00:00Z",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-04-01T00:00:00Z",
+                "confidence": 0.9,
+                "tags": ["technical_expertise"],
+                "source": "extraction",
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -149,15 +213,20 @@ class TestTemporalFlips:
 # Source conflicts
 # ============================================================================
 
-class TestSourceConflicts:
 
+class TestSourceConflicts:
     def test_detect_source_conflict(self):
         """Same label from different sources with different descriptions."""
         node_a = _make_node("Python")
         node_a.snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "file_a",
-             "confidence": 0.8, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "hash_1"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "file_a",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "hash_1",
+            },
         ]
         # Create second node with same label but different ID (simulating collision-avoidance)
         node_b = Node(
@@ -166,9 +235,14 @@ class TestSourceConflicts:
             tags=["technical_expertise"],
             confidence=0.7,
             snapshots=[
-                {"timestamp": "2025-02-01T00:00:00Z", "source": "file_b",
-                 "confidence": 0.7, "tags": ["technical_expertise"],
-                 "properties_hash": "b", "description_hash": "hash_2"},
+                {
+                    "timestamp": "2025-02-01T00:00:00Z",
+                    "source": "file_b",
+                    "confidence": 0.7,
+                    "tags": ["technical_expertise"],
+                    "properties_hash": "b",
+                    "description_hash": "hash_2",
+                },
             ],
         )
         g = _make_graph(node_a, node_b)
@@ -181,9 +255,14 @@ class TestSourceConflicts:
         """Same label, same description hash = no conflict."""
         node_a = _make_node("Python")
         node_a.snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "file_a",
-             "confidence": 0.8, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "same_hash"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "file_a",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "same_hash",
+            },
         ]
         node_b = Node(
             id=make_node_id("Python") + "x",
@@ -191,9 +270,14 @@ class TestSourceConflicts:
             tags=["technical_expertise"],
             confidence=0.7,
             snapshots=[
-                {"timestamp": "2025-02-01T00:00:00Z", "source": "file_b",
-                 "confidence": 0.7, "tags": ["technical_expertise"],
-                 "properties_hash": "b", "description_hash": "same_hash"},
+                {
+                    "timestamp": "2025-02-01T00:00:00Z",
+                    "source": "file_b",
+                    "confidence": 0.7,
+                    "tags": ["technical_expertise"],
+                    "properties_hash": "b",
+                    "description_hash": "same_hash",
+                },
             ],
         )
         g = _make_graph(node_a, node_b)
@@ -206,17 +290,27 @@ class TestSourceConflicts:
 # Tag conflicts
 # ============================================================================
 
-class TestTagConflicts:
 
+class TestTagConflicts:
     def test_detect_tag_conflict_positive_to_negation(self):
         """Node moved from technical_expertise to negations."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.8, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-06-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.3, "tags": ["negations"],
-             "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-06-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.3,
+                "tags": ["negations"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Java", snapshots=snapshots)
         g = _make_graph(node)
@@ -230,12 +324,22 @@ class TestTagConflicts:
     def test_detect_tag_conflict_negation_to_positive(self):
         """Node moved from negations to positive tag."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.3, "tags": ["negations"],
-             "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-06-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.8, "tags": ["values"],
-             "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.3,
+                "tags": ["negations"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-06-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.8,
+                "tags": ["values"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Work-life balance", snapshots=snapshots)
         g = _make_graph(node)
@@ -247,12 +351,22 @@ class TestTagConflicts:
     def test_no_tag_conflict_with_stable_tags(self):
         """Node stays in same tag family = no conflict."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.5, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-06-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.8, "tags": ["technical_expertise", "domain_knowledge"],
-             "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.5,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
+            {
+                "timestamp": "2025-06-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.8,
+                "tags": ["technical_expertise", "domain_knowledge"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -263,9 +377,14 @@ class TestTagConflicts:
     def test_no_tag_conflict_with_single_snapshot(self):
         """< 2 snapshots = no tag conflict detection."""
         snapshots = [
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.5, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.5,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -278,21 +397,34 @@ class TestTagConflicts:
 # detect_all() aggregation
 # ============================================================================
 
-class TestDetectAll:
 
+class TestDetectAll:
     def test_detect_all_aggregates_sorted_by_severity(self):
         """detect_all() combines all detectors and sorts by severity desc."""
         # Create a negation conflict (high severity)
         node_neg = _make_node("Python", tags=["technical_expertise", "negations"], confidence=0.9)
         # Create a tag conflict (medium severity)
-        node_tag = _make_node("Java", snapshots=[
-            {"timestamp": "2025-01-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.8, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "b"},
-            {"timestamp": "2025-06-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.3, "tags": ["negations"],
-             "properties_hash": "a", "description_hash": "b"},
-        ])
+        node_tag = _make_node(
+            "Java",
+            snapshots=[
+                {
+                    "timestamp": "2025-01-01T00:00:00Z",
+                    "source": "extraction",
+                    "confidence": 0.8,
+                    "tags": ["technical_expertise"],
+                    "properties_hash": "a",
+                    "description_hash": "b",
+                },
+                {
+                    "timestamp": "2025-06-01T00:00:00Z",
+                    "source": "extraction",
+                    "confidence": 0.3,
+                    "tags": ["negations"],
+                    "properties_hash": "a",
+                    "description_hash": "b",
+                },
+            ],
+        )
         g = _make_graph(node_neg, node_tag)
         engine = ContradictionEngine()
         results = engine.detect_all(g)
@@ -339,4 +471,5 @@ class TestDetectAll:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

@@ -39,8 +39,15 @@ from cortex.coding import (
 # Helpers — build synthetic Claude Code JSONL records
 # ---------------------------------------------------------------------------
 
-def _user_record(content, ts="2026-02-08T10:00:00.000Z", session_id="sess-1",
-                 cwd="/home/user/myproject", branch="main", version="2.1.37"):
+
+def _user_record(
+    content,
+    ts="2026-02-08T10:00:00.000Z",
+    session_id="sess-1",
+    cwd="/home/user/myproject",
+    branch="main",
+    version="2.1.37",
+):
     return {
         "type": "user",
         "uuid": "u-1",
@@ -53,16 +60,17 @@ def _user_record(content, ts="2026-02-08T10:00:00.000Z", session_id="sess-1",
     }
 
 
-def _assistant_record(tool_uses, ts="2026-02-08T10:01:00.000Z",
-                      session_id="sess-1", model="claude-opus-4-6"):
+def _assistant_record(tool_uses, ts="2026-02-08T10:01:00.000Z", session_id="sess-1", model="claude-opus-4-6"):
     content = []
     for name, inp in tool_uses:
-        content.append({
-            "type": "tool_use",
-            "id": f"toolu_{name}",
-            "name": name,
-            "input": inp,
-        })
+        content.append(
+            {
+                "type": "tool_use",
+                "id": f"toolu_{name}",
+                "name": name,
+                "input": inp,
+            }
+        )
     return {
         "type": "assistant",
         "uuid": "a-1",
@@ -83,12 +91,14 @@ def _minimal_cc_records():
     """Minimal valid Claude Code session: 1 user + 1 assistant."""
     return [
         _user_record("Fix the bug in auth"),
-        _assistant_record([
-            ("Read", {"file_path": "/home/user/myproject/auth.py"}),
-            ("Edit", {"file_path": "/home/user/myproject/auth.py",
-                      "old_string": "x", "new_string": "y"}),
-            ("Bash", {"command": "pytest tests/test_auth.py"}),
-        ], ts="2026-02-08T10:05:00.000Z"),
+        _assistant_record(
+            [
+                ("Read", {"file_path": "/home/user/myproject/auth.py"}),
+                ("Edit", {"file_path": "/home/user/myproject/auth.py", "old_string": "x", "new_string": "y"}),
+                ("Bash", {"command": "pytest tests/test_auth.py"}),
+            ],
+            ts="2026-02-08T10:05:00.000Z",
+        ),
     ]
 
 
@@ -96,8 +106,8 @@ def _minimal_cc_records():
 # Claude Code Detection
 # ============================================================================
 
-class TestClaudeCodeDetection:
 
+class TestClaudeCodeDetection:
     def test_positive_detection(self):
         records = _minimal_cc_records()
         assert is_claude_code_jsonl(records) is True
@@ -120,8 +130,8 @@ class TestClaudeCodeDetection:
 # Claude Code Parsing
 # ============================================================================
 
-class TestClaudeCodeParsing:
 
+class TestClaudeCodeParsing:
     def test_session_metadata(self):
         records = _minimal_cc_records()
         session = parse_claude_code_session(records)
@@ -169,8 +179,7 @@ class TestClaudeCodeParsing:
     def test_branches_tracked(self):
         records = [
             _user_record("work", branch="main"),
-            _user_record("more work", branch="feature/auth",
-                         ts="2026-02-08T11:00:00.000Z"),
+            _user_record("more work", branch="feature/auth", ts="2026-02-08T11:00:00.000Z"),
         ]
         session = parse_claude_code_session(records)
         assert "main" in session.branches
@@ -181,16 +190,18 @@ class TestClaudeCodeParsing:
 # Tech Stack Extraction
 # ============================================================================
 
-class TestTechStackExtraction:
 
+class TestTechStackExtraction:
     def test_python_from_py_files(self):
         records = [
             _user_record("Fix it"),
-            _assistant_record([
-                ("Read", {"file_path": "/app/main.py"}),
-                ("Edit", {"file_path": "/app/utils.py"}),
-                ("Write", {"file_path": "/app/new_module.py"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Read", {"file_path": "/app/main.py"}),
+                    ("Edit", {"file_path": "/app/utils.py"}),
+                    ("Write", {"file_path": "/app/new_module.py"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.technologies["Python"] >= 3
@@ -198,10 +209,12 @@ class TestTechStackExtraction:
     def test_typescript_from_ts_files(self):
         records = [
             _user_record("Add component"),
-            _assistant_record([
-                ("Write", {"file_path": "/app/src/App.tsx"}),
-                ("Edit", {"file_path": "/app/src/utils.ts"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Write", {"file_path": "/app/src/App.tsx"}),
+                    ("Edit", {"file_path": "/app/src/utils.ts"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.technologies["TypeScript"] >= 2
@@ -209,11 +222,13 @@ class TestTechStackExtraction:
     def test_multiple_languages(self):
         records = [
             _user_record("Setup"),
-            _assistant_record([
-                ("Write", {"file_path": "/app/main.py"}),
-                ("Write", {"file_path": "/app/frontend/App.tsx"}),
-                ("Write", {"file_path": "/app/deploy.sh"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Write", {"file_path": "/app/main.py"}),
+                    ("Write", {"file_path": "/app/frontend/App.tsx"}),
+                    ("Write", {"file_path": "/app/deploy.sh"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert "Python" in session.technologies
@@ -223,10 +238,12 @@ class TestTechStackExtraction:
     def test_config_files_detected(self):
         records = [
             _user_record("Setup project"),
-            _assistant_record([
-                ("Read", {"file_path": "/app/package.json"}),
-                ("Read", {"file_path": "/app/pyproject.toml"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Read", {"file_path": "/app/package.json"}),
+                    ("Read", {"file_path": "/app/pyproject.toml"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert "Node.js" in session.technologies
@@ -245,14 +262,16 @@ class TestTechStackExtraction:
 # Tool Extraction
 # ============================================================================
 
-class TestToolExtraction:
 
+class TestToolExtraction:
     def test_pytest_from_bash(self):
         records = [
             _user_record("Run tests"),
-            _assistant_record([
-                ("Bash", {"command": "pytest tests/ -v"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Bash", {"command": "pytest tests/ -v"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.bash_tools["Pytest"] >= 1
@@ -260,9 +279,11 @@ class TestToolExtraction:
     def test_git_from_bash(self):
         records = [
             _user_record("Commit"),
-            _assistant_record([
-                ("Bash", {"command": "git add . && git commit -m 'fix'"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Bash", {"command": "git add . && git commit -m 'fix'"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.bash_tools["Git"] >= 1
@@ -270,9 +291,11 @@ class TestToolExtraction:
     def test_docker_from_bash(self):
         records = [
             _user_record("Build"),
-            _assistant_record([
-                ("Bash", {"command": "docker build -t myapp ."}),
-            ]),
+            _assistant_record(
+                [
+                    ("Bash", {"command": "docker build -t myapp ."}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.bash_tools["Docker"] >= 1
@@ -280,13 +303,15 @@ class TestToolExtraction:
     def test_tool_usage_counts(self):
         records = [
             _user_record("Work"),
-            _assistant_record([
-                ("Read", {"file_path": "/a.py"}),
-                ("Read", {"file_path": "/b.py"}),
-                ("Edit", {"file_path": "/a.py"}),
-                ("Write", {"file_path": "/c.py"}),
-                ("Bash", {"command": "pytest"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Read", {"file_path": "/a.py"}),
+                    ("Read", {"file_path": "/b.py"}),
+                    ("Edit", {"file_path": "/a.py"}),
+                    ("Write", {"file_path": "/c.py"}),
+                    ("Bash", {"command": "pytest"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.total_reads == 2
@@ -298,17 +323,22 @@ class TestToolExtraction:
 # Coding Patterns
 # ============================================================================
 
-class TestCodingPatterns:
 
+class TestCodingPatterns:
     def test_plan_mode_detected(self):
         records = [
             _user_record("Plan this"),
-            _assistant_record([
-                ("EnterPlanMode", {}),
-            ]),
-            _assistant_record([
-                ("ExitPlanMode", {}),
-            ], ts="2026-02-08T10:10:00.000Z"),
+            _assistant_record(
+                [
+                    ("EnterPlanMode", {}),
+                ]
+            ),
+            _assistant_record(
+                [
+                    ("ExitPlanMode", {}),
+                ],
+                ts="2026-02-08T10:10:00.000Z",
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.plan_mode_used is True
@@ -321,11 +351,13 @@ class TestCodingPatterns:
     def test_test_files_counted(self):
         records = [
             _user_record("Write tests"),
-            _assistant_record([
-                ("Write", {"file_path": "/app/tests/test_auth.py"}),
-                ("Write", {"file_path": "/app/tests/test_api.py"}),
-                ("Write", {"file_path": "/app/src/auth.py"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Write", {"file_path": "/app/tests/test_auth.py"}),
+                    ("Write", {"file_path": "/app/tests/test_api.py"}),
+                    ("Write", {"file_path": "/app/src/auth.py"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         assert session.test_files_written == 2
@@ -343,8 +375,8 @@ class TestCodingPatterns:
 # Session to Context
 # ============================================================================
 
-class TestSessionToContext:
 
+class TestSessionToContext:
     def test_produces_valid_v4_dict(self):
         records = _minimal_cc_records()
         session = parse_claude_code_session(records)
@@ -357,11 +389,13 @@ class TestSessionToContext:
     def test_technical_expertise_populated(self):
         records = [
             _user_record("Fix it"),
-            _assistant_record([
-                ("Read", {"file_path": "/app/main.py"}),
-                ("Edit", {"file_path": "/app/utils.py"}),
-                ("Write", {"file_path": "/app/lib.py"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Read", {"file_path": "/app/main.py"}),
+                    ("Edit", {"file_path": "/app/utils.py"}),
+                    ("Write", {"file_path": "/app/lib.py"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         ctx = session_to_context(session)
@@ -400,8 +434,8 @@ class TestSessionToContext:
 # Multi-Session Aggregation
 # ============================================================================
 
-class TestMultiSessionAggregation:
 
+class TestMultiSessionAggregation:
     def test_aggregate_merges_counters(self):
         s1 = CodingSession(tool="claude_code")
         s1.technologies["Python"] = 5
@@ -438,8 +472,8 @@ class TestMultiSessionAggregation:
 # Helper Functions
 # ============================================================================
 
-class TestHelpers:
 
+class TestHelpers:
     def test_is_test_file_positive(self):
         assert _is_test_file("/app/tests/test_auth.py") is True
         assert _is_test_file("/app/auth_test.py") is True
@@ -471,20 +505,22 @@ class TestHelpers:
 # Integration
 # ============================================================================
 
-class TestIntegration:
 
+class TestIntegration:
     def test_coding_to_graph_roundtrip(self):
         """CodingSession -> v4 dict -> CortexGraph has nodes."""
         from cortex.compat import upgrade_v4_to_v5
 
         records = [
             _user_record("Build the auth system"),
-            _assistant_record([
-                ("Write", {"file_path": "/app/auth.py"}),
-                ("Write", {"file_path": "/app/tests/test_auth.py"}),
-                ("Bash", {"command": "pytest tests/ -v"}),
-                ("Bash", {"command": "git add . && git commit -m 'add auth'"}),
-            ]),
+            _assistant_record(
+                [
+                    ("Write", {"file_path": "/app/auth.py"}),
+                    ("Write", {"file_path": "/app/tests/test_auth.py"}),
+                    ("Bash", {"command": "pytest tests/ -v"}),
+                    ("Bash", {"command": "git add . && git commit -m 'add auth'"}),
+                ]
+            ),
         ]
         session = parse_claude_code_session(records)
         ctx = session_to_context(session)
@@ -507,8 +543,8 @@ class TestIntegration:
 # README Parsing
 # ============================================================================
 
-class TestReadmeParsing:
 
+class TestReadmeParsing:
     def test_standard_readme(self):
         text = "# My Project\n\nThis is a tool for doing X.\nIt supports Y and Z.\n"
         result = _parse_readme_first_paragraph(text)
@@ -516,12 +552,7 @@ class TestReadmeParsing:
         assert "supports Y and Z" in result
 
     def test_skips_badges(self):
-        text = (
-            "# MyApp\n\n"
-            "[![Build](https://img.shields.io/badge)]\n"
-            "![Logo](logo.png)\n\n"
-            "A real-time data processor.\n"
-        )
+        text = "# MyApp\n\n[![Build](https://img.shields.io/badge)]\n![Logo](logo.png)\n\nA real-time data processor.\n"
         result = _parse_readme_first_paragraph(text)
         assert "real-time data processor" in result
 
@@ -548,16 +579,20 @@ class TestReadmeParsing:
 # Manifest Extraction
 # ============================================================================
 
-class TestManifestExtraction:
 
+class TestManifestExtraction:
     def test_package_json(self, tmp_path):
         pkg = tmp_path / "package.json"
-        pkg.write_text(json.dumps({
-            "name": "my-app",
-            "description": "A web app for task management",
-            "license": "MIT",
-            "keywords": ["tasks", "productivity"],
-        }))
+        pkg.write_text(
+            json.dumps(
+                {
+                    "name": "my-app",
+                    "description": "A web app for task management",
+                    "license": "MIT",
+                    "keywords": ["tasks", "productivity"],
+                }
+            )
+        )
         meta = enrich_project(str(tmp_path))
         assert meta.name == "my-app"
         assert meta.description == "A web app for task management"
@@ -568,21 +603,21 @@ class TestManifestExtraction:
 
     def test_package_json_with_typescript(self, tmp_path):
         pkg = tmp_path / "package.json"
-        pkg.write_text(json.dumps({
-            "name": "ts-app",
-            "description": "A TypeScript app",
-            "devDependencies": {"typescript": "^5.0.0"},
-        }))
+        pkg.write_text(
+            json.dumps(
+                {
+                    "name": "ts-app",
+                    "description": "A TypeScript app",
+                    "devDependencies": {"typescript": "^5.0.0"},
+                }
+            )
+        )
         meta = enrich_project(str(tmp_path))
         assert "TypeScript" in meta.languages
 
     def test_pyproject_toml(self, tmp_path):
         toml = tmp_path / "pyproject.toml"
-        toml.write_text(
-            '[project]\nname = "cortex"\n'
-            'description = "Portable AI identity"\n'
-            'license = "MIT"\n'
-        )
+        toml.write_text('[project]\nname = "cortex"\ndescription = "Portable AI identity"\nlicense = "MIT"\n')
         meta = enrich_project(str(tmp_path))
         assert meta.name == "cortex"
         assert meta.description == "Portable AI identity"
@@ -592,11 +627,7 @@ class TestManifestExtraction:
 
     def test_cargo_toml(self, tmp_path):
         cargo = tmp_path / "Cargo.toml"
-        cargo.write_text(
-            '[package]\nname = "mylib"\n'
-            'description = "A Rust library"\n'
-            'license = "Apache-2.0"\n'
-        )
+        cargo.write_text('[package]\nname = "mylib"\ndescription = "A Rust library"\nlicense = "Apache-2.0"\n')
         meta = enrich_project(str(tmp_path))
         assert meta.name == "mylib"
         assert meta.description == "A Rust library"
@@ -605,11 +636,7 @@ class TestManifestExtraction:
 
     def test_setup_cfg(self, tmp_path):
         cfg = tmp_path / "setup.cfg"
-        cfg.write_text(
-            "[metadata]\nname = mypackage\n"
-            "description = A Python package\n"
-            "license = BSD-3-Clause\n"
-        )
+        cfg.write_text("[metadata]\nname = mypackage\ndescription = A Python package\nlicense = BSD-3-Clause\n")
         meta = enrich_project(str(tmp_path))
         assert meta.name == "mypackage"
         assert meta.description == "A Python package"
@@ -620,8 +647,8 @@ class TestManifestExtraction:
 # TOML Value Extraction
 # ============================================================================
 
-class TestTomlValue:
 
+class TestTomlValue:
     def test_double_quoted(self):
         assert _toml_value('name = "hello"', "name") == "hello"
 
@@ -639,8 +666,8 @@ class TestTomlValue:
 # License Detection
 # ============================================================================
 
-class TestLicenseDetection:
 
+class TestLicenseDetection:
     def test_mit_license(self, tmp_path):
         lic = tmp_path / "LICENSE"
         lic.write_text("MIT License\n\nCopyright (c) 2026\n")
@@ -659,17 +686,19 @@ class TestLicenseDetection:
 # Enrich Project (Full Integration)
 # ============================================================================
 
-class TestEnrichProject:
 
+class TestEnrichProject:
     def test_full_project(self, tmp_path):
-        (tmp_path / "README.md").write_text(
-            "# MyApp\n\n**Own your data.** A privacy-first tool.\n"
+        (tmp_path / "README.md").write_text("# MyApp\n\n**Own your data.** A privacy-first tool.\n")
+        (tmp_path / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "myapp",
+                    "description": "A privacy-first tool",
+                    "license": "MIT",
+                }
+            )
         )
-        (tmp_path / "package.json").write_text(json.dumps({
-            "name": "myapp",
-            "description": "A privacy-first tool",
-            "license": "MIT",
-        }))
         (tmp_path / "LICENSE").write_text("MIT License\n")
         meta = enrich_project(str(tmp_path))
         assert meta.enriched is True
@@ -679,18 +708,20 @@ class TestEnrichProject:
         assert meta.license == "MIT"
 
     def test_readme_only(self, tmp_path):
-        (tmp_path / "README.md").write_text(
-            "# Tool\n\nA command-line tool for converting data formats.\n"
-        )
+        (tmp_path / "README.md").write_text("# Tool\n\nA command-line tool for converting data formats.\n")
         meta = enrich_project(str(tmp_path))
         assert meta.enriched is True
         assert "converting data formats" in meta.description
 
     def test_manifest_only(self, tmp_path):
-        (tmp_path / "package.json").write_text(json.dumps({
-            "name": "api-server",
-            "description": "REST API server",
-        }))
+        (tmp_path / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "api-server",
+                    "description": "REST API server",
+                }
+            )
+        )
         meta = enrich_project(str(tmp_path))
         assert meta.enriched is True
         assert meta.description == "REST API server"
@@ -727,8 +758,8 @@ class TestEnrichProject:
 # Enriched Session to Context
 # ============================================================================
 
-class TestEnrichedSessionToContext:
 
+class TestEnrichedSessionToContext:
     def test_enriched_active_priorities(self):
         session = CodingSession(tool="claude_code", project_path="/home/user/myapp")
         session.project_meta = ProjectMetadata(
@@ -777,7 +808,9 @@ class TestEnrichedSessionToContext:
         """Description <= 20 chars should not add domain_knowledge."""
         session = CodingSession(tool="claude_code", project_path="/home/user/x")
         session.project_meta = ProjectMetadata(
-            name="x", description="A tool", enriched=True,
+            name="x",
+            description="A tool",
+            enriched=True,
         )
         ctx = session_to_context(session)
         assert "domain_knowledge" not in ctx["categories"]
@@ -787,14 +820,16 @@ class TestEnrichedSessionToContext:
 # Aggregation with Project Metadata
 # ============================================================================
 
-class TestAggregationWithMeta:
 
+class TestAggregationWithMeta:
     def test_keeps_enriched_metadata(self):
         s1 = CodingSession(tool="claude_code", project_path="/app")
         s1.project_meta = ProjectMetadata(enriched=False)
         s2 = CodingSession(tool="claude_code")
         s2.project_meta = ProjectMetadata(
-            name="myapp", description="A great app", enriched=True,
+            name="myapp",
+            description="A great app",
+            enriched=True,
         )
         agg = aggregate_sessions([s1, s2])
         assert agg.project_meta.enriched is True
@@ -803,11 +838,15 @@ class TestAggregationWithMeta:
     def test_keeps_richer_metadata(self):
         s1 = CodingSession(tool="claude_code")
         s1.project_meta = ProjectMetadata(
-            name="app", description="Short", enriched=True,
+            name="app",
+            description="Short",
+            enriched=True,
         )
         s2 = CodingSession(tool="claude_code")
         s2.project_meta = ProjectMetadata(
-            name="app", description="A much longer and richer description", enriched=True,
+            name="app",
+            description="A much longer and richer description",
+            enriched=True,
         )
         agg = aggregate_sessions([s1, s2])
         assert agg.project_meta.description == "A much longer and richer description"
@@ -817,8 +856,8 @@ class TestAggregationWithMeta:
 # Enrich Session Convenience Function
 # ============================================================================
 
-class TestEnrichSession:
 
+class TestEnrichSession:
     def test_enrich_session_modifies_in_place(self, tmp_path):
         (tmp_path / "README.md").write_text("# Hello\n\nA great project.\n")
         session = CodingSession(tool="claude_code", project_path=str(tmp_path))

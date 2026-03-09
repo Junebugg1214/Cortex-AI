@@ -28,6 +28,7 @@ EXPORT_PATTERNS = ("*.json", "*.zip", "*.jsonl", "*.txt")
 # Monitor
 # ---------------------------------------------------------------------------
 
+
 class ExportMonitor:
     """Watch a directory for new/modified export files and auto-extract."""
 
@@ -148,6 +149,7 @@ class ExportMonitor:
 
         except Exception as exc:
             import sys
+
             print(f"[cortex monitor] Error processing {path.name}: {exc}", file=sys.stderr)
 
     def _load_or_create_graph(self) -> CortexGraph:
@@ -158,6 +160,7 @@ class ExportMonitor:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 import sys
+
                 print(f"[cortex monitor] Corrupted graph file {self.graph_path.name}, starting fresh", file=sys.stderr)
                 return CortexGraph()
             version = data.get("schema_version", "")
@@ -169,6 +172,7 @@ class ExportMonitor:
     def _save_graph(self, graph: CortexGraph) -> None:
         """Save graph to graph_path atomically via tmp+rename."""
         import secrets as _secrets
+
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.graph_path.with_suffix(f".{_secrets.token_hex(8)}.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:

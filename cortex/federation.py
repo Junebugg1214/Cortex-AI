@@ -37,22 +37,23 @@ if TYPE_CHECKING:
 # Bundle data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FederationBundle:
     """A signed graph export for cross-instance sharing."""
 
-    version: str                     # "1.0"
-    exporter_did: str                # DID of the exporting instance
-    exporter_public_key_b64: str     # Public key for signature verification
-    nonce: str                       # Replay protection nonce
-    created_at: str                  # ISO-8601 timestamp
-    expires_at: str                  # ISO-8601 timestamp
-    policy: str                      # Export policy name ("full", "summary", "minimal")
-    graph_data: dict                 # Exported nodes/edges
+    version: str  # "1.0"
+    exporter_did: str  # DID of the exporting instance
+    exporter_public_key_b64: str  # Public key for signature verification
+    nonce: str  # Replay protection nonce
+    created_at: str  # ISO-8601 timestamp
+    expires_at: str  # ISO-8601 timestamp
+    policy: str  # Export policy name ("full", "summary", "minimal")
+    graph_data: dict  # Exported nodes/edges
     node_count: int
     edge_count: int
-    content_hash: str                # SHA-256 of canonical graph_data
-    signature: str                   # Base64-encoded Ed25519 signature (or "")
+    content_hash: str  # SHA-256 of canonical graph_data
+    signature: str  # Base64-encoded Ed25519 signature (or "")
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -167,6 +168,7 @@ def _apply_policy(node_dict: dict, policy_name: str) -> dict:
 # Content hashing
 # ---------------------------------------------------------------------------
 
+
 def _compute_content_hash(graph_data: dict) -> str:
     """SHA-256 hash of canonical JSON representation."""
     canonical = json.dumps(graph_data, sort_keys=True, ensure_ascii=False)
@@ -176,6 +178,7 @@ def _compute_content_hash(graph_data: dict) -> str:
 # ---------------------------------------------------------------------------
 # Signing helpers
 # ---------------------------------------------------------------------------
+
 
 def _compute_signing_input(bundle_dict: dict) -> bytes:
     """Compute the canonical bytes to be signed.
@@ -196,6 +199,7 @@ def _compute_signing_input(bundle_dict: dict) -> bytes:
 # ---------------------------------------------------------------------------
 # FederationManager
 # ---------------------------------------------------------------------------
+
 
 class FederationManager:
     """Manages federation export/import between Cortex instances."""
@@ -234,8 +238,7 @@ class FederationManager:
             A signed FederationBundle ready for transmission.
         """
         if policy not in EXPORT_POLICIES:
-            raise ValueError(f"Unknown export policy: {policy!r}. "
-                             f"Valid: {', '.join(EXPORT_POLICIES)}")
+            raise ValueError(f"Unknown export policy: {policy!r}. Valid: {', '.join(EXPORT_POLICIES)}")
 
         # Build graph_data with policy filtering
         nodes = {}
@@ -261,9 +264,7 @@ class FederationManager:
             exporter_public_key_b64=self.identity.public_key_b64,
             nonce=secrets.token_hex(16),
             created_at=now.isoformat(),
-            expires_at=datetime.fromtimestamp(
-                now.timestamp() + self.bundle_ttl_seconds, tz=timezone.utc
-            ).isoformat(),
+            expires_at=datetime.fromtimestamp(now.timestamp() + self.bundle_ttl_seconds, tz=timezone.utc).isoformat(),
             policy=policy,
             graph_data=graph_data,
             node_count=len(nodes),
@@ -346,16 +347,10 @@ class FederationManager:
             )
 
         # 5. Signature verification
-        is_ed25519_exporter = (
-            bundle.exporter_did.startswith("did:key:")
-            or bundle.exporter_did.startswith("did:upai:ed25519:")
+        is_ed25519_exporter = bundle.exporter_did.startswith("did:key:") or bundle.exporter_did.startswith(
+            "did:upai:ed25519:"
         )
-        if (
-            verify_signature
-            and is_ed25519_exporter
-            and bundle.signature
-            and bundle.exporter_public_key_b64
-        ):
+        if verify_signature and is_ed25519_exporter and bundle.signature and bundle.exporter_public_key_b64:
             from cortex.upai.identity import UPAIIdentity as _Identity
 
             signing_input = _compute_signing_input(bundle.to_dict())

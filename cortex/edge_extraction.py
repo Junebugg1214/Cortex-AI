@@ -23,9 +23,11 @@ if TYPE_CHECKING:
 # ExtractionRule
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ExtractionRule:
     """A rule that maps a (source_tag, target_tag) pair to a typed edge."""
+
     source_tag: str
     target_tag: str
     relation: str
@@ -47,6 +49,7 @@ CATEGORY_PAIR_RULES: list[ExtractionRule] = [
 # ---------------------------------------------------------------------------
 # Rule-based extraction
 # ---------------------------------------------------------------------------
+
 
 def extract_edges_by_rules(
     graph: CortexGraph,
@@ -111,6 +114,7 @@ def extract_edges_by_rules(
 # Proximity-based extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_edges_by_proximity(
     graph: CortexGraph,
     messages: list[str],
@@ -142,9 +146,7 @@ def extract_edges_by_proximity(
                 continue
 
     # Track existing edges and discovered pairs
-    existing = {
-        (e.source_id, e.target_id) for e in graph.edges.values()
-    } | {
+    existing = {(e.source_id, e.target_id) for e in graph.edges.values()} | {
         (e.target_id, e.source_id) for e in graph.edges.values()
     }
     discovered: set[tuple[str, str]] = set()
@@ -158,7 +160,7 @@ def extract_edges_by_proximity(
 
         # Check proximity for each pair
         for i, (nid_a, pos_a) in enumerate(occurrences):
-            for nid_b, pos_b in occurrences[i + 1:]:
+            for nid_b, pos_b in occurrences[i + 1 :]:
                 if nid_a == nid_b:
                     continue
                 if abs(pos_a - pos_b) <= char_distance:
@@ -189,6 +191,7 @@ def extract_edges_by_proximity(
 # Combined discovery
 # ---------------------------------------------------------------------------
 
+
 def discover_all_edges(
     graph: CortexGraph,
     messages: list[str] | None = None,
@@ -213,9 +216,6 @@ def discover_all_edges(
     prox_edges = extract_edges_by_proximity(graph, messages)
 
     # Filter proximity edges that duplicate rule edges
-    filtered = [
-        e for e in prox_edges
-        if (e.source_id, e.target_id) not in rule_pairs
-    ]
+    filtered = [e for e in prox_edges if (e.source_id, e.target_id) not in rule_pairs]
 
     return rule_edges + filtered

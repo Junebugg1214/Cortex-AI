@@ -39,10 +39,7 @@ class TestTypedRelationships:
         extractor.post_process()
 
         relationships = extractor.context.topics.get("relationships", {})
-        partner_found = any(
-            t.relationship_type == "partner"
-            for t in relationships.values()
-        )
+        partner_found = any(t.relationship_type == "partner" for t in relationships.values())
         assert partner_found, "Should detect partner relationship"
 
     def test_mentor_extraction(self):
@@ -52,10 +49,7 @@ class TestTypedRelationships:
         extractor.post_process()
 
         relationships = extractor.context.topics.get("relationships", {})
-        mentor_found = any(
-            t.relationship_type == "mentor"
-            for t in relationships.values()
-        )
+        mentor_found = any(t.relationship_type == "mentor" for t in relationships.values())
         assert mentor_found, "Should detect mentor relationship"
 
     def test_client_extraction(self):
@@ -65,10 +59,7 @@ class TestTypedRelationships:
         extractor.post_process()
 
         relationships = extractor.context.topics.get("relationships", {})
-        client_found = any(
-            t.relationship_type == "client"
-            for t in relationships.values()
-        )
+        client_found = any(t.relationship_type == "client" for t in relationships.values())
         assert client_found, "Should detect client relationship"
 
     def test_investor_extraction(self):
@@ -78,10 +69,7 @@ class TestTypedRelationships:
         extractor.post_process()
 
         relationships = extractor.context.topics.get("relationships", {})
-        investor_found = any(
-            t.relationship_type == "investor"
-            for t in relationships.values()
-        )
+        investor_found = any(t.relationship_type == "investor" for t in relationships.values())
         assert investor_found, "Should detect investor relationship"
 
     def test_relationship_type_in_export(self):
@@ -93,10 +81,7 @@ class TestTypedRelationships:
         result = extractor.context.export()
         relationships = result.get("categories", {}).get("relationships", [])
 
-        has_type_field = any(
-            "relationship_type" in r
-            for r in relationships
-        )
+        has_type_field = any("relationship_type" in r for r in relationships)
         assert has_type_field, "Export should include relationship_type field"
 
 
@@ -109,14 +94,20 @@ class TestConflictDetection:
 
         # Add to values
         ctx.topics["values"]["python"] = ExtractedTopic(
-            topic="Python", category="values", brief="Likes Python",
-            confidence=0.8, last_seen=datetime(2025, 1, 1, tzinfo=timezone.utc)
+            topic="Python",
+            category="values",
+            brief="Likes Python",
+            confidence=0.8,
+            last_seen=datetime(2025, 1, 1, tzinfo=timezone.utc),
         )
 
         # Add conflicting negation
         ctx.topics["negations"]["python"] = ExtractedTopic(
-            topic="Python", category="negations", brief="Avoids Python",
-            confidence=0.85, last_seen=datetime(2025, 6, 1, tzinfo=timezone.utc)
+            topic="Python",
+            category="negations",
+            brief="Avoids Python",
+            confidence=0.85,
+            last_seen=datetime(2025, 6, 1, tzinfo=timezone.utc),
         )
 
         conflicts = ctx.detect_conflicts()
@@ -131,14 +122,15 @@ class TestConflictDetection:
 
         # Older positive
         ctx.topics["technical_expertise"]["java"] = ExtractedTopic(
-            topic="Java", category="technical_expertise", confidence=0.8,
-            last_seen=datetime(2024, 1, 1, tzinfo=timezone.utc)
+            topic="Java",
+            category="technical_expertise",
+            confidence=0.8,
+            last_seen=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )
 
         # Newer negation
         ctx.topics["negations"]["java"] = ExtractedTopic(
-            topic="Java", category="negations", confidence=0.85,
-            last_seen=datetime(2025, 6, 1, tzinfo=timezone.utc)
+            topic="Java", category="negations", confidence=0.85, last_seen=datetime(2025, 6, 1, tzinfo=timezone.utc)
         )
 
         conflicts = ctx.detect_conflicts()
@@ -147,9 +139,7 @@ class TestConflictDetection:
     def test_no_conflict_when_no_negations(self):
         """Test no conflicts when negations category is empty"""
         ctx = ExtractionContext()
-        ctx.topics["values"]["python"] = ExtractedTopic(
-            topic="Python", category="values", confidence=0.8
-        )
+        ctx.topics["values"]["python"] = ExtractedTopic(topic="Python", category="values", confidence=0.8)
 
         conflicts = ctx.detect_conflicts()
         assert len(conflicts) == 0
@@ -157,12 +147,8 @@ class TestConflictDetection:
     def test_conflicts_in_export(self):
         """Test that conflicts appear in exported JSON"""
         ctx = ExtractionContext()
-        ctx.topics["values"]["test"] = ExtractedTopic(
-            topic="Test", category="values", confidence=0.8
-        )
-        ctx.topics["negations"]["test"] = ExtractedTopic(
-            topic="Test", category="negations", confidence=0.85
-        )
+        ctx.topics["values"]["test"] = ExtractedTopic(topic="Test", category="values", confidence=0.8)
+        ctx.topics["negations"]["test"] = ExtractedTopic(topic="Test", category="negations", confidence=0.85)
         ctx.conflicts = ctx.detect_conflicts()
 
         result = ctx.export()
@@ -175,15 +161,16 @@ class TestIncrementalMerge:
 
     def test_merge_preserves_existing_topics(self):
         """Test that merge preserves topics from existing context"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump({
-                "schema_version": "4.0",
-                "categories": {
-                    "technical_expertise": [
-                        {"topic": "Python", "confidence": 0.9, "mention_count": 10}
-                    ]
-                }
-            }, f)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(
+                {
+                    "schema_version": "4.0",
+                    "categories": {
+                        "technical_expertise": [{"topic": "Python", "confidence": 0.9, "mention_count": 10}]
+                    },
+                },
+                f,
+            )
             existing_path = Path(f.name)
 
         try:
@@ -203,15 +190,14 @@ class TestIncrementalMerge:
 
     def test_merge_deduplicates(self):
         """Test that merge deduplicates similar topics"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump({
-                "schema_version": "4.0",
-                "categories": {
-                    "technical_expertise": [
-                        {"topic": "Python", "confidence": 0.7, "mention_count": 3}
-                    ]
-                }
-            }, f)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(
+                {
+                    "schema_version": "4.0",
+                    "categories": {"technical_expertise": [{"topic": "Python", "confidence": 0.7, "mention_count": 3}]},
+                },
+                f,
+            )
             existing_path = Path(f.name)
 
         try:
@@ -231,15 +217,16 @@ class TestIncrementalMerge:
 
     def test_merge_preserves_relationship_type(self):
         """Test that merge preserves relationship_type from existing"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump({
-                "schema_version": "4.0",
-                "categories": {
-                    "relationships": [
-                        {"topic": "Acme Corp", "confidence": 0.9, "relationship_type": "partner"}
-                    ]
-                }
-            }, f)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(
+                {
+                    "schema_version": "4.0",
+                    "categories": {
+                        "relationships": [{"topic": "Acme Corp", "confidence": 0.9, "relationship_type": "partner"}]
+                    },
+                },
+                f,
+            )
             existing_path = Path(f.name)
 
         try:
@@ -261,10 +248,8 @@ class TestBidirectionalSync:
 
     def test_detect_claude_memory_format(self):
         """Test that Claude memory format is detected correctly"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump([
-                {"text": "User is John Doe", "confidence": 0.9, "category": "identity"}
-            ], f)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump([{"text": "User is John Doe", "confidence": 0.9, "category": "identity"}], f)
             path = Path(f.name)
 
         try:
@@ -308,20 +293,12 @@ class TestBidirectionalSync:
 
     def test_topic_detail_has_relationship_type(self):
         """Test that TopicDetail dataclass has relationship_type field"""
-        topic = TopicDetail(
-            topic="Acme Corp",
-            category="relationships",
-            relationship_type="partner"
-        )
+        topic = TopicDetail(topic="Acme Corp", category="relationships", relationship_type="partner")
         assert topic.relationship_type == "partner"
 
     def test_from_dict_preserves_relationship_type(self):
         """Test that from_dict preserves relationship_type"""
-        data = {
-            "topic": "Acme Corp",
-            "confidence": 0.9,
-            "relationship_type": "investor"
-        }
+        data = {"topic": "Acme Corp", "confidence": 0.9, "relationship_type": "investor"}
         topic = TopicDetail.from_dict(data, "relationships")
         assert topic.relationship_type == "investor"
 
@@ -412,7 +389,7 @@ class TestPIIRedaction:
 
     def test_custom_patterns_work(self):
         """Custom patterns should extend built-in patterns"""
-        custom = {"EMPLOYEE_ID": r'\bEMP-\d{6}\b'}
+        custom = {"EMPLOYEE_ID": r"\bEMP-\d{6}\b"}
         redactor = PIIRedactor(custom_patterns=custom)
         result = redactor.redact("Employee EMP-123456 reported an issue.")
         assert "[EMPLOYEE_ID]" in result
@@ -420,7 +397,7 @@ class TestPIIRedaction:
 
     def test_custom_patterns_extend_builtins(self):
         """Custom patterns should work alongside built-in patterns"""
-        custom = {"INTERNAL_CODE": r'\bINT-[A-Z]{3}-\d{4}\b'}
+        custom = {"INTERNAL_CODE": r"\bINT-[A-Z]{3}-\d{4}\b"}
         redactor = PIIRedactor(custom_patterns=custom)
         result = redactor.redact("Code INT-ABC-1234, email john@test.com.")
         assert "[INTERNAL_CODE]" in result
@@ -488,6 +465,7 @@ class TestMigratePipeline:
     def _import_migrate(self):
         """Import cortex.cli (the canonical CLI module)."""
         import cortex.cli
+
         return cortex.cli
 
     # 1
@@ -543,11 +521,18 @@ class TestMigratePipeline:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a minimal input file
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "My name is Alice and I'm a software engineer who uses Python and React."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "My name is Alice and I'm a software engineer who uses Python and React.",
+                            }
+                        ]
+                    }
+                )
+            )
             out_dir = Path(tmpdir) / "out"
             rc = mod.main(["migrate", str(input_file), "--to", "all", "-o", str(out_dir)])
             assert rc == 0
@@ -562,11 +547,9 @@ class TestMigratePipeline:
         mod = self._import_migrate()
         with tempfile.TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "I work at Acme Corp as a CTO."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I work at Acme Corp as a CTO."}]})
+            )
             out_dir = Path(tmpdir) / "out"
             mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir)])
             ctx_path = out_dir / "context.json"
@@ -580,11 +563,9 @@ class TestMigratePipeline:
         mod = self._import_migrate()
         with tempfile.TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "I'm a developer who uses TypeScript."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I'm a developer who uses TypeScript."}]})
+            )
             out_dir = Path(tmpdir) / "out"
             mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir)])
             assert (out_dir / "context.json").exists()
@@ -599,11 +580,9 @@ class TestMigratePipeline:
         mod = self._import_migrate()
         with tempfile.TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "I'm a designer who uses Figma."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I'm a designer who uses Figma."}]})
+            )
             out_dir = Path(tmpdir) / "out"
             mod.main(["migrate", str(input_file), "--to", "notion", "-o", str(out_dir)])
             assert (out_dir / "context.json").exists()
@@ -617,11 +596,9 @@ class TestMigratePipeline:
         mod = self._import_migrate()
         with tempfile.TemporaryDirectory() as tmpdir:
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "I use Go for backend development."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I use Go for backend development."}]})
+            )
             out_path = Path(tmpdir) / "ctx.json"
             rc = mod.main(["extract", str(input_file), "-o", str(out_path)])
             assert rc == 0
@@ -629,7 +606,9 @@ class TestMigratePipeline:
             data = json.loads(out_path.read_text())
             assert "schema_version" in data
             # No format files alongside
-            siblings = list(Path(tmpdir).glob("*.txt")) + list(Path(tmpdir).glob("*.md")) + list(Path(tmpdir).glob("*.html"))
+            siblings = (
+                list(Path(tmpdir).glob("*.txt")) + list(Path(tmpdir).glob("*.md")) + list(Path(tmpdir).glob("*.html"))
+            )
             assert len(siblings) == 0
 
     # 11
@@ -639,11 +618,9 @@ class TestMigratePipeline:
         with tempfile.TemporaryDirectory() as tmpdir:
             # First create a context file via extraction
             input_file = Path(tmpdir) / "input.json"
-            input_file.write_text(json.dumps({
-                "messages": [
-                    {"role": "user", "content": "I'm a data scientist who uses Python and R."}
-                ]
-            }))
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I'm a data scientist who uses Python and R."}]})
+            )
             ctx_path = Path(tmpdir) / "ctx.json"
             mod.main(["extract", str(input_file), "-o", str(ctx_path)])
 
@@ -734,9 +711,9 @@ def run_tests():
     failed = []
 
     for test_class in test_classes:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Running {test_class.__name__}")
-        print('='*60)
+        print("=" * 60)
 
         instance = test_class()
         methods = [m for m in dir(instance) if m.startswith("test_")]
@@ -755,9 +732,9 @@ def run_tests():
                 print(f"  ❌ {method_name}: {type(e).__name__}: {e}")
                 failed.append((test_class.__name__, method_name, traceback.format_exc()))
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Results: {passed}/{total} passed")
-    print('='*60)
+    print("=" * 60)
 
     if failed:
         print("\nFailed tests:")

@@ -22,13 +22,15 @@ from typing import Callable
 # Per-file state tracking
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _FileState:
     """Track per-file state for incremental change detection."""
+
     mtime: float
     size: int
     last_processed: float  # timestamp when last processed
-    line_count: int = 0    # reserved for future incremental line tracking
+    line_count: int = 0  # reserved for future incremental line tracking
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +181,7 @@ class CodingSessionWatcher:
                 processed.append(path)
             except Exception as exc:
                 import sys as _sys
+
                 print(f"  [cortex] extraction failed for {path.name}: {exc}", file=_sys.stderr)
             finally:
                 with self._lock:
@@ -201,6 +204,7 @@ class CodingSessionWatcher:
                     self.on_update(self.graph_path, self._graph)
                 except Exception as exc:
                     import sys
+
                     print(f"[cortex continuous] on_update callback error: {exc}", file=sys.stderr)
 
         return processed
@@ -266,12 +270,17 @@ class CodingSessionWatcher:
             tgt = id_map.get(edge.target_id)
             if src and tgt and src in self._graph.nodes and tgt in self._graph.nodes:
                 from cortex.graph import Edge, make_edge_id
+
                 new_eid = make_edge_id(src, tgt, edge.relation)
                 if new_eid not in self._graph.edges:
                     rewired = Edge(
-                        id=new_eid, source_id=src, target_id=tgt,
-                        relation=edge.relation, confidence=edge.confidence,
-                        first_seen=edge.first_seen, last_seen=edge.last_seen,
+                        id=new_eid,
+                        source_id=src,
+                        target_id=tgt,
+                        relation=edge.relation,
+                        confidence=edge.confidence,
+                        first_seen=edge.first_seen,
+                        last_seen=edge.last_seen,
                     )
                     self._graph.add_edge(rewired)
 
@@ -288,6 +297,7 @@ class CodingSessionWatcher:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError) as exc:
                 import sys
+
                 print(f"[cortex] Warning: corrupted graph at {self.graph_path}: {exc}", file=sys.stderr)
                 return CortexGraph()
             version = data.get("schema_version", "")
@@ -299,6 +309,7 @@ class CodingSessionWatcher:
     def _save_graph(self) -> None:
         """Save graph to graph_path atomically (write tmp + rename)."""
         import random as _rng
+
         self.graph_path.parent.mkdir(parents=True, exist_ok=True)
         suffix = f".tmp_{_rng.randint(0, 0xFFFFFF):06x}"
         tmp_path = self.graph_path.with_suffix(suffix)
@@ -318,6 +329,7 @@ class CodingSessionWatcher:
 # ---------------------------------------------------------------------------
 # High-level convenience function for CLI
 # ---------------------------------------------------------------------------
+
 
 def watch_coding_sessions(
     graph_path: str,
@@ -343,11 +355,13 @@ def watch_coding_sessions(
         context_max_chars: Max chars for context output.
         verbose: Print status messages.
     """
+
     def on_update(gpath: Path, graph) -> None:
         if verbose:
             print(f"  Graph updated: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
         if context_platforms:
             from cortex.context import write_context
+
             results = write_context(
                 graph_path=str(gpath),
                 platforms=context_platforms,

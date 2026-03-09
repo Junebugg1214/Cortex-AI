@@ -21,11 +21,17 @@ from cortex.query_lang import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _node(label, tags=None, confidence=0.9, brief="", props=None):
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label, tags=tags or [], confidence=confidence,
-        properties=props or {}, brief=brief, full_description="",
+        id=nid,
+        label=label,
+        tags=tags or [],
+        confidence=confidence,
+        properties=props or {},
+        brief=brief,
+        full_description="",
     )
 
 
@@ -41,15 +47,43 @@ def graph():
     marc_id = make_node_id("Marc")
     python_id = make_node_id("Python")
     ml_id = make_node_id("Machine Learning")
-    g.add_edge(Edge(id=make_edge_id(marc_id, python_id, "uses"), source_id=marc_id, target_id=python_id, relation="uses", confidence=0.9, properties={}))
-    g.add_edge(Edge(id=make_edge_id(python_id, ml_id, "used_in"), source_id=python_id, target_id=ml_id, relation="used_in", confidence=0.8, properties={}))
-    g.add_edge(Edge(id=make_edge_id(marc_id, ml_id, "studies"), source_id=marc_id, target_id=ml_id, relation="studies", confidence=0.7, properties={}))
+    g.add_edge(
+        Edge(
+            id=make_edge_id(marc_id, python_id, "uses"),
+            source_id=marc_id,
+            target_id=python_id,
+            relation="uses",
+            confidence=0.9,
+            properties={},
+        )
+    )
+    g.add_edge(
+        Edge(
+            id=make_edge_id(python_id, ml_id, "used_in"),
+            source_id=python_id,
+            target_id=ml_id,
+            relation="used_in",
+            confidence=0.8,
+            properties={},
+        )
+    )
+    g.add_edge(
+        Edge(
+            id=make_edge_id(marc_id, ml_id, "studies"),
+            source_id=marc_id,
+            target_id=ml_id,
+            relation="studies",
+            confidence=0.7,
+            properties={},
+        )
+    )
     return g
 
 
 # ---------------------------------------------------------------------------
 # Tokenizer tests
 # ---------------------------------------------------------------------------
+
 
 class TestTokenizer:
     def test_basic(self):
@@ -88,6 +122,7 @@ class TestTokenizer:
 # Parser tests
 # ---------------------------------------------------------------------------
 
+
 class TestParseFind:
     def test_basic_find(self):
         q = parse_query("FIND nodes")
@@ -112,7 +147,7 @@ class TestParseFind:
         assert q.limit == 5
 
     def test_find_with_where_and_limit(self):
-        q = parse_query('FIND nodes WHERE confidence > 0.8 LIMIT 3')
+        q = parse_query("FIND nodes WHERE confidence > 0.8 LIMIT 3")
         assert isinstance(q, FindQuery)
         assert len(q.conditions) == 1
         assert q.limit == 3
@@ -168,6 +203,7 @@ class TestParseErrors:
 # Match condition tests
 # ---------------------------------------------------------------------------
 
+
 class TestMatchCondition:
     def test_string_equals(self):
         d = {"label": "Python", "tags": ["tech"]}
@@ -212,6 +248,7 @@ class TestMatchCondition:
 # Execute tests
 # ---------------------------------------------------------------------------
 
+
 class TestExecuteFind:
     def test_find_all(self, graph):
         result = execute_query(graph, "FIND nodes")
@@ -227,7 +264,7 @@ class TestExecuteFind:
         assert "Machine Learning" in labels
 
     def test_find_by_confidence(self, graph):
-        result = execute_query(graph, 'FIND nodes WHERE confidence >= 0.95')
+        result = execute_query(graph, "FIND nodes WHERE confidence >= 0.95")
         assert result["count"] >= 1
         for n in result["nodes"]:
             assert n["confidence"] >= 0.95

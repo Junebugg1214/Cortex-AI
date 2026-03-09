@@ -19,8 +19,8 @@ from cortex.intelligence import GapAnalyzer, InsightGenerator
 # GapAnalyzer.category_gaps
 # ============================================================================
 
-class TestCategoryGaps:
 
+class TestCategoryGaps:
     def test_detects_missing_categories(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"]))
@@ -55,8 +55,8 @@ class TestCategoryGaps:
 # GapAnalyzer.confidence_gaps
 # ============================================================================
 
-class TestConfidenceGaps:
 
+class TestConfidenceGaps:
     def test_low_confidence_priorities_detected(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Build CLI", tags=["active_priorities"], confidence=0.4))
@@ -89,8 +89,8 @@ class TestConfidenceGaps:
 # GapAnalyzer.relationship_gaps
 # ============================================================================
 
-class TestRelationshipGaps:
 
+class TestRelationshipGaps:
     def test_nodes_without_edges_detected(self):
         g = CortexGraph()
         for i in range(4):
@@ -120,8 +120,8 @@ class TestRelationshipGaps:
 # GapAnalyzer.isolated_nodes
 # ============================================================================
 
-class TestIsolatedNodes:
 
+class TestIsolatedNodes:
     def test_isolated_detected(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="Alone", tags=["t"], confidence=0.8))
@@ -162,8 +162,8 @@ class TestIsolatedNodes:
 # GapAnalyzer.stale_nodes
 # ============================================================================
 
-class TestStaleNodes:
 
+class TestStaleNodes:
     def test_stale_detected(self):
         old_date = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
         g = CortexGraph()
@@ -183,10 +183,15 @@ class TestStaleNodes:
         old_date = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
         recent = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
         g = CortexGraph()
-        g.add_node(Node(
-            id="n1", label="Snapped", tags=["t"], last_seen=old_date,
-            snapshots=[{"timestamp": recent, "source": "manual"}],
-        ))
+        g.add_node(
+            Node(
+                id="n1",
+                label="Snapped",
+                tags=["t"],
+                last_seen=old_date,
+                snapshots=[{"timestamp": recent, "source": "manual"}],
+            )
+        )
         analyzer = GapAnalyzer()
         assert analyzer.stale_nodes(g, days=180) == []
 
@@ -209,8 +214,8 @@ class TestStaleNodes:
 # GapAnalyzer.all_gaps
 # ============================================================================
 
-class TestAllGaps:
 
+class TestAllGaps:
     def test_returns_all_sections(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"]))
@@ -236,8 +241,8 @@ class TestAllGaps:
 # InsightGenerator.digest
 # ============================================================================
 
-class TestInsightDigest:
 
+class TestInsightDigest:
     def _graph_a(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["tech"], confidence=0.9))
@@ -323,4 +328,5 @@ class TestInsightDigest:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

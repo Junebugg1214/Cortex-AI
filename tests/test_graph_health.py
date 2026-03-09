@@ -31,11 +31,9 @@ class TestGraphHealth:
     def test_stale_nodes_detected(self):
         g = _make_graph()
         nid = make_node_id("old-node")
-        g.add_node(Node(id=nid, label="Old Node", tags=["test"],
-                        confidence=0.8, last_seen=_days_ago(60)))
+        g.add_node(Node(id=nid, label="Old Node", tags=["test"], confidence=0.8, last_seen=_days_ago(60)))
         fresh_id = make_node_id("fresh-node")
-        g.add_node(Node(id=fresh_id, label="Fresh Node", tags=["test"],
-                        confidence=0.9, last_seen=_now_iso()))
+        g.add_node(Node(id=fresh_id, label="Fresh Node", tags=["test"], confidence=0.9, last_seen=_now_iso()))
         h = g.graph_health(stale_days=30)
         assert h["stale_count"] == 1
         assert h["stale_nodes"][0]["id"] == nid
@@ -44,8 +42,7 @@ class TestGraphHealth:
     def test_stale_falls_back_to_first_seen(self):
         g = _make_graph()
         nid = make_node_id("old2")
-        g.add_node(Node(id=nid, label="Old2", tags=["t"],
-                        confidence=0.5, first_seen=_days_ago(45)))
+        g.add_node(Node(id=nid, label="Old2", tags=["t"], confidence=0.5, first_seen=_days_ago(45)))
         h = g.graph_health(stale_days=30)
         assert h["stale_count"] == 1
 
@@ -59,8 +56,7 @@ class TestGraphHealth:
     def test_custom_stale_days(self):
         g = _make_graph()
         nid = make_node_id("border")
-        g.add_node(Node(id=nid, label="Border", tags=["t"],
-                        last_seen=_days_ago(10)))
+        g.add_node(Node(id=nid, label="Border", tags=["t"], last_seen=_days_ago(10)))
         assert g.graph_health(stale_days=5)["stale_count"] == 1
         assert g.graph_health(stale_days=15)["stale_count"] == 0
 

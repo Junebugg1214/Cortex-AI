@@ -26,8 +26,8 @@ from cortex.graph import CortexGraph, Edge, Node
 # Counting
 # ============================================================================
 
-class TestCountCooccurrences:
 
+class TestCountCooccurrences:
     def test_basic_cooccurrence_count(self):
         messages = [
             "Python and Healthcare",
@@ -63,7 +63,6 @@ class TestCountCooccurrences:
 
 
 class TestLabelMessageCounts:
-
     def test_basic_counts(self):
         messages = ["Python is great", "Python again", "Healthcare only"]
         labels = ["Python", "Healthcare"]
@@ -82,8 +81,8 @@ class TestLabelMessageCounts:
 # PMI
 # ============================================================================
 
-class TestPMI:
 
+class TestPMI:
     def test_pmi_high_for_exclusive_cooccurrence(self):
         # A and B always appear together, never apart
         cooc = {("A", "B"): 10}
@@ -125,8 +124,8 @@ class TestPMI:
 # Frequency
 # ============================================================================
 
-class TestFrequencyEdges:
 
+class TestFrequencyEdges:
     def test_frequency_above_ratio_included(self):
         cooc = {("A", "B"): 10}
         results = frequency_edges(cooc, total_messages=100, min_count=3, min_ratio=0.05)
@@ -160,8 +159,8 @@ class TestFrequencyEdges:
 # Tiered Dispatch
 # ============================================================================
 
-class TestDiscoverEdges:
 
+class TestDiscoverEdges:
     def _make_graph(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["tech"]))
@@ -186,10 +185,15 @@ class TestDiscoverEdges:
 
     def test_existing_edges_not_duplicated(self):
         g = self._make_graph()
-        g.add_edge(Edge(
-            id="e1", source_id="n1", target_id="n2",
-            relation="related", confidence=0.8,
-        ))
+        g.add_edge(
+            Edge(
+                id="e1",
+                source_id="n1",
+                target_id="n2",
+                relation="related",
+                confidence=0.8,
+            )
+        )
         messages = ["Python Healthcare"] * 5
         edges = discover_edges(messages, g)
         assert len(edges) == 0

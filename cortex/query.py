@@ -28,6 +28,7 @@ _BETWEENNESS_MIN_NODES = 50  # Brandes algorithm only activates above this thres
 # Graph Algorithms
 # ---------------------------------------------------------------------------
 
+
 def _build_adjacency(graph: CortexGraph) -> dict[str, set[str]]:
     """Build undirected adjacency list from graph edges.
 
@@ -35,10 +36,7 @@ def _build_adjacency(graph: CortexGraph) -> dict[str, set[str]]:
     set-based format expected by the query module algorithms.
     """
     cached = graph._get_adjacency()
-    return {
-        nid: {neighbor_id for neighbor_id, _ in neighbors}
-        for nid, neighbors in cached.items()
-    }
+    return {nid: {neighbor_id for neighbor_id, _ in neighbors} for nid, neighbors in cached.items()}
 
 
 def shortest_path(graph: CortexGraph, from_id: str, to_id: str) -> list[str]:
@@ -158,6 +156,7 @@ def betweenness_centrality(graph: CortexGraph) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # QueryEngine
 # ---------------------------------------------------------------------------
+
 
 class QueryEngine:
     """Structured query interface for CortexGraph."""
@@ -324,8 +323,5 @@ def parse_nl_query(query_str: str, engine: QueryEngine) -> dict | list | str:
         return engine.query_changed(since)
 
     return (
-        "Query not recognized. Supported: "
-        "'what are my <tag>', "
-        "'how does X relate to Y', "
-        "'what changed since <date>'."
+        "Query not recognized. Supported: 'what are my <tag>', 'how does X relate to Y', 'what changed since <date>'."
     )

@@ -21,6 +21,7 @@ from cortex.hooks import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_v4_context(categories: dict) -> dict:
     """Build a minimal v4-format context dict."""
     return {
@@ -32,37 +33,84 @@ def _make_v4_context(categories: dict) -> dict:
 
 def _make_sample_v4():
     """A sample v4 context with tech, projects, preferences."""
-    return _make_v4_context({
-        "technical_expertise": [
-            {"topic": "Python", "brief": "Uses Python", "confidence": 0.9,
-             "mention_count": 100, "extraction_method": "behavioral",
-             "metrics": [], "relationships": [], "timeline": ["current"],
-             "source_quotes": [], "first_seen": "", "last_seen": ""},
-            {"topic": "Git", "brief": "Uses Git", "confidence": 0.85,
-             "mention_count": 50, "extraction_method": "behavioral",
-             "metrics": [], "relationships": [], "timeline": ["current"],
-             "source_quotes": [], "first_seen": "", "last_seen": ""},
-        ],
-        "active_priorities": [
-            {"topic": "my-project", "brief": "Active project: my-project — Build cool stuff",
-             "confidence": 0.9, "mention_count": 1, "extraction_method": "behavioral",
-             "metrics": [], "relationships": [], "timeline": ["current"],
-             "source_quotes": [], "first_seen": "", "last_seen": "",
-             "full_description": "Working directory: /home/user/my-project"},
-        ],
-        "domain_knowledge": [
-            {"topic": "AI/ML", "brief": "Knowledge of AI/ML", "confidence": 0.7,
-             "mention_count": 5, "extraction_method": "declarative",
-             "metrics": [], "relationships": [], "timeline": ["current"],
-             "source_quotes": [], "first_seen": "", "last_seen": ""},
-        ],
-        "user_preferences": [
-            {"topic": "Plans before coding", "brief": "Uses plan mode before implementation",
-             "confidence": 0.7, "mention_count": 1, "extraction_method": "behavioral",
-             "metrics": [], "relationships": [], "timeline": ["current"],
-             "source_quotes": [], "first_seen": "", "last_seen": ""},
-        ],
-    })
+    return _make_v4_context(
+        {
+            "technical_expertise": [
+                {
+                    "topic": "Python",
+                    "brief": "Uses Python",
+                    "confidence": 0.9,
+                    "mention_count": 100,
+                    "extraction_method": "behavioral",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                },
+                {
+                    "topic": "Git",
+                    "brief": "Uses Git",
+                    "confidence": 0.85,
+                    "mention_count": 50,
+                    "extraction_method": "behavioral",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                },
+            ],
+            "active_priorities": [
+                {
+                    "topic": "my-project",
+                    "brief": "Active project: my-project — Build cool stuff",
+                    "confidence": 0.9,
+                    "mention_count": 1,
+                    "extraction_method": "behavioral",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                    "full_description": "Working directory: /home/user/my-project",
+                },
+            ],
+            "domain_knowledge": [
+                {
+                    "topic": "AI/ML",
+                    "brief": "Knowledge of AI/ML",
+                    "confidence": 0.7,
+                    "mention_count": 5,
+                    "extraction_method": "declarative",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                },
+            ],
+            "user_preferences": [
+                {
+                    "topic": "Plans before coding",
+                    "brief": "Uses plan mode before implementation",
+                    "confidence": 0.7,
+                    "mention_count": 1,
+                    "extraction_method": "behavioral",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                },
+            ],
+        }
+    )
 
 
 def _write_graph_file(tmp_path: Path, data: dict) -> Path:
@@ -76,8 +124,8 @@ def _write_graph_file(tmp_path: Path, data: dict) -> Path:
 # TestHookConfig
 # ---------------------------------------------------------------------------
 
-class TestHookConfig:
 
+class TestHookConfig:
     def test_defaults(self):
         config = HookConfig()
         assert config.graph_path == ""
@@ -114,8 +162,8 @@ class TestHookConfig:
 # TestLoadGraph
 # ---------------------------------------------------------------------------
 
-class TestLoadGraph:
 
+class TestLoadGraph:
     def test_load_v4(self, tmp_path):
         data = _make_sample_v4()
         path = _write_graph_file(tmp_path, data)
@@ -126,8 +174,7 @@ class TestLoadGraph:
     def test_load_v5(self, tmp_path):
         # Build a v5 graph
         g = CortexGraph(schema_version="5.0")
-        g.add_node(Node(id="abc123", label="Python", tags=["technical_expertise"],
-                        confidence=0.9, brief="Uses Python"))
+        g.add_node(Node(id="abc123", label="Python", tags=["technical_expertise"], confidence=0.9, brief="Uses Python"))
         data = g.export_v5()
         path = _write_graph_file(tmp_path, data)
         graph = _load_graph(str(path))
@@ -136,8 +183,7 @@ class TestLoadGraph:
 
     def test_load_v6(self, tmp_path):
         g = CortexGraph(schema_version="6.0")
-        g.add_node(Node(id="def456", label="Rust", tags=["technical_expertise"],
-                        confidence=0.8, brief="Uses Rust"))
+        g.add_node(Node(id="def456", label="Rust", tags=["technical_expertise"], confidence=0.8, brief="Uses Rust"))
         data = g.export_v5()  # export_v5 sets schema 6.0
         path = _write_graph_file(tmp_path, data)
         graph = _load_graph(str(path))
@@ -157,22 +203,23 @@ class TestLoadGraph:
 # TestFormatCompactMarkdown
 # ---------------------------------------------------------------------------
 
-class TestFormatCompactMarkdown:
 
+class TestFormatCompactMarkdown:
     def _make_graph_with_nodes(self, nodes_spec):
         """Helper: nodes_spec is list of (label, tags, confidence, brief)."""
         g = CortexGraph()
         for label, tags, conf, brief in nodes_spec:
             nid = make_node_id(label)
-            g.add_node(Node(id=nid, label=label, tags=tags,
-                            confidence=conf, brief=brief))
+            g.add_node(Node(id=nid, label=label, tags=tags, confidence=conf, brief=brief))
         return g
 
     def test_tech_section(self):
-        g = self._make_graph_with_nodes([
-            ("Python", ["technical_expertise"], 0.9, "Uses Python"),
-            ("Git", ["technical_expertise"], 0.85, "Uses Git"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("Python", ["technical_expertise"], 0.9, "Uses Python"),
+                ("Git", ["technical_expertise"], 0.85, "Uses Git"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         assert "## Your Cortex Context" in result
         assert "**Tech Stack:**" in result
@@ -180,57 +227,64 @@ class TestFormatCompactMarkdown:
         assert "Git (0.8)" in result
 
     def test_projects_section(self):
-        g = self._make_graph_with_nodes([
-            ("my-app", ["active_priorities"], 0.9,
-             "Active project: my-app — Build cool stuff"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("my-app", ["active_priorities"], 0.9, "Active project: my-app — Build cool stuff"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         assert "**Projects:**" in result
         assert "my-app" in result
         assert "Build cool stuff" in result
 
     def test_projects_strips_prefix(self):
-        g = self._make_graph_with_nodes([
-            ("my-app", ["active_priorities"], 0.9,
-             "Active project: my-app — Build cool stuff"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("my-app", ["active_priorities"], 0.9, "Active project: my-app — Build cool stuff"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         # Should strip "Active project: " prefix
         assert "Active project:" not in result
 
     def test_empty_sections_omitted(self):
-        g = self._make_graph_with_nodes([
-            ("Python", ["technical_expertise"], 0.9, "Uses Python"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("Python", ["technical_expertise"], 0.9, "Uses Python"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         assert "**Projects:**" not in result
         assert "**Preferences:**" not in result
         assert "**Relationships:**" not in result
 
     def test_max_chars_truncation(self):
-        g = self._make_graph_with_nodes([
-            (f"Tech{i}", ["technical_expertise"], 0.9, f"Uses Tech{i}")
-            for i in range(50)
-        ])
+        g = self._make_graph_with_nodes(
+            [(f"Tech{i}", ["technical_expertise"], 0.9, f"Uses Tech{i}") for i in range(50)]
+        )
         result = _format_compact_markdown(g, 200)
         assert len(result) <= 200
         assert result.endswith("...")
 
     def test_multiple_sections(self):
-        g = self._make_graph_with_nodes([
-            ("Python", ["technical_expertise"], 0.9, "Uses Python"),
-            ("my-app", ["active_priorities"], 0.9, "Active project: my-app — Cool"),
-            ("Plans first", ["user_preferences"], 0.7, "Plans before coding"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("Python", ["technical_expertise"], 0.9, "Uses Python"),
+                ("my-app", ["active_priorities"], 0.9, "Active project: my-app — Cool"),
+                ("Plans first", ["user_preferences"], 0.7, "Plans before coding"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         assert "**Tech Stack:**" in result
         assert "**Projects:**" in result
         assert "**Preferences:**" in result
 
     def test_domain_section(self):
-        g = self._make_graph_with_nodes([
-            ("AI/ML", ["domain_knowledge"], 0.7, "Knowledge of AI/ML"),
-        ])
+        g = self._make_graph_with_nodes(
+            [
+                ("AI/ML", ["domain_knowledge"], 0.7, "Knowledge of AI/ML"),
+            ]
+        )
         result = _format_compact_markdown(g, 1500)
         assert "**Domain:**" in result
         assert "AI/ML" in result
@@ -245,8 +299,8 @@ class TestFormatCompactMarkdown:
 # TestGenerateCompactContext
 # ---------------------------------------------------------------------------
 
-class TestGenerateCompactContext:
 
+class TestGenerateCompactContext:
     def test_basic_generation(self, tmp_path):
         data = _make_sample_v4()
         path = _write_graph_file(tmp_path, data)
@@ -301,8 +355,8 @@ class TestGenerateCompactContext:
 # TestHandleSessionStart
 # ---------------------------------------------------------------------------
 
-class TestHandleSessionStart:
 
+class TestHandleSessionStart:
     def test_returns_hook_output(self, tmp_path):
         data = _make_sample_v4()
         path = _write_graph_file(tmp_path, data)
@@ -338,8 +392,8 @@ class TestHandleSessionStart:
 # TestInstallUninstall
 # ---------------------------------------------------------------------------
 
-class TestInstallUninstall:
 
+class TestInstallUninstall:
     def test_install_creates_config_and_settings(self, tmp_path):
         graph_path = _write_graph_file(tmp_path, _make_sample_v4())
         config_path = tmp_path / "config.json"
@@ -373,10 +427,8 @@ class TestInstallUninstall:
         settings_path = tmp_path / "settings.json"
 
         # Install twice
-        install_hook(str(graph_path), config_path=config_path,
-                     settings_path=settings_path)
-        install_hook(str(graph_path), config_path=config_path,
-                     settings_path=settings_path)
+        install_hook(str(graph_path), config_path=config_path, settings_path=settings_path)
+        install_hook(str(graph_path), config_path=config_path, settings_path=settings_path)
 
         settings = json.loads(settings_path.read_text())
         # Should only have one hook entry, not two
@@ -388,8 +440,7 @@ class TestInstallUninstall:
         # Pre-existing settings
         settings_path.write_text(json.dumps({"theme": "dark"}))
 
-        install_hook(str(graph_path), config_path=tmp_path / "config.json",
-                     settings_path=settings_path)
+        install_hook(str(graph_path), config_path=tmp_path / "config.json", settings_path=settings_path)
 
         settings = json.loads(settings_path.read_text())
         assert settings["theme"] == "dark"
@@ -400,10 +451,8 @@ class TestInstallUninstall:
         config_path = tmp_path / "config.json"
         settings_path = tmp_path / "settings.json"
 
-        install_hook(str(graph_path), config_path=config_path,
-                     settings_path=settings_path)
-        removed = uninstall_hook(config_path=config_path,
-                                 settings_path=settings_path)
+        install_hook(str(graph_path), config_path=config_path, settings_path=settings_path)
+        removed = uninstall_hook(config_path=config_path, settings_path=settings_path)
 
         assert removed is True
         assert not config_path.exists()
@@ -424,8 +473,8 @@ class TestInstallUninstall:
 # TestHookStatus
 # ---------------------------------------------------------------------------
 
-class TestHookStatus:
 
+class TestHookStatus:
     def test_not_installed(self, tmp_path):
         status = hook_status(
             config_path=tmp_path / "config.json",
@@ -439,10 +488,8 @@ class TestHookStatus:
         config_path = tmp_path / "config.json"
         settings_path = tmp_path / "settings.json"
 
-        install_hook(str(graph_path), config_path=config_path,
-                     settings_path=settings_path)
+        install_hook(str(graph_path), config_path=config_path, settings_path=settings_path)
 
-        status = hook_status(config_path=config_path,
-                             settings_path=settings_path)
+        status = hook_status(config_path=config_path, settings_path=settings_path)
         assert status["installed"] is True
         assert "graph.json" in status["config"]["graph_path"]

@@ -25,11 +25,11 @@ from cortex.query import (
 # Helpers
 # ============================================================================
 
+
 def _chain_graph():
     """A -> B -> C -> D linear chain."""
     g = CortexGraph()
-    for nid, label, tag in [("a", "A", "t1"), ("b", "B", "t1"),
-                             ("c", "C", "t2"), ("d", "D", "t2")]:
+    for nid, label, tag in [("a", "A", "t1"), ("b", "B", "t1"), ("c", "C", "t2"), ("d", "D", "t2")]:
         g.add_node(Node(id=nid, label=label, tags=[tag], confidence=0.5))
     g.add_edge(Edge(id="e1", source_id="a", target_id="b", relation="r"))
     g.add_edge(Edge(id="e2", source_id="b", target_id="c", relation="r"))
@@ -51,8 +51,8 @@ def _disconnected_graph():
 # QueryEngine.query_category
 # ============================================================================
 
-class TestQueryCategory:
 
+class TestQueryCategory:
     def test_returns_matching_nodes(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["tech"], confidence=0.9))
@@ -95,8 +95,8 @@ class TestQueryCategory:
 # QueryEngine.query_path
 # ============================================================================
 
-class TestQueryPath:
 
+class TestQueryPath:
     def test_direct_neighbors(self):
         g = _chain_graph()
         engine = QueryEngine(g)
@@ -138,8 +138,8 @@ class TestQueryPath:
 # QueryEngine.query_changed
 # ============================================================================
 
-class TestQueryChanged:
 
+class TestQueryChanged:
     def test_finds_new_nodes(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="New", tags=["t"], first_seen="2025-06-01"))
@@ -151,20 +151,30 @@ class TestQueryChanged:
 
     def test_finds_updated_nodes(self):
         g = CortexGraph()
-        g.add_node(Node(
-            id="n1", label="Updated", tags=["t"],
-            first_seen="2024-01-01", last_seen="2025-06-15",
-        ))
+        g.add_node(
+            Node(
+                id="n1",
+                label="Updated",
+                tags=["t"],
+                first_seen="2024-01-01",
+                last_seen="2025-06-15",
+            )
+        )
         engine = QueryEngine(g)
         result = engine.query_changed("2025-05-01")
         assert len(result["updated_nodes"]) == 1
 
     def test_excludes_old_nodes(self):
         g = CortexGraph()
-        g.add_node(Node(
-            id="n1", label="Old", tags=["t"],
-            first_seen="2024-01-01", last_seen="2024-06-01",
-        ))
+        g.add_node(
+            Node(
+                id="n1",
+                label="Old",
+                tags=["t"],
+                first_seen="2024-01-01",
+                last_seen="2024-06-01",
+            )
+        )
         engine = QueryEngine(g)
         result = engine.query_changed("2025-01-01")
         assert result["total_changed"] == 0
@@ -176,11 +186,16 @@ class TestQueryChanged:
 
     def test_snapshot_timestamp_counted(self):
         g = CortexGraph()
-        g.add_node(Node(
-            id="n1", label="Snapped", tags=["t"],
-            first_seen="2024-01-01", last_seen="2024-06-01",
-            snapshots=[{"timestamp": "2025-07-01", "source": "manual"}],
-        ))
+        g.add_node(
+            Node(
+                id="n1",
+                label="Snapped",
+                tags=["t"],
+                first_seen="2024-01-01",
+                last_seen="2024-06-01",
+                snapshots=[{"timestamp": "2025-07-01", "source": "manual"}],
+            )
+        )
         engine = QueryEngine(g)
         result = engine.query_changed("2025-05-01")
         assert len(result["updated_nodes"]) == 1
@@ -190,8 +205,8 @@ class TestQueryChanged:
 # QueryEngine.query_related
 # ============================================================================
 
-class TestQueryRelated:
 
+class TestQueryRelated:
     def test_depth_1(self):
         g = _chain_graph()
         engine = QueryEngine(g)
@@ -224,8 +239,8 @@ class TestQueryRelated:
 # QueryEngine.query_strongest / query_weakest
 # ============================================================================
 
-class TestQueryStrongestWeakest:
 
+class TestQueryStrongestWeakest:
     def test_strongest_returns_top_n(self):
         g = CortexGraph()
         for i in range(5):
@@ -260,8 +275,8 @@ class TestQueryStrongestWeakest:
 # NL Query Parser
 # ============================================================================
 
-class TestNLQuery:
 
+class TestNLQuery:
     def _engine(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9))
@@ -300,8 +315,8 @@ class TestNLQuery:
 # shortest_path (BFS)
 # ============================================================================
 
-class TestShortestPath:
 
+class TestShortestPath:
     def test_direct_path(self):
         g = _chain_graph()
         assert shortest_path(g, "a", "b") == ["a", "b"]
@@ -339,8 +354,8 @@ class TestShortestPath:
 # connected_components (union-find)
 # ============================================================================
 
-class TestConnectedComponents:
 
+class TestConnectedComponents:
     def test_single_component(self):
         g = _chain_graph()
         comps = connected_components(g)
@@ -374,8 +389,8 @@ class TestConnectedComponents:
 # betweenness_centrality (Brandes)
 # ============================================================================
 
-class TestBetweennessCentrality:
 
+class TestBetweennessCentrality:
     def test_skips_small_graphs(self):
         g = _chain_graph()
         assert betweenness_centrality(g) == {}

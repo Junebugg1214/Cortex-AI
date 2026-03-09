@@ -18,14 +18,15 @@ from cortex.graph import CortexGraph, Node
 # Snapshot
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Snapshot:
-    timestamp: str           # ISO-8601
-    source: str              # "extraction", "merge", "manual"
-    confidence: float        # node's confidence at this point
-    tags: list[str]          # node's tags at this point
-    properties_hash: str     # sha256 of sorted properties dict
-    description_hash: str    # sha256 of full_description
+    timestamp: str  # ISO-8601
+    source: str  # "extraction", "merge", "manual"
+    confidence: float  # node's confidence at this point
+    tags: list[str]  # node's tags at this point
+    properties_hash: str  # sha256 of sorted properties dict
+    description_hash: str  # sha256 of full_description
 
 
 def _hash_dict(d: dict) -> str:

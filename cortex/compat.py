@@ -58,9 +58,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                 existing = graph.nodes[existing_id]
                 if category not in existing.tags:
                     existing.tags.append(category)
-                existing.confidence = max(
-                    existing.confidence, topic_data.get("confidence", 0.5)
-                )
+                existing.confidence = max(existing.confidence, topic_data.get("confidence", 0.5))
                 existing.mention_count += topic_data.get("mention_count", 1)
                 brief = topic_data.get("brief", "")
                 if brief and len(brief) > len(existing.brief):
@@ -222,9 +220,7 @@ def downgrade_v5_to_v4(graph: CortexGraph) -> dict:
 
     # Sort each category by (confidence, mention_count) descending
     for cat in categories:
-        categories[cat].sort(
-            key=lambda t: (t["confidence"], t["mention_count"]), reverse=True
-        )
+        categories[cat].sort(key=lambda t: (t["confidence"], t["mention_count"]), reverse=True)
 
     return {
         "schema_version": "4.0",
@@ -232,8 +228,11 @@ def downgrade_v5_to_v4(graph: CortexGraph) -> dict:
             **graph.meta,
             "method": "aggressive_extraction_v4",
             "features": [
-                "semantic_dedup", "time_decay", "topic_merging",
-                "conflict_detection", "typed_relationships",
+                "semantic_dedup",
+                "time_decay",
+                "topic_merging",
+                "conflict_detection",
+                "typed_relationships",
             ],
         },
         "categories": categories,

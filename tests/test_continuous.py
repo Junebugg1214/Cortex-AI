@@ -16,8 +16,10 @@ from cortex.graph import CortexGraph, Node, make_node_id  # noqa: E402
 # Helpers — synthetic Claude Code JSONL
 # ---------------------------------------------------------------------------
 
-def _user_record(content, ts="2026-02-08T10:00:00.000Z", session_id="sess-1",
-                 cwd="/home/user/myproject", branch="main"):
+
+def _user_record(
+    content, ts="2026-02-08T10:00:00.000Z", session_id="sess-1", cwd="/home/user/myproject", branch="main"
+):
     return {
         "type": "user",
         "uuid": "u-1",
@@ -30,16 +32,17 @@ def _user_record(content, ts="2026-02-08T10:00:00.000Z", session_id="sess-1",
     }
 
 
-def _assistant_record(tool_uses, ts="2026-02-08T10:01:00.000Z",
-                      session_id="sess-1", model="claude-opus-4-6"):
+def _assistant_record(tool_uses, ts="2026-02-08T10:01:00.000Z", session_id="sess-1", model="claude-opus-4-6"):
     content = []
     for name, inp in tool_uses:
-        content.append({
-            "type": "tool_use",
-            "id": f"toolu_{name}",
-            "name": name,
-            "input": inp,
-        })
+        content.append(
+            {
+                "type": "tool_use",
+                "id": f"toolu_{name}",
+                "name": name,
+                "input": inp,
+            }
+        )
     return {
         "type": "assistant",
         "uuid": "a-1",
@@ -67,12 +70,14 @@ def _make_session_records(cwd="/home/user/myproject", session_id="sess-1"):
     """A sample session that touches Python files and runs pytest."""
     return [
         _user_record("Fix the bug", session_id=session_id, cwd=cwd),
-        _assistant_record([
-            ("Read", {"file_path": f"{cwd}/app.py"}),
-            ("Edit", {"file_path": f"{cwd}/app.py",
-                      "old_string": "x", "new_string": "y"}),
-            ("Bash", {"command": "pytest tests/"}),
-        ], session_id=session_id),
+        _assistant_record(
+            [
+                ("Read", {"file_path": f"{cwd}/app.py"}),
+                ("Edit", {"file_path": f"{cwd}/app.py", "old_string": "x", "new_string": "y"}),
+                ("Bash", {"command": "pytest tests/"}),
+            ],
+            session_id=session_id,
+        ),
     ]
 
 
@@ -91,6 +96,7 @@ def _make_watch_dir(tmp_path: Path) -> Path:
 # ===========================================================================
 # TestFileStateTracking
 # ===========================================================================
+
 
 class TestFileStateTracking:
     """Test file state tracking and change detection."""
@@ -178,6 +184,7 @@ class TestFileStateTracking:
 # ===========================================================================
 # TestDebounce
 # ===========================================================================
+
 
 class TestDebounce:
     """Test the settle_seconds debounce mechanism."""
@@ -278,6 +285,7 @@ class TestDebounce:
 # TestExtractionPipeline
 # ===========================================================================
 
+
 class TestExtractionPipeline:
     """Test the full extract-and-merge pipeline."""
 
@@ -313,19 +321,26 @@ class TestExtractionPipeline:
         # Session A — Python + pytest
         dir_a = watch_dir / "proj-a" / "aaa"
         dir_a.mkdir(parents=True)
-        _write_session_jsonl(dir_a / "session.jsonl", _make_session_records(
-            cwd="/home/user/proj-a", session_id="sess-a",
-        ))
+        _write_session_jsonl(
+            dir_a / "session.jsonl",
+            _make_session_records(
+                cwd="/home/user/proj-a",
+                session_id="sess-a",
+            ),
+        )
 
         # Session B — different project, same Python
         dir_b = watch_dir / "proj-b" / "bbb"
         dir_b.mkdir(parents=True)
         records_b = [
             _user_record("Deploy", session_id="sess-b", cwd="/home/user/proj-b"),
-            _assistant_record([
-                ("Read", {"file_path": "/home/user/proj-b/server.py"}),
-                ("Bash", {"command": "docker build ."}),
-            ], session_id="sess-b"),
+            _assistant_record(
+                [
+                    ("Read", {"file_path": "/home/user/proj-b/server.py"}),
+                    ("Bash", {"command": "docker build ."}),
+                ],
+                session_id="sess-b",
+            ),
         ]
         _write_session_jsonl(dir_b / "session.jsonl", records_b)
 
@@ -356,9 +371,13 @@ class TestExtractionPipeline:
         for name, sid in [("a", "sess-a"), ("b", "sess-b")]:
             d = watch_dir / f"proj-{name}" / "xxx"
             d.mkdir(parents=True)
-            _write_session_jsonl(d / "session.jsonl", _make_session_records(
-                cwd=f"/home/user/proj-{name}", session_id=sid,
-            ))
+            _write_session_jsonl(
+                d / "session.jsonl",
+                _make_session_records(
+                    cwd=f"/home/user/proj-{name}",
+                    session_id=sid,
+                ),
+            )
 
         watcher = CodingSessionWatcher(
             graph_path=graph_path,
@@ -447,6 +466,7 @@ class TestExtractionPipeline:
 # TestGraphMerge
 # ===========================================================================
 
+
 class TestGraphMerge:
     """Test _merge_graph node/edge merge logic."""
 
@@ -514,18 +534,28 @@ class TestGraphMerge:
 
         # Add two nodes to main graph
         for label in ["Python", "Pytest"]:
-            watcher._graph.add_node(Node(
-                id=make_node_id(label), label=label,
-                tags=["technical_expertise"], confidence=0.8, properties={},
-            ))
+            watcher._graph.add_node(
+                Node(
+                    id=make_node_id(label),
+                    label=label,
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    properties={},
+                )
+            )
 
         # New graph with same nodes + edge between them
         new_graph = CortexGraph()
         for label in ["Python", "Pytest"]:
-            new_graph.add_node(Node(
-                id=make_node_id(label), label=label,
-                tags=["technical_expertise"], confidence=0.8, properties={},
-            ))
+            new_graph.add_node(
+                Node(
+                    id=make_node_id(label),
+                    label=label,
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    properties={},
+                )
+            )
         edge = Edge(
             id=make_edge_id(make_node_id("Python"), make_node_id("Pytest"), "used_in"),
             source_id=make_node_id("Python"),
@@ -562,6 +592,7 @@ class TestGraphMerge:
 # ===========================================================================
 # TestOnUpdateCallback
 # ===========================================================================
+
 
 class TestOnUpdateCallback:
     """Test the callback/hook mechanism."""
@@ -617,6 +648,7 @@ class TestOnUpdateCallback:
 # ===========================================================================
 # TestWatcherLifecycle
 # ===========================================================================
+
 
 class TestWatcherLifecycle:
     """Test start/stop/running state."""
@@ -691,6 +723,7 @@ class TestWatcherLifecycle:
 # TestProjectFilter
 # ===========================================================================
 
+
 class TestProjectFilter:
     """Test project_filter substring matching."""
 
@@ -732,15 +765,18 @@ class TestProjectFilter:
 # TestMigrateSubcommand
 # ===========================================================================
 
+
 class TestMigrateSubcommand:
     """Tests for the --watch flag on extract-coding subcommand."""
 
     def test_extract_coding_watch_help(self):
         """extract-coding --help shows --watch flag."""
         import subprocess
+
         result = subprocess.run(
             [sys.executable, str(_ROOT / "migrate.py"), "extract-coding", "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "--watch" in result.stdout

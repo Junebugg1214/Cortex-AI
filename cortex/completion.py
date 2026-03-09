@@ -49,7 +49,7 @@ def generate_bash(parser: argparse.ArgumentParser) -> str:
     for sub in subcommands:
         flags = _get_flags(parser, sub)
         flags_str = " ".join(flags)
-        flag_cases.append(f"        {sub})\n            opts=\"{flags_str}\"\n            ;;")
+        flag_cases.append(f'        {sub})\n            opts="{flags_str}"\n            ;;')
 
     flag_cases_str = "\n".join(flag_cases)
 
@@ -106,7 +106,7 @@ def generate_zsh(parser: argparse.ArgumentParser) -> str:
 
     sub_cases_str = "\n".join(sub_cases)
 
-    return f'''#compdef cortex
+    return f"""#compdef cortex
 
 _cortex() {{
     local -a subcmds
@@ -124,7 +124,7 @@ _cortex() {{
 }}
 
 _cortex "$@"
-'''
+"""
 
 
 def generate_fish(parser: argparse.ArgumentParser) -> str:
@@ -137,10 +137,7 @@ def generate_fish(parser: argparse.ArgumentParser) -> str:
 
     # Subcommand completions
     for sub in subcommands:
-        lines.append(
-            f"complete -c cortex -n '__fish_use_subcommand' "
-            f"-a '{sub}' -d '{sub} subcommand'"
-        )
+        lines.append(f"complete -c cortex -n '__fish_use_subcommand' -a '{sub}' -d '{sub} subcommand'")
 
     lines.append("")
 
@@ -150,15 +147,9 @@ def generate_fish(parser: argparse.ArgumentParser) -> str:
         for flag in flags:
             if flag.startswith("--"):
                 short_flag = flag.lstrip("-")
-                lines.append(
-                    f"complete -c cortex -n '__fish_seen_subcommand_from {sub}' "
-                    f"-l '{short_flag}'"
-                )
+                lines.append(f"complete -c cortex -n '__fish_seen_subcommand_from {sub}' -l '{short_flag}'")
             elif flag.startswith("-") and len(flag) == 2:
-                lines.append(
-                    f"complete -c cortex -n '__fish_seen_subcommand_from {sub}' "
-                    f"-s '{flag[1]}'"
-                )
+                lines.append(f"complete -c cortex -n '__fish_seen_subcommand_from {sub}' -s '{flag[1]}'")
 
     lines.append("")
     return "\n".join(lines)

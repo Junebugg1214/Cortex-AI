@@ -13,6 +13,7 @@ Covers:
 - Drift returns > 0 for different graphs
 - Snapshot serialization roundtrip (to_dict/from_dict)
 """
+
 from __future__ import annotations
 
 import sys
@@ -31,6 +32,7 @@ from cortex.temporal import (
 # Helpers
 # ============================================================================
 
+
 def _make_graph(*nodes: Node) -> CortexGraph:
     g = CortexGraph()
     for n in nodes:
@@ -38,13 +40,19 @@ def _make_graph(*nodes: Node) -> CortexGraph:
     return g
 
 
-def _make_node(label: str, tags: list[str] | None = None,
-               confidence: float = 0.5, first_seen: str = "",
-               last_seen: str = "", full_description: str = "",
-               properties: dict | None = None) -> Node:
+def _make_node(
+    label: str,
+    tags: list[str] | None = None,
+    confidence: float = 0.5,
+    first_seen: str = "",
+    last_seen: str = "",
+    full_description: str = "",
+    properties: dict | None = None,
+) -> Node:
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label,
+        id=nid,
+        label=label,
         tags=tags or ["technical_expertise"],
         confidence=confidence,
         first_seen=first_seen,
@@ -58,8 +66,8 @@ def _make_node(label: str, tags: list[str] | None = None,
 # Snapshot creation
 # ============================================================================
 
-class TestSnapshotCreation:
 
+class TestSnapshotCreation:
     def test_create_snapshot_dict_basic(self):
         node = _make_node("Python", confidence=0.9, full_description="A language")
         snap = create_snapshot_dict(node, "extraction", timestamp="2025-01-15T00:00:00Z")
@@ -93,8 +101,7 @@ class TestSnapshotCreation:
         assert snap_a["description_hash"] == snap_b["description_hash"]
 
     def test_snapshot_from_dict_roundtrip(self):
-        node = _make_node("Python", confidence=0.85, full_description="A language",
-                          properties={"version": "3.11"})
+        node = _make_node("Python", confidence=0.85, full_description="A language", properties={"version": "3.11"})
         snap_dict = create_snapshot_dict(node, "merge", timestamp="2025-02-01T12:00:00Z")
         snap = snapshot_from_dict(snap_dict)
         assert snap.timestamp == "2025-02-01T12:00:00Z"
@@ -109,8 +116,8 @@ class TestSnapshotCreation:
 # CortexGraph.create_snapshot()
 # ============================================================================
 
-class TestGraphCreateSnapshot:
 
+class TestGraphCreateSnapshot:
     def test_create_snapshot_appends_to_all_nodes(self):
         g = _make_graph(
             _make_node("Python"),
@@ -144,27 +151,31 @@ class TestGraphCreateSnapshot:
 # CortexGraph.graph_at()
 # ============================================================================
 
-class TestGraphAt:
 
+class TestGraphAt:
     def test_graph_at_returns_correct_snapshot_state(self):
         node = _make_node("Python", confidence=0.5, first_seen="2025-01-01T00:00:00Z")
         g = _make_graph(node)
-        node.snapshots.append({
-            "timestamp": "2025-01-15T00:00:00Z",
-            "source": "extraction",
-            "confidence": 0.7,
-            "tags": ["technical_expertise"],
-            "properties_hash": "abc",
-            "description_hash": "def",
-        })
-        node.snapshots.append({
-            "timestamp": "2025-02-15T00:00:00Z",
-            "source": "merge",
-            "confidence": 0.9,
-            "tags": ["technical_expertise", "domain_knowledge"],
-            "properties_hash": "ghi",
-            "description_hash": "jkl",
-        })
+        node.snapshots.append(
+            {
+                "timestamp": "2025-01-15T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.7,
+                "tags": ["technical_expertise"],
+                "properties_hash": "abc",
+                "description_hash": "def",
+            }
+        )
+        node.snapshots.append(
+            {
+                "timestamp": "2025-02-15T00:00:00Z",
+                "source": "merge",
+                "confidence": 0.9,
+                "tags": ["technical_expertise", "domain_knowledge"],
+                "properties_hash": "ghi",
+                "description_hash": "jkl",
+            }
+        )
 
         # At Jan 20 — should use Jan 15 snapshot
         historical = g.graph_at("2025-01-20T00:00:00Z")
@@ -213,18 +224,20 @@ class TestGraphAt:
 # Snapshot serialization roundtrip
 # ============================================================================
 
-class TestSnapshotSerialization:
 
+class TestSnapshotSerialization:
     def test_node_to_dict_includes_snapshots(self):
         node = _make_node("Python")
-        node.snapshots.append({
-            "timestamp": "2025-01-15T00:00:00Z",
-            "source": "extraction",
-            "confidence": 0.8,
-            "tags": ["technical_expertise"],
-            "properties_hash": "abc",
-            "description_hash": "def",
-        })
+        node.snapshots.append(
+            {
+                "timestamp": "2025-01-15T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "properties_hash": "abc",
+                "description_hash": "def",
+            }
+        )
         d = node.to_dict()
         assert "snapshots" in d
         assert len(d["snapshots"]) == 1
@@ -235,14 +248,16 @@ class TestSnapshotSerialization:
             "id": "abc123",
             "label": "Python",
             "tags": ["technical_expertise"],
-            "snapshots": [{
-                "timestamp": "2025-01-15T00:00:00Z",
-                "source": "extraction",
-                "confidence": 0.8,
-                "tags": ["technical_expertise"],
-                "properties_hash": "abc",
-                "description_hash": "def",
-            }],
+            "snapshots": [
+                {
+                    "timestamp": "2025-01-15T00:00:00Z",
+                    "source": "extraction",
+                    "confidence": 0.8,
+                    "tags": ["technical_expertise"],
+                    "properties_hash": "abc",
+                    "description_hash": "def",
+                }
+            ],
         }
         node = Node.from_dict(d)
         assert len(node.snapshots) == 1
@@ -268,8 +283,8 @@ class TestSnapshotSerialization:
 # Drift scoring
 # ============================================================================
 
-class TestDriftScoring:
 
+class TestDriftScoring:
     def test_drift_identical_graphs(self):
         g = _make_graph(
             _make_node("Python", tags=["technical_expertise"]),
@@ -333,8 +348,8 @@ class TestDriftScoring:
 # Weighted Jaccard
 # ============================================================================
 
-class TestWeightedJaccard:
 
+class TestWeightedJaccard:
     def test_identical_sets(self):
         assert _weighted_jaccard({"a", "b"}, {"a", "b"}, {}) == 0.0
 
@@ -356,8 +371,8 @@ class TestWeightedJaccard:
 # Hash helpers
 # ============================================================================
 
-class TestHashHelpers:
 
+class TestHashHelpers:
     def test_hash_dict_deterministic(self):
         d = {"b": 2, "a": 1}
         assert _hash_dict(d) == _hash_dict({"a": 1, "b": 2})
@@ -373,4 +388,5 @@ class TestHashHelpers:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

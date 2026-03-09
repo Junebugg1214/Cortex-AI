@@ -134,8 +134,13 @@ DISCLOSURE_POLICY_SCHEMA: dict = {
 VERSION_SCHEMA: dict = {
     "type": "object",
     "required": [
-        "version_id", "timestamp", "source", "message",
-        "graph_hash", "node_count", "edge_count",
+        "version_id",
+        "timestamp",
+        "source",
+        "message",
+        "graph_hash",
+        "node_count",
+        "edge_count",
     ],
     "properties": {
         "version_id": {"type": "string", "minLength": 1},
@@ -252,6 +257,7 @@ SCHEMAS: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 # Stdlib-only validator
 # ---------------------------------------------------------------------------
+
 
 def validate(data: Any, schema: dict, path: str = "") -> list[str]:
     """Validate *data* against a JSON Schema dict. Returns list of error strings (empty = valid).

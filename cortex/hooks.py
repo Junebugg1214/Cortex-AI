@@ -30,12 +30,13 @@ DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "hook-config.json"
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class HookConfig:
-    graph_path: str = ""            # Path to Cortex graph JSON
-    policy: str = "technical"       # Disclosure policy name
-    max_chars: int = 1500           # Cap injection size
-    include_project: bool = True    # Include project-specific context
+    graph_path: str = ""  # Path to Cortex graph JSON
+    policy: str = "technical"  # Disclosure policy name
+    max_chars: int = 1500  # Cap injection size
+    include_project: bool = True  # Include project-specific context
 
 
 def load_hook_config(config_path: Path | None = None) -> HookConfig:
@@ -69,6 +70,7 @@ def save_hook_config(config: HookConfig, config_path: Path | None = None) -> Pat
 # ---------------------------------------------------------------------------
 # Graph loading
 # ---------------------------------------------------------------------------
+
 
 def _load_graph(graph_path: str) -> CortexGraph | None:
     """Load a v4, v5, or v6 graph from a JSON file. Returns None on error."""
@@ -139,7 +141,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
                 desc = n.brief or n.label
                 # Strip "Active project: " prefix if present
                 if desc.startswith("Active project: "):
-                    desc = desc[len("Active project: "):]
+                    desc = desc[len("Active project: ") :]
                 parts.append(desc)
             lines.append(f"**{section_label}:** {'; '.join(parts)}")
         elif section_label == "Domain":
@@ -160,7 +162,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
 
     # Truncate to max_chars
     if len(result) > max_chars:
-        result = result[:max_chars - 3].rsplit("\n", 1)[0] + "..."
+        result = result[: max_chars - 3].rsplit("\n", 1)[0] + "..."
 
     return result
 
@@ -168,6 +170,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
 # ---------------------------------------------------------------------------
 # Context generation pipeline
 # ---------------------------------------------------------------------------
+
 
 def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
     """Load graph, apply disclosure policy, format as compact markdown.
@@ -209,6 +212,7 @@ def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
 # Hook handler
 # ---------------------------------------------------------------------------
 
+
 def handle_session_start(input_json: dict, config: HookConfig) -> dict:
     """Process a Claude Code SessionStart hook event.
 
@@ -234,6 +238,7 @@ def handle_session_start(input_json: dict, config: HookConfig) -> dict:
 # ---------------------------------------------------------------------------
 # Install / uninstall helpers
 # ---------------------------------------------------------------------------
+
 
 def install_hook(
     graph_path: str,
@@ -278,18 +283,21 @@ def install_hook(
     # Check if already installed (avoid duplicates — match by script name
     # to handle different quoting styles or python executables)
     already = any(
-        any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", []))
-        for entry in session_start
+        any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", [])) for entry in session_start
     )
 
     if not already:
-        session_start.append({
-            "matcher": "*",
-            "hooks": [{
-                "type": "command",
-                "command": command,
-            }],
-        })
+        session_start.append(
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": command,
+                    }
+                ],
+            }
+        )
 
     settings.parent.mkdir(parents=True, exist_ok=True)
     settings.write_text(
@@ -331,10 +339,7 @@ def uninstall_hook(
             # not exact string, to handle quoting/executable differences)
             new_entries = []
             for entry in session_start:
-                new_hooks = [
-                    h for h in entry.get("hooks", [])
-                    if "cortex-hook.py" not in h.get("command", "")
-                ]
+                new_hooks = [h for h in entry.get("hooks", []) if "cortex-hook.py" not in h.get("command", "")]
                 if new_hooks:
                     entry["hooks"] = new_hooks
                     new_entries.append(entry)
@@ -380,8 +385,7 @@ def hook_status(
             data = json.loads(settings.read_text(encoding="utf-8"))
             session_start = data.get("hooks", {}).get("SessionStart", [])
             installed = any(
-                any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", []))
-                for entry in session_start
+                any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", [])) for entry in session_start
             )
         except (json.JSONDecodeError, OSError):
             pass

@@ -78,6 +78,7 @@ class BaseAdapter(ABC):
 
 class ClaudeAdapter(BaseAdapter):
     """Push: preferences.txt + memories.json. Pull: parse memories JSON back to nodes."""
+
     name = "claude"
 
     def push(
@@ -121,14 +122,15 @@ class ClaudeAdapter(BaseAdapter):
             expected_hash = raw.get("integrity_hash")
             if expected_hash:
                 import hashlib
+
                 actual_hash = hashlib.sha256(
                     json.dumps(memories, sort_keys=True, ensure_ascii=False).encode("utf-8")
                 ).hexdigest()
                 if actual_hash != expected_hash:
                     import sys
+
                     print(
-                        f"WARNING: Integrity hash mismatch in {file_path.name}. "
-                        "Data may have been tampered with.",
+                        f"WARNING: Integrity hash mismatch in {file_path.name}. Data may have been tampered with.",
                         file=sys.stderr,
                     )
         else:
@@ -168,6 +170,7 @@ class ClaudeAdapter(BaseAdapter):
 
 class SystemPromptAdapter(BaseAdapter):
     """Push: system_prompt.txt. Pull: parse XML back to nodes."""
+
     name = "system-prompt"
 
     def push(
@@ -197,6 +200,7 @@ class SystemPromptAdapter(BaseAdapter):
 
         # Parse <category>...</category> blocks (skip structural wrappers)
         import re
+
         _WRAPPER_TAGS = {"user_context", "context", "system", "prompt"}
         pattern = r"<(\w+)>(.*?)</\1>"
         for match in re.finditer(pattern, text, re.DOTALL):
@@ -210,11 +214,13 @@ class SystemPromptAdapter(BaseAdapter):
                 if line.startswith("- ") or line.startswith("["):
                     topic = line.lstrip("- [").rstrip("]")
                     if topic and not topic.startswith("<!--"):
-                        items.append({
-                            "topic": topic,
-                            "brief": topic,
-                            "confidence": 0.7,
-                        })
+                        items.append(
+                            {
+                                "topic": topic,
+                                "brief": topic,
+                                "confidence": 0.7,
+                            }
+                        )
             if items:
                 v4_categories[category] = items
 
@@ -224,6 +230,7 @@ class SystemPromptAdapter(BaseAdapter):
 
 class NotionAdapter(BaseAdapter):
     """Push: notion_page.md + notion_database.json. Pull: parse .json or .md back to nodes."""
+
     name = "notion"
 
     def push(
@@ -260,6 +267,7 @@ class NotionAdapter(BaseAdapter):
 
         # Build reverse map: label -> category key
         from cortex.import_memory import CATEGORY_LABELS
+
         _label_to_cat: dict[str, str] = {v: k for k, v in CATEGORY_LABELS.items()}
 
         v4_categories: dict[str, list[dict]] = {}
@@ -292,7 +300,11 @@ class NotionAdapter(BaseAdapter):
                 if isinstance(relationships, str):
                     relationships = [r.strip() for r in relationships.split(",") if r.strip()]
                 timeline_raw = row.get("Timeline", "") or ""
-                timeline = [t.strip() for t in timeline_raw.split(",") if t.strip()] if isinstance(timeline_raw, str) else timeline_raw
+                timeline = (
+                    [t.strip() for t in timeline_raw.split(",") if t.strip()]
+                    if isinstance(timeline_raw, str)
+                    else timeline_raw
+                )
 
                 entry = {
                     "topic": topic_name,
@@ -408,7 +420,11 @@ class NotionAdapter(BaseAdapter):
                 if m_min:
                     topic_name = _emoji_strip.sub("", m_min.group(1)).strip()
                     # Skip metadata bullets (Metrics:, Related:, Timeline:)
-                    if topic_name.startswith("**Metrics:**") or topic_name.startswith("**Related:**") or topic_name.startswith("**Timeline:**"):
+                    if (
+                        topic_name.startswith("**Metrics:**")
+                        or topic_name.startswith("**Related:**")
+                        or topic_name.startswith("**Timeline:**")
+                    ):
                         # Extract metadata into the last entry
                         if current_category in v4_categories and v4_categories[current_category]:
                             last = v4_categories[current_category][-1]
@@ -446,6 +462,7 @@ class NotionAdapter(BaseAdapter):
 
 class GDocsAdapter(BaseAdapter):
     """Push: google_docs.html. Pull: parse HTML back to nodes."""
+
     name = "gdocs"
 
     def push(

@@ -115,6 +115,7 @@ class TestGenerateCompletion:
 class TestCLIIntegration:
     def test_completion_subcommand_exists(self):
         from cortex.cli import main
+
         # Should produce output (the completion script), not error
         # We just check it doesn't crash
         result = main(["completion", "--shell", "bash"])
@@ -122,10 +123,12 @@ class TestCLIIntegration:
 
     def test_completion_zsh(self):
         from cortex.cli import main
+
         result = main(["completion", "--shell", "zsh"])
         assert result == 0
 
     def test_completion_fish(self):
         from cortex.cli import main
+
         result = main(["completion", "--shell", "fish"])
         assert result == 0

@@ -37,12 +37,7 @@ from pathlib import Path
 # CONFIGURATION
 # ============================================================================
 
-CONFIDENCE_THRESHOLDS = {
-    "high": 0.8,
-    "medium": 0.6,
-    "low": 0.4,
-    "all": 0.0
-}
+CONFIDENCE_THRESHOLDS = {"high": 0.8, "medium": 0.6, "low": 0.4, "all": 0.0}
 
 CATEGORY_LABELS = {
     "identity": "Identity",
@@ -61,27 +56,37 @@ CATEGORY_LABELS = {
     "communication_preferences": "Communication Style",
     "correction_history": "Corrections & Clarifications",
     "history": "History",
-    "mentions": "Other Mentions"
+    "mentions": "Other Mentions",
 }
 
 CATEGORY_ORDER = [
-    "identity", "professional_context", "business_context", "active_priorities",
-    "relationships", "technical_expertise", "domain_knowledge", "market_context",
-    "metrics", "constraints", "values", "negations", "user_preferences",
-    "communication_preferences", "correction_history", "history", "mentions"
+    "identity",
+    "professional_context",
+    "business_context",
+    "active_priorities",
+    "relationships",
+    "technical_expertise",
+    "domain_knowledge",
+    "market_context",
+    "metrics",
+    "constraints",
+    "values",
+    "negations",
+    "user_preferences",
+    "communication_preferences",
+    "correction_history",
+    "history",
+    "mentions",
 ]
 
 # Notion colors for different confidence levels
-NOTION_COLORS = {
-    "high": "green",
-    "medium": "yellow",
-    "low": "gray"
-}
+NOTION_COLORS = {"high": "green", "medium": "yellow", "low": "gray"}
 
 
 # ============================================================================
 # DATA LOADING
 # ============================================================================
+
 
 @dataclass
 class TopicDetail:
@@ -100,7 +105,7 @@ class TopicDetail:
     relationship_type: str = ""  # partner, mentor, advisor, investor, client, competitor
 
     @classmethod
-    def from_dict(cls, data: dict, category: str) -> 'TopicDetail':
+    def from_dict(cls, data: dict, category: str) -> "TopicDetail":
         return cls(
             topic=data.get("topic", ""),
             category=category,
@@ -114,7 +119,7 @@ class TopicDetail:
             source_quotes=data.get("source_quotes", []),
             first_seen=data.get("first_seen", ""),
             last_seen=data.get("last_seen", ""),
-            relationship_type=data.get("relationship_type", "")
+            relationship_type=data.get("relationship_type", ""),
         )
 
     def get_detail_level(self) -> str:
@@ -159,7 +164,7 @@ class NormalizedContext:
     meta: dict = field(default_factory=dict)
 
     @classmethod
-    def from_v4(cls, data: dict) -> 'NormalizedContext':
+    def from_v4(cls, data: dict) -> "NormalizedContext":
         ctx = cls()
         ctx.meta = data.get("meta", {})
         for category, topics in data.get("categories", {}).items():
@@ -167,11 +172,11 @@ class NormalizedContext:
         return ctx
 
     @classmethod
-    def from_v3(cls, data: dict) -> 'NormalizedContext':
+    def from_v3(cls, data: dict) -> "NormalizedContext":
         return cls.from_v4(data)  # Same structure
 
     @classmethod
-    def from_openai(cls, data: dict) -> 'NormalizedContext':
+    def from_openai(cls, data: dict) -> "NormalizedContext":
         """Parse OpenAI context export format"""
         ctx = cls()
         ctx.meta = {"source": "openai", "generated_at": datetime.now(timezone.utc).isoformat()}
@@ -201,20 +206,22 @@ class NormalizedContext:
                             if isinstance(item, str):
                                 topics.append(TopicDetail(topic=item, category=target_cat, brief=item, confidence=0.7))
                             elif isinstance(item, dict):
-                                topics.append(TopicDetail(
-                                    topic=item.get("name", item.get("topic", str(item))),
-                                    category=target_cat,
-                                    brief=item.get("description", item.get("brief", "")),
-                                    full_description=item.get("details", item.get("full_description", "")),
-                                    confidence=item.get("confidence", 0.7)
-                                ))
+                                topics.append(
+                                    TopicDetail(
+                                        topic=item.get("name", item.get("topic", str(item))),
+                                        category=target_cat,
+                                        brief=item.get("description", item.get("brief", "")),
+                                        full_description=item.get("details", item.get("full_description", "")),
+                                        confidence=item.get("confidence", 0.7),
+                                    )
+                                )
             if topics:
                 ctx.categories[target_cat] = topics
 
         return ctx
 
     @classmethod
-    def from_claude_memories(cls, data: list) -> 'NormalizedContext':
+    def from_claude_memories(cls, data: list) -> "NormalizedContext":
         """Parse Claude memory_user_edits export format.
 
         Claude memories format is an array of objects with "text", "confidence", "category" fields.
@@ -258,12 +265,9 @@ class NormalizedContext:
                     topic = match.group(1).strip()
                     if category_hint not in ctx.categories:
                         ctx.categories[category_hint] = []
-                    ctx.categories[category_hint].append(TopicDetail(
-                        topic=topic,
-                        category=category_hint,
-                        brief=text,
-                        confidence=confidence
-                    ))
+                    ctx.categories[category_hint].append(
+                        TopicDetail(topic=topic, category=category_hint, brief=text, confidence=confidence)
+                    )
                     matched = True
 
             # Try all patterns if category hint didn't work
@@ -274,12 +278,9 @@ class NormalizedContext:
                         topic = match.group(1).strip()
                         if cat not in ctx.categories:
                             ctx.categories[cat] = []
-                        ctx.categories[cat].append(TopicDetail(
-                            topic=topic,
-                            category=cat,
-                            brief=text,
-                            confidence=confidence
-                        ))
+                        ctx.categories[cat].append(
+                            TopicDetail(topic=topic, category=cat, brief=text, confidence=confidence)
+                        )
                         matched = True
                         break
 
@@ -294,17 +295,14 @@ class NormalizedContext:
 
                 if "mentions" not in ctx.categories:
                     ctx.categories["mentions"] = []
-                ctx.categories["mentions"].append(TopicDetail(
-                    topic=topic,
-                    category="mentions",
-                    brief=text,
-                    confidence=confidence
-                ))
+                ctx.categories["mentions"].append(
+                    TopicDetail(topic=topic, category="mentions", brief=text, confidence=confidence)
+                )
 
         return ctx
 
     @classmethod
-    def from_v5(cls, data: dict) -> 'NormalizedContext':
+    def from_v5(cls, data: dict) -> "NormalizedContext":
         """Load from v5 schema by reading the backward-compat categories block.
 
         v5 JSON always includes a ``categories`` block computed from the graph,
@@ -319,8 +317,8 @@ class NormalizedContext:
         return ctx
 
     @classmethod
-    def load(cls, file_path: Path) -> 'NormalizedContext':
-        with open(file_path, 'r', encoding='utf-8') as f:
+    def load(cls, file_path: Path) -> "NormalizedContext":
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # Detect Claude memories format (array with "text" field)
@@ -357,13 +355,14 @@ class NormalizedContext:
         return {
             "total": total,
             "by_category": {cat: len(ts) for cat, ts in topics.items()},
-            "by_confidence": {"high": high, "medium": med, "low": low}
+            "by_confidence": {"high": high, "medium": med, "low": low},
         }
 
 
 # ============================================================================
 # EXPORT FORMATS
 # ============================================================================
+
 
 def export_claude_preferences(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
     """Generate natural language for Claude Settings > Profile"""
@@ -453,10 +452,24 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
     memories = []
     topics = ctx.get_topics_by_confidence(min_confidence)
 
-    priority_order = ["identity", "business_context", "professional_context", "active_priorities",
-                      "relationships", "technical_expertise", "domain_knowledge", "market_context",
-                      "metrics", "constraints", "values", "negations", "user_preferences",
-                      "communication_preferences", "correction_history", "mentions"]
+    priority_order = [
+        "identity",
+        "business_context",
+        "professional_context",
+        "active_priorities",
+        "relationships",
+        "technical_expertise",
+        "domain_knowledge",
+        "market_context",
+        "metrics",
+        "constraints",
+        "values",
+        "negations",
+        "user_preferences",
+        "communication_preferences",
+        "correction_history",
+        "mentions",
+    ]
 
     for category in priority_order:
         if category not in topics:
@@ -477,7 +490,7 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
             elif category == "active_priorities":
                 text = f"User focus: {topic.format_by_confidence(min_confidence)}"
             elif category == "relationships":
-                rel_type = getattr(topic, 'relationship_type', '')
+                rel_type = getattr(topic, "relationship_type", "")
                 if rel_type:
                     text = f"User relationship ({rel_type}): {topic.format_by_confidence(min_confidence)}"
                 else:
@@ -509,11 +522,7 @@ def export_claude_memories(ctx: NormalizedContext, min_confidence: float = 0.6, 
             if len(text) > 200:
                 text = text[:197] + "..."
 
-            memories.append({
-                "text": text,
-                "confidence": topic.confidence,
-                "category": category
-            })
+            memories.append({"text": text, "confidence": topic.confidence, "category": category})
 
         if len(memories) >= max_items:
             break
@@ -571,7 +580,7 @@ def export_system_prompt(ctx: NormalizedContext, min_confidence: float = 0.6) ->
             # Group relationships by type
             by_type = defaultdict(list)
             for topic in topics[category]:
-                rel_type = getattr(topic, 'relationship_type', '') or "other"
+                rel_type = getattr(topic, "relationship_type", "") or "other"
                 by_type[rel_type].append(topic)
 
             # Output in priority order
@@ -637,12 +646,22 @@ def export_notion(ctx: NormalizedContext, min_confidence: float = 0.6) -> str:
 
         label = CATEGORY_LABELS.get(category, category)
         emoji = {
-            "identity": "👤", "professional_context": "💼", "business_context": "🏢",
-            "active_priorities": "🎯", "relationships": "🤝", "technical_expertise": "💻",
-            "domain_knowledge": "📚", "market_context": "📈", "metrics": "📊",
-            "constraints": "🚧", "values": "💡", "negations": "🚫",
-            "user_preferences": "⚙️", "communication_preferences": "💬",
-            "correction_history": "✏️", "mentions": "📌"
+            "identity": "👤",
+            "professional_context": "💼",
+            "business_context": "🏢",
+            "active_priorities": "🎯",
+            "relationships": "🤝",
+            "technical_expertise": "💻",
+            "domain_knowledge": "📚",
+            "market_context": "📈",
+            "metrics": "📊",
+            "constraints": "🚧",
+            "values": "💡",
+            "negations": "🚫",
+            "user_preferences": "⚙️",
+            "communication_preferences": "💬",
+            "correction_history": "✏️",
+            "mentions": "📌",
         }.get(category, "•")
 
         lines.append(f"## {emoji} {label}")
@@ -701,18 +720,20 @@ def export_notion_database_json(ctx: NormalizedContext, min_confidence: float = 
             continue
 
         for topic in topics[category]:
-            rows.append({
-                "Topic": topic.topic,
-                "Category": CATEGORY_LABELS.get(category, category),
-                "Confidence": topic.confidence,
-                "Detail Level": topic.get_detail_level(),
-                "Brief": topic.brief,
-                "Full Description": topic.full_description,
-                "Metrics": topic.metrics[:5],
-                "Relationships": topic.relationships[:5],
-                "Timeline": ", ".join(topic.timeline) if topic.timeline else "",
-                "Mention Count": topic.mention_count
-            })
+            rows.append(
+                {
+                    "Topic": topic.topic,
+                    "Category": CATEGORY_LABELS.get(category, category),
+                    "Confidence": topic.confidence,
+                    "Detail Level": topic.get_detail_level(),
+                    "Brief": topic.brief,
+                    "Full Description": topic.full_description,
+                    "Metrics": topic.metrics[:5],
+                    "Relationships": topic.relationships[:5],
+                    "Timeline": ", ".join(topic.timeline) if topic.timeline else "",
+                    "Mention Count": topic.mention_count,
+                }
+            )
 
     return rows
 
@@ -790,7 +811,9 @@ def export_google_docs(ctx: NormalizedContext, min_confidence: float = 0.6) -> s
                 if topic.timeline:
                     lines.append(f"<p><strong>Timeline:</strong> {_esc(', '.join(topic.timeline))}</p>")
             elif level == "moderate":
-                lines.append(f"<p><strong>{_esc(topic.topic)}</strong> <span class='badge {badge_class}'>Medium</span>: {_esc(topic.brief)}</p>")
+                lines.append(
+                    f"<p><strong>{_esc(topic.topic)}</strong> <span class='badge {badge_class}'>Medium</span>: {_esc(topic.brief)}</p>"
+                )
             else:
                 lines.append(f"<p class='low'>{_esc(topic.topic)} <span class='badge {badge_class}'>Low</span></p>")
 
@@ -847,7 +870,7 @@ def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dic
         "meta": {
             **ctx.meta,
             "exported_at": datetime.now(timezone.utc).isoformat(),
-            "confidence_threshold": min_confidence
+            "confidence_threshold": min_confidence,
         },
         "categories": {
             cat: [
@@ -870,7 +893,7 @@ def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dic
                 for t in topics_list
             ]
             for cat, topics_list in topics.items()
-        }
+        },
     }
 
 
@@ -878,21 +901,34 @@ def export_full_json(ctx: NormalizedContext, min_confidence: float = 0.0) -> dic
 # MAIN
 # ============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Import context to various formats (v4)")
     parser.add_argument("input_file", help="Path to context JSON file")
     parser.add_argument("--output", "-o", help="Output directory", default=".")
     parser.add_argument(
-        "--format", "-f",
-        choices=["all", "claude-preferences", "claude-memories", "system-prompt", "notion", "notion-db", "gdocs", "summary", "full"],
+        "--format",
+        "-f",
+        choices=[
+            "all",
+            "claude-preferences",
+            "claude-memories",
+            "system-prompt",
+            "notion",
+            "notion-db",
+            "gdocs",
+            "summary",
+            "full",
+        ],
         default="all",
-        help="Output format(s)"
+        help="Output format(s)",
     )
     parser.add_argument(
-        "--confidence", "-c",
+        "--confidence",
+        "-c",
         choices=["high", "medium", "low", "all"],
         default="medium",
-        help="Minimum confidence level"
+        help="Minimum confidence level",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing files")
 
@@ -911,12 +947,23 @@ def main():
     stats = ctx.stats(min_conf)
 
     print(f"📊 Loaded {stats['total']} topics across {len(stats['by_category'])} categories")
-    print(f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low")
+    print(
+        f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low"
+    )
     print(f"✅ Exporting {stats['total']} items (confidence >= {min_conf})")
 
     formats_to_export = []
     if args.format == "all":
-        formats_to_export = ["claude-preferences", "claude-memories", "system-prompt", "notion", "notion-db", "gdocs", "summary", "full"]
+        formats_to_export = [
+            "claude-preferences",
+            "claude-memories",
+            "system-prompt",
+            "notion",
+            "notion-db",
+            "gdocs",
+            "summary",
+            "full",
+        ]
     else:
         formats_to_export = [args.format]
 
@@ -941,7 +988,7 @@ def main():
             print("\n--- Summary ---")
             summary = export_summary(ctx, min_conf)
             # Show first 50 lines
-            for line in summary.split('\n')[:50]:
+            for line in summary.split("\n")[:50]:
                 print(line)
 
         return 0

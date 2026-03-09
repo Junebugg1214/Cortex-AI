@@ -21,8 +21,8 @@ from cortex.upai.keychain import Keychain, KeyRecord
 # Basic operations
 # ============================================================================
 
-class TestKeychainBasic:
 
+class TestKeychainBasic:
     def test_rotate_produces_new_did(self):
         if not has_crypto():
             return
@@ -96,8 +96,8 @@ class TestKeychainBasic:
 # History and chain
 # ============================================================================
 
-class TestKeychainHistory:
 
+class TestKeychainHistory:
     def test_history_grows(self):
         if not has_crypto():
             return
@@ -168,8 +168,8 @@ class TestKeychainHistory:
 # Persistence
 # ============================================================================
 
-class TestKeychainPersistence:
 
+class TestKeychainPersistence:
     def test_persists_to_file(self):
         if not has_crypto():
             return
@@ -213,8 +213,8 @@ class TestKeychainPersistence:
 # KeyRecord
 # ============================================================================
 
-class TestKeyRecord:
 
+class TestKeyRecord:
     def test_to_dict_from_dict_roundtrip(self):
         record = KeyRecord(
             did="did:key:z6MkTest",

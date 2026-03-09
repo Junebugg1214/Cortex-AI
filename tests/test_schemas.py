@@ -33,6 +33,7 @@ from cortex.upai.versioning import VersionStore
 # Helpers
 # ============================================================================
 
+
 def _good_node() -> dict:
     return {
         "id": "abc123",
@@ -119,8 +120,8 @@ def _good_envelope() -> dict:
 # Positive: good data passes
 # ============================================================================
 
-class TestSchemaPositive:
 
+class TestSchemaPositive:
     def test_node_valid(self):
         assert is_valid(_good_node(), NODE_SCHEMA)
 
@@ -174,8 +175,8 @@ class TestSchemaPositive:
 # Negative: bad data rejected
 # ============================================================================
 
-class TestSchemaNegative:
 
+class TestSchemaNegative:
     def test_node_missing_id(self):
         d = _good_node()
         del d["id"]
@@ -251,8 +252,8 @@ class TestSchemaNegative:
 # Compliance: real objects pass their schemas
 # ============================================================================
 
-class TestSchemaCompliance:
 
+class TestSchemaCompliance:
     def test_node_to_dict_passes(self):
         node = Node(id="n1", label="Test", tags=["identity"], confidence=0.8)
         assert is_valid(node.to_dict(), NODE_SCHEMA)
@@ -287,6 +288,7 @@ class TestSchemaCompliance:
 
     def test_disclosure_policy_dict_passes(self):
         from cortex.upai.disclosure import BUILTIN_POLICIES
+
         for name, policy in BUILTIN_POLICIES.items():
             d = {
                 "name": policy.name,
@@ -303,13 +305,20 @@ class TestSchemaCompliance:
 # Schema registry
 # ============================================================================
 
-class TestSchemaRegistry:
 
+class TestSchemaRegistry:
     def test_all_schemas_present(self):
         expected = {
-            "node", "edge", "graph", "identity", "envelope",
-            "disclosure_policy", "version", "did_document",
-            "work_history_properties", "education_history_properties",
+            "node",
+            "edge",
+            "graph",
+            "identity",
+            "envelope",
+            "disclosure_policy",
+            "version",
+            "did_document",
+            "work_history_properties",
+            "education_history_properties",
         }
         assert set(SCHEMAS.keys()) == expected
 
@@ -323,8 +332,8 @@ class TestSchemaRegistry:
 # Validator edge cases
 # ============================================================================
 
-class TestValidatorEdgeCases:
 
+class TestValidatorEdgeCases:
     def test_empty_schema_passes_anything(self):
         assert is_valid(42, {})
         assert is_valid("hello", {})

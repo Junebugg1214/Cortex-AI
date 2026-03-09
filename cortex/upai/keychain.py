@@ -32,7 +32,7 @@ class KeyRecord:
     public_key_b64: str
     created_at: str
     revoked_at: str = ""
-    revocation_reason: str = ""    # "compromised" | "rotated" | "expired"
+    revocation_reason: str = ""  # "compromised" | "rotated" | "expired"
     successor_did: str = ""
 
     def to_dict(self) -> dict:
@@ -61,13 +61,13 @@ class KeyRecord:
 class DeviceRecord:
     """A record of an authorized device."""
 
-    device_id: str                # uuid4
-    device_name: str              # "MacBook Pro", "iPhone"
-    device_did: str               # device-specific DID
+    device_id: str  # uuid4
+    device_name: str  # "MacBook Pro", "iPhone"
+    device_did: str  # device-specific DID
     device_public_key_b64: str
-    authorized_at: str            # ISO 8601
-    authorized_by_did: str        # primary DID that authorized this device
-    authorization_proof: str      # base64 signature of authorization envelope
+    authorized_at: str  # ISO 8601
+    authorized_by_did: str  # primary DID that authorized this device
+    authorization_proof: str  # base64 signature of authorization envelope
     revoked_at: str = ""
 
     def to_dict(self) -> dict:
@@ -128,11 +128,13 @@ class Keychain:
     def _ensure_registered(self, identity: UPAIIdentity) -> None:
         """Ensure the current identity is registered in the keychain."""
         if not any(r.did == identity.did for r in self._records):
-            self._records.append(KeyRecord(
-                did=identity.did,
-                public_key_b64=identity.public_key_b64,
-                created_at=identity.created_at,
-            ))
+            self._records.append(
+                KeyRecord(
+                    did=identity.did,
+                    public_key_b64=identity.public_key_b64,
+                    created_at=identity.created_at,
+                )
+            )
             self._save()
 
     def rotate(self, current_identity: UPAIIdentity, reason: str = "rotated") -> tuple[UPAIIdentity, str]:
@@ -156,19 +158,24 @@ class Keychain:
                 break
 
         # Add new key record
-        self._records.append(KeyRecord(
-            did=new_identity.did,
-            public_key_b64=new_identity.public_key_b64,
-            created_at=new_identity.created_at,
-        ))
+        self._records.append(
+            KeyRecord(
+                did=new_identity.did,
+                public_key_b64=new_identity.public_key_b64,
+                created_at=new_identity.created_at,
+            )
+        )
 
         # Create revocation proof: old key signs the rotation event
-        proof_data = json.dumps({
-            "action": "rotate",
-            "old_did": current_identity.did,
-            "new_did": new_identity.did,
-            "timestamp": now,
-        }, sort_keys=True).encode("utf-8")
+        proof_data = json.dumps(
+            {
+                "action": "rotate",
+                "old_did": current_identity.did,
+                "new_did": new_identity.did,
+                "timestamp": now,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
 
         revocation_proof = ""
         if current_identity._private_key is not None:
@@ -193,12 +200,15 @@ class Keychain:
                 break
 
         # Create revocation proof
-        proof_data = json.dumps({
-            "action": "revoke",
-            "did": identity.did,
-            "reason": reason,
-            "timestamp": now,
-        }, sort_keys=True).encode("utf-8")
+        proof_data = json.dumps(
+            {
+                "action": "revoke",
+                "did": identity.did,
+                "reason": reason,
+                "timestamp": now,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
 
         revocation_proof = ""
         if identity._private_key is not None:
@@ -232,13 +242,9 @@ class Keychain:
         for i, record in enumerate(self._records):
             if record.revocation_reason == "rotated" and record.successor_did:
                 # Check successor exists
-                successor = next(
-                    (r for r in self._records if r.did == record.successor_did), None
-                )
+                successor = next((r for r in self._records if r.did == record.successor_did), None)
                 if successor is None:
-                    errors.append(
-                        f"Key {record.did} was rotated to {record.successor_did} but successor not found"
-                    )
+                    errors.append(f"Key {record.did} was rotated to {record.successor_did} but successor not found")
 
         # Check exactly one active key
         active = [r for r in self._records if not r.revoked_at]
@@ -273,13 +279,16 @@ class Keychain:
         now = datetime.now(timezone.utc).isoformat()
 
         # Sign authorization envelope
-        auth_data = json.dumps({
-            "action": "authorize_device",
-            "primary_did": primary_identity.did,
-            "device_did": device_identity.did,
-            "device_name": device_name,
-            "timestamp": now,
-        }, sort_keys=True).encode("utf-8")
+        auth_data = json.dumps(
+            {
+                "action": "authorize_device",
+                "primary_did": primary_identity.did,
+                "device_did": device_identity.did,
+                "device_name": device_name,
+                "timestamp": now,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
         authorization_proof = primary_identity.sign(auth_data)
 
         record = DeviceRecord(

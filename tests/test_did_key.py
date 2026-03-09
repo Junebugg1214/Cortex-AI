@@ -30,8 +30,8 @@ from cortex.upai.identity import (
 # Base58btc
 # ============================================================================
 
-class TestBase58btc:
 
+class TestBase58btc:
     def test_encode_decode_roundtrip(self):
         data = b"Hello, World!"
         encoded = _base58btc_encode(data)
@@ -71,6 +71,7 @@ class TestBase58btc:
     def test_32_byte_key(self):
         """Ed25519 public keys are 32 bytes."""
         import os
+
         data = os.urandom(32)
         encoded = _base58btc_encode(data)
         decoded = _base58btc_decode(encoded)
@@ -81,8 +82,8 @@ class TestBase58btc:
 # Base64url
 # ============================================================================
 
-class TestBase64url:
 
+class TestBase64url:
     def test_encode_decode_roundtrip(self):
         data = b"test data with + and / chars"
         encoded = _base64url_encode(data)
@@ -105,8 +106,8 @@ class TestBase64url:
 # DID:key
 # ============================================================================
 
-class TestDidKey:
 
+class TestDidKey:
     def test_public_key_to_did_key_format(self):
         if not has_crypto():
             return
@@ -129,17 +130,19 @@ class TestDidKey:
         pub_bytes = base64.b64decode(identity.public_key_b64)
         did = _public_key_to_did_key(pub_bytes)
         # Decode back and check prefix
-        multibase_value = did[len("did:key:z"):]
+        multibase_value = did[len("did:key:z") :]
         decoded = _base58btc_decode(multibase_value)
         assert decoded[:2] == _ED25519_MULTICODEC_PREFIX
 
     def test_did_key_to_public_key_wrong_prefix(self):
         import pytest
+
         with pytest.raises(ValueError, match="Not a did:key"):
             _did_key_to_public_key("did:upai:ed25519:abc")
 
     def test_did_key_to_public_key_wrong_multicodec(self):
         import pytest
+
         # Encode with wrong multicodec prefix
         fake = b"\x00\x01" + b"\x00" * 32
         fake_did = "did:key:z" + _base58btc_encode(fake)
@@ -154,6 +157,7 @@ class TestDidKey:
 
     def test_key_type_hmac(self):
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:
@@ -177,8 +181,8 @@ class TestDidKey:
 # Legacy identity loading
 # ============================================================================
 
-class TestLegacyIdentity:
 
+class TestLegacyIdentity:
     def test_load_legacy_did_format(self):
         """Identities saved with old did:upai:ed25519:... format should load fine."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -186,6 +190,7 @@ class TestLegacyIdentity:
             store_dir.mkdir(parents=True)
 
             import json
+
             pub = {
                 "did": "did:upai:ed25519:abcdef1234567890abcdef1234567890",
                 "name": "Legacy User",
@@ -204,8 +209,8 @@ class TestLegacyIdentity:
 # DID Document compliance
 # ============================================================================
 
-class TestDidDocumentCompliance:
 
+class TestDidDocumentCompliance:
     def test_did_key_uses_multibase(self):
         if not has_crypto():
             return
@@ -273,14 +278,15 @@ class TestDidDocumentCompliance:
 # migrate_did
 # ============================================================================
 
-class TestMigrateDid:
 
+class TestMigrateDid:
     def test_migrate_produces_did_key(self):
         if not has_crypto():
             return
         identity = UPAIIdentity.generate("Test")
         # Create a "legacy" identity with same key material
         import hashlib
+
         pub_bytes = base64.b64decode(identity.public_key_b64)
         fingerprint = hashlib.sha256(pub_bytes).hexdigest()[:32]
         legacy = UPAIIdentity(
@@ -298,6 +304,7 @@ class TestMigrateDid:
         import pytest
 
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:

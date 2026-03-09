@@ -24,8 +24,8 @@ from cortex.graph import CortexGraph, Edge, Node
 # Text Similarity
 # ============================================================================
 
-class TestTextSimilarity:
 
+class TestTextSimilarity:
     def test_identical_labels_score_1(self):
         assert text_similarity("Python", "Python") == 1.0
 
@@ -49,8 +49,8 @@ class TestTextSimilarity:
 # Neighbor Overlap
 # ============================================================================
 
-class TestNeighborOverlap:
 
+class TestNeighborOverlap:
     def test_shared_neighbors_high_overlap(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A", tags=["t"]))
@@ -96,8 +96,8 @@ class TestNeighborOverlap:
 # Combined Similarity
 # ============================================================================
 
-class TestCombinedSimilarity:
 
+class TestCombinedSimilarity:
     def test_weights_applied_correctly(self):
         g = CortexGraph()
         a = Node(id="a", label="Python", tags=["t"])
@@ -124,8 +124,8 @@ class TestCombinedSimilarity:
 # Find Duplicates
 # ============================================================================
 
-class TestFindDuplicates:
 
+class TestFindDuplicates:
     def test_near_duplicate_labels_found(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="Python", tags=["tech"]))
@@ -172,8 +172,8 @@ class TestFindDuplicates:
 # Deduplicate
 # ============================================================================
 
-class TestDeduplicate:
 
+class TestDeduplicate:
     def test_merge_executed_correctly(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="Python", tags=["tech"], confidence=0.9))
@@ -215,4 +215,5 @@ class TestDeduplicate:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

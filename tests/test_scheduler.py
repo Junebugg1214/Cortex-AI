@@ -21,8 +21,8 @@ from cortex.sync.scheduler import SyncConfig, SyncSchedule, SyncScheduler
 # SyncSchedule
 # ============================================================================
 
-class TestSyncSchedule:
 
+class TestSyncSchedule:
     def test_creation(self):
         s = SyncSchedule(
             platform="claude",
@@ -38,8 +38,8 @@ class TestSyncSchedule:
 # SyncConfig
 # ============================================================================
 
-class TestSyncConfig:
 
+class TestSyncConfig:
     def test_from_file(self, tmp_path):
         config_data = {
             "schedules": [
@@ -101,11 +101,12 @@ class TestSyncConfig:
 # SyncScheduler
 # ============================================================================
 
-class TestSyncScheduler:
 
+class TestSyncScheduler:
     def _config(self, tmp_path):
         # Create a minimal valid graph file
         from cortex.graph import CortexGraph, Node
+
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Test", tags=["t"], confidence=0.5))
         graph_path = tmp_path / "context.json"

@@ -36,31 +36,35 @@ class TimelineGenerator:
         for node in graph.nodes.values():
             # first_seen event
             if node.first_seen:
-                events.append({
-                    "timestamp": node.first_seen,
-                    "event_type": "first_seen",
-                    "node_id": node.id,
-                    "label": node.label,
-                    "tags": list(node.tags),
-                    "details": {
-                        "confidence": node.confidence,
-                        "brief": node.brief,
-                    },
-                })
+                events.append(
+                    {
+                        "timestamp": node.first_seen,
+                        "event_type": "first_seen",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "confidence": node.confidence,
+                            "brief": node.brief,
+                        },
+                    }
+                )
 
             # last_seen event (only if different from first_seen)
             if node.last_seen and node.last_seen != node.first_seen:
-                events.append({
-                    "timestamp": node.last_seen,
-                    "event_type": "last_seen",
-                    "node_id": node.id,
-                    "label": node.label,
-                    "tags": list(node.tags),
-                    "details": {
-                        "confidence": node.confidence,
-                        "brief": node.brief,
-                    },
-                })
+                events.append(
+                    {
+                        "timestamp": node.last_seen,
+                        "event_type": "last_seen",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "confidence": node.confidence,
+                            "brief": node.brief,
+                        },
+                    }
+                )
 
             # Snapshot events
             snapshots = node.snapshots if hasattr(node, "snapshots") else []
@@ -68,17 +72,19 @@ class TimelineGenerator:
                 ts = snap.get("timestamp", "")
                 if not ts:
                     continue
-                events.append({
-                    "timestamp": ts,
-                    "event_type": "snapshot",
-                    "node_id": node.id,
-                    "label": node.label,
-                    "tags": snap.get("tags", list(node.tags)),
-                    "details": {
-                        "source": snap.get("source", "unknown"),
-                        "confidence": snap.get("confidence", node.confidence),
-                    },
-                })
+                events.append(
+                    {
+                        "timestamp": ts,
+                        "event_type": "snapshot",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": snap.get("tags", list(node.tags)),
+                        "details": {
+                            "source": snap.get("source", "unknown"),
+                            "confidence": snap.get("confidence", node.confidence),
+                        },
+                    }
+                )
 
         # Filter by date range
         if from_date:
@@ -118,10 +124,7 @@ class TimelineGenerator:
             elif etype == "snapshot":
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)
-                lines.append(
-                    f"- **{label}** snapshot from {source} "
-                    f"(confidence: {conf:.2f}) [{tags}]"
-                )
+                lines.append(f"- **{label}** snapshot from {source} (confidence: {conf:.2f}) [{tags}]")
 
         lines.append("")
         return "\n".join(lines)
@@ -129,10 +132,7 @@ class TimelineGenerator:
     def to_html(self, events: list[dict]) -> str:
         """Render events as simple HTML timeline."""
         if not events:
-            return (
-                "<html><body><h1>Timeline</h1>"
-                "<p>No events found.</p></body></html>"
-            )
+            return "<html><body><h1>Timeline</h1><p>No events found.</p></body></html>"
 
         parts = [
             "<html><head><style>",
@@ -167,16 +167,9 @@ class TimelineGenerator:
             else:
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)
-                desc = (
-                    f"<strong>{label}</strong> snapshot from {_html_escape(source)} "
-                    f"(confidence: {conf:.2f})"
-                )
+                desc = f"<strong>{label}</strong> snapshot from {_html_escape(source)} (confidence: {conf:.2f})"
 
-            parts.append(
-                f'<div class="event {etype}">'
-                f'{desc} <span class="tags">[{_html_escape(tags)}]</span>'
-                f'</div>'
-            )
+            parts.append(f'<div class="event {etype}">{desc} <span class="tags">[{_html_escape(tags)}]</span></div>')
 
         parts.append("</body></html>")
         return "\n".join(parts)
@@ -184,9 +177,4 @@ class TimelineGenerator:
 
 def _html_escape(s: str) -> str:
     """Basic HTML escaping."""
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")

@@ -16,12 +16,25 @@ from datetime import datetime, timezone
 from cortex.graph import CortexGraph, Node, _normalize_label
 
 # Tags considered "positive" (non-negation)
-_POSITIVE_TAGS = frozenset({
-    "identity", "professional_context", "business_context", "active_priorities",
-    "relationships", "technical_expertise", "domain_knowledge", "market_context",
-    "metrics", "constraints", "values", "user_preferences",
-    "communication_preferences", "history", "mentions",
-})
+_POSITIVE_TAGS = frozenset(
+    {
+        "identity",
+        "professional_context",
+        "business_context",
+        "active_priorities",
+        "relationships",
+        "technical_expertise",
+        "domain_knowledge",
+        "market_context",
+        "metrics",
+        "constraints",
+        "values",
+        "user_preferences",
+        "communication_preferences",
+        "history",
+        "mentions",
+    }
+)
 
 # Tag pairs that are contradictory when a node moves between them
 _CONTRADICTORY_TAG_PAIRS = [
@@ -37,12 +50,12 @@ _CONTRADICTORY_TAG_PAIRS = [
 
 @dataclass
 class Contradiction:
-    type: str            # "negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"
+    type: str  # "negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"
     node_ids: list[str]
-    severity: float      # 0.0-1.0
+    severity: float  # 0.0-1.0
     description: str
-    detected_at: str     # ISO-8601
-    resolution: str      # "prefer_newer", "prefer_higher_confidence", "needs_review"
+    detected_at: str  # ISO-8601
+    resolution: str  # "prefer_newer", "prefer_higher_confidence", "needs_review"
 
 
 class ContradictionEngine:
@@ -79,17 +92,16 @@ class ContradictionEngine:
                 continue
 
             severity = min(1.0, 0.6 + (node.confidence * 0.4))
-            contradictions.append(Contradiction(
-                type="negation_conflict",
-                node_ids=[node.id],
-                severity=round(severity, 2),
-                description=(
-                    f"Node '{node.label}' has both negation and positive tags: "
-                    f"{positive_tags}"
-                ),
-                detected_at=now,
-                resolution="needs_review",
-            ))
+            contradictions.append(
+                Contradiction(
+                    type="negation_conflict",
+                    node_ids=[node.id],
+                    severity=round(severity, 2),
+                    description=(f"Node '{node.label}' has both negation and positive tags: {positive_tags}"),
+                    detected_at=now,
+                    resolution="needs_review",
+                )
+            )
 
         return contradictions
 
@@ -120,17 +132,19 @@ class ContradictionEngine:
 
             if direction_changes >= 2:
                 severity = min(1.0, 0.4 + (direction_changes * 0.2))
-                contradictions.append(Contradiction(
-                    type="temporal_flip",
-                    node_ids=[node.id],
-                    severity=round(severity, 2),
-                    description=(
-                        f"Node '{node.label}' confidence flipped direction "
-                        f"{direction_changes} times across {len(snapshots)} snapshots"
-                    ),
-                    detected_at=now,
-                    resolution="prefer_newer",
-                ))
+                contradictions.append(
+                    Contradiction(
+                        type="temporal_flip",
+                        node_ids=[node.id],
+                        severity=round(severity, 2),
+                        description=(
+                            f"Node '{node.label}' confidence flipped direction "
+                            f"{direction_changes} times across {len(snapshots)} snapshots"
+                        ),
+                        detected_at=now,
+                        resolution="prefer_newer",
+                    )
+                )
 
         return contradictions
 
@@ -174,17 +188,19 @@ class ContradictionEngine:
             if len(unique_hashes) >= 2:
                 node_ids = [n.id for n in nodes]
                 severity = min(1.0, 0.5 + (len(unique_hashes) * 0.15))
-                contradictions.append(Contradiction(
-                    type="source_conflict",
-                    node_ids=node_ids,
-                    severity=round(severity, 2),
-                    description=(
-                        f"Label '{nodes[0].label}' has {len(unique_hashes)} different "
-                        f"descriptions across {len(nodes)} nodes/sources"
-                    ),
-                    detected_at=now,
-                    resolution="prefer_higher_confidence",
-                ))
+                contradictions.append(
+                    Contradiction(
+                        type="source_conflict",
+                        node_ids=node_ids,
+                        severity=round(severity, 2),
+                        description=(
+                            f"Label '{nodes[0].label}' has {len(unique_hashes)} different "
+                            f"descriptions across {len(nodes)} nodes/sources"
+                        ),
+                        detected_at=now,
+                        resolution="prefer_higher_confidence",
+                    )
+                )
 
         return contradictions
 
@@ -213,30 +229,32 @@ class ContradictionEngine:
                     # Was in positive, moved to negation
                     if pos_tag in tags_before and neg_tag in tags_after and neg_tag not in tags_before:
                         severity = 0.7
-                        contradictions.append(Contradiction(
-                            type="tag_conflict",
-                            node_ids=[node.id],
-                            severity=severity,
-                            description=(
-                                f"Node '{node.label}' moved from '{pos_tag}' to "
-                                f"'{neg_tag}' between snapshots"
-                            ),
-                            detected_at=now,
-                            resolution="prefer_newer",
-                        ))
+                        contradictions.append(
+                            Contradiction(
+                                type="tag_conflict",
+                                node_ids=[node.id],
+                                severity=severity,
+                                description=(
+                                    f"Node '{node.label}' moved from '{pos_tag}' to '{neg_tag}' between snapshots"
+                                ),
+                                detected_at=now,
+                                resolution="prefer_newer",
+                            )
+                        )
                     # Was in negation, moved to positive
                     elif neg_tag in tags_before and pos_tag in tags_after and pos_tag not in tags_before:
                         severity = 0.6
-                        contradictions.append(Contradiction(
-                            type="tag_conflict",
-                            node_ids=[node.id],
-                            severity=severity,
-                            description=(
-                                f"Node '{node.label}' moved from '{neg_tag}' to "
-                                f"'{pos_tag}' between snapshots"
-                            ),
-                            detected_at=now,
-                            resolution="prefer_newer",
-                        ))
+                        contradictions.append(
+                            Contradiction(
+                                type="tag_conflict",
+                                node_ids=[node.id],
+                                severity=severity,
+                                description=(
+                                    f"Node '{node.label}' moved from '{neg_tag}' to '{pos_tag}' between snapshots"
+                                ),
+                                detected_at=now,
+                                resolution="prefer_newer",
+                            )
+                        )
 
         return contradictions

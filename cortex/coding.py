@@ -22,26 +22,40 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 EXTENSION_MAP: dict[str, str] = {
-    ".py": "Python", ".pyw": "Python",
-    ".js": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript",
-    ".ts": "TypeScript", ".tsx": "TypeScript",
+    ".py": "Python",
+    ".pyw": "Python",
+    ".js": "JavaScript",
+    ".mjs": "JavaScript",
+    ".cjs": "JavaScript",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript",
     ".jsx": "React (JSX)",
     ".rs": "Rust",
     ".go": "Go",
     ".java": "Java",
-    ".kt": "Kotlin", ".kts": "Kotlin",
+    ".kt": "Kotlin",
+    ".kts": "Kotlin",
     ".rb": "Ruby",
     ".php": "PHP",
     ".swift": "Swift",
-    ".c": "C", ".h": "C",
-    ".cpp": "C++", ".hpp": "C++", ".cc": "C++",
+    ".c": "C",
+    ".h": "C",
+    ".cpp": "C++",
+    ".hpp": "C++",
+    ".cc": "C++",
     ".cs": "C#",
     ".scala": "Scala",
     ".sql": "SQL",
-    ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell",
-    ".html": "HTML", ".htm": "HTML",
-    ".css": "CSS", ".scss": "SCSS", ".less": "Less",
-    ".yml": "YAML", ".yaml": "YAML",
+    ".sh": "Shell",
+    ".bash": "Shell",
+    ".zsh": "Shell",
+    ".html": "HTML",
+    ".htm": "HTML",
+    ".css": "CSS",
+    ".scss": "SCSS",
+    ".less": "Less",
+    ".yml": "YAML",
+    ".yaml": "YAML",
     ".toml": "TOML",
     ".dockerfile": "Docker",
 }
@@ -93,48 +107,57 @@ BASH_TOOL_PATTERNS: dict[str, str] = {
 }
 
 # Valid Claude Code record types
-_CC_RECORD_TYPES = frozenset({
-    "user", "assistant", "progress", "file-history-snapshot", "system",
-    "pr-link", "queue-operation",
-})
+_CC_RECORD_TYPES = frozenset(
+    {
+        "user",
+        "assistant",
+        "progress",
+        "file-history-snapshot",
+        "system",
+        "pr-link",
+        "queue-operation",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # ProjectMetadata dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ProjectMetadata:
     """Metadata extracted from project files on disk."""
 
-    name: str = ""               # From manifest or dir name
-    description: str = ""        # From README or manifest description field
-    readme_summary: str = ""     # First paragraph of README (up to 500 chars)
-    license: str = ""            # License identifier (MIT, Apache-2.0, etc.)
+    name: str = ""  # From manifest or dir name
+    description: str = ""  # From README or manifest description field
+    readme_summary: str = ""  # First paragraph of README (up to 500 chars)
+    license: str = ""  # License identifier (MIT, Apache-2.0, etc.)
     keywords: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
-    manifest_file: str = ""      # Which manifest found (package.json, etc.)
+    manifest_file: str = ""  # Which manifest found (package.json, etc.)
     has_ci: bool = False
     has_docker: bool = False
-    enriched: bool = False       # True if enrichment found useful data
+    enriched: bool = False  # True if enrichment found useful data
 
 
 # ---------------------------------------------------------------------------
 # CodingSession dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CodingSession:
     """Parsed representation of a coding tool session."""
 
     session_id: str = ""
-    tool: str = ""                   # "claude_code", "cursor", "copilot"
-    project_path: str = ""           # cwd / working directory
+    tool: str = ""  # "claude_code", "cursor", "copilot"
+    project_path: str = ""  # cwd / working directory
     git_branch: str = ""
     start_time: datetime | None = None
     end_time: datetime | None = None
-    model: str = ""                  # AI model used
-    version: str = ""                # tool version
+    model: str = ""  # AI model used
+    version: str = ""  # tool version
 
     # Aggregated signals
     files_touched: Counter = field(default_factory=Counter)
@@ -164,27 +187,24 @@ class CodingSession:
 # Claude Code JSONL detection
 # ---------------------------------------------------------------------------
 
+
 def is_claude_code_jsonl(records: list[dict]) -> bool:
     """Check if a list of JSONL records is Claude Code session format."""
     if not records or len(records) < 2:
         return False
     first_real = next(
-        (r for r in records
-         if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
+        (r for r in records if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
         None,
     )
     if first_real is None:
         return False
-    return (
-        "sessionId" in first_real
-        and "cwd" in first_real
-        and first_real.get("type") in _CC_RECORD_TYPES
-    )
+    return "sessionId" in first_real and "cwd" in first_real and first_real.get("type") in _CC_RECORD_TYPES
 
 
 # ---------------------------------------------------------------------------
 # Claude Code JSONL parser
 # ---------------------------------------------------------------------------
+
 
 def parse_claude_code_session(records: list[dict]) -> CodingSession:
     """Parse Claude Code JSONL records into a CodingSession."""
@@ -326,8 +346,7 @@ def _parse_ts(ts_str: str | None) -> datetime | None:
     """Parse ISO-8601 timestamp string."""
     if not ts_str:
         return None
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ",
-                "%Y-%m-%dT%H:%M:%S"):
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(ts_str, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
@@ -543,6 +562,7 @@ def _extract_manifest_metadata(root: Path, meta: ProjectMetadata) -> None:
     if setup_cfg.exists():
         try:
             import configparser
+
             cfg = configparser.ConfigParser()
             cfg.read(str(setup_cfg), encoding="utf-8")
             if cfg.has_option("metadata", "description"):
@@ -590,6 +610,7 @@ def _detect_license(root: Path) -> str:
 # CodingSession -> v4-compatible dict
 # ---------------------------------------------------------------------------
 
+
 def session_to_context(session: CodingSession) -> dict:
     """Convert a CodingSession to a v4-compatible extraction dict.
 
@@ -610,14 +631,16 @@ def session_to_context(session: CodingSession) -> dict:
         if tech_lower in seen_tech:
             continue
         seen_tech.add(tech_lower)
-        categories["technical_expertise"].append(_make_topic(
-            topic=tech,
-            brief=f"Uses {tech} (observed in coding session)",
-            confidence=_frequency_confidence(count),
-            mention_count=count,
-            first_seen=first,
-            last_seen=last,
-        ))
+        categories["technical_expertise"].append(
+            _make_topic(
+                topic=tech,
+                brief=f"Uses {tech} (observed in coding session)",
+                confidence=_frequency_confidence(count),
+                mention_count=count,
+                first_seen=first,
+                last_seen=last,
+            )
+        )
 
     # --- Active priorities (from project path, enriched if available) ---
     if session.project_path:
@@ -648,50 +671,58 @@ def session_to_context(session: CodingSession) -> dict:
         if pm.keywords:
             metrics.append(f"Keywords: {', '.join(pm.keywords[:10])}")
 
-        categories["active_priorities"].append(_make_topic(
-            topic=project_name,
-            brief=brief,
-            full_description=" | ".join(desc_parts),
-            confidence=0.90 if pm.enriched else 0.85,
-            metrics=metrics,
-            first_seen=first,
-            last_seen=last,
-        ))
+        categories["active_priorities"].append(
+            _make_topic(
+                topic=project_name,
+                brief=brief,
+                full_description=" | ".join(desc_parts),
+                confidence=0.90 if pm.enriched else 0.85,
+                metrics=metrics,
+                first_seen=first,
+                last_seen=last,
+            )
+        )
 
         # Add domain_knowledge entry if we have a substantive description
         if pm.description and len(pm.description) > 20:
             categories.setdefault("domain_knowledge", [])
-            categories["domain_knowledge"].append(_make_topic(
-                topic=f"{project_name} purpose",
-                brief=pm.description[:200],
-                full_description=pm.readme_summary or pm.description,
-                confidence=0.80,
-                first_seen=first,
-                last_seen=last,
-            ))
+            categories["domain_knowledge"].append(
+                _make_topic(
+                    topic=f"{project_name} purpose",
+                    brief=pm.description[:200],
+                    full_description=pm.readme_summary or pm.description,
+                    confidence=0.80,
+                    first_seen=first,
+                    last_seen=last,
+                )
+            )
 
     # --- User preferences (from coding patterns) ---
     if session.plan_mode_used:
-        categories["user_preferences"].append(_make_topic(
-            topic="Plans before coding",
-            brief="Uses plan mode before implementation",
-            confidence=0.7,
-            first_seen=first,
-            last_seen=last,
-        ))
+        categories["user_preferences"].append(
+            _make_topic(
+                topic="Plans before coding",
+                brief="Uses plan mode before implementation",
+                confidence=0.7,
+                first_seen=first,
+                last_seen=last,
+            )
+        )
 
     if session.test_files_written > 0:
-        categories["user_preferences"].append(_make_topic(
-            topic="Writes tests",
-            brief=f"Testing approach: {session.test_files_written} test files written",
-            confidence=0.65,
-            metrics=[
-                f"{session.test_files_written} test files",
-                f"{session.impl_files_written} implementation files",
-            ],
-            first_seen=first,
-            last_seen=last,
-        ))
+        categories["user_preferences"].append(
+            _make_topic(
+                topic="Writes tests",
+                brief=f"Testing approach: {session.test_files_written} test files written",
+                confidence=0.65,
+                metrics=[
+                    f"{session.test_files_written} test files",
+                    f"{session.impl_files_written} implementation files",
+                ],
+                first_seen=first,
+                last_seen=last,
+            )
+        )
 
     # --- CLI tools from bash commands ---
     seen_tools: set[str] = set()
@@ -702,14 +733,16 @@ def session_to_context(session: CodingSession) -> dict:
         if tool_lower in seen_tech or tool_lower in seen_tools:
             continue
         seen_tools.add(tool_lower)
-        categories["technical_expertise"].append(_make_topic(
-            topic=tool,
-            brief=f"CLI tool: {tool}",
-            confidence=_frequency_confidence(count),
-            mention_count=count,
-            first_seen=first,
-            last_seen=last,
-        ))
+        categories["technical_expertise"].append(
+            _make_topic(
+                topic=tool,
+                brief=f"CLI tool: {tool}",
+                confidence=_frequency_confidence(count),
+                mention_count=count,
+                first_seen=first,
+                last_seen=last,
+            )
+        )
 
     return {
         "schema_version": "4.0",
@@ -770,6 +803,7 @@ def _frequency_confidence(count: int) -> float:
 # Multi-session aggregation
 # ---------------------------------------------------------------------------
 
+
 def aggregate_sessions(sessions: list[CodingSession]) -> CodingSession:
     """Merge multiple CodingSessions into one aggregated session."""
     agg = CodingSession(tool="aggregate")
@@ -782,9 +816,7 @@ def aggregate_sessions(sessions: list[CodingSession]) -> CodingSession:
         agg.bash_tools += s.bash_tools
         agg.user_prompts.extend(s.user_prompts)
         agg.technologies += s.technologies
-        agg.config_files.extend(
-            f for f in s.config_files if f not in agg.config_files
-        )
+        agg.config_files.extend(f for f in s.config_files if f not in agg.config_files)
         agg.branches.update(s.branches)
         agg.test_files_written += s.test_files_written
         agg.impl_files_written += s.impl_files_written
@@ -819,6 +851,7 @@ def aggregate_sessions(sessions: list[CodingSession]) -> CodingSession:
 # ---------------------------------------------------------------------------
 # Session discovery
 # ---------------------------------------------------------------------------
+
 
 def discover_claude_code_sessions(
     project_filter: str | None = None,

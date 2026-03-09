@@ -30,15 +30,15 @@ if TYPE_CHECKING:
 
 @dataclass
 class ContextVersion:
-    version_id: str           # SHA-256 of serialized graph
-    parent_id: str | None     # previous version (None for initial)
-    timestamp: str            # ISO-8601
-    source: str               # "extraction", "merge", "manual"
-    message: str              # commit message
-    graph_hash: str           # SHA-256 integrity hash
+    version_id: str  # SHA-256 of serialized graph
+    parent_id: str | None  # previous version (None for initial)
+    timestamp: str  # ISO-8601
+    source: str  # "extraction", "merge", "manual"
+    message: str  # commit message
+    graph_hash: str  # SHA-256 integrity hash
     node_count: int
     edge_count: int
-    signature: str | None     # Ed25519/HMAC signature of graph_hash (if identity available)
+    signature: str | None  # Ed25519/HMAC signature of graph_hash (if identity available)
 
     def to_dict(self) -> dict:
         return {

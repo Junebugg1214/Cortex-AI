@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-_PAGERANK_THRESHOLD = 200   # Minimum nodes to justify PageRank
+_PAGERANK_THRESHOLD = 200  # Minimum nodes to justify PageRank
 _CENTRALITY_MIN_NODES = 20  # Minimum nodes for confidence boost
 _CENTRALITY_BOOST_MAX = 0.1  # Maximum confidence boost for top-decile
 
@@ -25,6 +25,7 @@ _CENTRALITY_BOOST_MAX = 0.1  # Maximum confidence boost for top-decile
 # ---------------------------------------------------------------------------
 # Degree centrality
 # ---------------------------------------------------------------------------
+
 
 def compute_degree_centrality(graph: CortexGraph) -> dict[str, float]:
     """Normalized degree centrality: degree(node) / (n - 1).
@@ -51,6 +52,7 @@ def compute_degree_centrality(graph: CortexGraph) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # PageRank (power iteration)
 # ---------------------------------------------------------------------------
+
 
 def compute_pagerank(
     graph: CortexGraph,
@@ -111,6 +113,7 @@ def compute_pagerank(
 # Dispatch
 # ---------------------------------------------------------------------------
 
+
 def compute_centrality(graph: CortexGraph) -> dict[str, float]:
     """Degree centrality for < 200 nodes, PageRank for >= 200."""
     if len(graph.nodes) >= _PAGERANK_THRESHOLD:
@@ -121,6 +124,7 @@ def compute_centrality(graph: CortexGraph) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # Confidence boost
 # ---------------------------------------------------------------------------
+
 
 def apply_centrality_boost(
     graph: CortexGraph,

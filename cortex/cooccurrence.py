@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 # Counting
 # ---------------------------------------------------------------------------
 
+
 def count_cooccurrences(
     messages: list[str],
     node_labels: list[str],
@@ -56,7 +57,7 @@ def count_cooccurrences(
 
         # Count all pairs
         for i, a in enumerate(present):
-            for b in present[i + 1:]:
+            for b in present[i + 1 :]:
                 pair = tuple(sorted([a, b]))
                 counts[pair] = counts.get(pair, 0) + 1  # type: ignore[index]
 
@@ -89,6 +90,7 @@ def label_message_counts(
 # ---------------------------------------------------------------------------
 # PMI edges
 # ---------------------------------------------------------------------------
+
 
 def pmi_edges(
     cooccurrences: dict[tuple[str, str], int],
@@ -132,6 +134,7 @@ def pmi_edges(
 # Frequency edges
 # ---------------------------------------------------------------------------
 
+
 def frequency_edges(
     cooccurrences: dict[tuple[str, str], int],
     total_messages: int,
@@ -166,6 +169,7 @@ def frequency_edges(
 # ---------------------------------------------------------------------------
 # Tiered dispatch
 # ---------------------------------------------------------------------------
+
 
 def discover_edges(
     messages: list[str],
@@ -203,9 +207,7 @@ def discover_edges(
         label_to_id[node.label] = node.id
 
     # Track existing edges
-    existing = {
-        (e.source_id, e.target_id) for e in graph.edges.values()
-    } | {
+    existing = {(e.source_id, e.target_id) for e in graph.edges.values()} | {
         (e.target_id, e.source_id) for e in graph.edges.values()
     }
 

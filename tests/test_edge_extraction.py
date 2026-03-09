@@ -35,8 +35,8 @@ from cortex.graph import CortexGraph, Edge, Node, make_edge_id
 # ExtractionRule
 # ============================================================================
 
-class TestExtractionRule:
 
+class TestExtractionRule:
     def test_dataclass_fields(self):
         r = ExtractionRule("tech", "priorities", "used_in", 0.6)
         assert r.source_tag == "tech"
@@ -52,8 +52,8 @@ class TestExtractionRule:
 # Rule-Based Extraction
 # ============================================================================
 
-class TestRuleBasedExtraction:
 
+class TestRuleBasedExtraction:
     def _graph_with_tagged_nodes(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"]))
@@ -105,11 +105,15 @@ class TestRuleBasedExtraction:
     def test_existing_edge_not_recreated(self):
         g = self._graph_with_tagged_nodes()
         # Pre-add an edge
-        g.add_edge(Edge(
-            id=make_edge_id("n1", "n2", "used_in"),
-            source_id="n1", target_id="n2", relation="used_in",
-            confidence=0.9,
-        ))
+        g.add_edge(
+            Edge(
+                id=make_edge_id("n1", "n2", "used_in"),
+                source_id="n1",
+                target_id="n2",
+                relation="used_in",
+                confidence=0.9,
+            )
+        )
         rules = [ExtractionRule("technical_expertise", "active_priorities", "used_in", 0.6)]
         edges = extract_edges_by_rules(g, rules)
         assert len(edges) == 0
@@ -139,8 +143,8 @@ class TestRuleBasedExtraction:
 # Proximity Extraction
 # ============================================================================
 
-class TestProximityExtraction:
 
+class TestProximityExtraction:
     def _graph_with_nodes(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["tech"]))
@@ -194,10 +198,15 @@ class TestProximityExtraction:
 
     def test_existing_edge_skipped(self):
         g = self._graph_with_nodes()
-        g.add_edge(Edge(
-            id="e1", source_id="n1", target_id="n2",
-            relation="related_to", confidence=0.8,
-        ))
+        g.add_edge(
+            Edge(
+                id="e1",
+                source_id="n1",
+                target_id="n2",
+                relation="related_to",
+                confidence=0.8,
+            )
+        )
         messages = ["Python and Healthcare"]
         edges = extract_edges_by_proximity(g, messages)
         # n1-n2 already connected — should not create another
@@ -209,8 +218,8 @@ class TestProximityExtraction:
 # Combined Discovery
 # ============================================================================
 
-class TestDiscoverAllEdges:
 
+class TestDiscoverAllEdges:
     def test_rules_plus_proximity_combined(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"]))
@@ -252,8 +261,8 @@ class TestDiscoverAllEdges:
 # Degree Centrality
 # ============================================================================
 
-class TestDegreeCentrality:
 
+class TestDegreeCentrality:
     def test_hub_node_highest_centrality(self):
         g = CortexGraph()
         g.add_node(Node(id="hub", label="Hub", tags=["t"]))
@@ -286,8 +295,8 @@ class TestDegreeCentrality:
 # PageRank
 # ============================================================================
 
-class TestPageRank:
 
+class TestPageRank:
     def test_convergence_on_small_graph(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A", tags=["t"]))
@@ -322,8 +331,8 @@ class TestPageRank:
 # Centrality Dispatch
 # ============================================================================
 
-class TestCentralityDispatch:
 
+class TestCentralityDispatch:
     def test_small_graph_uses_degree(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A", tags=["t"]))
@@ -339,8 +348,8 @@ class TestCentralityDispatch:
 # Centrality Boost
 # ============================================================================
 
-class TestCentralityBoost:
 
+class TestCentralityBoost:
     def _graph_with_20_nodes(self):
         g = CortexGraph()
         for i in range(20):
@@ -391,4 +400,5 @@ class TestCentralityBoost:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

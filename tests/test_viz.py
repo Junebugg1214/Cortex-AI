@@ -30,8 +30,8 @@ from cortex.viz.renderer import (
 # Layout cache key
 # ============================================================================
 
-class TestLayoutCacheKey:
 
+class TestLayoutCacheKey:
     def test_same_graph_same_key(self):
         ids = ["a", "b"]
         edges = [("a", "b")]
@@ -59,8 +59,8 @@ class TestLayoutCacheKey:
 # Build adjacency
 # ============================================================================
 
-class TestBuildAdjacency:
 
+class TestBuildAdjacency:
     def test_basic(self):
         adj = _build_adjacency(["a", "b", "c"], [("a", "b")])
         assert "b" in adj["a"]
@@ -76,8 +76,8 @@ class TestBuildAdjacency:
 # Fruchterman-Reingold layout
 # ============================================================================
 
-class TestFruchtermanReingold:
 
+class TestFruchtermanReingold:
     def _simple_graph(self):
         g = CortexGraph()
         g.add_node(Node(id="a", label="A", tags=["t"], confidence=0.9))
@@ -123,18 +123,16 @@ class TestFruchtermanReingold:
             del g._layout_cache
         l2 = fruchterman_reingold(g, seed=99)
         # At least one node should differ
-        any_diff = any(
-            abs(l1[nid][0] - l2[nid][0]) > 0.01 or
-            abs(l1[nid][1] - l2[nid][1]) > 0.01
-            for nid in l1
-        )
+        any_diff = any(abs(l1[nid][0] - l2[nid][0]) > 0.01 or abs(l1[nid][1] - l2[nid][1]) > 0.01 for nid in l1)
         assert any_diff
 
     def test_progress_callback_called(self):
         g = self._simple_graph()
         calls = []
+
         def progress(current, total):
             calls.append((current, total))
+
         if hasattr(g, "_layout_cache"):
             del g._layout_cache
         fruchterman_reingold(g, iterations=10, progress=progress)
@@ -167,14 +165,9 @@ class TestFruchtermanReingold:
         layout = fruchterman_reingold(g, iterations=50, seed=42)
         # Distance A-B should be less than A-C (A and B are connected)
         import math
-        dist_ab = math.sqrt(
-            (layout["a"][0] - layout["b"][0])**2 +
-            (layout["a"][1] - layout["b"][1])**2
-        )
-        dist_ac = math.sqrt(
-            (layout["a"][0] - layout["c"][0])**2 +
-            (layout["a"][1] - layout["c"][1])**2
-        )
+
+        dist_ab = math.sqrt((layout["a"][0] - layout["b"][0]) ** 2 + (layout["a"][1] - layout["b"][1]) ** 2)
+        dist_ac = math.sqrt((layout["a"][0] - layout["c"][0]) ** 2 + (layout["a"][1] - layout["c"][1]) ** 2)
         assert dist_ab < dist_ac
 
 
@@ -182,8 +175,8 @@ class TestFruchtermanReingold:
 # Tag colors
 # ============================================================================
 
-class TestTagColors:
 
+class TestTagColors:
     def test_known_tags_have_colors(self):
         for tag in CATEGORY_ORDER:
             assert tag in TAG_COLORS
@@ -204,8 +197,8 @@ class TestTagColors:
 # Node radius
 # ============================================================================
 
-class TestNodeRadius:
 
+class TestNodeRadius:
     def test_min_confidence(self):
         assert _node_radius(0.0) == 8.0
 
@@ -221,8 +214,8 @@ class TestNodeRadius:
 # HTML escape
 # ============================================================================
 
-class TestHtmlEscape:
 
+class TestHtmlEscape:
     def test_escapes_ampersand(self):
         assert "&amp;" in _html_escape("a & b")
 
@@ -238,8 +231,8 @@ class TestHtmlEscape:
 # HTML renderer
 # ============================================================================
 
-class TestRenderHTML:
 
+class TestRenderHTML:
     def _graph_and_layout(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9))
@@ -289,8 +282,8 @@ class TestRenderHTML:
 # SVG renderer
 # ============================================================================
 
-class TestRenderSVG:
 
+class TestRenderSVG:
     def _graph_and_layout(self):
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Python", tags=["tech"], confidence=0.9))

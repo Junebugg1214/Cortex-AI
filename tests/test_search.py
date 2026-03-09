@@ -9,6 +9,7 @@ from cortex.search import STOP_WORDS, TFIDFIndex, tokenize
 # Tokenizer tests
 # ---------------------------------------------------------------------------
 
+
 class TestTokenize:
     def test_basic(self):
         tokens = tokenize("Hello World")
@@ -51,11 +52,17 @@ class TestStopWords:
 # TFIDFIndex tests
 # ---------------------------------------------------------------------------
 
+
 def _make_node(label, brief="", desc="", tags=None, props=None):
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label, tags=tags or [], confidence=0.9,
-        properties=props or {}, brief=brief, full_description=desc,
+        id=nid,
+        label=label,
+        tags=tags or [],
+        confidence=0.9,
+        properties=props or {},
+        brief=brief,
+        full_description=desc,
     )
 
 
@@ -63,9 +70,16 @@ def _make_node(label, brief="", desc="", tags=None, props=None):
 def sample_nodes():
     return [
         _make_node("Python", brief="A programming language", tags=["technology"]),
-        _make_node("Machine Learning", brief="Subset of AI", desc="Statistical learning algorithms", tags=["technology", "ai"]),
+        _make_node(
+            "Machine Learning", brief="Subset of AI", desc="Statistical learning algorithms", tags=["technology", "ai"]
+        ),
         _make_node("Healthcare", brief="Medical and health services", tags=["domain"]),
-        _make_node("Neural Networks", brief="Deep learning architecture", desc="Layers of interconnected nodes for machine learning", tags=["technology", "ai"]),
+        _make_node(
+            "Neural Networks",
+            brief="Deep learning architecture",
+            desc="Layers of interconnected nodes for machine learning",
+            tags=["technology", "ai"],
+        ),
         _make_node("Coffee", brief="A popular beverage", tags=["lifestyle"]),
     ]
 
@@ -184,6 +198,7 @@ class TestTFIDFIndex:
 # ---------------------------------------------------------------------------
 # CortexGraph integration
 # ---------------------------------------------------------------------------
+
 
 class TestGraphSemanticSearch:
     def test_semantic_search_method(self, sample_nodes):

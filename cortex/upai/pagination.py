@@ -17,7 +17,7 @@ class Page:
     """A page of results with cursor for next page."""
 
     items: list[dict]
-    cursor: str | None   # None = no more pages
+    cursor: str | None  # None = no more pages
     has_more: bool
     total: int | None = None
 
@@ -75,7 +75,7 @@ def paginate(
             pass  # invalid cursor, start from beginning
 
     # Slice
-    page_items = items[start_idx:start_idx + limit]
+    page_items = items[start_idx : start_idx + limit]
     has_more = start_idx + limit < len(items)
 
     # Build next cursor

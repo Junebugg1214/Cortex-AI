@@ -28,8 +28,8 @@ from cortex.upai.identity import UPAIIdentity, has_crypto
 # Identity
 # ============================================================================
 
-class TestIdentityGeneration:
 
+class TestIdentityGeneration:
     def test_generate_creates_identity(self):
         identity = UPAIIdentity.generate("Test User")
         assert identity.name == "Test User"
@@ -49,6 +49,7 @@ class TestIdentityGeneration:
     def test_did_format_hmac_fallback(self):
         # Force HMAC mode by temporarily disabling crypto
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:
@@ -91,6 +92,7 @@ class TestIdentityGeneration:
 
     def test_sign_and_verify_hmac_fallback(self):
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:
@@ -145,6 +147,7 @@ class TestIdentityGeneration:
 # Disclosure
 # ============================================================================
 
+
 def _build_test_graph() -> CortexGraph:
     """Build a graph with diverse tags and confidence levels for testing."""
     g = CortexGraph()
@@ -155,8 +158,15 @@ def _build_test_graph() -> CortexGraph:
     g.add_node(Node(id="n5", label="Hates meetings", tags=["negations"], confidence=0.7))
     g.add_node(Node(id="n6", label="Old correction", tags=["correction_history"], confidence=0.6))
     g.add_node(Node(id="n7", label="Low conf item", tags=["mentions"], confidence=0.3))
-    g.add_node(Node(id="n8", label="Direct style", tags=["communication_preferences"], confidence=0.85,
-                    properties={"secret": "value", "public": "info"}))
+    g.add_node(
+        Node(
+            id="n8",
+            label="Direct style",
+            tags=["communication_preferences"],
+            confidence=0.85,
+            properties={"secret": "value", "public": "info"},
+        )
+    )
     g.add_node(Node(id="n9", label="Ship fast", tags=["active_priorities"], confidence=0.75))
     g.add_node(Node(id="n10", label="Acme Corp", tags=["business_context"], confidence=0.88))
 
@@ -167,7 +177,6 @@ def _build_test_graph() -> CortexGraph:
 
 
 class TestDisclosure:
-
     def test_full_policy_passes_everything(self):
         g = _build_test_graph()
         result = apply_disclosure(g, BUILTIN_POLICIES["full"])
@@ -179,7 +188,7 @@ class TestDisclosure:
         result = apply_disclosure(g, BUILTIN_POLICIES["professional"])
         labels = {n.label for n in result.nodes.values()}
         assert "Hates meetings" not in labels  # negations excluded
-        assert "Old correction" not in labels   # correction_history excluded
+        assert "Old correction" not in labels  # correction_history excluded
         # Professional tags included
         assert "Marc" in labels
         assert "CEO" in labels
@@ -188,8 +197,11 @@ class TestDisclosure:
     def test_min_confidence_filters_low(self):
         g = _build_test_graph()
         policy = DisclosurePolicy(
-            name="test", include_tags=[], exclude_tags=[],
-            min_confidence=0.7, redact_properties=[],
+            name="test",
+            include_tags=[],
+            exclude_tags=[],
+            min_confidence=0.7,
+            redact_properties=[],
         )
         result = apply_disclosure(g, policy)
         for node in result.nodes.values():
@@ -199,8 +211,12 @@ class TestDisclosure:
     def test_max_nodes_caps_output(self):
         g = _build_test_graph()
         policy = DisclosurePolicy(
-            name="test", include_tags=[], exclude_tags=[],
-            min_confidence=0.0, redact_properties=[], max_nodes=3,
+            name="test",
+            include_tags=[],
+            exclude_tags=[],
+            min_confidence=0.0,
+            redact_properties=[],
+            max_nodes=3,
         )
         result = apply_disclosure(g, policy)
         assert len(result.nodes) == 3
@@ -211,8 +227,11 @@ class TestDisclosure:
     def test_redact_properties_strips_keys(self):
         g = _build_test_graph()
         policy = DisclosurePolicy(
-            name="test", include_tags=[], exclude_tags=[],
-            min_confidence=0.0, redact_properties=["secret"],
+            name="test",
+            include_tags=[],
+            exclude_tags=[],
+            min_confidence=0.0,
+            redact_properties=["secret"],
         )
         result = apply_disclosure(g, policy)
         n8 = result.nodes.get("n8")
@@ -223,8 +242,11 @@ class TestDisclosure:
     def test_edges_removed_when_endpoints_filtered(self):
         g = _build_test_graph()
         policy = DisclosurePolicy(
-            name="test", include_tags=["identity"],
-            exclude_tags=[], min_confidence=0.0, redact_properties=[],
+            name="test",
+            include_tags=["identity"],
+            exclude_tags=[],
+            min_confidence=0.0,
+            redact_properties=[],
         )
         result = apply_disclosure(g, policy)
         assert len(result.nodes) == 1  # only Marc

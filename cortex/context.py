@@ -27,6 +27,7 @@ CORTEX_END = "<!-- CORTEX:END -->"
 # Platform formatting functions
 # ---------------------------------------------------------------------------
 
+
 def _format_plain(content: str) -> str:
     """Wrap content with Cortex section markers. Used by most platforms."""
     return f"{CORTEX_START}\n{content}\n{CORTEX_END}\n"
@@ -48,14 +49,15 @@ def _format_cursor_mdc(content: str) -> str:
 # Platform target registry
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PlatformTarget:
-    name: str                          # "claude-code", "cursor", etc.
-    file_path: str                     # Path template: {home}, {project}
-    scope: str                         # "global" or "project"
-    default_policy: str                # Default disclosure policy name
-    format_fn: Callable[[str], str]    # Platform-specific formatter
-    description: str                   # Human-readable description
+    name: str  # "claude-code", "cursor", etc.
+    file_path: str  # Path template: {home}, {project}
+    scope: str  # "global" or "project"
+    default_policy: str  # Default disclosure policy name
+    format_fn: Callable[[str], str]  # Platform-specific formatter
+    description: str  # Human-readable description
 
 
 CONTEXT_TARGETS: dict[str, PlatformTarget] = {
@@ -114,6 +116,7 @@ CONTEXT_TARGETS: dict[str, PlatformTarget] = {
 # Non-destructive file writer
 # ---------------------------------------------------------------------------
 
+
 def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> str:
     """Write content between CORTEX section markers.
 
@@ -135,9 +138,7 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
             end_idx = existing.index(CORTEX_END, start_idx) + len(CORTEX_END)
             if start_idx >= existing.index(CORTEX_END):
                 # Markers are reversed/malformed — treat as no markers, append
-                separator = "" if existing.endswith("\n\n") else (
-                    "\n" if existing.endswith("\n") else "\n\n"
-                )
+                separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
                 path.write_text(existing + separator + content, encoding="utf-8")
                 return "updated"
             # Consume trailing newline if present
@@ -148,9 +149,7 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
             return "updated"
         else:
             # Append marked section
-            separator = "" if existing.endswith("\n\n") else (
-                "\n" if existing.endswith("\n") else "\n\n"
-            )
+            separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
             path.write_text(existing + separator + content, encoding="utf-8")
             return "updated"
     else:
@@ -163,6 +162,7 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
 # ---------------------------------------------------------------------------
 # Resolve path templates
 # ---------------------------------------------------------------------------
+
 
 def _resolve_path(template: str, project_dir: str | None = None) -> Path:
     """Expand {home} and {project} in path templates.
@@ -183,6 +183,7 @@ def _resolve_path(template: str, project_dir: str | None = None) -> Path:
 # ---------------------------------------------------------------------------
 # Main write function
 # ---------------------------------------------------------------------------
+
 
 def write_context(
     graph_path: str,
@@ -253,6 +254,7 @@ def write_context(
 # Watch and auto-refresh
 # ---------------------------------------------------------------------------
 
+
 def watch_and_refresh(
     graph_path: str,
     platforms: list[str],
@@ -290,7 +292,11 @@ def watch_and_refresh(
             if current_mtime != last_mtime:
                 last_mtime = current_mtime
                 results = write_context(
-                    graph_path, platforms, project_dir, policy, max_chars,
+                    graph_path,
+                    platforms,
+                    project_dir,
+                    policy,
+                    max_chars,
                 )
                 for name, fpath, status in results:
                     if status in ("created", "updated"):

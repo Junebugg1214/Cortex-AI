@@ -28,6 +28,7 @@ from pathlib import Path
 try:
     import nacl.encoding
     import nacl.signing
+
     _HAS_CRYPTO = True
 except ImportError:
     _HAS_CRYPTO = False
@@ -99,6 +100,7 @@ def _base58btc_decode(encoded: str) -> bytes:
 # Base64url encoding (URL-safe, no padding)
 # ---------------------------------------------------------------------------
 
+
 def _base64url_encode(data: bytes) -> str:
     """URL-safe base64 encoding without padding."""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -128,16 +130,17 @@ def _did_key_to_public_key(did: str) -> bytes:
     """Extract Ed25519 public key bytes from did:key:z6Mk... format."""
     if not did.startswith("did:key:z"):
         raise ValueError(f"Not a did:key: {did}")
-    multibase_value = did[len("did:key:z"):]
+    multibase_value = did[len("did:key:z") :]
     decoded = _base58btc_decode(multibase_value)
     if not decoded.startswith(_ED25519_MULTICODEC_PREFIX):
         raise ValueError("Not an Ed25519 did:key (wrong multicodec prefix)")
-    return decoded[len(_ED25519_MULTICODEC_PREFIX):]
+    return decoded[len(_ED25519_MULTICODEC_PREFIX) :]
 
 
 # ---------------------------------------------------------------------------
 # Keypair generation helpers
 # ---------------------------------------------------------------------------
+
 
 def _generate_ed25519_keypair() -> tuple[bytes, bytes]:
     """Generate Ed25519 keypair via PyNaCl. Returns (private_key, public_key)."""
@@ -162,12 +165,13 @@ def _generate_hmac_identity(name: str) -> tuple[str, bytes]:
 # UPAIIdentity
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class UPAIIdentity:
-    did: str                      # "did:key:z6Mk..." or "did:upai:sha256:<fingerprint>" or legacy "did:upai:ed25519:<fingerprint>"
-    name: str                     # Human-readable name
-    public_key_b64: str           # Base64-encoded public key (Ed25519) or HMAC key hash
-    created_at: str               # ISO-8601
+    did: str  # "did:key:z6Mk..." or "did:upai:sha256:<fingerprint>" or legacy "did:upai:ed25519:<fingerprint>"
+    name: str  # Human-readable name
+    public_key_b64: str  # Base64-encoded public key (Ed25519) or HMAC key hash
+    created_at: str  # ISO-8601
     _private_key: bytes | None = field(default=None, repr=False)  # Never serialized; excluded from repr
 
     def __repr__(self) -> str:
@@ -206,9 +210,7 @@ class UPAIIdentity:
             did, secret = _generate_hmac_identity(name)
             # For HMAC mode, public_key_b64 stores the hash of the secret
             # (the secret itself stays in _private_key)
-            key_hash_b64 = base64.b64encode(
-                hashlib.sha256(secret).digest()
-            ).decode("ascii")
+            key_hash_b64 = base64.b64encode(hashlib.sha256(secret).digest()).decode("ascii")
             return cls(
                 did=did,
                 name=name,
@@ -226,8 +228,7 @@ class UPAIIdentity:
             os.chmod(store_dir, 0o700)
         except OSError:
             print(
-                f"WARNING: Could not set permissions on {store_dir}. "
-                "Private key may be accessible to other users.",
+                f"WARNING: Could not set permissions on {store_dir}. Private key may be accessible to other users.",
                 file=sys.stderr,
             )
 
@@ -406,13 +407,14 @@ class UPAIIdentity:
 # SignedEnvelope — replay-protected signed data container
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SignedEnvelope:
     """Signed envelope with replay protection (nonce, iat, exp, aud)."""
 
-    header: dict       # {"alg": "Ed25519"|"HMAC-SHA256", "typ": "UPAI-Envelope"}
-    payload: dict      # data + nonce + iat + exp + aud
-    signature: str     # base64url signature
+    header: dict  # {"alg": "Ed25519"|"HMAC-SHA256", "typ": "UPAI-Envelope"}
+    payload: dict  # data + nonce + iat + exp + aud
+    signature: str  # base64url signature
 
     @classmethod
     def create(
@@ -432,19 +434,13 @@ class SignedEnvelope:
             "data": data,
             "nonce": secrets.token_hex(16),
             "iat": now.isoformat(),
-            "exp": datetime.fromtimestamp(
-                now.timestamp() + ttl_seconds, tz=timezone.utc
-            ).isoformat(),
+            "exp": datetime.fromtimestamp(now.timestamp() + ttl_seconds, tz=timezone.utc).isoformat(),
             "aud": audience,
         }
 
         # Sign over header.payload
-        header_b64 = _base64url_encode(
-            json.dumps(header, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
-        payload_b64 = _base64url_encode(
-            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
+        header_b64 = _base64url_encode(json.dumps(header, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        payload_b64 = _base64url_encode(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
         signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
         sig = identity.sign(signing_input)
         sig_b64url = _base64url_encode(base64.b64decode(sig))
@@ -453,12 +449,8 @@ class SignedEnvelope:
 
     def serialize(self) -> str:
         """Serialize to three-part base64url format: header.payload.signature."""
-        header_b64 = _base64url_encode(
-            json.dumps(self.header, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
-        payload_b64 = _base64url_encode(
-            json.dumps(self.payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
+        header_b64 = _base64url_encode(json.dumps(self.header, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        payload_b64 = _base64url_encode(json.dumps(self.payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
         return f"{header_b64}.{payload_b64}.{self.signature}"
 
     @classmethod
@@ -485,12 +477,8 @@ class SignedEnvelope:
         Returns (success, error_message). error_message is empty on success.
         """
         # Reconstruct signing input
-        header_b64 = _base64url_encode(
-            json.dumps(self.header, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
-        payload_b64 = _base64url_encode(
-            json.dumps(self.payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        )
+        header_b64 = _base64url_encode(json.dumps(self.header, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        payload_b64 = _base64url_encode(json.dumps(self.payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
         signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
 
         # Verify signature
@@ -500,9 +488,7 @@ class SignedEnvelope:
         alg = self.header.get("alg", "Ed25519")
         key_type = "ed25519" if alg == "Ed25519" else "sha256"
 
-        if not UPAIIdentity.verify(
-            signing_input, sig_b64_standard, public_key_b64, key_type=key_type
-        ):
+        if not UPAIIdentity.verify(signing_input, sig_b64_standard, public_key_b64, key_type=key_type):
             return False, "invalid signature"
 
         # Check expiry

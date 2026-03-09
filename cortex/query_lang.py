@@ -68,6 +68,7 @@ def _tokenize(query: str) -> list[tuple[str, str]]:
 # AST nodes
 # ---------------------------------------------------------------------------
 
+
 class FindQuery:
     """FIND nodes [WHERE ...] [LIMIT n]"""
 
@@ -102,6 +103,7 @@ class SearchQuery:
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 class ParseError(Exception):
     """Raised when the query cannot be parsed."""
@@ -227,6 +229,7 @@ def parse_query(query: str) -> FindQuery | NeighborsQuery | PathQuery | SearchQu
 # Executor
 # ---------------------------------------------------------------------------
 
+
 def _match_condition(node_dict: dict, field: str, op: str, value: Any) -> bool:
     """Check if a node dict matches a single condition."""
     # Special handling for 'tag' field — check if value is in tags list
@@ -324,10 +327,7 @@ def _exec_neighbors(graph: CortexGraph, q: NeighborsQuery) -> dict:
     if node_id is None:
         return {"type": "neighbors", "node_id": None, "neighbors": [], "error": f"Node not found: {q.target}"}
     pairs = graph.get_neighbors(node_id)
-    neighbors = [
-        {"edge": e.to_dict(), "node": n.to_dict()}
-        for e, n in pairs
-    ]
+    neighbors = [{"edge": e.to_dict(), "node": n.to_dict()} for e, n in pairs]
     return {"type": "neighbors", "node_id": node_id, "neighbors": neighbors}
 
 

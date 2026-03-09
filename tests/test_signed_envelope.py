@@ -24,8 +24,8 @@ from cortex.upai.identity import (
 # Create and Verify
 # ============================================================================
 
-class TestSignedEnvelopeCreateVerify:
 
+class TestSignedEnvelopeCreateVerify:
     def test_create_and_verify(self):
         if not has_crypto():
             return
@@ -87,8 +87,8 @@ class TestSignedEnvelopeCreateVerify:
 # Rejection cases
 # ============================================================================
 
-class TestSignedEnvelopeRejection:
 
+class TestSignedEnvelopeRejection:
     def test_expired_rejected(self):
         if not has_crypto():
             return
@@ -131,8 +131,8 @@ class TestSignedEnvelopeRejection:
 # Nonce uniqueness
 # ============================================================================
 
-class TestNonceUniqueness:
 
+class TestNonceUniqueness:
     def test_nonces_are_unique(self):
         if not has_crypto():
             return
@@ -146,8 +146,8 @@ class TestNonceUniqueness:
 # Serialize / Deserialize
 # ============================================================================
 
-class TestSignedEnvelopeSerialization:
 
+class TestSignedEnvelopeSerialization:
     def test_serialize_deserialize_roundtrip(self):
         if not has_crypto():
             return
@@ -174,6 +174,7 @@ class TestSignedEnvelopeSerialization:
 
     def test_deserialize_bad_format(self):
         import pytest
+
         with pytest.raises(ValueError, match="Expected 3 parts"):
             SignedEnvelope.deserialize("only.two")
 
@@ -193,8 +194,8 @@ class TestSignedEnvelopeSerialization:
 # Clock skew tolerance
 # ============================================================================
 
-class TestClockSkew:
 
+class TestClockSkew:
     def test_clock_skew_tolerance(self):
         if not has_crypto():
             return
@@ -218,10 +219,11 @@ class TestClockSkew:
 # HMAC fallback
 # ============================================================================
 
-class TestSignedEnvelopeHMAC:
 
+class TestSignedEnvelopeHMAC:
     def test_hmac_header(self):
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:
@@ -233,6 +235,7 @@ class TestSignedEnvelopeHMAC:
 
     def test_hmac_serialize_deserialize(self):
         import cortex.upai.identity as id_mod
+
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
         try:

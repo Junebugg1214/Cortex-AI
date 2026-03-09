@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 # Similarity components
 # ---------------------------------------------------------------------------
 
+
 def text_similarity(label_a: str, label_b: str) -> float:
     """Text similarity between two labels using SequenceMatcher.
 
@@ -83,6 +84,7 @@ def combined_similarity(
 # Duplicate detection
 # ---------------------------------------------------------------------------
 
+
 def find_duplicates(
     graph: CortexGraph,
     threshold: float = 0.80,
@@ -97,7 +99,7 @@ def find_duplicates(
 
     for i, a in enumerate(nodes):
         a_tags = set(a.tags)
-        for b in nodes[i + 1:]:
+        for b in nodes[i + 1 :]:
             # Pre-filter: must share at least one tag
             if not a_tags & set(b.tags):
                 continue
@@ -113,6 +115,7 @@ def find_duplicates(
 # ---------------------------------------------------------------------------
 # Deduplicate
 # ---------------------------------------------------------------------------
+
 
 def deduplicate(
     graph: CortexGraph,

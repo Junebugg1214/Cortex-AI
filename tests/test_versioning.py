@@ -26,16 +26,13 @@ from cortex.upai.versioning import ContextVersion, VersionStore
 
 def _sample_graph(label_suffix: str = "") -> CortexGraph:
     g = CortexGraph()
-    g.add_node(Node(id="n1", label=f"Python{label_suffix}",
-                    tags=["technical_expertise"], confidence=0.9))
-    g.add_node(Node(id="n2", label=f"Healthcare{label_suffix}",
-                    tags=["domain_knowledge"], confidence=0.8))
+    g.add_node(Node(id="n1", label=f"Python{label_suffix}", tags=["technical_expertise"], confidence=0.9))
+    g.add_node(Node(id="n2", label=f"Healthcare{label_suffix}", tags=["domain_knowledge"], confidence=0.8))
     g.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="used_in"))
     return g
 
 
 class TestVersionStore:
-
     def test_commit_creates_version(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = VersionStore(Path(tmpdir) / ".cortex")

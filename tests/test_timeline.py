@@ -12,6 +12,7 @@ Covers:
 - Empty graph produces empty timeline
 - Nodes without dates are excluded
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,6 +24,7 @@ from cortex.timeline import TimelineGenerator
 # Helpers
 # ============================================================================
 
+
 def _make_graph(*nodes: Node) -> CortexGraph:
     g = CortexGraph()
     for n in nodes:
@@ -30,12 +32,18 @@ def _make_graph(*nodes: Node) -> CortexGraph:
     return g
 
 
-def _make_node(label: str, first_seen: str = "", last_seen: str = "",
-               tags: list[str] | None = None, confidence: float = 0.5,
-               snapshots: list[dict] | None = None) -> Node:
+def _make_node(
+    label: str,
+    first_seen: str = "",
+    last_seen: str = "",
+    tags: list[str] | None = None,
+    confidence: float = 0.5,
+    snapshots: list[dict] | None = None,
+) -> Node:
     nid = make_node_id(label)
     return Node(
-        id=nid, label=label,
+        id=nid,
+        label=label,
         tags=tags or ["technical_expertise"],
         confidence=confidence,
         first_seen=first_seen,
@@ -48,8 +56,8 @@ def _make_node(label: str, first_seen: str = "", last_seen: str = "",
 # Event extraction
 # ============================================================================
 
-class TestEventExtraction:
 
+class TestEventExtraction:
     def test_extract_first_seen_event(self):
         node = _make_node("Python", first_seen="2025-01-15T00:00:00Z")
         g = _make_graph(node)
@@ -60,9 +68,7 @@ class TestEventExtraction:
         assert events[0]["label"] == "Python"
 
     def test_extract_both_first_and_last_seen(self):
-        node = _make_node("Python",
-                          first_seen="2025-01-15T00:00:00Z",
-                          last_seen="2025-06-15T00:00:00Z")
+        node = _make_node("Python", first_seen="2025-01-15T00:00:00Z", last_seen="2025-06-15T00:00:00Z")
         g = _make_graph(node)
         gen = TimelineGenerator()
         events = gen.generate(g)
@@ -72,9 +78,7 @@ class TestEventExtraction:
 
     def test_no_duplicate_when_first_equals_last(self):
         """When first_seen == last_seen, only emit first_seen."""
-        node = _make_node("Python",
-                          first_seen="2025-01-15T00:00:00Z",
-                          last_seen="2025-01-15T00:00:00Z")
+        node = _make_node("Python", first_seen="2025-01-15T00:00:00Z", last_seen="2025-01-15T00:00:00Z")
         g = _make_graph(node)
         gen = TimelineGenerator()
         events = gen.generate(g)
@@ -83,9 +87,14 @@ class TestEventExtraction:
 
     def test_extract_snapshot_events(self):
         snapshots = [
-            {"timestamp": "2025-02-01T00:00:00Z", "source": "extraction",
-             "confidence": 0.8, "tags": ["technical_expertise"],
-             "properties_hash": "a", "description_hash": "b"},
+            {
+                "timestamp": "2025-02-01T00:00:00Z",
+                "source": "extraction",
+                "confidence": 0.8,
+                "tags": ["technical_expertise"],
+                "properties_hash": "a",
+                "description_hash": "b",
+            },
         ]
         node = _make_node("Python", snapshots=snapshots)
         g = _make_graph(node)
@@ -108,8 +117,8 @@ class TestEventExtraction:
 # Chronological sorting
 # ============================================================================
 
-class TestChronologicalSorting:
 
+class TestChronologicalSorting:
     def test_events_sorted_chronologically(self):
         node_a = _make_node("Python", first_seen="2025-03-01T00:00:00Z")
         node_b = _make_node("Django", first_seen="2025-01-01T00:00:00Z")
@@ -121,14 +130,21 @@ class TestChronologicalSorting:
         assert timestamps == sorted(timestamps)
 
     def test_mixed_event_types_sorted(self):
-        node = _make_node("Python",
-                          first_seen="2025-01-01T00:00:00Z",
-                          last_seen="2025-06-01T00:00:00Z",
-                          snapshots=[
-                              {"timestamp": "2025-03-01T00:00:00Z", "source": "merge",
-                               "confidence": 0.7, "tags": ["technical_expertise"],
-                               "properties_hash": "a", "description_hash": "b"},
-                          ])
+        node = _make_node(
+            "Python",
+            first_seen="2025-01-01T00:00:00Z",
+            last_seen="2025-06-01T00:00:00Z",
+            snapshots=[
+                {
+                    "timestamp": "2025-03-01T00:00:00Z",
+                    "source": "merge",
+                    "confidence": 0.7,
+                    "tags": ["technical_expertise"],
+                    "properties_hash": "a",
+                    "description_hash": "b",
+                },
+            ],
+        )
         g = _make_graph(node)
         gen = TimelineGenerator()
         events = gen.generate(g)
@@ -142,8 +158,8 @@ class TestChronologicalSorting:
 # Date range filtering
 # ============================================================================
 
-class TestDateRangeFiltering:
 
+class TestDateRangeFiltering:
     def test_from_date_filter(self):
         node_a = _make_node("Python", first_seen="2025-01-01T00:00:00Z")
         node_b = _make_node("Django", first_seen="2025-06-01T00:00:00Z")
@@ -168,9 +184,7 @@ class TestDateRangeFiltering:
         node_c = _make_node("REST APIs", first_seen="2025-06-01T00:00:00Z")
         g = _make_graph(node_a, node_b, node_c)
         gen = TimelineGenerator()
-        events = gen.generate(g,
-                              from_date="2025-02-01T00:00:00Z",
-                              to_date="2025-04-01T00:00:00Z")
+        events = gen.generate(g, from_date="2025-02-01T00:00:00Z", to_date="2025-04-01T00:00:00Z")
         assert len(events) == 1
         assert events[0]["label"] == "Django"
 
@@ -179,8 +193,8 @@ class TestDateRangeFiltering:
 # Markdown output
 # ============================================================================
 
-class TestMarkdownOutput:
 
+class TestMarkdownOutput:
     def test_markdown_output_basic(self):
         node = _make_node("Python", first_seen="2025-01-15T00:00:00Z")
         g = _make_graph(node)
@@ -199,14 +213,16 @@ class TestMarkdownOutput:
         assert "No events found" in md
 
     def test_markdown_snapshot_event(self):
-        events = [{
-            "timestamp": "2025-02-01T00:00:00Z",
-            "event_type": "snapshot",
-            "node_id": "abc",
-            "label": "Python",
-            "tags": ["technical_expertise"],
-            "details": {"source": "extraction", "confidence": 0.85},
-        }]
+        events = [
+            {
+                "timestamp": "2025-02-01T00:00:00Z",
+                "event_type": "snapshot",
+                "node_id": "abc",
+                "label": "Python",
+                "tags": ["technical_expertise"],
+                "details": {"source": "extraction", "confidence": 0.85},
+            }
+        ]
         gen = TimelineGenerator()
         md = gen.to_markdown(events)
         assert "snapshot from extraction" in md
@@ -217,8 +233,8 @@ class TestMarkdownOutput:
 # HTML output
 # ============================================================================
 
-class TestHTMLOutput:
 
+class TestHTMLOutput:
     def test_html_output_basic(self):
         node = _make_node("Python", first_seen="2025-01-15T00:00:00Z")
         g = _make_graph(node)
@@ -237,14 +253,16 @@ class TestHTMLOutput:
         assert "No events found" in html
 
     def test_html_escapes_special_chars(self):
-        events = [{
-            "timestamp": "2025-01-01T00:00:00Z",
-            "event_type": "first_seen",
-            "node_id": "abc",
-            "label": "C++ & <Templates>",
-            "tags": ["technical_expertise"],
-            "details": {"confidence": 0.5, "brief": ""},
-        }]
+        events = [
+            {
+                "timestamp": "2025-01-01T00:00:00Z",
+                "event_type": "first_seen",
+                "node_id": "abc",
+                "label": "C++ & <Templates>",
+                "tags": ["technical_expertise"],
+                "details": {"confidence": 0.5, "brief": ""},
+            }
+        ]
         gen = TimelineGenerator()
         html = gen.to_html(events)
         assert "&amp;" in html
@@ -255,8 +273,8 @@ class TestHTMLOutput:
 # Empty graph
 # ============================================================================
 
-class TestEmptyGraph:
 
+class TestEmptyGraph:
     def test_empty_graph_produces_no_events(self):
         g = CortexGraph()
         gen = TimelineGenerator()
@@ -270,4 +288,5 @@ class TestEmptyGraph:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v"]))

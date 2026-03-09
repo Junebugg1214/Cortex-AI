@@ -29,6 +29,7 @@ LayoutResult = dict[str, tuple[float, float]]  # node_id -> (x, y)
 # Cache key
 # ---------------------------------------------------------------------------
 
+
 def _layout_cache_key(node_ids: list[str], edge_tuples: list[tuple[str, str]]) -> str:
     """Deterministic hash of graph structure for cache invalidation."""
     data = json.dumps({"n": sorted(node_ids), "e": sorted(edge_tuples)}, sort_keys=True)
@@ -38,6 +39,7 @@ def _layout_cache_key(node_ids: list[str], edge_tuples: list[tuple[str, str]]) -
 # ---------------------------------------------------------------------------
 # Adjacency builder
 # ---------------------------------------------------------------------------
+
 
 def _build_adjacency(node_ids: list[str], edges: list[tuple[str, str]]) -> dict[str, set[str]]:
     """Build undirected adjacency from node IDs and edge tuples."""
@@ -52,6 +54,7 @@ def _build_adjacency(node_ids: list[str], edges: list[tuple[str, str]]) -> dict[
 # ---------------------------------------------------------------------------
 # Pure Python Fruchterman-Reingold
 # ---------------------------------------------------------------------------
+
 
 def _fr_pure(
     adj: dict[str, set[str]],
@@ -76,9 +79,7 @@ def _fr_pure(
 
     # Initialize random positions
     pos: dict[str, list[float]] = {
-        nid: [rng.uniform(0.1 * width, 0.9 * width),
-              rng.uniform(0.1 * height, 0.9 * height)]
-        for nid in node_list
+        nid: [rng.uniform(0.1 * width, 0.9 * width), rng.uniform(0.1 * height, 0.9 * height)] for nid in node_list
     }
 
     for iteration in range(iterations):
@@ -139,6 +140,7 @@ def _fr_pure(
 # Numpy-accelerated Fruchterman-Reingold
 # ---------------------------------------------------------------------------
 
+
 def _fr_numpy(
     adj: dict[str, set[str]],
     node_list: list[str],
@@ -186,7 +188,7 @@ def _fr_numpy(
     for iteration in range(iterations):
         # Pairwise repulsion
         delta = pos[:, np.newaxis, :] - pos[np.newaxis, :, :]  # (n, n, 2)
-        dist = np.sqrt((delta ** 2).sum(axis=2))  # (n, n)
+        dist = np.sqrt((delta**2).sum(axis=2))  # (n, n)
         np.clip(dist, 0.01, None, out=dist)
         force_mag = (k * k) / dist  # (n, n)
         np.fill_diagonal(force_mag, 0.0)
@@ -197,15 +199,15 @@ def _fr_numpy(
         # Attractive forces along edges
         if len(edge_src) > 0:
             edge_delta = pos[edge_src] - pos[edge_tgt]  # (E, 2)
-            edge_dist = np.sqrt((edge_delta ** 2).sum(axis=1))  # (E,)
+            edge_dist = np.sqrt((edge_delta**2).sum(axis=1))  # (E,)
             np.clip(edge_dist, 0.01, None, out=edge_dist)
-            edge_force_mag = (edge_dist ** 2) / k  # (E,)
+            edge_force_mag = (edge_dist**2) / k  # (E,)
             edge_force = edge_delta * (edge_force_mag / edge_dist)[:, np.newaxis]
             np.add.at(disp, edge_src, -edge_force)
             np.add.at(disp, edge_tgt, edge_force)
 
         # Apply displacement capped by temperature
-        disp_mag = np.sqrt((disp ** 2).sum(axis=1))  # (n,)
+        disp_mag = np.sqrt((disp**2).sum(axis=1))  # (n,)
         np.clip(disp_mag, 0.01, None, out=disp_mag)
         scale = np.minimum(disp_mag, temp) / disp_mag
         pos += disp * scale[:, np.newaxis]
@@ -226,6 +228,7 @@ def _fr_numpy(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def fruchterman_reingold(
     graph: CortexGraph,
@@ -249,6 +252,7 @@ def fruchterman_reingold(
     node_ids = list(graph.nodes.keys())
     if len(node_ids) > max_nodes:
         from cortex.centrality import compute_degree_centrality
+
         scores = compute_degree_centrality(graph)
         node_ids = sorted(scores, key=lambda nid: scores.get(nid, 0), reverse=True)[:max_nodes]
     node_set = set(node_ids)
@@ -257,8 +261,7 @@ def fruchterman_reingold(
     edge_tuples: list[tuple[str, str]] = []
     for edge in graph.edges.values():
         if edge.source_id in node_set and edge.target_id in node_set:
-            pair = (min(edge.source_id, edge.target_id),
-                    max(edge.source_id, edge.target_id))
+            pair = (min(edge.source_id, edge.target_id), max(edge.source_id, edge.target_id))
             edge_tuples.append(pair)
     edge_tuples = sorted(set(edge_tuples))
 
@@ -274,6 +277,7 @@ def fruchterman_reingold(
     # Try numpy, fallback to pure Python
     try:
         import numpy  # noqa: F401
+
         result = _fr_numpy(adj, node_ids, iterations, width, height, seed, progress)
     except ImportError:
         result = _fr_pure(adj, node_ids, iterations, width, height, seed, progress)

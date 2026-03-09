@@ -19,8 +19,8 @@ from cortex.sync.monitor import ExportMonitor
 # Exportable file patterns
 # ============================================================================
 
-class TestExportableFiles:
 
+class TestExportableFiles:
     def test_json_files_included(self, tmp_path):
         (tmp_path / "export.json").write_text("{}")
         monitor = ExportMonitor(watch_dir=tmp_path, graph_path=tmp_path / "graph.json")
@@ -68,8 +68,8 @@ class TestExportableFiles:
 # Change detection
 # ============================================================================
 
-class TestChangeDetection:
 
+class TestChangeDetection:
     def test_initial_scan_records_mtimes(self, tmp_path):
         (tmp_path / "a.json").write_text("{}")
         (tmp_path / "b.json").write_text("{}")
@@ -107,12 +107,14 @@ class TestChangeDetection:
 
     def test_callback_receives_path_and_graph(self, tmp_path):
         calls = []
+
         def on_extract(path, graph):
             calls.append((path, graph))
 
         graph_path = tmp_path / "graph.json"
         monitor = ExportMonitor(
-            watch_dir=tmp_path, graph_path=graph_path,
+            watch_dir=tmp_path,
+            graph_path=graph_path,
             on_extract=on_extract,
         )
         monitor._scan_initial()
@@ -130,8 +132,8 @@ class TestChangeDetection:
 # Monitor lifecycle
 # ============================================================================
 
-class TestMonitorLifecycle:
 
+class TestMonitorLifecycle:
     def test_start_stop(self, tmp_path):
         monitor = ExportMonitor(
             watch_dir=tmp_path,

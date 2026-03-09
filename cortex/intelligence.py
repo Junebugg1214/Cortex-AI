@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 # Gap Analyzer
 # ---------------------------------------------------------------------------
 
+
 class GapAnalyzer:
     """Detect gaps and blind spots in the knowledge graph."""
 
@@ -29,25 +30,25 @@ class GapAnalyzer:
         for node in graph.nodes.values():
             present_tags.update(node.tags)
 
-        return [
-            {"category": cat, "status": "empty"}
-            for cat in CATEGORY_ORDER
-            if cat not in present_tags
-        ]
+        return [{"category": cat, "status": "empty"} for cat in CATEGORY_ORDER if cat not in present_tags]
 
     def confidence_gaps(
-        self, graph: CortexGraph, threshold: float = 0.6,
+        self,
+        graph: CortexGraph,
+        threshold: float = 0.6,
     ) -> list[dict]:
         """Active priority nodes with confidence below threshold."""
         results: list[dict] = []
         for node in graph.nodes.values():
             if "active_priorities" in node.tags and node.confidence < threshold:
-                results.append({
-                    "node_id": node.id,
-                    "label": node.label,
-                    "confidence": node.confidence,
-                    "tags": list(node.tags),
-                })
+                results.append(
+                    {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "confidence": node.confidence,
+                        "tags": list(node.tags),
+                    }
+                )
         results.sort(key=lambda x: x["confidence"])
         return results
 
@@ -69,12 +70,14 @@ class GapAnalyzer:
                 if edge.source_id in nids and edge.target_id in nids:
                     edge_count += 1
             if edge_count == 0:
-                results.append({
-                    "tag": tag,
-                    "node_count": len(nids),
-                    "edge_count": 0,
-                    "gap": "no relationships between nodes",
-                })
+                results.append(
+                    {
+                        "tag": tag,
+                        "node_count": len(nids),
+                        "edge_count": 0,
+                        "gap": "no relationships between nodes",
+                    }
+                )
         return results
 
     def isolated_nodes(self, graph: CortexGraph) -> list[Node]:
@@ -84,10 +87,7 @@ class GapAnalyzer:
             connected.add(edge.source_id)
             connected.add(edge.target_id)
 
-        isolated = [
-            node for node in graph.nodes.values()
-            if node.id not in connected
-        ]
+        isolated = [node for node in graph.nodes.values() if node.id not in connected]
         isolated.sort(key=lambda n: n.confidence, reverse=True)
         return isolated
 
@@ -125,20 +125,15 @@ class GapAnalyzer:
             "category_gaps": self.category_gaps(graph),
             "confidence_gaps": self.confidence_gaps(graph),
             "relationship_gaps": self.relationship_gaps(graph),
-            "isolated_nodes": [
-                {"id": n.id, "label": n.label, "confidence": n.confidence}
-                for n in isolated
-            ],
-            "stale_nodes": [
-                {"id": n.id, "label": n.label, "last_seen": n.last_seen}
-                for n in stale
-            ],
+            "isolated_nodes": [{"id": n.id, "label": n.label, "confidence": n.confidence} for n in isolated],
+            "stale_nodes": [{"id": n.id, "label": n.label, "last_seen": n.last_seen} for n in stale],
         }
 
 
 # ---------------------------------------------------------------------------
 # Insight Generator
 # ---------------------------------------------------------------------------
+
 
 class InsightGenerator:
     """Generate weekly digest by comparing two graph snapshots."""
@@ -150,21 +145,20 @@ class InsightGenerator:
 
         from cortex.contradictions import ContradictionEngine
         from cortex.temporal import drift_score
+
         _cur_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in current.nodes.values():
             _cur_multi[_normalize_label(node.label)].append(node)
         # Pick highest-confidence node per label for comparison
         cur_by_label: dict[str, Node] = {
-            label: max(nodes, key=lambda n: n.confidence)
-            for label, nodes in _cur_multi.items()
+            label: max(nodes, key=lambda n: n.confidence) for label, nodes in _cur_multi.items()
         }
 
         _prev_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in previous.nodes.values():
             _prev_multi[_normalize_label(node.label)].append(node)
         prev_by_label: dict[str, Node] = {
-            label: max(nodes, key=lambda n: n.confidence)
-            for label, nodes in _prev_multi.items()
+            label: max(nodes, key=lambda n: n.confidence) for label, nodes in _prev_multi.items()
         }
 
         cur_labels = set(cur_by_label.keys())
@@ -172,15 +166,21 @@ class InsightGenerator:
 
         # New nodes
         new_nodes = [
-            {"label": cur_by_label[lbl].label, "tags": list(cur_by_label[lbl].tags),
-             "confidence": cur_by_label[lbl].confidence}
+            {
+                "label": cur_by_label[lbl].label,
+                "tags": list(cur_by_label[lbl].tags),
+                "confidence": cur_by_label[lbl].confidence,
+            }
             for lbl in sorted(cur_labels - prev_labels)
         ]
 
         # Removed nodes
         removed_nodes = [
-            {"label": prev_by_label[lbl].label, "tags": list(prev_by_label[lbl].tags),
-             "confidence": prev_by_label[lbl].confidence}
+            {
+                "label": prev_by_label[lbl].label,
+                "tags": list(prev_by_label[lbl].tags),
+                "confidence": prev_by_label[lbl].confidence,
+            }
             for lbl in sorted(prev_labels - cur_labels)
         ]
 
@@ -191,12 +191,14 @@ class InsightGenerator:
             prev_conf = prev_by_label[lbl].confidence
             delta = cur_conf - prev_conf
             if abs(delta) > 0.2:
-                confidence_changes.append({
-                    "label": cur_by_label[lbl].label,
-                    "previous": prev_conf,
-                    "current": cur_conf,
-                    "delta": round(delta, 4),
-                })
+                confidence_changes.append(
+                    {
+                        "label": cur_by_label[lbl].label,
+                        "previous": prev_conf,
+                        "current": cur_conf,
+                        "delta": round(delta, 4),
+                    }
+                )
         confidence_changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
 
         # New edges
@@ -206,11 +208,13 @@ class InsightGenerator:
             if eid not in prev_edge_ids:
                 src = current.get_node(edge.source_id)
                 tgt = current.get_node(edge.target_id)
-                new_edges.append({
-                    "source": src.label if src else edge.source_id,
-                    "target": tgt.label if tgt else edge.target_id,
-                    "relation": edge.relation,
-                })
+                new_edges.append(
+                    {
+                        "source": src.label if src else edge.source_id,
+                        "target": tgt.label if tgt else edge.target_id,
+                        "relation": edge.relation,
+                    }
+                )
 
         # Drift score
         ds = drift_score(previous, current)
@@ -219,8 +223,7 @@ class InsightGenerator:
         engine = ContradictionEngine()
         contradictions = engine.detect_all(current)
         contradiction_dicts = [
-            {"type": c.type, "description": c.description, "severity": c.severity}
-            for c in contradictions
+            {"type": c.type, "description": c.description, "severity": c.severity} for c in contradictions
         ]
 
         # Gaps in current

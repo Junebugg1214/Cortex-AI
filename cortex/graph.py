@@ -20,17 +20,32 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 CATEGORY_ORDER = [
-    "identity", "professional_context", "business_context", "active_priorities",
-    "work_history", "education_history",
-    "relationships", "technical_expertise", "domain_knowledge", "market_context",
-    "metrics", "constraints", "values", "negations", "user_preferences",
-    "communication_preferences", "correction_history", "history", "mentions",
+    "identity",
+    "professional_context",
+    "business_context",
+    "active_priorities",
+    "work_history",
+    "education_history",
+    "relationships",
+    "technical_expertise",
+    "domain_knowledge",
+    "market_context",
+    "metrics",
+    "constraints",
+    "values",
+    "negations",
+    "user_preferences",
+    "communication_preferences",
+    "correction_history",
+    "history",
+    "mentions",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Deterministic ID helpers
 # ---------------------------------------------------------------------------
+
 
 def _normalize_label(label: str) -> str:
     """Lowercase, strip, collapse whitespace."""
@@ -70,13 +85,21 @@ def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
     new_eids = set(new.edges)
 
     added_edges = [
-        {"id": eid, "source": new.edges[eid].source_id,
-         "target": new.edges[eid].target_id, "relation": new.edges[eid].relation}
+        {
+            "id": eid,
+            "source": new.edges[eid].source_id,
+            "target": new.edges[eid].target_id,
+            "relation": new.edges[eid].relation,
+        }
         for eid in sorted(new_eids - old_eids)
     ]
     removed_edges = [
-        {"id": eid, "source": old.edges[eid].source_id,
-         "target": old.edges[eid].target_id, "relation": old.edges[eid].relation}
+        {
+            "id": eid,
+            "source": old.edges[eid].source_id,
+            "target": old.edges[eid].target_id,
+            "relation": old.edges[eid].relation,
+        }
         for eid in sorted(old_eids - new_eids)
     ]
 
@@ -118,6 +141,7 @@ def make_edge_id(source_id: str, target_id: str, relation: str) -> str:
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Node:
@@ -225,10 +249,14 @@ class CortexGraph:
     schema_version: str = "5.0"
     meta: dict = field(default_factory=dict)
     _adjacency: dict[str, list[tuple[str, Edge]]] | None = field(
-        default=None, repr=False, compare=False,
+        default=None,
+        repr=False,
+        compare=False,
     )
     _adjacency_lock: threading.Lock = field(
-        default_factory=threading.Lock, repr=False, compare=False,
+        default_factory=threading.Lock,
+        repr=False,
+        compare=False,
     )
 
     # ── Adjacency cache ──────────────────────────────────────────────────
@@ -279,10 +307,7 @@ class CortexGraph:
             return False
         del self.nodes[node_id]
         # Remove connected edges
-        to_remove = [
-            eid for eid, e in self.edges.items()
-            if e.source_id == node_id or e.target_id == node_id
-        ]
+        to_remove = [eid for eid, e in self.edges.items() if e.source_id == node_id or e.target_id == node_id]
         for eid in to_remove:
             del self.edges[eid]
         self._invalidate_search_index()
@@ -305,6 +330,7 @@ class CortexGraph:
         creation, keeping graph.py lightweight.
         """
         from cortex.temporal import create_snapshot_dict
+
         for node in self.nodes.values():
             snap = create_snapshot_dict(node, source, timestamp)
             node.snapshots.append(snap)
@@ -339,7 +365,8 @@ class CortexGraph:
 
             # Find latest snapshot at or before timestamp (skip empty timestamps)
             applicable = [
-                s for s in node.snapshots
+                s
+                for s in node.snapshots
                 if s.get("timestamp", "") and _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
             if applicable:
@@ -350,7 +377,8 @@ class CortexGraph:
 
             # Only include snapshots up to the timestamp (skip empty timestamps)
             node_copy.snapshots = [
-                s for s in node_copy.snapshots
+                s
+                for s in node_copy.snapshots
                 if s.get("timestamp", "") and _normalize_ts(s.get("timestamp", "")) <= norm_timestamp
             ]
 
@@ -382,9 +410,7 @@ class CortexGraph:
             results.append(node)
         return results
 
-    def get_neighbors(
-        self, node_id: str, relation: str | None = None
-    ) -> list[tuple[Edge, Node]]:
+    def get_neighbors(self, node_id: str, relation: str | None = None) -> list[tuple[Edge, Node]]:
         adj = self._get_adjacency()
         results = []
         for neighbor_id, edge in adj.get(node_id, []):
@@ -407,9 +433,18 @@ class CortexGraph:
         if node is None:
             return None
         allowed = {
-            "label", "tags", "confidence", "properties", "brief",
-            "full_description", "mention_count", "extraction_method",
-            "metrics", "timeline", "source_quotes", "relationship_type",
+            "label",
+            "tags",
+            "confidence",
+            "properties",
+            "brief",
+            "full_description",
+            "mention_count",
+            "extraction_method",
+            "metrics",
+            "timeline",
+            "source_quotes",
+            "relationship_type",
         }
         for key, value in updates.items():
             if key in allowed and hasattr(node, key):
@@ -491,9 +526,7 @@ class CortexGraph:
 
     # ── Graph traversal ────────────────────────────────────────────────
 
-    def shortest_path(
-        self, source_id: str, target_id: str, max_depth: int = 10
-    ) -> list[str]:
+    def shortest_path(self, source_id: str, target_id: str, max_depth: int = 10) -> list[str]:
         """BFS shortest path from source to target. Returns list of node IDs (empty if unreachable)."""
         if source_id not in self.nodes or target_id not in self.nodes:
             return []
@@ -503,6 +536,7 @@ class CortexGraph:
         adj = self._get_adjacency()
 
         from collections import deque
+
         visited: set[str] = {source_id}
         queue: deque[tuple[str, list[str]]] = deque([(source_id, [source_id])])
 
@@ -518,9 +552,7 @@ class CortexGraph:
                     queue.append((neighbor_id, path + [neighbor_id]))
         return []
 
-    def k_hop_neighborhood(
-        self, node_id: str, k: int = 2
-    ) -> tuple[set[str], set[str]]:
+    def k_hop_neighborhood(self, node_id: str, k: int = 2) -> tuple[set[str], set[str]]:
         """Return (node_ids, edge_ids) within k hops of node_id."""
         if node_id not in self.nodes:
             return set(), set()
@@ -613,11 +645,13 @@ class CortexGraph:
     def compute_centrality(self) -> dict[str, float]:
         """Compute centrality scores for all nodes."""
         from cortex.centrality import compute_centrality
+
         return compute_centrality(self)
 
     def apply_centrality_boost(self) -> dict[str, float]:
         """Compute centrality and boost top-decile node confidence."""
         from cortex.centrality import apply_centrality_boost, compute_centrality
+
         scores = compute_centrality(self)
         apply_centrality_boost(self, scores)
         return scores
@@ -650,9 +684,7 @@ class CortexGraph:
 
         # Sort each category by (confidence, mention_count) descending
         for cat in categories:
-            categories[cat].sort(
-                key=lambda t: (t["confidence"], t["mention_count"]), reverse=True
-            )
+            categories[cat].sort(key=lambda t: (t["confidence"], t["mention_count"]), reverse=True)
         return categories
 
     def _primary_tag(self, node: Node) -> str:
@@ -682,12 +714,8 @@ class CortexGraph:
                 "edge_count": len(self.edges),
             },
             "graph": {
-                "nodes": {
-                    nid: node.to_dict() for nid, node in self.nodes.items()
-                },
-                "edges": {
-                    eid: edge.to_dict() for eid, edge in self.edges.items()
-                },
+                "nodes": {nid: node.to_dict() for nid, node in self.nodes.items()},
+                "edges": {eid: edge.to_dict() for eid, edge in self.edges.items()},
             },
             "categories": self.to_v4_categories(),
         }
@@ -704,8 +732,11 @@ class CortexGraph:
                 ),
                 "method": "aggressive_extraction_v4",
                 "features": [
-                    "semantic_dedup", "time_decay", "topic_merging",
-                    "conflict_detection", "typed_relationships",
+                    "semantic_dedup",
+                    "time_decay",
+                    "topic_merging",
+                    "conflict_detection",
+                    "typed_relationships",
                 ],
             },
             "categories": self.to_v4_categories(),
@@ -724,21 +755,23 @@ class CortexGraph:
                 "generated_at": generated_at,
                 "method": "aggressive_extraction_v5",
                 "features": [
-                    "graph_model", "multi_tag_nodes", "semantic_dedup",
-                    "time_decay", "typed_relationships",
-                    "smart_edges", "centrality",
-                    "query_engine", "intelligence", "visualization",
+                    "graph_model",
+                    "multi_tag_nodes",
+                    "semantic_dedup",
+                    "time_decay",
+                    "typed_relationships",
+                    "smart_edges",
+                    "centrality",
+                    "query_engine",
+                    "intelligence",
+                    "visualization",
                 ],
                 "node_count": len(self.nodes),
                 "edge_count": len(self.edges),
             },
             "graph": {
-                "nodes": {
-                    nid: node.to_dict() for nid, node in self.nodes.items()
-                },
-                "edges": {
-                    eid: edge.to_dict() for eid, edge in self.edges.items()
-                },
+                "nodes": {nid: node.to_dict() for nid, node in self.nodes.items()},
+                "edges": {eid: edge.to_dict() for eid, edge in self.edges.items()},
             },
             "categories": self.to_v4_categories(),
         }
@@ -774,22 +807,26 @@ class CortexGraph:
                     ts = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                     days = (now - ts).days
                     if days > stale_days:
-                        stale_nodes.append({
-                            "id": nid,
-                            "label": node.label,
-                            "last_seen": date_str,
-                            "days_stale": days,
-                        })
+                        stale_nodes.append(
+                            {
+                                "id": nid,
+                                "label": node.label,
+                                "last_seen": date_str,
+                                "days_stale": days,
+                            }
+                        )
                 except (ValueError, TypeError):
                     pass
 
             # Orphan check
             if nid not in referenced:
-                orphan_nodes.append({
-                    "id": nid,
-                    "label": node.label,
-                    "tags": list(node.tags),
-                })
+                orphan_nodes.append(
+                    {
+                        "id": nid,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                    }
+                )
 
         # Confidence distribution buckets
         buckets = {"0.0-0.2": 0, "0.2-0.4": 0, "0.4-0.6": 0, "0.6-0.8": 0, "0.8-1.0": 0}
@@ -806,10 +843,7 @@ class CortexGraph:
                 buckets["0.8-1.0"] += 1
 
         avg_confidence = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
-        avg_per_tag = {
-            tag: round(tag_conf_sums[tag] / tag_conf_counts[tag], 4)
-            for tag in sorted(tag_conf_sums)
-        }
+        avg_per_tag = {tag: round(tag_conf_sums[tag] / tag_conf_counts[tag], 4) for tag in sorted(tag_conf_sums)}
 
         return {
             "stale_nodes": stale_nodes,
@@ -846,12 +880,11 @@ class CortexGraph:
 
         # Top-5 by degree
         top_central = sorted(
-            degree_map.items(), key=lambda x: x[1], reverse=True,
+            degree_map.items(),
+            key=lambda x: x[1],
+            reverse=True,
         )[:5]
-        top_labels = [
-            self.nodes[nid].label for nid, _ in top_central
-            if nid in self.nodes
-        ]
+        top_labels = [self.nodes[nid].label for nid, _ in top_central if nid in self.nodes]
 
         return {
             "node_count": len(self.nodes),
