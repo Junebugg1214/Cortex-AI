@@ -333,10 +333,10 @@ class TestCodingPatterns:
 
     def test_project_path_extracted(self):
         records = [
-            _user_record("Go", cwd="/Users/marc/Desktop/chatbot-memory-skills"),
+            _user_record("Go", cwd="/Users/marc/Desktop/cortex"),
         ]
         session = parse_claude_code_session(records)
-        assert session.project_path == "/Users/marc/Desktop/chatbot-memory-skills"
+        assert session.project_path == "/Users/marc/Desktop/cortex"
 
 
 # ============================================================================

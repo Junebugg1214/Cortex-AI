@@ -108,7 +108,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
         ## Your Cortex Context
 
         **Tech Stack:** Python (0.9), Git (0.9)
-        **Projects:** chatbot-memory-skills — Own your AI memory
+        **Projects:** Cortex — Own your AI memory
         **Preferences:** Plans before coding, writes tests
     """
     # Group nodes by their primary tag section

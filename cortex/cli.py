@@ -137,7 +137,7 @@ def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cortex",
-        description="Cortex — unified chatbot-memory migration: extract + import in one step.",
+        description="Cortex — local AI identity and memory CLI.",
     )
     sub = parser.add_subparsers(dest="subcommand")
 
