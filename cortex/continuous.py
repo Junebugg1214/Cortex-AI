@@ -63,6 +63,7 @@ class CodingSessionWatcher:
         self._pending_changes: dict[str, float] = {}
         self._running = False
         self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._graph = None  # Loaded lazily
 
@@ -72,6 +73,7 @@ class CodingSessionWatcher:
         """Start watching in a background daemon thread."""
         if self._running:
             return
+        self._stop_event.clear()
         self._graph = self._load_or_create_graph()
         self._scan_initial()
         self._running = True
@@ -81,8 +83,9 @@ class CodingSessionWatcher:
     def stop(self) -> None:
         """Signal the watcher to stop."""
         self._running = False
+        self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=self.interval + 2)
+            self._thread.join(timeout=2)
             self._thread = None
 
     @property
@@ -122,8 +125,7 @@ class CodingSessionWatcher:
     def _poll_loop(self) -> None:
         """Main polling loop. Runs in daemon thread."""
         while self._running:
-            time.sleep(self.interval)
-            if not self._running:
+            if self._stop_event.wait(self.interval):
                 break
             self._check_for_changes()
             self._process_settled_files()
@@ -236,10 +238,10 @@ class CodingSessionWatcher:
         """Merge nodes and edges from new_graph into self._graph."""
         # Map new_graph node IDs to self._graph node IDs (for edge rewiring)
         id_map: dict[str, str] = {}
+        existing_by_label = {node.label: node for node in self._graph.nodes.values()}
         for new_node in new_graph.nodes.values():
-            existing = self._graph.find_nodes(label=new_node.label)
-            if existing:
-                target = existing[0]
+            target = existing_by_label.get(new_node.label)
+            if target is not None:
                 id_map[new_node.id] = target.id
                 target.confidence = max(target.confidence, new_node.confidence)
                 target.mention_count += new_node.mention_count
@@ -257,6 +259,7 @@ class CodingSessionWatcher:
             else:
                 id_map[new_node.id] = new_node.id
                 self._graph.add_node(new_node)
+                existing_by_label[new_node.label] = new_node
 
         for edge in new_graph.edges.values():
             src = id_map.get(edge.source_id)

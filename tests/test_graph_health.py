@@ -1,8 +1,8 @@
 """Tests for CortexGraph.graph_health() — Feature 1."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from cortex.graph import CortexGraph, Node, Edge, make_node_id, make_edge_id
+from datetime import datetime, timedelta, timezone
+
+from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 
 
 def _make_graph(**kwargs):

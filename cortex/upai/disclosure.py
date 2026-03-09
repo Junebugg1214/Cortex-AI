@@ -14,6 +14,7 @@ from typing import Any
 
 from cortex.graph import CortexGraph
 
+
 @dataclass
 class DisclosurePolicy:
     name: str                     # "professional", "technical", "full", "minimal"
