@@ -58,7 +58,7 @@ jobs:
             ghcr.io/junebugg1214/cortex-ai:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - run: docker run --rm --entrypoint python ghcr.io/junebugg1214/cortex-ai:latest -c "import cortex; print('OK')"
+      - run: docker run --rm ghcr.io/junebugg1214/cortex-ai:latest --help >/dev/null
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      - run: docker build -t cortex-ai:ci . && docker run --rm --entrypoint python cortex-ai:ci -c "import cortex; print('OK')"
+      - run: docker build -t cortex-ai:ci . && docker run --rm cortex-ai:ci --help >/dev/null
         if: github.ref != 'refs/heads/main' || github.event_name != 'push'
