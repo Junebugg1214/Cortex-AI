@@ -52,7 +52,6 @@ cortex identity --init --name "Your Name"
 ## Repository Layout
 
 - `cortex/`: core CLI, graph, extraction, import/export, identity, and versioning code
-- `examples/chatbot-memory/`: simple local end-to-end example
 - `tests/`: CLI/core-library test suite
 
 ## License
