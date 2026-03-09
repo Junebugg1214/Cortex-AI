@@ -21,7 +21,7 @@ pip install -e ".[dev]"
 python3 -m pytest tests/
 ```
 
-All 2,361+ tests should pass. 35 PostgreSQL-specific tests are skipped unless `psycopg` is installed and a database is available.
+The full CLI/library suite should pass before you open a PR.
 
 ## Architecture Overview
 
@@ -30,48 +30,25 @@ cortex/
 ├── extract_memory.py   # Context extraction from AI platform exports
 ├── graph.py            # CortexGraph — knowledge graph data structure
 ├── import_memory.py    # Export to platform formats (Claude, Notion, etc.)
-├── cli.py              # CLI entry point (30+ subcommands)
+├── cli.py              # CLI entry point
 ├── search.py           # TF-IDF semantic search
 ├── query_lang.py       # Graph query language (DSL)
 ├── federation.py       # Cross-instance sharing
-├── plugins/            # Hook-based plugin system
 ├── upai/               # UPAI protocol layer
 │   ├── identity.py     # W3C did:key identity
-│   ├── tokens.py       # Grant token signing/verification
 │   ├── disclosure.py   # Disclosure policies (full, professional, etc.)
-│   ├── rbac.py         # Role-based access control (4 roles, 10 scopes)
 │   ├── keychain.py     # Key rotation
 │   └── errors.py       # Structured error codes
-├── caas/               # Context-as-a-Service HTTP API
-│   ├── server.py       # HTTP request handlers
-│   ├── storage.py      # Abstract storage interfaces
-│   ├── sqlite_store.py # SQLite backend
-│   ├── postgres_store.py # PostgreSQL backend
-│   ├── config.py       # INI + env var configuration
-│   ├── instrumentation.py # Prometheus metrics
-│   ├── archive.py      # ZIP archive export/import
-│   ├── qr.py           # QR code generation
-│   └── profile.py      # Public profile management
-sdk/
-├── python/             # Python SDK (stdlib-only)
-└── typescript/         # TypeScript SDK (@cortex_ai/sdk)
+├── sync/               # File-backed scheduling and monitor helpers
+└── viz/                # Graph rendering helpers
 
-examples/               # Sample scripts and integration patterns
-```
-
-### TypeScript SDK
-
-```bash
-cd sdk/typescript
-npm install
-npm test          # Runs node:test suite
-npm run build     # ESM + CJS dual build
+tests/                  # CLI/core-library test suite
 ```
 
 ## Key Principles
 
 - **Zero external dependencies** for the core package. All crypto helpers use stdlib only.
-- **Optional extras**: `pynacl` for Ed25519, `numpy` for fast mode, `psycopg` for PostgreSQL.
+- **Optional extras**: `pynacl` for Ed25519, `numpy` for fast mode.
 - **Every PR must pass all tests** — no regressions allowed.
 - **Type hints** on all public APIs.
 - **Backward compatible** — don't break existing behavior.
@@ -104,15 +81,13 @@ npm run build     # ESM + CJS dual build
 ## What We're Looking For
 
 - Bug fixes with test coverage
-- Performance improvements with benchmarks
-- New storage backends following the `Abstract*` interfaces in `cortex/caas/storage.py`
 - New platform adapters following the pattern in `cortex/adapters/`
 - Documentation improvements
 
 ## What to Avoid
 
 - Adding runtime dependencies to the core package
-- Breaking changes to the CaaS API or UPAI protocol
+- Breaking changes to the CLI or graph file formats without discussion
 - Large refactors without prior discussion (open an issue first)
 
 ## Reporting Issues

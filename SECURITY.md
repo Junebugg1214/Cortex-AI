@@ -48,37 +48,25 @@ We take security seriously. If you discover a vulnerability in Cortex-AI, please
 
 ### Severity Classification
 
-- **Critical:** Remote code execution, authentication bypass, data exfiltration
-- **High:** Privilege escalation, audit log tampering, SSRF to internal services
-- **Medium:** Rate limit bypass, information disclosure (non-sensitive), XSS
-- **Low:** Missing security headers, verbose error messages, minor hardening gaps
+- **Critical:** Remote code execution, signature forgery, malicious graph import leading to arbitrary file access
+- **High:** Privilege escalation in local key handling, disclosure bypass, unsafe deserialization
+- **Medium:** Information disclosure (non-sensitive), path traversal in local workflows, denial of service via crafted inputs
+- **Low:** Verbose error messages, hardening gaps, documentation mistakes
 
 ## Scope
 
 ### In Scope
 
-- CaaS API server (`cortex/caas/server.py`)
-- Authentication and authorization (grant tokens, OAuth, CSRF)
-- Audit ledger integrity (hash chain, tamper detection)
-- Input validation and injection prevention
-- Rate limiting and DoS protection
-- Webhook security (SSRF prevention, circuit breaker)
+- CLI commands and local file workflows
+- Graph import, export, and parsing logic
 - Cryptographic operations (identity, signing, key rotation)
+- Disclosure policy evaluation
 - Federation security (bundle signing, trust model)
 
 ### Out of Scope
 
 - Vulnerabilities in third-party dependencies (report upstream)
-- Denial of service via resource exhaustion without authentication
+- Denial of service via resource exhaustion on obviously unbounded local inputs
 - Social engineering attacks
 - Physical security
-- Issues requiring local access to the server filesystem
-
-## Security Documentation
-
-For deployment hardening guidance, see:
-
-- [Security Overview](docs/security.md) -- Architecture, threat model, and controls
-- [Deployment Checklist](docs/security-checklist.md) -- Pre-production security checklist
-- [Dependency Audit](docs/dependency-audit.md) -- Third-party dependency review
-- [Penetration Test Plan](docs/pentest-plan.md) -- OWASP-aligned test procedures
+- Issues that require prior local access to the user's filesystem or shell
