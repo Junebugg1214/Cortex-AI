@@ -1725,11 +1725,15 @@ def run_context_hook(args):
 
 def run_context_export(args):
     """Export compact context markdown to stdout."""
-    from cortex.hooks import HookConfig, generate_compact_context
+    from cortex.hooks import HookConfig, _load_graph, generate_compact_context
 
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}", file=sys.stderr)
+        return 1
+
+    if _load_graph(str(input_path)) is None:
+        print(f"Error: invalid Cortex graph: {input_path}", file=sys.stderr)
         return 1
 
     config = HookConfig(
@@ -1742,7 +1746,6 @@ def run_context_export(args):
         print(context)
     else:
         print("No context generated (graph may be empty).", file=sys.stderr)
-        return 1
     return 0
 
 

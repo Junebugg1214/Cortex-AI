@@ -83,7 +83,7 @@ def _load_graph(graph_path: str) -> CortexGraph | None:
         if version.startswith(("5", "6")) and "graph" in data:
             return CortexGraph.from_v5_json(data)
         return upgrade_v4_to_v5(data)
-    except (json.JSONDecodeError, OSError, KeyError):
+    except (json.JSONDecodeError, OSError, KeyError, TypeError):
         return None
 
 

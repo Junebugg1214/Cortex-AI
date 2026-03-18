@@ -920,8 +920,22 @@ class CortexGraph:
             meta=data.get("meta", {}),
         )
         graph_data = data.get("graph", {})
-        for nid, nd in graph_data.get("nodes", {}).items():
+
+        def _coerce_mapping(value: Any, section: str) -> dict[str, Any]:
+            """Normalize legacy empty list bootstrap shapes to empty mappings."""
+            if value is None:
+                return {}
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, list) and not value:
+                return {}
+            raise TypeError(f"Cortex v5 graph {section} must be an object mapping ids to items")
+
+        nodes = _coerce_mapping(graph_data.get("nodes", {}), "nodes")
+        edges = _coerce_mapping(graph_data.get("edges", {}), "edges")
+
+        for nid, nd in nodes.items():
             graph.nodes[nid] = Node.from_dict(nd)
-        for eid, ed in graph_data.get("edges", {}).items():
+        for eid, ed in edges.items():
             graph.edges[eid] = Edge.from_dict(ed)
         return graph

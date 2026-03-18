@@ -316,6 +316,22 @@ class TestGenerateCompactContext:
         result = generate_compact_context(config)
         assert result == ""
 
+    def test_bootstrap_empty_array_graph(self, tmp_path):
+        path = tmp_path / "context.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "5.0",
+                    "graph": {"nodes": [], "edges": []},
+                    "meta": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = HookConfig(graph_path=str(path))
+        result = generate_compact_context(config)
+        assert result == ""
+
     def test_missing_graph(self):
         config = HookConfig(graph_path="/nonexistent/graph.json")
         result = generate_compact_context(config)

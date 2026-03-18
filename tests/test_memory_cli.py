@@ -32,6 +32,27 @@ def test_memory_conflicts_json(tmp_path, capsys):
     assert out["conflicts"]
 
 
+def test_context_export_empty_bootstrap_graph_succeeds(tmp_path, capsys):
+    graph_path = tmp_path / "context.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "5.0",
+                "graph": {"nodes": [], "edges": []},
+                "meta": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(["context-export", str(graph_path)])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    assert captured.out == ""
+    assert "No context generated" in captured.err
+
+
 def test_memory_set_creates_node(tmp_path):
     graph = CortexGraph()
     graph_path = tmp_path / "context.json"
