@@ -3,7 +3,7 @@
 Own your AI memory and identity.
 
 Cortex is a CLI-only toolkit for local, portable AI memory, identity, and versioned graph history.
-It turns exports, notes, and context captures into files you can inspect, query, compare, sign, and share.
+It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
 
 ## What it does
 
@@ -15,9 +15,9 @@ It turns exports, notes, and context captures into files you can inspect, query,
 - Writes context into coding-tool config files
 - Integrates with local tools such as OpenClaw through the CLI
 
-## Why it is useful
+## Why it matters
 
-Think of Cortex as a notebook for your AI that you can read, edit, and audit.
+Think of Cortex as a notebook for your AI: local, portable, and easy to audit.
 
 Examples:
 
