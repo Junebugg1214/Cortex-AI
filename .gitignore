@@ -34,3 +34,5 @@ sample_*.json
 
 # Local-only (not tracked)
 local/
+corpus/
+autoresearch_log.jsonl
