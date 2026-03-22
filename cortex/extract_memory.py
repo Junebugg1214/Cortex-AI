@@ -172,6 +172,8 @@ TECH_KEYWORDS = {
         "vim",
         "cursor",
         "copilot",
+        "pytest",
+        "ruff",
     ],
 }
 
@@ -710,6 +712,31 @@ def get_message_text(message: dict) -> str:
     return ""
 
 
+def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
+    """Provide the node/contradiction aliases expected by the autoresearch eval harness."""
+    from cortex.compat import upgrade_v4_to_v5
+
+    graph = upgrade_v4_to_v5(v4_output)
+    nodes = []
+    for node in graph.nodes.values():
+        nodes.append(
+            {
+                "id": node.id,
+                "label": node.label,
+                "value": node.full_description or node.brief or node.label,
+                "category": node.tags[0] if node.tags else "mentions",
+                "tags": list(node.tags),
+                "confidence": round(node.confidence, 2),
+                "mention_count": node.mention_count,
+            }
+        )
+    nodes.sort(key=lambda node: (-node["confidence"], node["label"].lower()))
+    return {
+        "nodes": nodes,
+        "contradictions": list(v4_output.get("conflicts", [])),
+    }
+
+
 # ============================================================================
 # DATA STRUCTURES
 # ============================================================================
@@ -952,6 +979,7 @@ class ExtractionContext:
             output["conflicts"] = self.conflicts
         if self.redaction_summary is not None:
             output["redaction_summary"] = self.redaction_summary
+        output.update(build_eval_compat_view(output))
         return output
 
     def stats(self) -> dict:
@@ -1556,7 +1584,12 @@ class AggressiveExtractor:
                     del self.context.topics["mentions"][key]
 
     def process_openai_export(self, data: list | dict) -> dict:
-        conversations = data if isinstance(data, list) else data.get("conversations", data.get("items", []))
+        if isinstance(data, list):
+            conversations = data
+        elif isinstance(data, dict) and "mapping" in data:
+            conversations = [data]
+        else:
+            conversations = data.get("conversations", data.get("items", []))
         for conv in conversations:
             for node in conv.get("mapping", {}).values():
                 if not isinstance(node, dict):
