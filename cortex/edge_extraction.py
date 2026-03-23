@@ -152,20 +152,40 @@ def extract_edges_by_proximity(
     discovered: set[tuple[str, str]] = set()
 
     for msg in messages:
-        # Find all label occurrences in this message
-        occurrences: list[tuple[str, int]] = []  # (node_id, position)
+        # Match labels in-order so proximity favors the closest local pairing
+        # instead of connecting every label in a dense mention cluster.
+        occurrences: list[tuple[str, int, int]] = []  # (node_id, start, end)
         for pat, nid in patterns:
             for match in pat.finditer(msg):
-                occurrences.append((nid, match.start()))
+                occurrences.append((nid, match.start(), match.end()))
+        occurrences.sort(key=lambda item: item[1])
 
-        # Check proximity for each pair
-        for i, (nid_a, pos_a) in enumerate(occurrences):
-            for nid_b, pos_b in occurrences[i + 1 :]:
-                if nid_a == nid_b:
+        nearest: dict[int, tuple[int, int]] = {}
+        for i, (nid_a, start_a, end_a) in enumerate(occurrences):
+            best: tuple[int, int] | None = None
+            for j, (nid_b, start_b, end_b) in enumerate(occurrences):
+                if i == j or nid_a == nid_b:
                     continue
-                if abs(pos_a - pos_b) <= char_distance:
-                    pair = tuple(sorted([nid_a, nid_b]))
-                    discovered.add(pair)  # type: ignore[arg-type]
+                distance = max(start_b - end_a, start_a - end_b, 0)
+                if distance > char_distance:
+                    continue
+                if best is None or distance < best[0]:
+                    best = (distance, j)
+            if best is not None:
+                nearest[i] = best
+
+        for i, (_, _, _) in enumerate(occurrences):
+            best = nearest.get(i)
+            if best is None:
+                continue
+            _, j = best
+            reverse = nearest.get(j)
+            if reverse is None or reverse[1] != i:
+                continue
+            nid_a = occurrences[i][0]
+            nid_b = occurrences[j][0]
+            pair = tuple(sorted([nid_a, nid_b]))
+            discovered.add(pair)  # type: ignore[arg-type]
 
     # Create edges for new pairs
     new_edges: list[Edge] = []
@@ -207,11 +227,12 @@ def discover_all_edges(
     if not messages:
         return rule_edges
 
-    # Track pairs already covered by rules
+    # Strong typed relations subsume raw co-mention, but weaker ones can coexist.
     rule_pairs: set[tuple[str, str]] = set()
     for e in rule_edges:
-        rule_pairs.add((e.source_id, e.target_id))
-        rule_pairs.add((e.target_id, e.source_id))
+        if e.confidence >= 0.6:
+            rule_pairs.add((e.source_id, e.target_id))
+            rule_pairs.add((e.target_id, e.source_id))
 
     prox_edges = extract_edges_by_proximity(graph, messages)
 
