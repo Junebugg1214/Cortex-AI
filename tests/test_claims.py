@@ -47,3 +47,45 @@ def test_claim_ledger_append_and_filter(tmp_path: Path):
 
     claim_history = ledger.get_claim(assert_event.claim_id)
     assert [event.op for event in claim_history] == ["assert", "retract"]
+
+
+def test_claim_ledger_lineage_for_node(tmp_path: Path):
+    ledger = ClaimLedger(tmp_path / ".cortex")
+    node = Node(
+        id="n1",
+        canonical_id="canonical-1",
+        label="Project Atlas",
+        aliases=["atlas"],
+        tags=["active_priorities"],
+        confidence=0.9,
+    )
+    ledger.append(
+        ClaimEvent.from_node(
+            node,
+            op="assert",
+            source="extract:notes.txt",
+            method="extract",
+            version_id="aaa111",
+            timestamp="2026-03-23T00:00:00Z",
+        )
+    )
+    ledger.append(
+        ClaimEvent.from_node(
+            node,
+            op="retract",
+            source="extract:notes.txt",
+            method="memory_retract",
+            version_id="bbb222",
+            timestamp="2026-03-24T00:00:00Z",
+        )
+    )
+
+    lineage = ledger.lineage_for_node(node, limit=10)
+
+    assert lineage["event_count"] == 2
+    assert lineage["claim_count"] == 1
+    assert lineage["assert_count"] == 1
+    assert lineage["retract_count"] == 1
+    assert lineage["sources"] == ["extract:notes.txt"]
+    assert lineage["introduced_at"]["version_id"] == "aaa111"
+    assert lineage["latest_event"]["op"] == "retract"

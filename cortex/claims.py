@@ -171,6 +171,7 @@ class ClaimLedger:
         *,
         claim_id: str = "",
         node_id: str = "",
+        canonical_id: str = "",
         label: str = "",
         source: str = "",
         op: str = "",
@@ -183,6 +184,8 @@ class ClaimLedger:
             if claim_id and event.claim_id != claim_id:
                 continue
             if node_id and event.node_id != node_id:
+                continue
+            if canonical_id and event.canonical_id != canonical_id:
                 continue
             if label_norm:
                 event_terms = {_normalize_label(event.label), *(_normalize_label(alias) for alias in event.aliases)}
@@ -199,6 +202,71 @@ class ClaimLedger:
 
     def get_claim(self, claim_id: str) -> list[ClaimEvent]:
         return [event for event in self._load_all() if event.claim_id == claim_id]
+
+    def lineage_for_node(self, node: Node, limit: int = 50) -> dict[str, Any]:
+        events = self.list_events(
+            node_id=node.id,
+            canonical_id=node.canonical_id or node.id,
+            label=node.label,
+            limit=limit,
+        )
+        if not events and node.aliases:
+            combined: list[ClaimEvent] = []
+            seen: set[str] = set()
+            for alias in node.aliases:
+                for event in self.list_events(label=alias, limit=limit):
+                    if event.event_id in seen:
+                        continue
+                    seen.add(event.event_id)
+                    combined.append(event)
+            combined.sort(key=lambda event: event.timestamp, reverse=True)
+            events = combined[:limit]
+
+        if not events:
+            return {
+                "event_count": 0,
+                "claim_count": 0,
+                "assert_count": 0,
+                "retract_count": 0,
+                "sources": [],
+                "claim_ids": [],
+                "introduced_at": None,
+                "latest_event": None,
+                "events": [],
+            }
+
+        chronological = list(reversed(events))
+        claim_ids = sorted({event.claim_id for event in events})
+        sources = sorted({event.source for event in events if event.source})
+        assert_count = sum(1 for event in events if event.op == "assert")
+        retract_count = sum(1 for event in events if event.op == "retract")
+        introduced = chronological[0]
+        latest = events[0]
+
+        return {
+            "event_count": len(events),
+            "claim_count": len(claim_ids),
+            "assert_count": assert_count,
+            "retract_count": retract_count,
+            "sources": sources,
+            "claim_ids": claim_ids,
+            "introduced_at": {
+                "timestamp": introduced.timestamp,
+                "source": introduced.source,
+                "method": introduced.method,
+                "claim_id": introduced.claim_id,
+                "version_id": introduced.version_id,
+            },
+            "latest_event": {
+                "timestamp": latest.timestamp,
+                "op": latest.op,
+                "source": latest.source,
+                "method": latest.method,
+                "claim_id": latest.claim_id,
+                "version_id": latest.version_id,
+            },
+            "events": [event.to_dict() for event in events],
+        }
 
     def _load_all(self) -> list[ClaimEvent]:
         if not self.path.exists():

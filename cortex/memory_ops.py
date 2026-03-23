@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from cortex.claims import ClaimLedger
 from cortex.contradictions import ContradictionEngine
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.upai.versioning import VersionStore
@@ -115,6 +116,7 @@ def blame_memory_nodes(
     label: str | None = None,
     node_id: str | None = None,
     store: VersionStore | None = None,
+    ledger: ClaimLedger | None = None,
     version_limit: int = 20,
 ) -> dict[str, Any]:
     target_ids: set[str] = set()
@@ -162,6 +164,7 @@ def blame_memory_nodes(
                 canonical_id=node.canonical_id or node.id,
                 limit=version_limit,
             )
+        claim_lineage = ledger.lineage_for_node(node, limit=version_limit) if ledger is not None else None
 
         results.append(
             {
@@ -170,6 +173,7 @@ def blame_memory_nodes(
                 "snapshot_sources": snapshot_sources,
                 "why_present": why_present,
                 "history": history,
+                "claim_lineage": claim_lineage,
             }
         )
 

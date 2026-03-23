@@ -1,5 +1,6 @@
 import json
 
+from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.cli import main
 from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph, Node, make_node_id
@@ -62,6 +63,7 @@ def test_query_at_filters_temporal_graph(tmp_path, capsys):
 def test_blame_json_includes_provenance_and_version_history(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     store = VersionStore(store_dir)
+    ledger = ClaimLedger(store_dir)
 
     graph_v1 = CortexGraph()
     graph_v1.add_node(
@@ -77,18 +79,28 @@ def test_blame_json_includes_provenance_and_version_history(tmp_path, capsys):
     store.commit(graph_v1, "initial postgres", source="extraction")
 
     graph_v2 = CortexGraph()
-    graph_v2.add_node(
-        Node(
-            id="n1",
-            label="PostgreSQL",
-            aliases=["postgres"],
-            tags=["technical_expertise"],
-            confidence=0.95,
-            provenance=[{"source": "manual-a", "method": "manual"}],
-            status="active",
+    current_node = Node(
+        id="n1",
+        canonical_id="n1",
+        label="PostgreSQL",
+        aliases=["postgres"],
+        tags=["technical_expertise"],
+        confidence=0.95,
+        provenance=[{"source": "manual-a", "method": "manual"}],
+        status="active",
+    )
+    graph_v2.add_node(current_node)
+    store.commit(graph_v2, "refine postgres", source="manual")
+    ledger.append(
+        ClaimEvent.from_node(
+            current_node,
+            op="assert",
+            source="manual-a",
+            method="manual_set",
+            version_id="claimv1",
+            timestamp="2026-03-23T00:00:00Z",
         )
     )
-    store.commit(graph_v2, "refine postgres", source="manual")
 
     graph_path = tmp_path / "context.json"
     _write_graph(graph_path, graph_v2)
@@ -112,6 +124,8 @@ def test_blame_json_includes_provenance_and_version_history(tmp_path, capsys):
     assert out["nodes"][0]["provenance_sources"] == ["manual-a"]
     assert out["nodes"][0]["history"]["versions_seen"] == 2
     assert out["nodes"][0]["history"]["introduced_in"]["message"] == "initial postgres"
+    assert out["nodes"][0]["claim_lineage"]["event_count"] == 1
+    assert out["nodes"][0]["claim_lineage"]["sources"] == ["manual-a"]
 
 
 def test_memory_set_supports_alias_temporal_and_provenance(tmp_path):

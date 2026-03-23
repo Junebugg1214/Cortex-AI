@@ -1277,11 +1277,13 @@ def run_blame(args):
 
     store_path = Path(args.store_dir)
     store = VersionStore(store_path) if (store_path / "history.json").exists() else None
+    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
         label=args.label,
         node_id=args.node_id,
         store=store,
+        ledger=ledger,
         version_limit=args.limit,
     )
     if _emit_result(result, args.format) == 0:
@@ -1338,6 +1340,40 @@ def run_blame(args):
                 print(
                     f"      {marker} {entry['version_id'][:8]} {entry['timestamp']} "
                     f"[{entry['source']}] {entry['message']}"
+                )
+        claim_lineage = item.get("claim_lineage")
+        if claim_lineage and claim_lineage.get("event_count"):
+            print("  Claim ledger:")
+            print(
+                f"    {claim_lineage['event_count']} event(s) across {claim_lineage['claim_count']} claim(s); "
+                f"{claim_lineage['assert_count']} assert, {claim_lineage['retract_count']} retract."
+            )
+            if claim_lineage.get("sources"):
+                print(f"    Sources: {', '.join(claim_lineage['sources'])}")
+            introduced = claim_lineage.get("introduced_at")
+            if introduced:
+                version = introduced.get("version_id", "")
+                version_label = version[:8] if version else "local"
+                print(
+                    f"    First claim event: {introduced['timestamp']} "
+                    f"[{introduced.get('source') or '-'}] {introduced.get('method') or '-'} {version_label}"
+                )
+            latest_event = claim_lineage.get("latest_event")
+            if latest_event:
+                version = latest_event.get("version_id", "")
+                version_label = version[:8] if version else "local"
+                print(
+                    f"    Latest claim event: {latest_event['timestamp']} "
+                    f"[{latest_event.get('op')}] {latest_event.get('source') or '-'} "
+                    f"{latest_event.get('method') or '-'} {version_label}"
+                )
+            print("    Recent claim events:")
+            for event in claim_lineage["events"][:5]:
+                version_label = event["version_id"][:8] if event.get("version_id") else "local"
+                print(
+                    f"      - {event['timestamp']} [{event['op']}] "
+                    f"{event.get('source') or '-'} {event.get('method') or '-'} "
+                    f"{version_label} claim={event['claim_id']}"
                 )
         print()
     return 0
