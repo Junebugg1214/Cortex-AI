@@ -452,3 +452,42 @@ def test_branch_switch_and_ref_checkout_cli(tmp_path, capsys):
     assert checkout_rc == 0
     checked_out = CortexGraph.from_v5_json(json.loads(output_path.read_text(encoding="utf-8")))
     assert "n2" in checked_out.nodes
+
+
+def test_merge_cli_merges_branch_into_current(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    graph_path = tmp_path / "context.json"
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.8))
+    _write_graph(graph_path, base_graph)
+    assert main(["commit", str(graph_path), "-m", "base", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    assert main(["branch", "feature/atlas", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+    assert main(["switch", "feature/atlas", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    feature_graph = CortexGraph()
+    feature_graph.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.8))
+    feature_graph.add_node(Node(id="n2", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    _write_graph(graph_path, feature_graph)
+    assert main(["commit", str(graph_path), "-m", "feature add atlas", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    assert main(["switch", "main", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    merge_rc = main(["merge", "feature/atlas", "--store-dir", str(store_dir), "--format", "json"])
+    merge_out = json.loads(capsys.readouterr().out)
+    assert merge_rc == 0
+    assert merge_out["commit_id"]
+    assert not merge_out["conflicts"]
+
+    main_head = VersionStore(store_dir).head("main")
+    assert main_head is not None
+    assert main_head.source == "merge"
+    assert "Project Atlas" in {
+        node.label for node in VersionStore(store_dir).checkout(main_head.version_id).nodes.values()
+    }

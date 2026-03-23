@@ -52,6 +52,7 @@ from cortex.memory_ops import (
     set_memory_node,
     show_memory_nodes,
 )
+from cortex.merge import merge_refs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -457,6 +458,15 @@ def build_parser():
     sw.add_argument("-c", "--create", action="store_true", help="Create the branch if it does not exist")
     sw.add_argument("--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)")
     sw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+
+    # -- merge (Git-for-AI-Memory) ----------------------------------------
+    mg = sub.add_parser("merge", help="Merge another memory branch/ref into the current branch")
+    mg.add_argument("ref_name", help="Branch or ref to merge into the current branch")
+    mg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mg.add_argument("--message", help="Custom merge commit message")
+    mg.add_argument("--dry-run", action="store_true", help="Compute merge result without committing")
+    mg.add_argument("--output", "-o", help="Optional path to write the merged graph snapshot")
+    mg.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- log (Phase 3) -----------------------------------------------------
     lg = sub.add_parser("log", help="Show version history")
@@ -1733,6 +1743,91 @@ def run_switch(args):
     return 0
 
 
+def run_merge(args):
+    """Merge another branch/ref into the current branch."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    current_branch = store.current_branch()
+
+    try:
+        result = merge_refs(store, "HEAD", args.ref_name)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    payload = {
+        "current_branch": current_branch,
+        "merged_ref": args.ref_name,
+        "base_version": result.base_version,
+        "current_version": result.current_version,
+        "other_version": result.other_version,
+        "summary": result.summary,
+        "conflicts": [conflict.to_dict() for conflict in result.conflicts],
+    }
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(result.merged.export_v5(), indent=2), encoding="utf-8")
+        payload["output"] = str(output_path)
+
+    no_changes = (
+        result.summary.get("summary", {}).get("added", 0) == 0
+        and result.summary.get("summary", {}).get("removed", 0) == 0
+        and result.summary.get("summary", {}).get("modified", 0) == 0
+        and result.summary.get("summary", {}).get("edges_added", 0) == 0
+        and result.summary.get("summary", {}).get("edges_removed", 0) == 0
+    )
+
+    if result.ok and not args.dry_run and not no_changes:
+        identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
+        message = args.message or f"Merge branch '{args.ref_name}' into {current_branch}"
+        merge_parent_ids = [result.other_version] if result.other_version and result.other_version != result.current_version else []
+        version = store.commit(
+            result.merged,
+            message,
+            source="merge",
+            identity=identity,
+            parent_id=result.current_version,
+            branch=current_branch,
+            merge_parent_ids=merge_parent_ids,
+        )
+        payload["commit_id"] = version.version_id
+
+    if args.format == "json":
+        print(json.dumps(payload, indent=2))
+        return 0 if result.ok else 1
+
+    if no_changes and result.ok:
+        print(f"Already up to date: {current_branch} already contains {args.ref_name}")
+        return 0
+
+    print(f"Merging {args.ref_name} into {current_branch}")
+    if result.base_version:
+        print(f"  Base:    {result.base_version}")
+    if result.current_version:
+        print(f"  Current: {result.current_version}")
+    if result.other_version:
+        print(f"  Other:   {result.other_version}")
+    print(
+        "  Summary:"
+        f" +{result.summary.get('summary', {}).get('added', 0)}"
+        f" -{result.summary.get('summary', {}).get('removed', 0)}"
+        f" ~{result.summary.get('summary', {}).get('modified', 0)}"
+    )
+    if result.conflicts:
+        print("  Conflicts:")
+        for conflict in result.conflicts:
+            field = f" [{conflict.field}]" if conflict.field else ""
+            print(f"    - {conflict.kind}{field}: {conflict.description}")
+        return 1
+    if payload.get("commit_id"):
+        print(f"  Committed merge: {payload['commit_id']}")
+    elif args.dry_run:
+        print("  Dry run only, no commit created.")
+    return 0
+
+
 def run_log(args):
     """Show version history."""
     store_dir = Path(args.store_dir)
@@ -2467,6 +2562,7 @@ def main(argv=None):
         "commit",
         "branch",
         "switch",
+        "merge",
         "log",
         "sync",
         "verify",
@@ -2545,6 +2641,8 @@ def main(argv=None):
         return run_branch(args)
     elif args.subcommand == "switch":
         return run_switch(args)
+    elif args.subcommand == "merge":
+        return run_merge(args)
     elif args.subcommand == "log":
         return run_log(args)
     elif args.subcommand == "sync":

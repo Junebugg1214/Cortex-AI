@@ -216,6 +216,7 @@ class TestVersionStore:
         v = ContextVersion(
             version_id="abc123",
             parent_id="parent1",
+            merge_parent_ids=["parent2"],
             timestamp="2025-01-01T00:00:00Z",
             branch="main",
             source="extraction",
@@ -229,6 +230,7 @@ class TestVersionStore:
         v2 = ContextVersion.from_dict(d)
         assert v2.version_id == v.version_id
         assert v2.parent_id == v.parent_id
+        assert v2.merge_parent_ids == v.merge_parent_ids
         assert v2.branch == v.branch
         assert v2.message == v.message
         assert v2.signature == v.signature

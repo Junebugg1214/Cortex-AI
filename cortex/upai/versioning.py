@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 class ContextVersion:
     version_id: str  # SHA-256 of serialized graph
     parent_id: str | None  # previous version (None for initial)
+    merge_parent_ids: list[str]  # optional additional parents for merge commits
     timestamp: str  # ISO-8601
     branch: str  # branch ref name
     source: str  # "extraction", "merge", "manual"
@@ -46,6 +47,7 @@ class ContextVersion:
         return {
             "version_id": self.version_id,
             "parent_id": self.parent_id,
+            "merge_parent_ids": list(self.merge_parent_ids),
             "timestamp": self.timestamp,
             "branch": self.branch,
             "source": self.source,
@@ -61,6 +63,7 @@ class ContextVersion:
         return cls(
             version_id=d["version_id"],
             parent_id=d.get("parent_id"),
+            merge_parent_ids=list(d.get("merge_parent_ids", [])),
             timestamp=d["timestamp"],
             branch=d.get("branch", "main"),
             source=d["source"],
@@ -148,6 +151,10 @@ class VersionStore:
         message: str,
         source: str = "manual",
         identity: UPAIIdentity | None = None,
+        *,
+        parent_id: str | None = None,
+        branch: str | None = None,
+        merge_parent_ids: list[str] | None = None,
     ) -> ContextVersion:
         """Serialize graph, hash, optionally sign, save snapshot, append to history."""
         self._ensure_dirs()
@@ -164,8 +171,8 @@ class VersionStore:
 
         # Determine parent
         history = self._load_history()
-        branch = self.current_branch()
-        parent_id = self._read_ref(branch)
+        branch = branch or self.current_branch()
+        resolved_parent = parent_id if parent_id is not None else self._read_ref(branch)
 
         # Sign if identity available
         signature = None
@@ -179,7 +186,8 @@ class VersionStore:
         # Create version record
         version = ContextVersion(
             version_id=version_id,
-            parent_id=parent_id,
+            parent_id=resolved_parent,
+            merge_parent_ids=list(merge_parent_ids or []),
             timestamp=datetime.now(timezone.utc).isoformat(),
             branch=branch,
             source=source,
@@ -196,6 +204,10 @@ class VersionStore:
         self._write_ref(branch, version_id)
 
         return version
+
+    def _record_for_version(self, version_id: str) -> dict[str, Any] | None:
+        history = self._load_history()
+        return next((item for item in reversed(history) if item["version_id"] == version_id), None)
 
     def log(self, limit: int = 10, ref: str | None = None) -> list[ContextVersion]:
         """Return recent versions from history.json, newest first."""
@@ -303,8 +315,7 @@ class VersionStore:
         resolved = self.resolve_ref(ref)
         if resolved is None:
             return None
-        history = self._load_history()
-        record = next((item for item in reversed(history) if item["version_id"] == resolved), None)
+        record = self._record_for_version(resolved)
         if record is None:
             return None
         return ContextVersion.from_dict(record)
@@ -360,6 +371,41 @@ class VersionStore:
         if branch_match is not None:
             return branch_match
         return self.resolve_version_id(ref)
+
+    def merge_base(self, ref_a: str, ref_b: str) -> str | None:
+        """Return the nearest shared ancestor version id for two refs."""
+        start_a = self.resolve_ref(ref_a)
+        start_b = self.resolve_ref(ref_b)
+        if not start_a or not start_b:
+            return None
+        if start_a == start_b:
+            return start_a
+
+        def _ancestor_distances(start: str) -> dict[str, int]:
+            distances: dict[str, int] = {}
+            queue: list[tuple[str, int]] = [(start, 0)]
+            while queue:
+                version_id, distance = queue.pop(0)
+                if version_id in distances and distances[version_id] <= distance:
+                    continue
+                distances[version_id] = distance
+                record = self._record_for_version(version_id)
+                if record is None:
+                    continue
+                parents = []
+                if record.get("parent_id"):
+                    parents.append(record["parent_id"])
+                parents.extend(record.get("merge_parent_ids", []))
+                for parent in parents:
+                    queue.append((parent, distance + 1))
+            return distances
+
+        distances_a = _ancestor_distances(start_a)
+        distances_b = _ancestor_distances(start_b)
+        shared = set(distances_a) & set(distances_b)
+        if not shared:
+            return None
+        return min(shared, key=lambda version_id: (distances_a[version_id] + distances_b[version_id], max(distances_a[version_id], distances_b[version_id])))
 
     def blame_node(
         self,
