@@ -1,11 +1,12 @@
 """
 Contradiction Engine — Detect conflicting knowledge in a CortexGraph (v5.1)
 
-Four detector types:
+Five detector types:
 1. Negation conflicts: same entity in positive tag + "negations" tag
 2. Temporal flips: confidence changed direction >= 2 times across >= 3 snapshots
 3. Source conflicts: same label from different sources with description mismatch
 4. Tag conflicts: node moved between contradictory tags over time
+5. Temporal claim conflicts: impossible validity windows or overlapping lifecycle claims
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ _CONTRADICTORY_TAG_PAIRS = [
 @dataclass
 class Contradiction:
     id: str
-    type: str  # "negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"
+    type: str  # "negation_conflict", "temporal_flip", "source_conflict", "tag_conflict", "temporal_claim_conflict"
     node_ids: list[str]
     severity: float  # 0.0-1.0
     description: str
@@ -87,6 +88,57 @@ def _make_conflict_id(kind: str, node_ids: list[str], description: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def _normalize_timestamp(timestamp: str) -> str:
+    if not timestamp:
+        return ""
+    value = timestamp.strip()
+    if not value:
+        return ""
+    try:
+        normalized = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    else:
+        normalized = normalized.astimezone(timezone.utc)
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _normalize_status(node: Node) -> str:
+    raw = (getattr(node, "status", "") or "").strip().lower()
+    if raw in {"planned", "future", "upcoming", "intended"}:
+        return "planned"
+    if raw in {"active", "current", "ongoing", "present"}:
+        return "active"
+    if raw in {"historical", "past", "former", "inactive", "completed", "ended"}:
+        return "historical"
+
+    timeline = {str(item).strip().lower() for item in getattr(node, "timeline", [])}
+    if "planned" in timeline or "future" in timeline:
+        return "planned"
+    if "past" in timeline or "historical" in timeline:
+        return "historical"
+    if "current" in timeline or "active" in timeline:
+        return "active"
+    return raw
+
+
+def _interval_bounds(node: Node) -> tuple[str, str]:
+    start = _normalize_timestamp(getattr(node, "valid_from", "") or "")
+    end = _normalize_timestamp(getattr(node, "valid_to", "") or "")
+    return start, end
+
+
+def _intervals_overlap(start_a: str, end_a: str, start_b: str, end_b: str) -> bool:
+    left = max(start_a or "", start_b or "")
+    right_candidates = [value for value in (end_a, end_b) if value]
+    right = min(right_candidates) if right_candidates else ""
+    if not right:
+        return True
+    return left <= right
+
+
 class ContradictionEngine:
     """Detect contradictions in a CortexGraph."""
 
@@ -97,6 +149,7 @@ class ContradictionEngine:
         results.extend(self.detect_temporal_flips(graph))
         results.extend(self.detect_source_conflicts(graph))
         results.extend(self.detect_tag_conflicts(graph))
+        results.extend(self.detect_temporal_claim_conflicts(graph))
 
         if min_severity > 0.0:
             results = [c for c in results if c.severity >= min_severity]
@@ -327,5 +380,110 @@ class ContradictionEngine:
                         source_quotes=list(node.source_quotes),
                     )
                 )
+
+        return contradictions
+
+    def detect_temporal_claim_conflicts(self, graph: CortexGraph) -> list[Contradiction]:
+        """Detect invalid windows and overlapping incompatible lifecycle claims."""
+        contradictions: list[Contradiction] = []
+        now = datetime.now(timezone.utc).isoformat()
+
+        label_groups: dict[str, list[Node]] = {}
+        for node in graph.nodes.values():
+            norm = _normalize_label(node.label)
+            label_groups.setdefault(norm, []).append(node)
+
+        for node in graph.nodes.values():
+            valid_from, valid_to = _interval_bounds(node)
+            if valid_from and valid_to and valid_to < valid_from:
+                contradictions.append(
+                    Contradiction(
+                        id=_make_conflict_id("temporal_claim_conflict", [node.id], f"{node.label}:invalid-window"),
+                        type="temporal_claim_conflict",
+                        node_ids=[node.id],
+                        severity=0.95,
+                        description=(
+                            f"Node '{node.label}' has an invalid validity window: "
+                            f"valid_to ({valid_to}) is earlier than valid_from ({valid_from})"
+                        ),
+                        detected_at=now,
+                        resolution="needs_review",
+                        node_label=node.label,
+                        old_value=valid_from,
+                        new_value=valid_to,
+                        source_quotes=list(node.source_quotes),
+                        metadata={
+                            "reason": "invalid_window",
+                            "status": _normalize_status(node),
+                            "valid_from": valid_from,
+                            "valid_to": valid_to,
+                        },
+                    )
+                )
+
+        incompatible_pairs = {
+            tuple(sorted(("planned", "active"))),
+            tuple(sorted(("planned", "historical"))),
+            tuple(sorted(("active", "historical"))),
+        }
+
+        for nodes in label_groups.values():
+            if len(nodes) < 2:
+                continue
+            for i in range(len(nodes) - 1):
+                for j in range(i + 1, len(nodes)):
+                    node_a = nodes[i]
+                    node_b = nodes[j]
+                    status_a = _normalize_status(node_a)
+                    status_b = _normalize_status(node_b)
+                    if not status_a or not status_b or status_a == status_b:
+                        continue
+                    pair = tuple(sorted((status_a, status_b)))
+                    if pair not in incompatible_pairs:
+                        continue
+
+                    start_a, end_a = _interval_bounds(node_a)
+                    start_b, end_b = _interval_bounds(node_b)
+                    if not _intervals_overlap(start_a, end_a, start_b, end_b):
+                        continue
+
+                    severity = 0.85 if pair == ("active", "historical") else 0.75
+                    contradictions.append(
+                        Contradiction(
+                            id=_make_conflict_id(
+                                "temporal_claim_conflict",
+                                [node_a.id, node_b.id],
+                                f"{node_a.label}:{status_a}:{status_b}:{start_a}:{end_a}:{start_b}:{end_b}",
+                            ),
+                            type="temporal_claim_conflict",
+                            node_ids=[node_a.id, node_b.id],
+                            severity=severity,
+                            description=(
+                                f"Label '{node_a.label}' has overlapping temporal claims with incompatible "
+                                f"statuses: {status_a} vs {status_b}"
+                            ),
+                            detected_at=now,
+                            resolution="needs_review",
+                            node_label=node_a.label,
+                            old_value=status_a,
+                            new_value=status_b,
+                            source_quotes=list(dict.fromkeys(node_a.source_quotes + node_b.source_quotes)),
+                            metadata={
+                                "reason": "overlapping_status_claims",
+                                "node_a": {
+                                    "id": node_a.id,
+                                    "status": status_a,
+                                    "valid_from": start_a,
+                                    "valid_to": end_a,
+                                },
+                                "node_b": {
+                                    "id": node_b.id,
+                                    "status": status_b,
+                                    "valid_from": start_b,
+                                    "valid_to": end_b,
+                                },
+                            },
+                        )
+                    )
 
         return contradictions

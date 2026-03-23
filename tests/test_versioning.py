@@ -121,6 +121,35 @@ class TestVersionStore:
             assert mod["changes"]["confidence"]["from"] == 0.7
             assert mod["changes"]["confidence"]["to"] == 0.9
 
+    def test_diff_shows_temporal_field_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            g1 = CortexGraph()
+            g1.add_node(Node(id="n1", label="Project Atlas", tags=["tech"], status="planned", valid_from="2026-01-01T00:00:00Z"))
+            v1 = store.commit(g1, "v1")
+
+            g2 = CortexGraph()
+            g2.add_node(
+                Node(
+                    id="n1",
+                    label="Project Atlas",
+                    tags=["tech"],
+                    status="active",
+                    valid_from="2026-02-01T00:00:00Z",
+                    valid_to="2026-12-31T00:00:00Z",
+                )
+            )
+            v2 = store.commit(g2, "v2")
+
+            d = store.diff(v1.version_id, v2.version_id)
+            assert len(d["modified"]) == 1
+            mod = d["modified"][0]
+            assert mod["changes"]["status"]["from"] == "planned"
+            assert mod["changes"]["status"]["to"] == "active"
+            assert mod["changes"]["valid_from"]["from"] == "2026-01-01T00:00:00Z"
+            assert mod["changes"]["valid_to"]["to"] == "2026-12-31T00:00:00Z"
+
     def test_diff_identical_versions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = VersionStore(Path(tmpdir) / ".cortex")

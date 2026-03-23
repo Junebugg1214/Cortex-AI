@@ -300,6 +300,7 @@ def build_parser():
     qry.add_argument("--limit", type=int, default=10, help="Result limit for --search or --dsl SEARCH (default: 10)")
     qry.add_argument("--dsl", metavar="QUERY", help="Run the Cortex query DSL directly")
     qry.add_argument("--nl", metavar="QUERY", help="Natural-language query (limited patterns)")
+    qry.add_argument("--at", help="Query the graph as-of an ISO timestamp using validity windows and snapshots")
 
     # -- stats (Phase 1) ---------------------------------------------------
     st = sub.add_parser("stats", help="Show graph/context statistics")
@@ -321,7 +322,7 @@ def build_parser():
     ct.add_argument(
         "--type",
         dest="contradiction_type",
-        choices=["negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"],
+        choices=["negation_conflict", "temporal_flip", "source_conflict", "tag_conflict", "temporal_claim_conflict"],
         help="Filter by contradiction type",
     )
     ct.add_argument("--format", choices=["json", "text"], default="text", help="Output format (default: text)")
@@ -769,6 +770,8 @@ def run_query(args):
         return 1
 
     graph = _load_graph(input_path)
+    if args.at:
+        graph = graph.graph_at(args.at)
 
     # --- Phase 1 queries (--node, --neighbors) ---
     if args.node:
@@ -781,6 +784,10 @@ def run_query(args):
             print(f"  Tags: {', '.join(node.tags)}")
             print(f"  Confidence: {node.confidence:.2f}")
             print(f"  Mentions: {node.mention_count}")
+            if getattr(node, "status", ""):
+                print(f"  Status: {node.status}")
+            if getattr(node, "valid_from", "") or getattr(node, "valid_to", ""):
+                print(f"  Valid: {getattr(node, 'valid_from', '') or '?'} -> {getattr(node, 'valid_to', '') or '?'}")
             if node.brief:
                 print(f"  Brief: {node.brief}")
             if node.full_description:
@@ -924,7 +931,7 @@ def run_query(args):
     print(
         "Specify a query flag: --node, --neighbors, --category, --path, "
         "--changed-since, --strongest, --weakest, --isolated, --related, "
-        "--components, --search, --dsl, --nl"
+        "--components, --search, --dsl, --nl, --at"
     )
     return 1
 
@@ -1485,6 +1492,14 @@ def run_gaps(args):
         for g in gaps["relationship_gaps"]:
             print(f"  - {g['tag']}: {g['node_count']} nodes, 0 edges")
 
+    if gaps["temporal_gaps"]:
+        print(f"\nTemporal gaps ({len(gaps['temporal_gaps'])}):")
+        for g in gaps["temporal_gaps"]:
+            print(
+                f"  - {g['label']}: {g['kind']}"
+                + (f" [{g['status']}]" if g.get("status") else "")
+            )
+
     if gaps["isolated_nodes"]:
         print(f"\nIsolated nodes ({len(gaps['isolated_nodes'])}):")
         for g in gaps["isolated_nodes"]:
@@ -1499,6 +1514,7 @@ def run_gaps(args):
         len(gaps["category_gaps"])
         + len(gaps["confidence_gaps"])
         + len(gaps["relationship_gaps"])
+        + len(gaps["temporal_gaps"])
         + len(gaps["isolated_nodes"])
         + len(gaps["stale_nodes"])
     )
@@ -1540,6 +1556,16 @@ def run_digest(args):
         for c in digest["confidence_changes"]:
             direction = "+" if c["delta"] > 0 else ""
             print(f"  {c['label']}: {c['previous']:.2f} -> {c['current']:.2f} ({direction}{c['delta']:.2f})")
+
+    if digest["temporal_changes"]:
+        print(f"\nTemporal changes ({len(digest['temporal_changes'])}):")
+        for c in digest["temporal_changes"]:
+            print(
+                f"  {c['label']}: "
+                f"status {c['previous_status'] or '?'} -> {c['current_status'] or '?'}; "
+                f"valid_from {c['previous_valid_from'] or '?'} -> {c['current_valid_from'] or '?'}; "
+                f"valid_to {c['previous_valid_to'] or '?'} -> {c['current_valid_to'] or '?'}"
+            )
 
     if digest["new_edges"]:
         print(f"\nNew edges ({len(digest['new_edges'])}):")

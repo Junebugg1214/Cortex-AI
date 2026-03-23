@@ -224,6 +224,7 @@ class TestAllGaps:
         assert "category_gaps" in gaps
         assert "confidence_gaps" in gaps
         assert "relationship_gaps" in gaps
+        assert "temporal_gaps" in gaps
         assert "isolated_nodes" in gaps
         assert "stale_nodes" in gaps
 
@@ -233,8 +234,38 @@ class TestAllGaps:
         assert len(gaps["category_gaps"]) == len(CATEGORY_ORDER)
         assert gaps["confidence_gaps"] == []
         assert gaps["relationship_gaps"] == []
+        assert gaps["temporal_gaps"] == []
         assert gaps["isolated_nodes"] == []
         assert gaps["stale_nodes"] == []
+
+
+# ============================================================================
+# GapAnalyzer.temporal_gaps
+# ============================================================================
+
+
+class TestTemporalGaps:
+    def test_planned_missing_start_detected(self):
+        g = CortexGraph()
+        g.add_node(Node(id="n1", label="Launch feature", tags=["active_priorities"], status="planned"))
+        analyzer = GapAnalyzer()
+        gaps = analyzer.temporal_gaps(g)
+        assert any(gap["kind"] == "planned_missing_start" for gap in gaps)
+
+    def test_expired_still_active_detected(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="n1",
+                label="Current project",
+                tags=["active_priorities"],
+                status="active",
+                valid_to="2025-01-01T00:00:00Z",
+            )
+        )
+        analyzer = GapAnalyzer()
+        gaps = analyzer.temporal_gaps(g, now=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        assert any(gap["kind"] == "expired_still_active" for gap in gaps)
 
 
 # ============================================================================
@@ -313,12 +344,41 @@ class TestInsightDigest:
         assert "gaps" in digest
         assert "category_gaps" in digest["gaps"]
 
+    def test_temporal_changes_included(self):
+        g1 = CortexGraph()
+        g1.add_node(
+            Node(
+                id="n1",
+                label="Project Atlas",
+                tags=["active_priorities"],
+                status="planned",
+                valid_from="2026-06-01T00:00:00Z",
+            )
+        )
+        g2 = CortexGraph()
+        g2.add_node(
+            Node(
+                id="n1",
+                label="Project Atlas",
+                tags=["active_priorities"],
+                status="active",
+                valid_from="2026-06-15T00:00:00Z",
+                valid_to="2026-12-31T00:00:00Z",
+            )
+        )
+        gen = InsightGenerator()
+        digest = gen.digest(current=g2, previous=g1)
+        assert len(digest["temporal_changes"]) == 1
+        assert digest["temporal_changes"][0]["previous_status"] == "planned"
+        assert digest["temporal_changes"][0]["current_status"] == "active"
+
     def test_empty_graphs(self):
         gen = InsightGenerator()
         digest = gen.digest(current=CortexGraph(), previous=CortexGraph())
         assert digest["new_nodes"] == []
         assert digest["removed_nodes"] == []
         assert digest["confidence_changes"] == []
+        assert digest["temporal_changes"] == []
         assert digest["new_edges"] == []
 
 

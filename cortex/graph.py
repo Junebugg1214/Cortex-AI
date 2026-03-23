@@ -110,6 +110,12 @@ def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
             changes["tags"] = {"old": sorted(a.tags), "new": sorted(b.tags)}
         if a.brief != b.brief:
             changes["brief"] = {"old": a.brief, "new": b.brief}
+        if a.status != b.status:
+            changes["status"] = {"old": a.status, "new": b.status}
+        if a.valid_from != b.valid_from:
+            changes["valid_from"] = {"old": a.valid_from, "new": b.valid_from}
+        if a.valid_to != b.valid_to:
+            changes["valid_to"] = {"old": a.valid_to, "new": b.valid_to}
         if changes:
             modified_nodes.append({"id": nid, "label": b.label, "changes": changes})
 

@@ -64,6 +64,29 @@ class TestDiffGraphs:
         assert d["summary"]["modified"] == 1
         assert d["modified_nodes"][0]["changes"]["label"]["old"] == "Old Label"
 
+    def test_modified_temporal_fields(self):
+        nid = "fixed-id"
+        old = CortexGraph()
+        old.add_node(Node(id=nid, label="Project Atlas", tags=["t"], status="planned", valid_from="2026-01-01T00:00:00Z"))
+        new = CortexGraph()
+        new.add_node(
+            Node(
+                id=nid,
+                label="Project Atlas",
+                tags=["t"],
+                status="active",
+                valid_from="2026-02-01T00:00:00Z",
+                valid_to="2026-12-01T00:00:00Z",
+            )
+        )
+        d = diff_graphs(old, new)
+        assert d["summary"]["modified"] == 1
+        changes = d["modified_nodes"][0]["changes"]
+        assert changes["status"]["old"] == "planned"
+        assert changes["status"]["new"] == "active"
+        assert changes["valid_from"]["old"] == "2026-01-01T00:00:00Z"
+        assert changes["valid_to"]["new"] == "2026-12-01T00:00:00Z"
+
     def test_added_edges(self):
         old = CortexGraph()
         new = CortexGraph()

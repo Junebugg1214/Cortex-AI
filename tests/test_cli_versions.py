@@ -31,6 +31,33 @@ def test_query_search_uses_alias(tmp_path, capsys):
     assert "aliases: postgres" in out
 
 
+def test_query_at_filters_temporal_graph(tmp_path, capsys):
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id=make_node_id("Current Project"),
+            label="Current Project",
+            tags=["active_priorities"],
+            confidence=0.9,
+            status="active",
+            valid_from="2026-01-01T00:00:00Z",
+            valid_to="2026-12-31T00:00:00Z",
+        )
+    )
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    present_rc = main(["query", str(graph_path), "--node", "Current Project", "--at", "2026-06-01T00:00:00Z"])
+    present_out = capsys.readouterr().out
+    missing_rc = main(["query", str(graph_path), "--node", "Current Project", "--at", "2027-06-01T00:00:00Z"])
+    missing_out = capsys.readouterr().out
+
+    assert present_rc == 0
+    assert "Current Project" in present_out
+    assert missing_rc == 0
+    assert "No node found" in missing_out
+
+
 def test_memory_set_supports_alias_temporal_and_provenance(tmp_path):
     graph_path = tmp_path / "context.json"
     _write_graph(graph_path, CortexGraph())

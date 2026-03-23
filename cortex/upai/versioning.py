@@ -148,7 +148,7 @@ class VersionStore:
         return [ContextVersion.from_dict(d) for d in recent]
 
     def diff(self, version_id_a: str, version_id_b: str) -> dict:
-        """Compare two versions: added/removed/modified nodes, confidence/tag changes."""
+        """Compare two versions: added/removed/modified nodes, including temporal fields."""
         graph_a = self.checkout(version_id_a)
         graph_b = self.checkout(version_id_b)
 
@@ -176,6 +176,15 @@ class VersionStore:
                 }
             if node_a.label != node_b.label:
                 changes["label"] = {"from": node_a.label, "to": node_b.label}
+            if getattr(node_a, "status", "") != getattr(node_b, "status", ""):
+                changes["status"] = {"from": getattr(node_a, "status", ""), "to": getattr(node_b, "status", "")}
+            if getattr(node_a, "valid_from", "") != getattr(node_b, "valid_from", ""):
+                changes["valid_from"] = {
+                    "from": getattr(node_a, "valid_from", ""),
+                    "to": getattr(node_b, "valid_from", ""),
+                }
+            if getattr(node_a, "valid_to", "") != getattr(node_b, "valid_to", ""):
+                changes["valid_to"] = {"from": getattr(node_a, "valid_to", ""), "to": getattr(node_b, "valid_to", "")}
             if changes:
                 modified.append({"node_id": nid, "changes": changes})
 

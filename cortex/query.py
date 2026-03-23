@@ -232,6 +232,11 @@ class QueryEngine:
                 if ts and _norm_ts(ts) >= norm_since:
                     has_update = True
                     break
+            if not has_update:
+                for ts in (getattr(node, "valid_from", ""), getattr(node, "valid_to", "")):
+                    if ts and _norm_ts(ts) >= norm_since:
+                        has_update = True
+                        break
             # Or last_seen >= since (and not new)
             if not has_update and node.last_seen and _norm_ts(node.last_seen) >= norm_since:
                 has_update = True

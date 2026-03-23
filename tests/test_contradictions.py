@@ -34,7 +34,14 @@ def _make_graph(*nodes: Node) -> CortexGraph:
 
 
 def _make_node(
-    label: str, tags: list[str] | None = None, confidence: float = 0.5, snapshots: list[dict] | None = None
+    label: str,
+    tags: list[str] | None = None,
+    confidence: float = 0.5,
+    snapshots: list[dict] | None = None,
+    status: str = "",
+    valid_from: str = "",
+    valid_to: str = "",
+    timeline: list[str] | None = None,
 ) -> Node:
     nid = make_node_id(label)
     return Node(
@@ -43,6 +50,10 @@ def _make_node(
         tags=tags or ["technical_expertise"],
         confidence=confidence,
         snapshots=snapshots or [],
+        status=status,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        timeline=timeline or [],
     )
 
 
@@ -373,6 +384,72 @@ class TestTagConflicts:
         engine = ContradictionEngine()
         results = engine.detect_tag_conflicts(g)
         assert len(results) == 0
+
+
+# ============================================================================
+# Temporal claim conflicts
+# ============================================================================
+
+
+class TestTemporalClaimConflicts:
+    def test_detect_invalid_temporal_window(self):
+        node = _make_node(
+            "Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-06-01T00:00:00Z",
+            valid_to="2026-05-01T00:00:00Z",
+        )
+        g = _make_graph(node)
+        engine = ContradictionEngine()
+        results = engine.detect_temporal_claim_conflicts(g)
+        assert len(results) == 1
+        assert results[0].type == "temporal_claim_conflict"
+        assert results[0].metadata["reason"] == "invalid_window"
+
+    def test_detect_overlapping_incompatible_status_claims(self):
+        node_a = _make_node(
+            "Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-01-01T00:00:00Z",
+            valid_to="2026-12-31T00:00:00Z",
+        )
+        node_b = Node(
+            id=make_node_id("Project Atlas") + "x",
+            label="Project Atlas",
+            tags=["history"],
+            status="historical",
+            valid_from="2026-06-01T00:00:00Z",
+            valid_to="2026-09-01T00:00:00Z",
+        )
+        g = _make_graph(node_a, node_b)
+        engine = ContradictionEngine()
+        results = engine.detect_temporal_claim_conflicts(g)
+        assert len(results) == 1
+        assert results[0].metadata["reason"] == "overlapping_status_claims"
+        assert set(results[0].node_ids) == {node_a.id, node_b.id}
+
+    def test_no_temporal_claim_conflict_for_non_overlapping_statuses(self):
+        node_a = _make_node(
+            "Project Atlas",
+            tags=["active_priorities"],
+            status="planned",
+            valid_from="2026-01-01T00:00:00Z",
+            valid_to="2026-02-01T00:00:00Z",
+        )
+        node_b = Node(
+            id=make_node_id("Project Atlas") + "x",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-03-01T00:00:00Z",
+            valid_to="2026-12-01T00:00:00Z",
+        )
+        g = _make_graph(node_a, node_b)
+        engine = ContradictionEngine()
+        results = engine.detect_temporal_claim_conflicts(g)
+        assert results == []
 
     def test_no_tag_conflict_with_single_snapshot(self):
         """< 2 snapshots = no tag conflict detection."""
