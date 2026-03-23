@@ -70,6 +70,8 @@ cortex import context.json --to claude -o ./output
 cortex commit context.json -m "Import meeting notes"
 cortex branch feature/project-atlas
 cortex switch feature/project-atlas
+cortex merge main
+cortex review context.json --against main
 cortex log
 cortex diff <version-a> <version-b>
 cortex checkout <version> -o restored.json
@@ -105,6 +107,7 @@ cortex switch experiment/planning-cleanup
 # 4. Inspect what changed
 cortex log
 cortex diff main experiment/planning-cleanup
+cortex review context.json --against main
 
 # 5. Ask why a claim exists
 cortex blame context.json --label "Project Atlas"
@@ -115,7 +118,10 @@ cortex claim log --label "Project Atlas"
 # 6. Retract a bad source if needed
 cortex memory retract context.json --source planning-doc-v1
 
-# 7. Query historical truth
+# 7. Merge the branch once review is clean
+cortex merge experiment/planning-cleanup
+
+# 8. Query historical truth
 cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
 ```
 

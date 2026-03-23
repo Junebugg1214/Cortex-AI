@@ -491,3 +491,57 @@ def test_merge_cli_merges_branch_into_current(tmp_path, capsys):
     assert "Project Atlas" in {
         node.label for node in VersionStore(store_dir).checkout(main_head.version_id).nodes.values()
     }
+
+
+def test_review_cli_reports_added_nodes_and_risks(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    baseline_graph = CortexGraph()
+    baseline_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            confidence=0.9,
+            status="planned",
+            valid_from="2026-03-01T00:00:00Z",
+        )
+    )
+    baseline_path = tmp_path / "baseline.json"
+    _write_graph(baseline_path, baseline_graph)
+    assert main(["commit", str(baseline_path), "-m", "baseline", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    current_graph = CortexGraph()
+    current_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities", "negations"],
+            confidence=0.4,
+            status="active",
+            valid_from="2026-03-01T00:00:00Z",
+            valid_to="2026-02-01T00:00:00Z",
+        )
+    )
+    current_graph.add_node(Node(id="n2", label="Rust", tags=["technical_expertise"], confidence=0.8))
+    current_path = tmp_path / "current.json"
+    _write_graph(current_path, current_graph)
+
+    review_rc = main(
+        [
+            "review",
+            str(current_path),
+            "--against",
+            "HEAD",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    review_out = json.loads(capsys.readouterr().out)
+
+    assert review_rc == 1
+    assert review_out["summary"]["added_nodes"] == 1
+    assert review_out["summary"]["new_contradictions"] >= 1
+    assert review_out["summary"]["new_temporal_gaps"] >= 1

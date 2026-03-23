@@ -53,6 +53,7 @@ from cortex.memory_ops import (
     show_memory_nodes,
 )
 from cortex.merge import merge_refs
+from cortex.review import review_graphs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -467,6 +468,14 @@ def build_parser():
     mg.add_argument("--dry-run", action="store_true", help="Compute merge result without committing")
     mg.add_argument("--output", "-o", help="Optional path to write the merged graph snapshot")
     mg.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- review (Git-for-AI-Memory) ---------------------------------------
+    rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
+    rvw.add_argument("input_file", nargs="?", help="Optional context JSON to review instead of a stored ref")
+    rvw.add_argument("--against", required=True, help="Baseline branch/ref/version to compare against")
+    rvw.add_argument("--ref", default="HEAD", help="Current branch/ref/version when no input file is provided")
+    rvw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rvw.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- log (Phase 3) -----------------------------------------------------
     lg = sub.add_parser("log", help="Show version history")
@@ -1828,6 +1837,65 @@ def run_merge(args):
     return 0
 
 
+def run_review(args):
+    """Review a graph or stored ref against a baseline."""
+    store = VersionStore(Path(args.store_dir))
+    against_version = _resolve_version_or_exit(store, args.against)
+    against_graph = store.checkout(against_version)
+
+    if args.input_file:
+        input_path = Path(args.input_file)
+        if not input_path.exists():
+            print(f"File not found: {input_path}")
+            return 1
+        current_graph = _load_graph(input_path)
+        current_label = str(input_path)
+    else:
+        current_version = _resolve_version_or_exit(store, args.ref)
+        current_graph = store.checkout(current_version)
+        current_label = current_version
+
+    result = review_graphs(
+        current_graph,
+        against_graph,
+        current_label=current_label,
+        against_label=against_version,
+    ).to_dict()
+
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        summary = result["summary"]
+        print(f"Review {result['current']} against {result['against']}")
+        print(
+            "  Summary:"
+            f" +{summary['added_nodes']}"
+            f" -{summary['removed_nodes']}"
+            f" ~{summary['modified_nodes']}"
+            f" contradictions={summary['new_contradictions']}"
+            f" temporal_gaps={summary['new_temporal_gaps']}"
+            f" low_confidence={summary['introduced_low_confidence_active_priorities']}"
+            f" retractions={summary['new_retractions']}"
+        )
+        if result["diff"]["added_nodes"]:
+            print("  Added nodes:")
+            for item in result["diff"]["added_nodes"][:10]:
+                print(f"    + {item['label']} ({item['id']})")
+        if result["diff"]["modified_nodes"]:
+            print("  Modified nodes:")
+            for item in result["diff"]["modified_nodes"][:10]:
+                print(f"    ~ {item['label']}: {', '.join(sorted(item['changes']))}")
+        if result["new_contradictions"]:
+            print("  New contradictions:")
+            for item in result["new_contradictions"][:10]:
+                print(f"    - {item['type']}: {item['description']}")
+        if result["new_temporal_gaps"]:
+            print("  New temporal gaps:")
+            for item in result["new_temporal_gaps"][:10]:
+                print(f"    - {item['label']}: {item['kind']}")
+    return 0 if result["summary"]["blocking_issues"] == 0 else 1
+
+
 def run_log(args):
     """Show version history."""
     store_dir = Path(args.store_dir)
@@ -2563,6 +2631,7 @@ def main(argv=None):
         "branch",
         "switch",
         "merge",
+        "review",
         "log",
         "sync",
         "verify",
@@ -2643,6 +2712,8 @@ def main(argv=None):
         return run_switch(args)
     elif args.subcommand == "merge":
         return run_merge(args)
+    elif args.subcommand == "review":
+        return run_review(args)
     elif args.subcommand == "log":
         return run_log(args)
     elif args.subcommand == "sync":
