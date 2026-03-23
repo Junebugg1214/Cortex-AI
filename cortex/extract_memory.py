@@ -1450,6 +1450,29 @@ class AggressiveExtractor:
                         source_quote=match.group(0)[:200],
                         timestamp=timestamp,
                     )
+        # Directive-style communication preferences
+        directive_prefs = [
+            (r"\bplease be concise\b", "concise responses", "communication_preferences"),
+            (r"\bskip the disclaimers\b", "no disclaimers", "communication_preferences"),
+            (r"\bdon'?t use bullet points(?: for everything)?\b", "prose over bullet points when appropriate", "communication_preferences"),
+            (r"\bwrite in prose(?: when it makes sense)?\b", "prose over bullet points when appropriate", "communication_preferences"),
+            (r"\bno filler phrases\b", "no filler phrases", "communication_preferences"),
+            (r"\bjust answer\b", "direct answers", "communication_preferences"),
+            (r"\bi dislike long explanations\b", "dislikes long explanations", "user_preferences"),
+        ]
+
+        for pattern, topic, category in directive_prefs:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if not match:
+                continue
+            self.context.add_topic(
+                category=category,
+                topic=topic,
+                brief=f"Communication: {topic}" if category == "communication_preferences" else f"Prefers: {topic}",
+                extraction_method="explicit_statement",
+                source_quote=match.group(0)[:200],
+                timestamp=timestamp,
+            )
 
     def _extract_constraints(self, text: str, timestamp: datetime | None = None):
         """Extract constraints (budget, timeline, team size, requirements)."""
