@@ -89,6 +89,7 @@ CONFIG_FILE_PATTERNS: dict[str, str] = {
 BASH_TOOL_PATTERNS: dict[str, str] = {
     r"\bpytest\b": "Pytest",
     r"\bpython3?\b": "Python",
+    r"\buv\b": "uv",
     r"\bnpm\b": "npm",
     r"\byarn\b": "Yarn",
     r"\bpnpm\b": "pnpm",
