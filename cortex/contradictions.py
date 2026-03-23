@@ -293,6 +293,7 @@ class ContradictionEngine:
                 continue
 
             sorted_snaps = sorted(snapshots, key=lambda s: s.get("timestamp", ""))
+            latest_conflict: tuple[float, str, str] | None = None
 
             # Collect all tags seen across snapshots
             for i in range(len(sorted_snaps) - 1):
@@ -302,43 +303,29 @@ class ContradictionEngine:
                 for pos_tag, neg_tag in _CONTRADICTORY_TAG_PAIRS:
                     # Was in positive, moved to negation
                     if pos_tag in tags_before and neg_tag in tags_after and neg_tag not in tags_before:
-                        severity = 0.7
-                        contradictions.append(
-                            Contradiction(
-                                id=_make_conflict_id("tag_conflict", [node.id], f"{node.label}:{pos_tag}:{neg_tag}"),
-                                type="tag_conflict",
-                                node_ids=[node.id],
-                                severity=severity,
-                                description=(
-                                    f"Node '{node.label}' moved from '{pos_tag}' to '{neg_tag}' between snapshots"
-                                ),
-                                detected_at=now,
-                                resolution="prefer_newer",
-                                node_label=node.label,
-                                old_value=pos_tag,
-                                new_value=neg_tag,
-                                source_quotes=list(node.source_quotes),
-                            )
-                        )
+                        latest_conflict = (0.7, pos_tag, neg_tag)
                     # Was in negation, moved to positive
                     elif neg_tag in tags_before and pos_tag in tags_after and pos_tag not in tags_before:
-                        severity = 0.6
-                        contradictions.append(
-                            Contradiction(
-                                id=_make_conflict_id("tag_conflict", [node.id], f"{node.label}:{neg_tag}:{pos_tag}"),
-                                type="tag_conflict",
-                                node_ids=[node.id],
-                                severity=severity,
-                                description=(
-                                    f"Node '{node.label}' moved from '{neg_tag}' to '{pos_tag}' between snapshots"
-                                ),
-                                detected_at=now,
-                                resolution="prefer_newer",
-                                node_label=node.label,
-                                old_value=neg_tag,
-                                new_value=pos_tag,
-                                source_quotes=list(node.source_quotes),
-                            )
-                        )
+                        latest_conflict = (0.6, neg_tag, pos_tag)
+
+            if latest_conflict is not None:
+                severity, old_tag, new_tag = latest_conflict
+                contradictions.append(
+                    Contradiction(
+                        id=_make_conflict_id("tag_conflict", [node.id], f"{node.label}:{old_tag}:{new_tag}"),
+                        type="tag_conflict",
+                        node_ids=[node.id],
+                        severity=severity,
+                        description=(
+                            f"Node '{node.label}' moved from '{old_tag}' to '{new_tag}' between snapshots"
+                        ),
+                        detected_at=now,
+                        resolution="prefer_newer",
+                        node_label=node.label,
+                        old_value=old_tag,
+                        new_value=new_tag,
+                        source_quotes=list(node.source_quotes),
+                    )
+                )
 
         return contradictions
