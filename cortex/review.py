@@ -14,6 +14,7 @@ from typing import Any
 from cortex.contradictions import ContradictionEngine
 from cortex.graph import CortexGraph, diff_graphs
 from cortex.intelligence import GapAnalyzer
+from cortex.semantic_diff import semantic_diff_graphs
 
 FAILURE_POLICIES = frozenset(
     {
@@ -67,6 +68,8 @@ class ReviewResult:
     low_confidence_active_priorities: list[dict[str, Any]]
     introduced_low_confidence_active_priorities: list[dict[str, Any]]
     new_retractions: list[dict[str, Any]]
+    semantic_changes: list[dict[str, Any]]
+    semantic_summary: dict[str, Any]
 
     def summary(self) -> dict[str, int]:
         blocking_issues = (
@@ -83,6 +86,7 @@ class ReviewResult:
             "introduced_low_confidence_active_priorities": len(self.introduced_low_confidence_active_priorities),
             "new_retractions": len(self.new_retractions),
             "blocking_issues": blocking_issues,
+            "semantic_changes": len(self.semantic_changes),
         }
 
     def failure_counts(self) -> dict[str, int]:
@@ -120,6 +124,7 @@ class ReviewResult:
             f"- New temporal gaps: `{summary['new_temporal_gaps']}`",
             f"- New low-confidence active priorities: `{summary['introduced_low_confidence_active_priorities']}`",
             f"- New retractions: `{summary['new_retractions']}`",
+            f"- Semantic changes: `{summary['semantic_changes']}`",
             "",
             "## Failure Gates",
             "",
@@ -152,6 +157,12 @@ class ReviewResult:
                 f"- source `{item.get('source', '-')}` removed `{item.get('nodes_removed', 0)}` node(s)"
                 for item in self.new_retractions[:20]
             )
+        if self.semantic_changes:
+            lines.extend(["", "## Semantic Changes", ""])
+            lines.extend(
+                f"- `{item['type']}`: {item['description']}"
+                for item in self.semantic_changes[:20]
+            )
         return "\n".join(lines).rstrip() + "\n"
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,6 +178,8 @@ class ReviewResult:
             "low_confidence_active_priorities": list(self.low_confidence_active_priorities),
             "introduced_low_confidence_active_priorities": list(self.introduced_low_confidence_active_priorities),
             "new_retractions": list(self.new_retractions),
+            "semantic_changes": list(self.semantic_changes),
+            "semantic_summary": dict(self.semantic_summary),
             "summary": summary,
         }
 
@@ -214,6 +227,7 @@ def review_graphs(current: CortexGraph, baseline: CortexGraph, *, current_label:
         _retraction_key(item): item for item in baseline.meta.get("retractions", []) if isinstance(item, dict)
     }
     new_retractions = [current_retractions[key] for key in sorted(set(current_retractions) - set(baseline_retractions))]
+    semantic = semantic_diff_graphs(baseline, current)
 
     return ReviewResult(
         current_label=current_label,
@@ -226,4 +240,6 @@ def review_graphs(current: CortexGraph, baseline: CortexGraph, *, current_label:
         low_confidence_active_priorities=low_confidence_active_priorities,
         introduced_low_confidence_active_priorities=introduced_low_confidence_active_priorities,
         new_retractions=new_retractions,
+        semantic_changes=semantic["changes"],
+        semantic_summary=semantic["summary"],
     )

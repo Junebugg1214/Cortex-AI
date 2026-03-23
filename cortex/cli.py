@@ -33,6 +33,7 @@ from cortex.extract_memory import (
     merge_contexts,
 )
 from cortex.graph import CortexGraph, Node
+from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceRule, GovernanceStore
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
     NormalizedContext,
@@ -55,6 +56,7 @@ from cortex.memory_ops import (
     show_memory_nodes,
 )
 from cortex.merge import clear_merge_state, load_merge_state, load_merge_worktree, merge_refs, resolve_merge_conflict, save_merge_state
+from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
@@ -407,6 +409,7 @@ def build_parser():
     df.add_argument("version_b", help="Target version ID, unique prefix, branch name, or HEAD")
     df.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     df.add_argument("--format", choices=["json", "text"], default="text")
+    df.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- blame (memory receipts) -------------------------------------------
     bl = sub.add_parser("blame", help="Explain where a memory claim came from")
@@ -419,6 +422,7 @@ def build_parser():
     bl.add_argument("--source", help="Filter receipts to a specific source label")
     bl.add_argument("--limit", type=int, default=20, help="Max versions to scan for blame history (default: 20)")
     bl.add_argument("--format", choices=["json", "text"], default="text")
+    bl.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- history (receipts timeline) --------------------------------------
     hs = sub.add_parser("history", help="Show chronological memory receipts for a node")
@@ -431,6 +435,7 @@ def build_parser():
     hs.add_argument("--source", help="Filter receipts to a specific source label")
     hs.add_argument("--limit", type=int, default=20, help="Max versions to scan (default: 20)")
     hs.add_argument("--format", choices=["json", "text"], default="text")
+    hs.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- claim (ledger) ----------------------------------------------------
     clm = sub.add_parser("claim", help="Inspect the local claim ledger")
@@ -485,6 +490,20 @@ def build_parser():
     ck.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     ck.add_argument("--output", "-o", help="Output file path (default: <version>.json)")
     ck.add_argument("--no-verify", action="store_true", help="Skip snapshot integrity verification")
+    ck.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- rollback (version history) ----------------------------------------
+    rb = sub.add_parser("rollback", help="Restore a prior memory state as a new commit")
+    rb.add_argument("input_file", help="Path to context JSON (v4 or v5) to overwrite with the restored graph")
+    rb_target = rb.add_mutually_exclusive_group(required=True)
+    rb_target.add_argument("--to", dest="target_ref", help="Version ID, unique prefix, branch name, or HEAD")
+    rb_target.add_argument("--at", dest="target_time", help="Restore the latest version at or before this ISO timestamp")
+    rb.add_argument("--ref", default="HEAD", help="Restrict --at lookup to this branch/ref (default: HEAD)")
+    rb.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rb.add_argument("--message", help="Optional rollback commit message")
+    rb.add_argument("--format", choices=["json", "text"], default="text")
+    rb.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    rb.add_argument("--approve", action="store_true", help="Explicitly approve a gated rollback")
 
     # -- identity (Phase 3) ------------------------------------------------
     ident = sub.add_parser("identity", help="Init/show UPAI identity")
@@ -501,6 +520,8 @@ def build_parser():
     cm.add_argument("-m", "--message", required=True, help="Commit message")
     cm.add_argument("--source", default="manual", help="Source label (extraction, merge, manual)")
     cm.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    cm.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    cm.add_argument("--approve", action="store_true", help="Explicitly approve a gated commit")
 
     # -- branch (Git-for-AI-Memory) ---------------------------------------
     br = sub.add_parser("branch", help="List or create memory branches")
@@ -509,6 +530,7 @@ def build_parser():
     br.add_argument("--switch", action="store_true", help="Switch to the new branch after creating it")
     br.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     br.add_argument("--format", choices=["json", "text"], default="text")
+    br.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- switch (Git-for-AI-Memory) ---------------------------------------
     sw = sub.add_parser("switch", help="Switch the active memory branch")
@@ -530,6 +552,8 @@ def build_parser():
     mg.add_argument("--choose", choices=["current", "incoming"], help="Conflict resolution choice")
     mg.add_argument("--commit-resolved", action="store_true", help="Commit the current resolved merge state")
     mg.add_argument("--abort", action="store_true", help="Abort the pending merge state")
+    mg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    mg.add_argument("--approve", action="store_true", help="Explicitly approve a gated merge")
 
     # -- review (Git-for-AI-Memory) ---------------------------------------
     rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
@@ -550,6 +574,99 @@ def build_parser():
     lg.add_argument("--branch", help="Branch/ref to inspect (default: current branch)")
     lg.add_argument("--all", action="store_true", help="Show global history instead of branch ancestry")
     lg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    lg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- governance --------------------------------------------------------
+    gov = sub.add_parser("governance", help="Manage access control and approval policies")
+    gov_sub = gov.add_subparsers(dest="governance_subcommand")
+
+    gov_list = gov_sub.add_parser("list", help="List governance rules")
+    gov_list.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_add = gov_sub.add_parser("allow", help="Create or replace an allow rule")
+    gov_add.add_argument("name", help="Rule name")
+    gov_add.add_argument("--actor", dest="actor_pattern", default="*", help="Actor glob pattern")
+    gov_add.add_argument("--action", action="append", required=True, help="Action to allow (repeatable or '*')")
+    gov_add.add_argument("--namespace", action="append", required=True, help="Namespace/branch glob pattern")
+    gov_add.add_argument("--require-approval", action="store_true", help="Always require approval for this rule")
+    gov_add.add_argument("--approval-below-confidence", type=float, help="Require approval below this confidence")
+    gov_add.add_argument("--approval-tag", action="append", default=[], help="Tag that requires approval when changed")
+    gov_add.add_argument("--approval-change", action="append", default=[], help="Semantic change type requiring approval")
+    gov_add.add_argument("--description", default="", help="Optional rule description")
+    gov_add.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_add.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_deny = gov_sub.add_parser("deny", help="Create or replace a deny rule")
+    gov_deny.add_argument("name", help="Rule name")
+    gov_deny.add_argument("--actor", dest="actor_pattern", default="*", help="Actor glob pattern")
+    gov_deny.add_argument("--action", action="append", required=True, help="Action to deny (repeatable or '*')")
+    gov_deny.add_argument("--namespace", action="append", required=True, help="Namespace/branch glob pattern")
+    gov_deny.add_argument("--description", default="", help="Optional rule description")
+    gov_deny.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_deny.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_rm = gov_sub.add_parser("delete", help="Delete a governance rule")
+    gov_rm.add_argument("name", help="Rule name")
+    gov_rm.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_rm.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_check = gov_sub.add_parser("check", help="Check whether an actor may perform an action")
+    gov_check.add_argument("--actor", required=True, help="Actor identity")
+    gov_check.add_argument("--action", required=True, choices=sorted(GOVERNANCE_ACTIONS), help="Action to evaluate")
+    gov_check.add_argument("--namespace", required=True, help="Namespace or branch name")
+    gov_check.add_argument("--input-file", help="Optional current graph to evaluate for approval gating")
+    gov_check.add_argument("--against", help="Optional baseline ref for semantic diff/approval gating")
+    gov_check.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_check.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- remote ------------------------------------------------------------
+    rem = sub.add_parser("remote", help="Manage remote memory stores and sync branches")
+    rem_sub = rem.add_subparsers(dest="remote_subcommand")
+
+    rem_list = rem_sub.add_parser("list", help="List configured remotes")
+    rem_list.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_add = rem_sub.add_parser("add", help="Add or replace a remote memory store")
+    rem_add.add_argument("name", help="Remote name")
+    rem_add.add_argument("path", help="Path to another .cortex store or its parent directory")
+    rem_add.add_argument("--default-branch", default="main", help="Default remote branch (default: main)")
+    rem_add.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_add.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_rm = rem_sub.add_parser("remove", help="Remove a remote definition")
+    rem_rm.add_argument("name", help="Remote name")
+    rem_rm.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_rm.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_push = rem_sub.add_parser("push", help="Push a memory branch to a remote store")
+    rem_push.add_argument("name", help="Remote name")
+    rem_push.add_argument("--branch", default="HEAD", help="Local branch/ref to push (default: HEAD)")
+    rem_push.add_argument("--to-branch", help="Remote branch name (default: same as source branch)")
+    rem_push.add_argument("--force", action="store_true", help="Allow non-fast-forward remote updates")
+    rem_push.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_push.add_argument("--format", choices=["json", "text"], default="text")
+    rem_push.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    rem_pull = rem_sub.add_parser("pull", help="Pull a remote branch into a local branch")
+    rem_pull.add_argument("name", help="Remote name")
+    rem_pull.add_argument("--branch", help="Remote branch to pull (default: remote default branch)")
+    rem_pull.add_argument("--into-branch", help="Local branch to update (default: remotes/<name>/<branch>)")
+    rem_pull.add_argument("--switch", action="store_true", help="Switch to the updated branch after pulling")
+    rem_pull.add_argument("--force", action="store_true", help="Allow non-fast-forward local updates")
+    rem_pull.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_pull.add_argument("--format", choices=["json", "text"], default="text")
+    rem_pull.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    rem_fork = rem_sub.add_parser("fork", help="Fork a remote branch into a new local branch")
+    rem_fork.add_argument("name", help="Remote name")
+    rem_fork.add_argument("branch_name", help="New local branch name")
+    rem_fork.add_argument("--remote-branch", help="Remote branch to fork (default: remote default branch)")
+    rem_fork.add_argument("--switch", action="store_true", help="Switch to the new local branch after forking")
+    rem_fork.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_fork.add_argument("--format", choices=["json", "text"], default="text")
+    rem_fork.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- sync (Phase 3) ----------------------------------------------------
     sy = sub.add_parser("sync", help="Disclosure-filtered export via platform adapters")
@@ -1244,6 +1361,44 @@ def _load_identity(store_dir: Path) -> UPAIIdentity | None:
     return None
 
 
+def _current_branch_or_ref(store: VersionStore, ref: str | None = None) -> str:
+    if not ref or ref == "HEAD":
+        return store.current_branch()
+    return ref
+
+
+def _governance_decision_or_error(
+    *,
+    store_dir: Path,
+    actor: str,
+    action: str,
+    namespace: str,
+    current_graph: CortexGraph | None = None,
+    baseline_graph: CortexGraph | None = None,
+    approve: bool = False,
+) -> GovernanceDecision | None:
+    governance = GovernanceStore(store_dir)
+    decision = governance.authorize(
+        actor,
+        action,
+        namespace,
+        current_graph=current_graph,
+        baseline_graph=baseline_graph,
+    )
+    if not decision.allowed:
+        print(f"Access denied: actor '{actor}' cannot {action} namespace '{namespace}'.")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        return None
+    if decision.require_approval and not approve:
+        print(f"Approval required: actor '{actor}' cannot {action} namespace '{namespace}' without review.")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        print("Re-run with --approve after human review.")
+        return None
+    return decision
+
+
 def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None) -> str | None:
     if not message:
         return None
@@ -1442,7 +1597,15 @@ def run_blame(args):
     graph = _load_graph(input_path)
 
     store_path = Path(args.store_dir)
-    store = VersionStore(store_path) if (store_path / "history.json").exists() else None
+    store = VersionStore(store_path)
+    if _governance_decision_or_error(
+        store_dir=store_path,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, args.ref),
+    ) is None:
+        return 1
+    store = store if (store_path / "history.json").exists() else None
     ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
@@ -1555,7 +1718,15 @@ def run_history(args):
     graph = _load_graph(input_path)
 
     store_path = Path(args.store_dir)
-    store = VersionStore(store_path) if (store_path / "history.json").exists() else None
+    store = VersionStore(store_path)
+    if _governance_decision_or_error(
+        store_dir=store_path,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, args.ref),
+    ) is None:
+        return 1
+    store = store if (store_path / "history.json").exists() else None
     ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
@@ -1964,9 +2135,33 @@ def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
     return resolved
 
 
+def _resolve_version_at_or_exit(store: VersionStore, timestamp: str, ref: str | None = None) -> str:
+    resolved = store.resolve_at(timestamp, ref=ref)
+    if resolved is None:
+        scope = f" on {ref}" if ref else ""
+        print(f"Version not found at or before {timestamp}{scope}")
+        raise SystemExit(1)
+    return resolved
+
+
 def run_diff(args):
     """Compare two stored graph versions."""
-    store = VersionStore(Path(args.store_dir))
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, args.version_a),
+    ) is None:
+        return 1
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, args.version_b),
+    ) is None:
+        return 1
     version_a = _resolve_version_or_exit(store, args.version_a)
     version_b = _resolve_version_or_exit(store, args.version_b)
     diff = store.diff(version_a, version_b)
@@ -1983,6 +2178,7 @@ def run_diff(args):
     print(f"  Added: {len(diff['added'])}")
     print(f"  Removed: {len(diff['removed'])}")
     print(f"  Modified: {len(diff['modified'])}")
+    print(f"  Semantic changes: {diff.get('semantic_summary', {}).get('total', 0)}")
     if diff["added"]:
         print("\nAdded:")
         for node_id in diff["added"]:
@@ -1995,18 +2191,81 @@ def run_diff(args):
         print("\nModified:")
         for item in diff["modified"]:
             print(f"  ~ {item['node_id']}: {', '.join(sorted(item['changes'].keys()))}")
+    if diff.get("semantic_changes"):
+        print("\nSemantic changes:")
+        for item in diff["semantic_changes"][:20]:
+            print(f"  * {item['type']}: {item['description']}")
     return 0
 
 
 def run_checkout(args):
     """Write a stored graph version to a file."""
-    store = VersionStore(Path(args.store_dir))
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, args.version_id),
+    ) is None:
+        return 1
     version_id = _resolve_version_or_exit(store, args.version_id)
     graph = store.checkout(version_id, verify=not args.no_verify)
     output_path = Path(args.output) if args.output else Path(f"{version_id}.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
     print(f"Checked out {version_id} to {output_path}")
+    return 0
+
+
+def run_rollback(args):
+    """Restore a stored graph state as a new commit without rewriting history."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    current_branch = store.current_branch()
+
+    if args.target_ref:
+        target_version = _resolve_version_or_exit(store, args.target_ref)
+        target_label = args.target_ref
+    else:
+        target_version = _resolve_version_at_or_exit(store, args.target_time, ref=args.ref)
+        target_label = args.target_time
+
+    restored = store.checkout(target_version)
+    baseline_version = store.resolve_ref("HEAD")
+    baseline_graph = store.checkout(baseline_version) if baseline_version else None
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="rollback",
+        namespace=current_branch,
+        current_graph=restored,
+        baseline_graph=baseline_graph,
+        approve=args.approve,
+    ) is None:
+        return 1
+
+    _save_graph(restored, input_path)
+    identity = _load_identity(store_dir)
+    message = args.message or f"Rollback {current_branch} to {target_label}"
+    version = store.commit(restored, message, source="rollback", identity=identity)
+    payload = {
+        "status": "ok",
+        "target": target_label,
+        "target_version": target_version,
+        "rollback_commit": version.version_id,
+        "branch": version.branch,
+        "output": str(input_path),
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Rolled back {current_branch} to {target_version} as new commit {version.version_id}.")
+    print(f"  Wrote restored graph to {input_path}")
     return 0
 
 
@@ -2096,6 +2355,18 @@ def run_commit(args):
         identity = UPAIIdentity.load(store_dir)
 
     store = VersionStore(store_dir)
+    baseline_version = store.resolve_ref("HEAD")
+    baseline_graph = store.checkout(baseline_version) if baseline_version else None
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="write",
+        namespace=store.current_branch(),
+        current_graph=graph,
+        baseline_graph=baseline_graph,
+        approve=args.approve,
+    ) is None:
+        return 1
     version = store.commit(graph, args.message, source=args.source, identity=identity)
 
     print(f"Committed: {version.version_id}")
@@ -2112,9 +2383,17 @@ def run_commit(args):
 
 def run_branch(args):
     """List or create memory branches."""
-    store = VersionStore(Path(args.store_dir))
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
 
     if args.branch_name:
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="branch",
+            namespace=args.branch_name,
+        ) is None:
+            return 1
         try:
             head = store.create_branch(args.branch_name, from_ref=args.from_ref, switch=args.switch)
         except ValueError as exc:
@@ -2183,6 +2462,13 @@ def run_merge(args):
         return 0
 
     if args.conflicts:
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=current_branch,
+        ) is None:
+            return 1
         state = load_merge_state(store_dir)
         if state is None:
             payload = {"status": "ok", "pending": False, "conflicts": []}
@@ -2226,6 +2512,8 @@ def run_merge(args):
         return 0
 
     if args.commit_resolved:
+        baseline_version = store.resolve_ref("HEAD")
+        baseline_graph = store.checkout(baseline_version) if baseline_version else None
         state = load_merge_state(store_dir)
         if state is None:
             print("No pending merge state found.")
@@ -2235,6 +2523,16 @@ def run_merge(args):
             print(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
             return 1
         graph = load_merge_worktree(store_dir)
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="merge",
+            namespace=current_branch,
+            current_graph=graph,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        ) is None:
+            return 1
         identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
         message = args.message or f"Merge branch '{state['other_ref']}' into {state['current_branch']}"
         merge_parent_ids = [state["other_version"]] if state.get("other_version") and state.get("other_version") != state.get("current_version") else []
@@ -2290,6 +2588,18 @@ def run_merge(args):
     )
 
     if result.ok and not args.dry_run and not no_changes:
+        baseline_version = store.resolve_ref("HEAD")
+        baseline_graph = store.checkout(baseline_version) if baseline_version else None
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="merge",
+            namespace=current_branch,
+            current_graph=result.merged,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        ) is None:
+            return 1
         identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
         message = args.message or f"Merge branch '{args.ref_name}' into {current_branch}"
         merge_parent_ids = [result.other_version] if result.other_version and result.other_version != result.current_version else []
@@ -2400,6 +2710,7 @@ def run_review(args):
             f" temporal_gaps={summary['new_temporal_gaps']}"
             f" low_confidence={summary['introduced_low_confidence_active_priorities']}"
             f" retractions={summary['new_retractions']}"
+            f" semantic={summary['semantic_changes']}"
         )
         print(f"  Gates: {', '.join(fail_policies)} -> {result['status']}")
         if result["diff"]["added_nodes"]:
@@ -2418,6 +2729,10 @@ def run_review(args):
             print("  New temporal gaps:")
             for item in result["new_temporal_gaps"][:10]:
                 print(f"    - {item['label']}: {item['kind']}")
+        if result["semantic_changes"]:
+            print("  Semantic changes:")
+            for item in result["semantic_changes"][:10]:
+                print(f"    - {item['type']}: {item['description']}")
     return 0 if not should_fail else 1
 
 
@@ -2426,6 +2741,13 @@ def run_log(args):
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
     ref = None if args.all else (args.branch or "HEAD")
+    if _governance_decision_or_error(
+        store_dir=store_dir,
+        actor=args.actor,
+        action="read",
+        namespace=_current_branch_or_ref(store, ref),
+    ) is None:
+        return 1
     versions = store.log(limit=args.limit, ref=ref)
 
     if not versions:
@@ -2442,6 +2764,226 @@ def run_log(args):
             print("  signed", end="")
         print()
     return 0
+
+
+def _rule_from_args(args, effect: str) -> GovernanceRule:
+    invalid_actions = [item for item in args.action if item != "*" and item not in GOVERNANCE_ACTIONS]
+    if invalid_actions:
+        raise ValueError(f"Unknown governance action(s): {', '.join(sorted(invalid_actions))}")
+    return GovernanceRule(
+        name=args.name,
+        effect=effect,
+        actor_pattern=args.actor_pattern,
+        actions=list(args.action),
+        namespaces=list(args.namespace),
+        require_approval=bool(getattr(args, "require_approval", False)),
+        approval_below_confidence=getattr(args, "approval_below_confidence", None),
+        approval_tags=list(getattr(args, "approval_tag", [])),
+        approval_change_types=list(getattr(args, "approval_change", [])),
+        description=getattr(args, "description", ""),
+    )
+
+
+def run_governance(args):
+    store_dir = Path(args.store_dir)
+    governance = GovernanceStore(store_dir)
+
+    if args.governance_subcommand == "list":
+        rules = [rule.to_dict() for rule in governance.list_rules()]
+        payload = {"rules": rules}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not rules:
+            print("No governance rules configured.")
+            return 0
+        for rule in rules:
+            approval = " approval" if rule.get("require_approval") else ""
+            print(
+                f"{rule['name']}: {rule['effect']} actor={rule['actor_pattern']} "
+                f"actions={','.join(rule['actions'])} namespaces={','.join(rule['namespaces'])}{approval}"
+            )
+        return 0
+
+    if args.governance_subcommand in {"allow", "deny"}:
+        try:
+            rule = _rule_from_args(args, effect=args.governance_subcommand)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        governance.upsert_rule(rule)
+        payload = {"status": "ok", "rule": rule.to_dict()}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Saved governance rule {rule.name}.")
+        return 0
+
+    if args.governance_subcommand == "delete":
+        removed = governance.remove_rule(args.name)
+        payload = {"status": "ok" if removed else "missing", "name": args.name}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if removed:
+            print(f"Deleted governance rule {args.name}.")
+        else:
+            print(f"Governance rule not found: {args.name}")
+        return 0 if removed else 1
+
+    if args.governance_subcommand == "check":
+        current_graph = None
+        baseline_graph = None
+        if args.input_file:
+            input_path = Path(args.input_file)
+            if not input_path.exists():
+                print(f"File not found: {input_path}")
+                return 1
+            current_graph = _load_graph(input_path)
+        if args.against:
+            store = VersionStore(store_dir)
+            baseline_graph = store.checkout(_resolve_version_or_exit(store, args.against))
+        decision = governance.authorize(
+            args.actor,
+            args.action,
+            args.namespace,
+            current_graph=current_graph,
+            baseline_graph=baseline_graph,
+        )
+        if _emit_result(decision.to_dict(), args.format) == 0:
+            return 0
+        status = "allow" if decision.allowed else "deny"
+        print(f"{status.upper()}: actor '{decision.actor}' -> {decision.action} {decision.namespace}")
+        if decision.matched_rules:
+            print(f"  Rules: {', '.join(decision.matched_rules)}")
+        if decision.require_approval:
+            print("  Approval required")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        return 0 if decision.allowed else 1
+
+    print("Specify a governance subcommand: list, allow, deny, delete, check")
+    return 1
+
+
+def run_remote(args):
+    store_dir = Path(args.store_dir)
+    registry = RemoteRegistry(store_dir)
+    store = VersionStore(store_dir)
+
+    if args.remote_subcommand == "list":
+        remotes = [remote.to_dict() | {"store_path": str(remote.store_path)} for remote in registry.list_remotes()]
+        payload = {"remotes": remotes}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not remotes:
+            print("No remotes configured.")
+            return 0
+        for remote in remotes:
+            print(f"{remote['name']}: {remote['store_path']} (default={remote['default_branch']})")
+        return 0
+
+    if args.remote_subcommand == "add":
+        remote = MemoryRemote(name=args.name, path=args.path, default_branch=args.default_branch)
+        registry.add(remote)
+        payload = {"status": "ok", "remote": remote.to_dict() | {"store_path": str(remote.store_path)}}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Added remote {remote.name} -> {remote.store_path}")
+        return 0
+
+    if args.remote_subcommand == "remove":
+        removed = registry.remove(args.name)
+        payload = {"status": "ok" if removed else "missing", "name": args.name}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if removed:
+            print(f"Removed remote {args.name}.")
+        else:
+            print(f"Remote not found: {args.name}")
+        return 0 if removed else 1
+
+    remote = registry.get(args.name)
+    if remote is None:
+        print(f"Remote not found: {args.name}")
+        return 1
+
+    if args.remote_subcommand == "push":
+        namespace = _current_branch_or_ref(store, args.branch)
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="push",
+            namespace=namespace,
+        ) is None:
+            return 1
+        try:
+            payload = push_remote(
+                store,
+                remote,
+                branch=args.branch,
+                target_branch=args.to_branch,
+                force=args.force,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Pushed {payload['branch']} -> {remote.name}:{payload['remote_branch']} ({payload['head']})")
+        return 0
+
+    if args.remote_subcommand == "pull":
+        remote_branch = args.branch or remote.default_branch
+        namespace = args.into_branch or f"remotes/{remote.name}/{remote_branch}"
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="pull",
+            namespace=namespace,
+        ) is None:
+            return 1
+        try:
+            payload = pull_remote(
+                store,
+                remote,
+                branch=remote_branch,
+                into_branch=args.into_branch,
+                force=args.force,
+                switch=args.switch,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Pulled {remote.name}:{remote_branch} -> {payload['branch']} ({payload['head']})")
+        return 0
+
+    if args.remote_subcommand == "fork":
+        remote_branch = args.remote_branch or remote.default_branch
+        if _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="branch",
+            namespace=args.branch_name,
+        ) is None:
+            return 1
+        try:
+            payload = fork_remote(
+                store,
+                remote,
+                remote_branch=remote_branch,
+                local_branch=args.branch_name,
+                switch=args.switch,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Forked {remote.name}:{remote_branch} -> {args.branch_name} ({payload['head']})")
+        return 0
+
+    print("Specify a remote subcommand: list, add, remove, push, pull, fork")
+    return 1
 
 
 def run_sync(args):
@@ -3153,6 +3695,7 @@ def main(argv=None):
         "history",
         "claim",
         "checkout",
+        "rollback",
         "identity",
         "commit",
         "branch",
@@ -3160,6 +3703,8 @@ def main(argv=None):
         "merge",
         "review",
         "log",
+        "governance",
+        "remote",
         "sync",
         "verify",
         "gaps",
@@ -3239,6 +3784,8 @@ def main(argv=None):
         return 1
     elif args.subcommand == "checkout":
         return run_checkout(args)
+    elif args.subcommand == "rollback":
+        return run_rollback(args)
     elif args.subcommand == "identity":
         return run_identity(args)
     elif args.subcommand == "commit":
@@ -3253,6 +3800,10 @@ def main(argv=None):
         return run_review(args)
     elif args.subcommand == "log":
         return run_log(args)
+    elif args.subcommand == "governance":
+        return run_governance(args)
+    elif args.subcommand == "remote":
+        return run_remote(args)
     elif args.subcommand == "sync":
         return run_sync(args)
     elif args.subcommand == "verify":

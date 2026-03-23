@@ -891,3 +891,223 @@ def test_review_cli_supports_markdown_and_custom_fail_on(tmp_path, capsys):
     assert relaxed_rc == 0
     assert relaxed_out["status"] == "pass"
     assert relaxed_out["fail_on"] == ["none"]
+
+
+def test_commit_requires_approval_under_governance(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.4))
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    assert (
+        main(
+            [
+                "governance",
+                "allow",
+                "protect-main",
+                "--actor",
+                "agent/*",
+                "--action",
+                "write",
+                "--namespace",
+                "main",
+                "--approval-below-confidence",
+                "0.75",
+                "--store-dir",
+                str(store_dir),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    blocked_rc = main(
+        [
+            "commit",
+            str(graph_path),
+            "-m",
+            "low confidence write",
+            "--store-dir",
+            str(store_dir),
+            "--actor",
+            "agent/coder",
+        ]
+    )
+    blocked_out = capsys.readouterr().out
+
+    assert blocked_rc == 1
+    assert "Approval required" in blocked_out
+
+    approved_rc = main(
+        [
+            "commit",
+            str(graph_path),
+            "-m",
+            "approved write",
+            "--store-dir",
+            str(store_dir),
+            "--actor",
+            "agent/coder",
+            "--approve",
+        ]
+    )
+    approved_out = capsys.readouterr().out
+
+    assert approved_rc == 0
+    assert "Committed:" in approved_out
+
+
+def test_diff_json_includes_semantic_changes(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    baseline = CortexGraph()
+    baseline.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="planned",
+            valid_from="2026-01-01T00:00:00Z",
+        )
+    )
+    updated = CortexGraph()
+    updated.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-02-01T00:00:00Z",
+            valid_to="2026-12-31T00:00:00Z",
+        )
+    )
+
+    baseline_path = tmp_path / "baseline.json"
+    updated_path = tmp_path / "updated.json"
+    _write_graph(baseline_path, baseline)
+    _write_graph(updated_path, updated)
+    assert main(["commit", str(baseline_path), "-m", "baseline", "--store-dir", str(store_dir)]) == 0
+    baseline_commit = capsys.readouterr().out.splitlines()[0].split()[-1]
+    assert main(["commit", str(updated_path), "-m", "updated", "--store-dir", str(store_dir)]) == 0
+    updated_commit = capsys.readouterr().out.splitlines()[0].split()[-1]
+
+    rc = main(
+        [
+            "diff",
+            baseline_commit,
+            updated_commit,
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["semantic_summary"]["total"] >= 1
+    assert any(change["type"] == "lifecycle_shift" for change in out["semantic_changes"])
+
+
+def test_rollback_restores_previous_version_without_rewriting_history(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    graph_v1 = CortexGraph()
+    graph_v1.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.9))
+    graph_v2 = CortexGraph()
+    graph_v2.add_node(Node(id="n1", label="Rust", tags=["technical_expertise"], confidence=0.9))
+
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph_v1)
+    assert main(["commit", str(graph_path), "-m", "v1", "--store-dir", str(store_dir)]) == 0
+    first_out = capsys.readouterr().out
+    first_commit = first_out.splitlines()[0].split()[-1]
+
+    _write_graph(graph_path, graph_v2)
+    assert main(["commit", str(graph_path), "-m", "v2", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    rollback_rc = main(
+        [
+            "rollback",
+            str(graph_path),
+            "--to",
+            first_commit,
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    rollback_out = json.loads(capsys.readouterr().out)
+
+    assert rollback_rc == 0
+    restored = CortexGraph.from_v5_json(json.loads(graph_path.read_text(encoding="utf-8")))
+    assert restored.nodes["n1"].label == "Python"
+
+    store = VersionStore(store_dir)
+    history = store.log(limit=10)
+    assert len(history) == 3
+    assert history[0].version_id == rollback_out["rollback_commit"]
+
+
+def test_remote_push_pull_and_fork_workflows(tmp_path, capsys):
+    local_store_dir = tmp_path / "local" / ".cortex"
+    remote_root = tmp_path / "remote"
+    local_graph = CortexGraph()
+    local_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    graph_path = tmp_path / "local" / "context.json"
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_graph(graph_path, local_graph)
+
+    assert main(["commit", str(graph_path), "-m", "local baseline", "--store-dir", str(local_store_dir)]) == 0
+    local_commit = capsys.readouterr().out.splitlines()[0].split()[-1]
+
+    assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+    push_rc = main(["remote", "push", "origin", "--branch", "main", "--store-dir", str(local_store_dir), "--format", "json"])
+    push_out = json.loads(capsys.readouterr().out)
+
+    assert push_rc == 0
+    assert push_out["head"] == local_commit
+
+    clone_store_dir = tmp_path / "clone" / ".cortex"
+    assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(clone_store_dir)]) == 0
+    capsys.readouterr()
+    pull_rc = main(
+        [
+            "remote",
+            "pull",
+            "origin",
+            "--branch",
+            "main",
+            "--into-branch",
+            "imported/main",
+            "--store-dir",
+            str(clone_store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    pull_out = json.loads(capsys.readouterr().out)
+    assert pull_rc == 0
+    assert pull_out["branch"] == "imported/main"
+    assert VersionStore(clone_store_dir).resolve_ref("imported/main") == local_commit
+
+    fork_rc = main(
+        [
+            "remote",
+            "fork",
+            "origin",
+            "agent/experiment",
+            "--remote-branch",
+            "main",
+            "--store-dir",
+            str(clone_store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    fork_out = json.loads(capsys.readouterr().out)
+    assert fork_rc == 0
+    assert fork_out["forked"] is True
+    assert VersionStore(clone_store_dir).resolve_ref("agent/experiment") == local_commit

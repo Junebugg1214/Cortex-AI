@@ -24,6 +24,7 @@ from typing import Any
 from typing import TYPE_CHECKING
 
 from cortex.graph import CortexGraph, Node, _normalize_label
+from cortex.semantic_diff import semantic_diff_graphs
 
 if TYPE_CHECKING:
     from cortex.upai.identity import UPAIIdentity
@@ -144,6 +145,27 @@ class VersionStore:
     def _save_history(self, history: list[dict]) -> None:
         self._ensure_dirs()
         self.history_path.write_text(json.dumps(history, indent=2))
+
+    def _ancestry_ids(self, start_version: str | None) -> list[str]:
+        if not start_version:
+            return []
+        history_by_id = {item["version_id"]: item for item in self._load_history()}
+        seen: set[str] = set()
+        queue: list[str] = [start_version]
+        while queue:
+            version_id = queue.pop(0)
+            if version_id in seen:
+                continue
+            seen.add(version_id)
+            record = history_by_id.get(version_id)
+            if record is None:
+                continue
+            parents = []
+            if record.get("parent_id"):
+                parents.append(record["parent_id"])
+            parents.extend(record.get("merge_parent_ids", []))
+            queue.extend(parent for parent in parents if parent and parent not in seen)
+        return [item["version_id"] for item in self._load_history() if item["version_id"] in seen]
 
     def commit(
         self,
@@ -276,10 +298,13 @@ class VersionStore:
             if changes:
                 modified.append({"node_id": nid, "changes": changes})
 
+        semantic = semantic_diff_graphs(graph_a, graph_b)
         return {
             "added": sorted(added),
             "removed": sorted(removed),
             "modified": modified,
+            "semantic_changes": semantic["changes"],
+            "semantic_summary": semantic["summary"],
         }
 
     def checkout(self, version_id: str, verify: bool = True) -> CortexGraph:
@@ -371,6 +396,44 @@ class VersionStore:
         if branch_match is not None:
             return branch_match
         return self.resolve_version_id(ref)
+
+    def resolve_at(self, timestamp: str, ref: str | None = None) -> str | None:
+        """Resolve the latest version at or before an ISO timestamp."""
+        try:
+            target = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+        if ref:
+            records = [ContextVersion.from_dict(item) for item in self.lineage_records(ref)]
+        else:
+            records = [ContextVersion.from_dict(item) for item in self._load_history()]
+
+        best: ContextVersion | None = None
+        for record in records:
+            try:
+                record_ts = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if record_ts <= target and (best is None or record_ts > datetime.fromisoformat(best.timestamp.replace("Z", "+00:00"))):
+                best = record
+        return best.version_id if best is not None else None
+
+    def is_ancestor(self, ancestor_ref: str, descendant_ref: str) -> bool:
+        ancestor = self.resolve_ref(ancestor_ref)
+        descendant = self.resolve_ref(descendant_ref)
+        if ancestor is None or descendant is None:
+            return False
+        if ancestor == descendant:
+            return True
+        return ancestor in self._ancestry_ids(descendant)
+
+    def lineage_records(self, ref: str) -> list[dict[str, Any]]:
+        resolved = self.resolve_ref(ref)
+        if resolved is None:
+            return []
+        needed = set(self._ancestry_ids(resolved))
+        return [dict(item) for item in self._load_history() if item["version_id"] in needed]
 
     def merge_base(self, ref_a: str, ref_b: str) -> str | None:
         """Return the nearest shared ancestor version id for two refs."""

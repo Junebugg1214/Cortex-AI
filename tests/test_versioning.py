@@ -149,6 +149,7 @@ class TestVersionStore:
             assert mod["changes"]["status"]["to"] == "active"
             assert mod["changes"]["valid_from"]["from"] == "2026-01-01T00:00:00Z"
             assert mod["changes"]["valid_to"]["to"] == "2026-12-31T00:00:00Z"
+            assert any(change["type"] == "lifecycle_shift" for change in d["semantic_changes"])
 
     def test_diff_identical_versions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -201,6 +202,40 @@ class TestVersionStore:
             assert v1.parent_id is None
             assert v2.parent_id == v1.version_id
             assert v3.parent_id == v2.version_id
+
+    def test_resolve_at_returns_latest_version_before_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            resolved = store.resolve_at(v1.timestamp)
+
+            assert resolved == v1.version_id
+            assert resolved != v2.version_id
+
+    def test_is_ancestor_detects_branch_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            store.create_branch("feature/demo")
+            store.switch_branch("feature/demo")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            assert store.is_ancestor(v1.version_id, v2.version_id) is True
+            assert store.is_ancestor(v2.version_id, v1.version_id) is False
+
+    def test_lineage_records_include_branch_ancestry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            store.create_branch("feature/demo")
+            store.switch_branch("feature/demo")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            records = store.lineage_records("feature/demo")
+
+            assert [item["version_id"] for item in records] == [v1.version_id, v2.version_id]
 
     def test_store_directory_created_on_commit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
