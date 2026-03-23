@@ -387,8 +387,8 @@ def build_parser():
 
     # -- diff (version history) --------------------------------------------
     df = sub.add_parser("diff", help="Compare two stored graph versions")
-    df.add_argument("version_a", help="Base version ID or unique prefix")
-    df.add_argument("version_b", help="Target version ID or unique prefix")
+    df.add_argument("version_a", help="Base version ID, unique prefix, branch name, or HEAD")
+    df.add_argument("version_b", help="Target version ID, unique prefix, branch name, or HEAD")
     df.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     df.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -422,7 +422,7 @@ def build_parser():
 
     # -- checkout (version history) ----------------------------------------
     ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
-    ck.add_argument("version_id", help="Version ID or unique prefix")
+    ck.add_argument("version_id", help="Version ID, unique prefix, branch name, or HEAD")
     ck.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     ck.add_argument("--output", "-o", help="Output file path (default: <version>.json)")
     ck.add_argument("--no-verify", action="store_true", help="Skip snapshot integrity verification")
@@ -443,9 +443,26 @@ def build_parser():
     cm.add_argument("--source", default="manual", help="Source label (extraction, merge, manual)")
     cm.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
 
+    # -- branch (Git-for-AI-Memory) ---------------------------------------
+    br = sub.add_parser("branch", help="List or create memory branches")
+    br.add_argument("branch_name", nargs="?", help="Branch name to create")
+    br.add_argument("--from", dest="from_ref", default="HEAD", help="Start point ref (default: HEAD)")
+    br.add_argument("--switch", action="store_true", help="Switch to the new branch after creating it")
+    br.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    br.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- switch (Git-for-AI-Memory) ---------------------------------------
+    sw = sub.add_parser("switch", help="Switch the active memory branch")
+    sw.add_argument("branch_name", help="Branch name to switch to")
+    sw.add_argument("-c", "--create", action="store_true", help="Create the branch if it does not exist")
+    sw.add_argument("--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)")
+    sw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+
     # -- log (Phase 3) -----------------------------------------------------
     lg = sub.add_parser("log", help="Show version history")
     lg.add_argument("--limit", type=int, default=10, help="Max entries to show")
+    lg.add_argument("--branch", help="Branch/ref to inspect (default: current branch)")
+    lg.add_argument("--all", action="store_true", help="Show global history instead of branch ancestry")
     lg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
 
     # -- sync (Phase 3) ----------------------------------------------------
@@ -1506,7 +1523,7 @@ def run_drift(args):
 
 
 def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
-    resolved = store.resolve_version_id(version_ref)
+    resolved = store.resolve_ref(version_ref)
     if resolved is None:
         print(f"Version not found or ambiguous: {version_ref}")
         raise SystemExit(1)
@@ -1648,6 +1665,7 @@ def run_commit(args):
     version = store.commit(graph, args.message, source=args.source, identity=identity)
 
     print(f"Committed: {version.version_id}")
+    print(f"  Branch: {version.branch}")
     print(f"  Message: {version.message}")
     print(f"  Source: {version.source}")
     print(f"  Nodes: {version.node_count}, Edges: {version.edge_count}")
@@ -1658,18 +1676,78 @@ def run_commit(args):
     return 0
 
 
+def run_branch(args):
+    """List or create memory branches."""
+    store = VersionStore(Path(args.store_dir))
+
+    if args.branch_name:
+        try:
+            head = store.create_branch(args.branch_name, from_ref=args.from_ref, switch=args.switch)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        payload = {
+            "branch": args.branch_name,
+            "head": head,
+            "current_branch": store.current_branch(),
+            "created": True,
+        }
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+            return 0
+        print(f"Created branch {args.branch_name}")
+        if head:
+            print(f"  From: {head}")
+        if args.switch:
+            print(f"  Switched to {args.branch_name}")
+        return 0
+
+    branches = store.list_branches()
+    if args.format == "json":
+        print(json.dumps({"current_branch": store.current_branch(), "branches": branches}, indent=2))
+        return 0
+
+    for branch in branches:
+        marker = "*" if branch["current"] else " "
+        head = branch["head"][:8] if branch["head"] else "(empty)"
+        print(f"{marker} {branch['name']:<24} {head}")
+    return 0
+
+
+def run_switch(args):
+    """Switch the active memory branch."""
+    store = VersionStore(Path(args.store_dir))
+    try:
+        if args.create:
+            store.create_branch(args.branch_name, from_ref=args.from_ref, switch=True)
+        else:
+            store.switch_branch(args.branch_name)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    head = store.resolve_ref("HEAD")
+    print(f"Switched to {store.current_branch()}")
+    if head:
+        print(f"  Head: {head}")
+    return 0
+
+
 def run_log(args):
     """Show version history."""
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
-    versions = store.log(limit=args.limit)
+    ref = None if args.all else (args.branch or "HEAD")
+    versions = store.log(limit=args.limit, ref=ref)
 
     if not versions:
         print("No version history found.")
         return 0
 
+    current_head = store.resolve_ref("HEAD")
     for v in versions:
-        print(f"  {v.version_id}  {v.timestamp}  [{v.source}]")
+        marker = "*" if v.version_id == current_head else " "
+        print(f"{marker} {v.version_id}  {v.timestamp}  [{v.source}] ({v.branch})")
         print(f"    {v.message}")
         print(f"    nodes={v.node_count} edges={v.edge_count}", end="")
         if v.signature:
@@ -2387,6 +2465,8 @@ def main(argv=None):
         "checkout",
         "identity",
         "commit",
+        "branch",
+        "switch",
         "log",
         "sync",
         "verify",
@@ -2461,6 +2541,10 @@ def main(argv=None):
         return run_identity(args)
     elif args.subcommand == "commit":
         return run_commit(args)
+    elif args.subcommand == "branch":
+        return run_branch(args)
+    elif args.subcommand == "switch":
+        return run_switch(args)
     elif args.subcommand == "log":
         return run_log(args)
     elif args.subcommand == "sync":

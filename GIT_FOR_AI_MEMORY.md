@@ -3,6 +3,7 @@
 Cortex now has the core local primitives for a `Git for AI Memory` workflow:
 
 - `commit`: snapshot the current graph
+- `branch` / `switch`: create parallel memory histories and move between them
 - `log`: inspect the memory history
 - `diff`: compare versions
 - `checkout`: restore an older snapshot
@@ -43,6 +44,10 @@ cortex memory set context.json \
 # Commit the change
 cortex commit context.json -m "Promote Project Atlas to active"
 
+# Create an experimental memory branch
+cortex branch experiment/slack-import
+cortex switch experiment/slack-import
+
 # Explain why the claim exists
 cortex blame context.json --label "Project Atlas"
 
@@ -64,6 +69,7 @@ cortex memory retract context.json --source planning-notes
 
 - current tags, aliases, confidence, lifecycle, and validity window
 - provenance sources on the current node
+- branch-aware version ancestry for the active memory line
 - snapshot sources that observed the claim
 - version where the claim first appeared
 - most recent version that still contained the claim
@@ -71,8 +77,8 @@ cortex memory retract context.json --source planning-notes
 
 ## Next Logical Steps
 
-- branch and merge workflows for memory histories
 - per-claim provenance ledgers instead of node-level aggregation
+- merge and review workflows for memory histories
 - `blame --source` and `blame --version` filters
 - first-class claim IDs for rename-safe history tracking
 - UI for receipts, diffs, and retractions

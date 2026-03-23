@@ -374,3 +374,81 @@ def test_version_diff_and_checkout_cli(tmp_path, capsys):
     assert checkout_rc == 0
     checked_out = CortexGraph.from_v5_json(json.loads(output_path.read_text(encoding="utf-8")))
     assert "n2" in checked_out.nodes
+
+
+def test_branch_switch_and_ref_checkout_cli(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    graph_path = tmp_path / "context.json"
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.8))
+    _write_graph(graph_path, base_graph)
+
+    commit_main_rc = main(
+        [
+            "commit",
+            str(graph_path),
+            "-m",
+            "main base",
+            "--store-dir",
+            str(store_dir),
+        ]
+    )
+    commit_main_out = capsys.readouterr().out
+    assert commit_main_rc == 0
+    assert "Branch: main" in commit_main_out
+
+    branch_rc = main(["branch", "feature/atlas", "--store-dir", str(store_dir), "--format", "json"])
+    branch_out = json.loads(capsys.readouterr().out)
+    assert branch_rc == 0
+    assert branch_out["branch"] == "feature/atlas"
+
+    switch_rc = main(["switch", "feature/atlas", "--store-dir", str(store_dir)])
+    switch_out = capsys.readouterr().out
+    assert switch_rc == 0
+    assert "Switched to feature/atlas" in switch_out
+
+    feature_graph = CortexGraph()
+    feature_graph.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.8))
+    feature_graph.add_node(Node(id="n2", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    _write_graph(graph_path, feature_graph)
+
+    commit_feature_rc = main(
+        [
+            "commit",
+            str(graph_path),
+            "-m",
+            "feature add atlas",
+            "--store-dir",
+            str(store_dir),
+        ]
+    )
+    capsys.readouterr()
+    assert commit_feature_rc == 0
+
+    log_rc = main(["log", "--store-dir", str(store_dir), "--branch", "feature/atlas"])
+    log_out = capsys.readouterr().out
+    assert log_rc == 0
+    assert "feature add atlas" in log_out
+    assert "(feature/atlas)" in log_out
+
+    diff_rc = main(["diff", "main", "feature/atlas", "--store-dir", str(store_dir), "--format", "json"])
+    diff_out = json.loads(capsys.readouterr().out)
+    assert diff_rc == 0
+    assert "n2" in diff_out["added"]
+
+    output_path = tmp_path / "feature_checked_out.json"
+    checkout_rc = main(
+        [
+            "checkout",
+            "feature/atlas",
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+        ]
+    )
+    capsys.readouterr()
+    assert checkout_rc == 0
+    checked_out = CortexGraph.from_v5_json(json.loads(output_path.read_text(encoding="utf-8")))
+    assert "n2" in checked_out.nodes

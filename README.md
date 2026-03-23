@@ -4,7 +4,7 @@ Own your AI memory and identity.
 
 Cortex is a CLI-only toolkit for local, portable AI memory, identity, and versioned graph history.
 It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
-Think of it as the beginning of **Git for AI Memory**: commits, diffs, checkout, blame, retraction, and time-aware claims for agent context.
+Think of it as the beginning of **Git for AI Memory**: commits, branches, diffs, checkout, blame, retraction, and time-aware claims for agent context.
 
 ## What it does
 
@@ -68,6 +68,8 @@ cortex import context.json --to all -o ./output
 cortex extract <file> -o context.json
 cortex import context.json --to claude -o ./output
 cortex commit context.json -m "Import meeting notes"
+cortex branch feature/project-atlas
+cortex switch feature/project-atlas
 cortex log
 cortex diff <version-a> <version-b>
 cortex checkout <version> -o restored.json
@@ -96,20 +98,24 @@ cortex extract chat-export.json -o context.json
 # 2. Commit the memory snapshot
 cortex commit context.json -m "Import March planning notes"
 
-# 3. Inspect what changed
-cortex log
-cortex diff <older-version> <newer-version>
+# 3. Create a parallel memory branch for an experiment
+cortex branch experiment/planning-cleanup
+cortex switch experiment/planning-cleanup
 
-# 4. Ask why a claim exists
+# 4. Inspect what changed
+cortex log
+cortex diff main experiment/planning-cleanup
+
+# 5. Ask why a claim exists
 cortex blame context.json --label "Project Atlas"
 
-# 4b. Inspect claim events directly
+# 5b. Inspect claim events directly
 cortex claim log --label "Project Atlas"
 
-# 5. Retract a bad source if needed
+# 6. Retract a bad source if needed
 cortex memory retract context.json --source planning-doc-v1
 
-# 6. Query historical truth
+# 7. Query historical truth
 cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
 ```
 

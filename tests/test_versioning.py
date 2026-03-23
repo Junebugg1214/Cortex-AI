@@ -217,6 +217,7 @@ class TestVersionStore:
             version_id="abc123",
             parent_id="parent1",
             timestamp="2025-01-01T00:00:00Z",
+            branch="main",
             source="extraction",
             message="test message",
             graph_hash="deadbeef",
@@ -228,6 +229,7 @@ class TestVersionStore:
         v2 = ContextVersion.from_dict(d)
         assert v2.version_id == v.version_id
         assert v2.parent_id == v.parent_id
+        assert v2.branch == v.branch
         assert v2.message == v.message
         assert v2.signature == v.signature
 
@@ -284,3 +286,33 @@ class TestVersionStore:
             assert blame["versions_changed"] == 2
             assert blame["history"][0]["node"]["provenance_sources"] == ["import-a"]
             assert blame["history"][1]["node"]["status"] == "active"
+
+    def test_branch_bootstraps_main(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            version = store.commit(_sample_graph(), "initial")
+            assert store.current_branch() == "main"
+            assert store.head("HEAD") is not None
+            assert store.head("HEAD").version_id == version.version_id
+            assert store.resolve_ref("main") == version.version_id
+
+    def test_branch_create_switch_and_log_follow_ref_ancestry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            main_v1 = store.commit(_sample_graph(), "main-1")
+            store.create_branch("feature/atlas")
+            store.switch_branch("feature/atlas")
+            feature_v1 = store.commit(_sample_graph(" feature"), "feature-1")
+
+            store.switch_branch("main")
+            main_v2 = store.commit(_sample_graph(" main"), "main-2")
+
+            feature_log = store.log(limit=10, ref="feature/atlas")
+            main_log = store.log(limit=10, ref="main")
+
+            assert feature_log[0].version_id == feature_v1.version_id
+            assert feature_log[1].version_id == main_v1.version_id
+            assert main_log[0].version_id == main_v2.version_id
+            assert main_log[1].version_id == main_v1.version_id
+            assert store.resolve_ref("feature/atlas") == feature_v1.version_id

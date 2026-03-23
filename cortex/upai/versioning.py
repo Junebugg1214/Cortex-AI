@@ -34,6 +34,7 @@ class ContextVersion:
     version_id: str  # SHA-256 of serialized graph
     parent_id: str | None  # previous version (None for initial)
     timestamp: str  # ISO-8601
+    branch: str  # branch ref name
     source: str  # "extraction", "merge", "manual"
     message: str  # commit message
     graph_hash: str  # SHA-256 integrity hash
@@ -46,6 +47,7 @@ class ContextVersion:
             "version_id": self.version_id,
             "parent_id": self.parent_id,
             "timestamp": self.timestamp,
+            "branch": self.branch,
             "source": self.source,
             "message": self.message,
             "graph_hash": self.graph_hash,
@@ -60,6 +62,7 @@ class ContextVersion:
             version_id=d["version_id"],
             parent_id=d.get("parent_id"),
             timestamp=d["timestamp"],
+            branch=d.get("branch", "main"),
             source=d["source"],
             message=d["message"],
             graph_hash=d["graph_hash"],
@@ -76,10 +79,59 @@ class VersionStore:
         self.store_dir = store_dir
         self.versions_dir = store_dir / "versions"
         self.history_path = store_dir / "history.json"
+        self.refs_dir = store_dir / "refs"
+        self.heads_dir = self.refs_dir / "heads"
+        self.head_path = store_dir / "HEAD"
 
     def _ensure_dirs(self) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.versions_dir.mkdir(parents=True, exist_ok=True)
+        self.heads_dir.mkdir(parents=True, exist_ok=True)
+
+    def _branch_path(self, branch: str) -> Path:
+        return self.heads_dir / branch
+
+    def _bootstrap_refs(self) -> None:
+        self._ensure_dirs()
+        if self.head_path.exists():
+            return
+
+        history = self._load_history()
+        branch = "main"
+        branch_path = self._branch_path(branch)
+        branch_path.parent.mkdir(parents=True, exist_ok=True)
+        if history:
+            branch_path.write_text(history[-1]["version_id"])
+        elif not branch_path.exists():
+            branch_path.write_text("")
+        self.head_path.write_text(f"ref: refs/heads/{branch}")
+
+    def _current_ref(self) -> str:
+        self._bootstrap_refs()
+        raw = self.head_path.read_text().strip()
+        if raw.startswith("ref: "):
+            return raw[5:]
+        return raw or "refs/heads/main"
+
+    def _read_ref(self, branch: str) -> str | None:
+        self._bootstrap_refs()
+        path = self._branch_path(branch)
+        if not path.exists():
+            return None
+        value = path.read_text().strip()
+        return value or None
+
+    def _write_ref(self, branch: str, version_id: str | None) -> None:
+        self._ensure_dirs()
+        path = self._branch_path(branch)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(version_id or "")
+
+    def current_branch(self) -> str:
+        ref = self._current_ref()
+        if ref.startswith("refs/heads/"):
+            return ref[len("refs/heads/") :]
+        return ref
 
     def _load_history(self) -> list[dict]:
         if self.history_path.exists():
@@ -99,6 +151,7 @@ class VersionStore:
     ) -> ContextVersion:
         """Serialize graph, hash, optionally sign, save snapshot, append to history."""
         self._ensure_dirs()
+        self._bootstrap_refs()
 
         # Serialize graph
         graph_data = graph.export_v5()
@@ -111,7 +164,8 @@ class VersionStore:
 
         # Determine parent
         history = self._load_history()
-        parent_id = history[-1]["version_id"] if history else None
+        branch = self.current_branch()
+        parent_id = self._read_ref(branch)
 
         # Sign if identity available
         signature = None
@@ -127,6 +181,7 @@ class VersionStore:
             version_id=version_id,
             parent_id=parent_id,
             timestamp=datetime.now(timezone.utc).isoformat(),
+            branch=branch,
             source=source,
             message=message,
             graph_hash=graph_hash,
@@ -138,12 +193,32 @@ class VersionStore:
         # Append to history
         history.append(version.to_dict())
         self._save_history(history)
+        self._write_ref(branch, version_id)
 
         return version
 
-    def log(self, limit: int = 10) -> list[ContextVersion]:
+    def log(self, limit: int = 10, ref: str | None = None) -> list[ContextVersion]:
         """Return recent versions from history.json, newest first."""
         history = self._load_history()
+        if ref:
+            version_id = self.resolve_ref(ref)
+            if version_id is None:
+                return []
+            history_by_id = {item["version_id"]: item for item in history}
+            recent: list[dict] = []
+            seen: set[str] = set()
+            current = version_id
+            while current and current not in seen:
+                seen.add(current)
+                record = history_by_id.get(current)
+                if record is None:
+                    break
+                recent.append(record)
+                current = record.get("parent_id")
+            if limit > 0:
+                recent = recent[:limit]
+            return [ContextVersion.from_dict(d) for d in recent]
+
         recent = history[-limit:] if limit > 0 else history
         recent.reverse()
         return [ContextVersion.from_dict(d) for d in recent]
@@ -223,12 +298,47 @@ class VersionStore:
 
         return CortexGraph.from_v5_json(data)
 
-    def head(self) -> ContextVersion | None:
-        """Return the latest version, or None if no history."""
-        history = self._load_history()
-        if not history:
+    def head(self, ref: str = "HEAD") -> ContextVersion | None:
+        """Return the latest version for a ref, or None if no history."""
+        resolved = self.resolve_ref(ref)
+        if resolved is None:
             return None
-        return ContextVersion.from_dict(history[-1])
+        history = self._load_history()
+        record = next((item for item in reversed(history) if item["version_id"] == resolved), None)
+        if record is None:
+            return None
+        return ContextVersion.from_dict(record)
+
+    def list_branches(self) -> list[dict[str, Any]]:
+        self._bootstrap_refs()
+        current = self.current_branch()
+        branches: list[dict[str, Any]] = []
+        for path in sorted(self.heads_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            name = path.relative_to(self.heads_dir).as_posix()
+            head = path.read_text().strip() or None
+            branches.append({"name": name, "head": head, "current": name == current})
+        return branches
+
+    def create_branch(self, branch: str, from_ref: str = "HEAD", switch: bool = False) -> str | None:
+        self._bootstrap_refs()
+        path = self._branch_path(branch)
+        if path.exists():
+            raise ValueError(f"Branch already exists: {branch}")
+        start = self.resolve_ref(from_ref)
+        self._write_ref(branch, start)
+        if switch:
+            self.switch_branch(branch)
+        return start
+
+    def switch_branch(self, branch: str) -> str | None:
+        self._bootstrap_refs()
+        path = self._branch_path(branch)
+        if not path.exists():
+            raise ValueError(f"Branch not found: {branch}")
+        self.head_path.write_text(f"ref: refs/heads/{branch}")
+        return self._read_ref(branch)
 
     def resolve_version_id(self, prefix: str) -> str | None:
         """Resolve a full or unique-prefix version ID from history."""
@@ -239,6 +349,17 @@ class VersionStore:
         if prefix in matches:
             return prefix
         return None
+
+    def resolve_ref(self, ref: str) -> str | None:
+        self._bootstrap_refs()
+        if ref == "HEAD":
+            return self._read_ref(self.current_branch())
+        if ref.startswith("refs/heads/"):
+            return self._read_ref(ref[len("refs/heads/") :])
+        branch_match = self._read_ref(ref)
+        if branch_match is not None:
+            return branch_match
+        return self.resolve_version_id(ref)
 
     def blame_node(
         self,
