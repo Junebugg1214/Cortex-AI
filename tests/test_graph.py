@@ -110,6 +110,21 @@ class TestQuery:
         results = g.find_nodes(label="python")
         assert len(results) == 1
 
+    def test_find_nodes_by_alias(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="n1",
+                label="PostgreSQL",
+                aliases=["postgres", "pg"],
+                tags=["technical_expertise"],
+                confidence=0.9,
+            )
+        )
+        results = g.find_nodes(label="postgres")
+        assert len(results) == 1
+        assert results[0].label == "PostgreSQL"
+
     def test_find_nodes_by_tag(self):
         g = self._sample_graph()
         results = g.find_nodes(tag="technical_expertise")
@@ -159,13 +174,22 @@ class TestMergeNodes:
     def test_merge_combines_fields(self):
         g = CortexGraph()
         g.add_node(
-            Node(id="a", label="Python", tags=["technical_expertise"], confidence=0.8, mention_count=3, brief="Lang")
+            Node(
+                id="a",
+                label="Python",
+                tags=["technical_expertise"],
+                aliases=["py"],
+                confidence=0.8,
+                mention_count=3,
+                brief="Lang",
+            )
         )
         g.add_node(
             Node(
                 id="b",
                 label="Python",
                 tags=["domain_knowledge"],
+                aliases=["python3"],
                 confidence=0.9,
                 mention_count=2,
                 brief="A programming language",
@@ -176,6 +200,8 @@ class TestMergeNodes:
         assert result.mention_count == 5
         assert "technical_expertise" in result.tags
         assert "domain_knowledge" in result.tags
+        assert "py" in result.aliases
+        assert "python3" in result.aliases
         assert result.brief == "A programming language"  # longer
         assert g.get_node("b") is None
 
@@ -398,6 +424,28 @@ class TestDowngradeV5ToV4:
         topic = v4["categories"]["relationships"][0]
         assert topic["relationship_type"] == "partner"
 
+    def test_alias_and_temporal_fields_preserved(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="n1",
+                label="PostgreSQL",
+                aliases=["postgres"],
+                tags=["technical_expertise"],
+                confidence=0.9,
+                valid_from="2026-01-01T00:00:00Z",
+                valid_to="2026-12-31T00:00:00Z",
+                status="active",
+                provenance=[{"source": "manual", "method": "test"}],
+            )
+        )
+        v4 = downgrade_v5_to_v4(g)
+        topic = v4["categories"]["technical_expertise"][0]
+        assert topic["_aliases"] == ["postgres"]
+        assert topic["_status"] == "active"
+        assert topic["_valid_from"] == "2026-01-01T00:00:00Z"
+        assert topic["_provenance"][0]["source"] == "manual"
+
 
 # ============================================================================
 # Roundtrip
@@ -506,6 +554,59 @@ class TestRoundtrip:
         assert "relationships" in result["categories"]
         assert result["categories"]["relationships"][0]["topic"] == "Acme Corp"
         assert result["categories"]["relationships"][0]["relationship_type"] == "partner"
+
+    def test_v4_roundtrip_with_aliases_and_provenance(self):
+        v4 = {
+            "schema_version": "4.0",
+            "meta": {},
+            "categories": {
+                "technical_expertise": [
+                    {
+                        "topic": "PostgreSQL",
+                        "confidence": 0.8,
+                        "mention_count": 1,
+                        "brief": "Database",
+                        "full_description": "",
+                        "extraction_method": "explicit_statement",
+                        "metrics": [],
+                        "relationships": [],
+                        "timeline": [],
+                        "source_quotes": [],
+                        "first_seen": None,
+                        "last_seen": None,
+                        "_aliases": ["postgres"],
+                        "_status": "active",
+                        "_valid_from": "2026-01-01T00:00:00Z",
+                        "_provenance": [{"source": "manual"}],
+                    }
+                ],
+            },
+        }
+        result = roundtrip_v4(v4)
+        topic = result["categories"]["technical_expertise"][0]
+        assert topic["_aliases"] == ["postgres"]
+        assert topic["_status"] == "active"
+        assert topic["_provenance"][0]["source"] == "manual"
+
+
+class TestTemporalValidity:
+    def test_graph_at_uses_validity_window(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="n1",
+                label="Feature Flag",
+                tags=["active_priorities"],
+                valid_from="2026-02-01T00:00:00Z",
+                valid_to="2026-02-10T00:00:00Z",
+            )
+        )
+        before = g.graph_at("2026-01-15T00:00:00Z")
+        during = g.graph_at("2026-02-05T00:00:00Z")
+        after = g.graph_at("2026-03-01T00:00:00Z")
+        assert "n1" not in before.nodes
+        assert "n1" in during.nodes
+        assert "n1" not in after.nodes
 
 
 # ============================================================================

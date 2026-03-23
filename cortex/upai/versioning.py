@@ -219,3 +219,13 @@ class VersionStore:
         if not history:
             return None
         return ContextVersion.from_dict(history[-1])
+
+    def resolve_version_id(self, prefix: str) -> str | None:
+        """Resolve a full or unique-prefix version ID from history."""
+        history = self._load_history()
+        matches = [item["version_id"] for item in history if item.get("version_id", "").startswith(prefix)]
+        if len(matches) == 1:
+            return matches[0]
+        if prefix in matches:
+            return prefix
+        return None

@@ -12,6 +12,7 @@ import json
 import shlex
 import sys
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from cortex.compat import upgrade_v4_to_v5
@@ -103,7 +104,7 @@ _TAG_SECTIONS = [
 ]
 
 
-def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
+def _format_compact_markdown(graph: CortexGraph, max_chars: int, focus_terms: set[str] | None = None) -> str:
     """Render a filtered graph as tight markdown grouped by tag category.
 
     Output format:
@@ -117,7 +118,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
     section_nodes: dict[str, list] = {label: [] for label, _ in _TAG_SECTIONS}
     uncategorized: list = []
 
-    for node in sorted(graph.nodes.values(), key=lambda n: n.confidence, reverse=True):
+    for node in sorted(graph.nodes.values(), key=lambda n: _context_rank(n, focus_terms), reverse=True):
         placed = False
         for section_label, section_tags in _TAG_SECTIONS:
             if any(t in section_tags for t in node.tags):
@@ -167,6 +168,55 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int) -> str:
     return result
 
 
+def _focus_terms(cwd: str | None) -> set[str]:
+    if not cwd:
+        return set()
+    parts: set[str] = set()
+    for part in Path(cwd).parts:
+        normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in part)
+        for token in normalized.split():
+            if len(token) >= 3:
+                parts.add(token)
+    return parts
+
+
+def _context_rank(node, focus_terms: set[str] | None = None) -> tuple[float, float, int, str]:
+    focus_terms = focus_terms or set()
+    text_parts = [node.label, node.brief, node.full_description, *getattr(node, "aliases", [])]
+    text = " ".join(part.lower() for part in text_parts if part)
+
+    focus_boost = 0.0
+    if focus_terms and any(term in text for term in focus_terms):
+        focus_boost += 1.0
+
+    tag_boost = 0.0
+    if "active_priorities" in node.tags:
+        tag_boost += 1.0
+    if "communication_preferences" in node.tags or "user_preferences" in node.tags:
+        tag_boost += 0.8
+    if "technical_expertise" in node.tags:
+        tag_boost += 0.5
+    if getattr(node, "status", "") == "active":
+        tag_boost += 0.3
+    if getattr(node, "status", "") == "planned":
+        tag_boost -= 0.1
+
+    recency_boost = 0.0
+    timestamp = getattr(node, "last_seen", "") or getattr(node, "first_seen", "") or getattr(node, "valid_from", "")
+    if timestamp:
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            age_days = max((datetime.now(timezone.utc) - parsed).days, 0)
+            recency_boost = max(0.0, 0.4 - min(age_days / 365.0, 0.4))
+        except ValueError:
+            recency_boost = 0.0
+
+    score = round(node.confidence + focus_boost + tag_boost + recency_boost, 4)
+    return (score, node.confidence, node.mention_count, node.label.lower())
+
+
 # ---------------------------------------------------------------------------
 # Context generation pipeline
 # ---------------------------------------------------------------------------
@@ -205,7 +255,7 @@ def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
     if not filtered.nodes:
         return ""
 
-    return _format_compact_markdown(filtered, config.max_chars)
+    return _format_compact_markdown(filtered, config.max_chars, focus_terms=_focus_terms(cwd))
 
 
 # ---------------------------------------------------------------------------

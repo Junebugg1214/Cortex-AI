@@ -278,11 +278,8 @@ def _resolve_node_id(graph: CortexGraph, label_or_id: str) -> str | None:
     """Resolve a label or ID to a node ID."""
     if label_or_id in graph.nodes:
         return label_or_id
-    # Try matching by label
-    for nid, node in graph.nodes.items():
-        if node.label.lower() == label_or_id.lower():
-            return nid
-    return None
+    matches = graph.find_node_ids_by_label(label_or_id)
+    return matches[0] if matches else None
 
 
 def execute_query(

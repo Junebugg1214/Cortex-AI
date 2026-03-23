@@ -244,7 +244,12 @@ def build_parser():
     mem_set.add_argument("--brief", default="", help="Short summary")
     mem_set.add_argument("--description", default="", help="Long description")
     mem_set.add_argument("--property", action="append", help="Node property key=value (repeatable)")
+    mem_set.add_argument("--alias", action="append", help="Alternate label/alias (repeatable)")
     mem_set.add_argument("--confidence", type=float, default=0.95, help="Confidence score")
+    mem_set.add_argument("--valid-from", default="", help="Validity start timestamp (ISO-8601)")
+    mem_set.add_argument("--valid-to", default="", help="Validity end timestamp (ISO-8601)")
+    mem_set.add_argument("--status", default="", help="Lifecycle status such as active, planned, or historical")
+    mem_set.add_argument("--source", default="", help="Provenance source label for this manual edit")
     mem_set.add_argument("--replace-label", help="Update first node matching this label")
     mem_set.add_argument("--commit-message", help="Optional version commit message")
     mem_set.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -277,6 +282,9 @@ def build_parser():
     qry.add_argument("--related", nargs="?", const="", metavar="LABEL", help="Nodes related to LABEL (default depth=2)")
     qry.add_argument("--related-depth", type=int, default=2, help="Depth for --related traversal (default: 2)")
     qry.add_argument("--components", action="store_true", help="Show connected components")
+    qry.add_argument("--search", metavar="QUERY", help="Hybrid search across labels, aliases, and descriptions")
+    qry.add_argument("--limit", type=int, default=10, help="Result limit for --search or --dsl SEARCH (default: 10)")
+    qry.add_argument("--dsl", metavar="QUERY", help="Run the Cortex query DSL directly")
     qry.add_argument("--nl", metavar="QUERY", help="Natural-language query (limited patterns)")
 
     # -- stats (Phase 1) ---------------------------------------------------
@@ -308,6 +316,20 @@ def build_parser():
     dr = sub.add_parser("drift", help="Compute identity drift between two graphs")
     dr.add_argument("input_file", help="Path to first context JSON (v4 or v5)")
     dr.add_argument("--compare", required=True, help="Path to second context JSON to compare against")
+
+    # -- diff (version history) --------------------------------------------
+    df = sub.add_parser("diff", help="Compare two stored graph versions")
+    df.add_argument("version_a", help="Base version ID or unique prefix")
+    df.add_argument("version_b", help="Target version ID or unique prefix")
+    df.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    df.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- checkout (version history) ----------------------------------------
+    ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
+    ck.add_argument("version_id", help="Version ID or unique prefix")
+    ck.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    ck.add_argument("--output", "-o", help="Output file path (default: <version>.json)")
+    ck.add_argument("--no-verify", action="store_true", help="Skip snapshot integrity verification")
 
     # -- identity (Phase 3) ------------------------------------------------
     ident = sub.add_parser("identity", help="Init/show UPAI identity")
@@ -773,6 +795,7 @@ def run_query(args):
         connected_components,
         parse_nl_query,
     )
+    from cortex.query_lang import execute_query
 
     engine = QueryEngine(graph)
 
@@ -859,6 +882,26 @@ def run_query(args):
             print(f"  {i}. [{len(comp)} nodes] {', '.join(labels[:10])}{'...' if len(labels) > 10 else ''}")
         return 0
 
+    if args.search:
+        results = graph.semantic_search(args.search, limit=args.limit)
+        if not results:
+            print(f"No search results for '{args.search}'")
+            return 0
+        print(f"Search results for '{args.search}' ({len(results)}):")
+        for item in results:
+            node = item["node"]
+            aliases = f" | aliases: {', '.join(node.aliases)}" if getattr(node, "aliases", []) else ""
+            print(f"  {node.label} (score={item['score']:.4f}, conf={node.confidence:.2f}){aliases}")
+        return 0
+
+    if args.dsl:
+        result = execute_query(graph, args.dsl)
+        if result.get("type") == "search" and args.limit and len(result.get("results", [])) > args.limit:
+            result["results"] = result["results"][: args.limit]
+            result["count"] = len(result["results"])
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
     if args.nl:
         result = parse_nl_query(args.nl, engine)
         print(json.dumps(result, indent=2, default=str))
@@ -867,7 +910,7 @@ def run_query(args):
     print(
         "Specify a query flag: --node, --neighbors, --category, --path, "
         "--changed-since, --strongest, --weakest, --isolated, --related, "
-        "--components, --nl"
+        "--components, --search, --dsl, --nl"
     )
     return 1
 
@@ -1013,10 +1056,15 @@ def run_memory_set(args):
         graph,
         label=args.label,
         tags=args.tag,
+        aliases=args.alias,
         brief=args.brief,
         description=args.description,
         properties=_parse_properties(args.property),
         confidence=args.confidence,
+        valid_from=args.valid_from,
+        valid_to=args.valid_to,
+        status=args.status,
+        provenance_source=args.source,
         replace_label=args.replace_label,
     )
     _save_graph(graph, input_path)
@@ -1110,6 +1158,60 @@ def run_drift(args):
     print(f"  Confidence drift: {result['details']['confidence_drift']:.4f}")
     print(f"  Graph A: {result['details']['node_count_a']} nodes")
     print(f"  Graph B: {result['details']['node_count_b']} nodes")
+    return 0
+
+
+def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
+    resolved = store.resolve_version_id(version_ref)
+    if resolved is None:
+        print(f"Version not found or ambiguous: {version_ref}")
+        raise SystemExit(1)
+    return resolved
+
+
+def run_diff(args):
+    """Compare two stored graph versions."""
+    store = VersionStore(Path(args.store_dir))
+    version_a = _resolve_version_or_exit(store, args.version_a)
+    version_b = _resolve_version_or_exit(store, args.version_b)
+    diff = store.diff(version_a, version_b)
+    payload = {
+        "version_a": version_a,
+        "version_b": version_b,
+        **diff,
+    }
+    if args.format == "json":
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print(f"Diff {version_a} -> {version_b}")
+    print(f"  Added: {len(diff['added'])}")
+    print(f"  Removed: {len(diff['removed'])}")
+    print(f"  Modified: {len(diff['modified'])}")
+    if diff["added"]:
+        print("\nAdded:")
+        for node_id in diff["added"]:
+            print(f"  + {node_id}")
+    if diff["removed"]:
+        print("\nRemoved:")
+        for node_id in diff["removed"]:
+            print(f"  - {node_id}")
+    if diff["modified"]:
+        print("\nModified:")
+        for item in diff["modified"]:
+            print(f"  ~ {item['node_id']}: {', '.join(sorted(item['changes'].keys()))}")
+    return 0
+
+
+def run_checkout(args):
+    """Write a stored graph version to a file."""
+    store = VersionStore(Path(args.store_dir))
+    version_id = _resolve_version_or_exit(store, args.version_id)
+    graph = store.checkout(version_id, verify=not args.no_verify)
+    output_path = Path(args.output) if args.output else Path(f"{version_id}.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+    print(f"Checked out {version_id} to {output_path}")
     return 0
 
 
@@ -1916,6 +2018,8 @@ def main(argv=None):
         "timeline",
         "contradictions",
         "drift",
+        "diff",
+        "checkout",
         "identity",
         "commit",
         "log",
@@ -1973,6 +2077,10 @@ def main(argv=None):
         return run_contradictions(args)
     elif args.subcommand == "drift":
         return run_drift(args)
+    elif args.subcommand == "diff":
+        return run_diff(args)
+    elif args.subcommand == "checkout":
+        return run_checkout(args)
     elif args.subcommand == "identity":
         return run_identity(args)
     elif args.subcommand == "commit":

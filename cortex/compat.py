@@ -75,12 +75,28 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                 for sq in topic_data.get("source_quotes", []):
                     if sq not in existing.source_quotes and len(existing.source_quotes) < 5:
                         existing.source_quotes.append(sq)
+                for alias in topic_data.get("_aliases", []):
+                    if alias and alias not in existing.aliases:
+                        existing.aliases.append(alias)
                 fs = topic_data.get("first_seen") or ""
                 if fs and (not existing.first_seen or fs < existing.first_seen):
                     existing.first_seen = fs
                 ls = topic_data.get("last_seen") or ""
                 if ls and (not existing.last_seen or ls > existing.last_seen):
                     existing.last_seen = ls
+                vf = topic_data.get("_valid_from") or ""
+                if vf and (not existing.valid_from or vf < existing.valid_from):
+                    existing.valid_from = vf
+                vt = topic_data.get("_valid_to") or ""
+                if vt and (not existing.valid_to or vt > existing.valid_to):
+                    existing.valid_to = vt
+                if topic_data.get("_status") and not existing.status:
+                    existing.status = topic_data.get("_status", "")
+                if topic_data.get("_canonical_id") and not existing.canonical_id:
+                    existing.canonical_id = topic_data.get("_canonical_id", "")
+                for item in topic_data.get("_provenance", []):
+                    if item not in existing.provenance:
+                        existing.provenance.append(dict(item))
                 em = topic_data.get("extraction_method", "")
                 if em:
                     existing.extraction_method = em
@@ -103,6 +119,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     id=nid,
                     label=label,
                     tags=restored_tags,
+                    aliases=list(topic_data.get("_aliases", [])),
                     confidence=topic_data.get("confidence", 0.5),
                     brief=topic_data.get("brief", label),
                     full_description=topic_data.get("full_description", ""),
@@ -113,6 +130,11 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     source_quotes=list(topic_data.get("source_quotes", []))[:5],
                     first_seen=topic_data.get("first_seen") or "",
                     last_seen=topic_data.get("last_seen") or "",
+                    valid_from=topic_data.get("_valid_from", "") or "",
+                    valid_to=topic_data.get("_valid_to", "") or "",
+                    status=topic_data.get("_status", "") or "",
+                    canonical_id=topic_data.get("_canonical_id", "") or nid,
+                    provenance=[dict(item) for item in topic_data.get("_provenance", [])],
                     relationship_type=topic_data.get("relationship_type", ""),
                 )
                 graph.nodes[nid] = node
@@ -157,6 +179,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     confidence=0.3,
                     brief=rel_label,
                     extraction_method="mentioned",
+                    canonical_id=stub_id,
                 )
                 graph.nodes[stub_id] = stub
                 label_to_id[rel_norm] = stub_id
@@ -212,6 +235,18 @@ def downgrade_v5_to_v4(graph: CortexGraph) -> dict:
         }
         if node.relationship_type:
             topic_dict["relationship_type"] = node.relationship_type
+        if node.aliases:
+            topic_dict["_aliases"] = list(node.aliases)
+        if node.canonical_id:
+            topic_dict["_canonical_id"] = node.canonical_id
+        if node.provenance:
+            topic_dict["_provenance"] = [dict(item) for item in node.provenance]
+        if node.valid_from:
+            topic_dict["_valid_from"] = node.valid_from
+        if node.valid_to:
+            topic_dict["_valid_to"] = node.valid_to
+        if node.status:
+            topic_dict["_status"] = node.status
         # Preserve all tags for re-upgrade (multi-tag nodes collapse to primary)
         if len(node.tags) > 1:
             topic_dict["_original_tags"] = list(node.tags)

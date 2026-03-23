@@ -25,7 +25,7 @@ class TimelineGenerator:
 
         Each event dict has:
             - timestamp: str (ISO-8601)
-            - event_type: str ("first_seen", "last_seen", "snapshot")
+            - event_type: str ("first_seen", "last_seen", "valid_from", "valid_to", "snapshot")
             - node_id: str
             - label: str
             - tags: list[str]
@@ -69,6 +69,39 @@ class TimelineGenerator:
                         "details": {
                             "confidence": node.confidence,
                             "brief": node.brief,
+                        },
+                    }
+                )
+
+            valid_from = _normalize_timestamp(node.valid_from) if getattr(node, "valid_from", "") else ""
+            valid_to = _normalize_timestamp(node.valid_to) if getattr(node, "valid_to", "") else ""
+
+            if valid_from and valid_from not in {first_seen, last_seen}:
+                events.append(
+                    {
+                        "timestamp": valid_from,
+                        "event_type": "valid_from",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "status": getattr(node, "status", ""),
+                            "confidence": node.confidence,
+                        },
+                    }
+                )
+
+            if valid_to and valid_to not in {first_seen, last_seen, valid_from}:
+                events.append(
+                    {
+                        "timestamp": valid_to,
+                        "event_type": "valid_to",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "status": getattr(node, "status", ""),
+                            "confidence": node.confidence,
                         },
                     }
                 )
@@ -128,6 +161,12 @@ class TimelineGenerator:
                 lines.append(f"- **{label}** first appeared [{tags}]")
             elif etype == "last_seen":
                 lines.append(f"- **{label}** last seen [{tags}]")
+            elif etype == "valid_from":
+                status = event["details"].get("status", "active") or "active"
+                lines.append(f"- **{label}** became valid as {status} [{tags}]")
+            elif etype == "valid_to":
+                status = event["details"].get("status", "historical") or "historical"
+                lines.append(f"- **{label}** stopped being valid as {status} [{tags}]")
             elif etype == "snapshot":
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)
@@ -171,6 +210,12 @@ class TimelineGenerator:
                 desc = f"<strong>{label}</strong> first appeared"
             elif etype == "last_seen":
                 desc = f"<strong>{label}</strong> last seen"
+            elif etype == "valid_from":
+                status = _html_escape(event["details"].get("status", "active") or "active")
+                desc = f"<strong>{label}</strong> became valid as {status}"
+            elif etype == "valid_to":
+                status = _html_escape(event["details"].get("status", "historical") or "historical")
+                desc = f"<strong>{label}</strong> stopped being valid as {status}"
             else:
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)

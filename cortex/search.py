@@ -270,6 +270,9 @@ class TFIDFIndex:
             if d.get("label"):
                 # Weight label 3x
                 parts.extend([d["label"]] * 3)
+            for alias in d.get("aliases", []):
+                if isinstance(alias, str) and alias:
+                    parts.extend([alias] * 2)
             if d.get("brief"):
                 parts.append(d["brief"])
             if d.get("full_description"):

@@ -187,6 +187,17 @@ class TestTFIDFIndex:
         assert len(results) >= 2
         assert results[0]["node"]["id"] == "a"
 
+    def test_aliases_are_indexed(self):
+        docs = [
+            {"id": "a", "label": "PostgreSQL", "aliases": ["postgres"], "brief": "Database"},
+            {"id": "b", "label": "Redis", "brief": "Cache"},
+        ]
+        idx = TFIDFIndex()
+        idx.build(docs)
+        results = idx.search("postgres")
+        assert results
+        assert results[0]["node"]["id"] == "a"
+
     def test_rebuild_after_clear(self, sample_nodes):
         idx = TFIDFIndex()
         idx.build(sample_nodes)
@@ -248,3 +259,11 @@ class TestGraphSemanticSearch:
         graph = CortexGraph()
         results = graph.semantic_search("anything")
         assert results == []
+
+    def test_alias_exact_match_boost(self):
+        graph = CortexGraph()
+        graph.add_node(Node(id="a", label="PostgreSQL", aliases=["postgres"], tags=["db"], confidence=0.9))
+        graph.add_node(Node(id="b", label="Redis", tags=["db"], confidence=0.9))
+        results = graph.semantic_search("postgres")
+        assert results
+        assert results[0]["node"].label == "PostgreSQL"

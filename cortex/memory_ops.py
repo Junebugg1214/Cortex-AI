@@ -102,20 +102,28 @@ def set_memory_node(
     graph: CortexGraph,
     label: str,
     tags: list[str],
+    aliases: list[str] | None = None,
     brief: str = "",
     description: str = "",
     properties: dict[str, str] | None = None,
     confidence: float = 0.95,
+    valid_from: str = "",
+    valid_to: str = "",
+    status: str = "",
+    provenance_source: str = "",
     replace_label: str | None = None,
 ) -> dict[str, Any]:
     target_ids = graph.find_node_ids_by_label(replace_label or label)
     created = False
     updated = False
+    aliases = list(dict.fromkeys(aliases or []))
+    provenance_entry = {"source": provenance_source, "method": "manual"} if provenance_source else None
     if target_ids:
         node = graph.get_node(target_ids[0])
         assert node is not None
         node.label = label
         node.tags = list(dict.fromkeys(node.tags + tags))
+        node.aliases = list(dict.fromkeys(node.aliases + aliases))
         node.confidence = confidence
         if brief:
             node.brief = brief
@@ -123,16 +131,29 @@ def set_memory_node(
             node.full_description = description
         if properties:
             node.properties.update(properties)
+        if valid_from:
+            node.valid_from = valid_from
+        if valid_to:
+            node.valid_to = valid_to
+        if status:
+            node.status = status
+        if provenance_entry and provenance_entry not in node.provenance:
+            node.provenance.append(provenance_entry)
         updated = True
     else:
         node = Node(
             id=make_node_id(label),
             label=label,
             tags=list(dict.fromkeys(tags)),
+            aliases=aliases,
             confidence=confidence,
             properties=dict(properties or {}),
             brief=brief,
             full_description=description,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            status=status,
+            provenance=[provenance_entry] if provenance_entry else [],
         )
         graph.add_node(node)
         created = True
