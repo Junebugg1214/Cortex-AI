@@ -211,9 +211,10 @@ class InsightGenerator:
         # Drift score
         ds = drift_score(previous, current)
 
-        # Contradictions in current
+        # Contradictions newly introduced in current
         engine = ContradictionEngine()
-        contradictions = engine.detect_all(current)
+        previous_contradiction_ids = {c.id for c in engine.detect_all(previous)}
+        contradictions = [c for c in engine.detect_all(current) if c.id not in previous_contradiction_ids]
         contradiction_dicts = [
             {"type": c.type, "description": c.description, "severity": c.severity} for c in contradictions
         ]
