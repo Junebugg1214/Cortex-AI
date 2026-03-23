@@ -12,6 +12,8 @@ Cortex now has the core local primitives for a `Git for AI Memory` workflow:
 - `blame`: trace a claim to provenance and version history
 - `history`: inspect chronological receipts for a node across versions and claim events
 - `claim log` / `claim show`: inspect raw claim events
+- `claim accept` / `claim reject` / `claim supersede`: move claims through explicit lifecycle decisions
+- `ingest github|slack|docs`: normalize local work exports into extractable memory
 - `memory retract`: remove memory evidence from a bad source
 - `query --at`: inspect what was true at a point in time
 
@@ -80,6 +82,21 @@ cortex diff <old-version> <new-version>
 # Merge when review passes
 cortex merge experiment/slack-import
 
+# Resolve merge conflicts if needed
+cortex merge --conflicts
+cortex merge --resolve <conflict-id> --choose incoming
+cortex merge --commit-resolved
+
+# Accept, reject, or supersede claims directly
+cortex claim accept context.json <claim-id>
+cortex claim reject context.json <claim-id>
+cortex claim supersede context.json <claim-id> --status active
+
+# Ingest local work exports
+cortex ingest github issue.json -o context.json
+cortex ingest slack ./slack-export -o context.json
+cortex ingest docs ./docs -o context.json
+
 # Query what was true at a given time
 cortex query context.json --node "Project Atlas" --at 2026-03-15T00:00:00Z
 
@@ -99,10 +116,12 @@ cortex memory retract context.json --source planning-notes
 - which stored versions materially changed the claim
 - source-filtered and branch-filtered receipts for one claim
 - CI-friendly review gates and Markdown summaries for PR workflows
+- explicit claim lifecycle transitions
+- merge conflict resolution state in `.cortex`
+- local connector ingestion for GitHub, Slack, and docs
 
 ## Next Logical Steps
 
-- per-claim provenance ledgers instead of node-level aggregation
-- `blame --source` and `blame --version` filters
-- first-class claim IDs for rename-safe history tracking
-- UI for receipts, diffs, and retractions
+- richer claim-level provenance beyond node reconstruction
+- hosted or app-based UI for receipts, diffs, and retractions
+- external API connectors instead of local export ingestion only

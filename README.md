@@ -4,7 +4,7 @@ Own your AI memory and identity.
 
 Cortex is a CLI-only toolkit for local, portable AI memory, identity, and versioned graph history.
 It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
-Think of it as the beginning of **Git for AI Memory**: commits, branches, diffs, checkout, blame, retraction, and time-aware claims for agent context.
+Think of it as the beginning of **Git for AI Memory**: commits, branches, merges, review gates, receipts, retraction, claim workflows, and time-aware agent memory.
 
 ## What it does
 
@@ -73,6 +73,9 @@ cortex switch feature/project-atlas
 cortex merge main
 cortex review context.json --against main
 cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
+cortex merge feature/project-atlas --conflicts
+cortex merge --resolve <conflict-id> --choose incoming
+cortex merge --commit-resolved
 cortex log
 cortex diff <version-a> <version-b>
 cortex checkout <version> -o restored.json
@@ -81,6 +84,12 @@ cortex blame context.json --label "PostgreSQL" --source manual-note --ref featur
 cortex history context.json --label "PostgreSQL" --ref main
 cortex claim log --label "PostgreSQL"
 cortex claim log --label "PostgreSQL" --version abc123
+cortex claim accept context.json <claim-id>
+cortex claim reject context.json <claim-id>
+cortex claim supersede context.json <claim-id> --label "PostgreSQL 16" --status active
+cortex ingest github issue.json -o context.json
+cortex ingest slack ./slack-export -o context.json
+cortex ingest docs ./docs -o context.json
 cortex query context.json --node "Python"
 cortex query context.json --node "Current Project" --at 2026-06-01T00:00:00Z
 cortex timeline context.json --format md
@@ -125,18 +134,48 @@ cortex blame context.json --label "Project Atlas" --source planning-doc-v1 --ref
 
 # 5c. Inspect claim events directly
 cortex claim log --label "Project Atlas"
+cortex claim show <claim-id>
 
-# 5d. Inspect the chronological receipts timeline
+# 5d. Accept, reject, or supersede a claim directly
+cortex claim accept context.json <claim-id>
+cortex claim reject context.json <claim-id>
+cortex claim supersede context.json <claim-id> --status active --valid-from 2026-04-01T00:00:00Z
+
+# 5e. Inspect the chronological receipts timeline
 cortex history context.json --label "Project Atlas" --ref experiment/planning-cleanup
 
 # 6. Retract a bad source if needed
 cortex memory retract context.json --source planning-doc-v1
 
-# 7. Merge the branch once review is clean
+# 7. Resolve merge conflicts if needed
 cortex merge experiment/planning-cleanup
+cortex merge --conflicts
+cortex merge --resolve <conflict-id> --choose incoming
+cortex merge --commit-resolved
 
-# 8. Query historical truth
+# 8. Ingest local GitHub/Slack/docs sources
+cortex ingest github issue.json -o context.json
+cortex ingest slack ./slack-export -o context.json
+cortex ingest docs ./docs -o context.json
+
+# 9. Query historical truth
 cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
+```
+
+## Memory CI
+
+The repo now includes [`.github/workflows/memory-review.yml`](/Users/marcsaint-jour/Desktop/Cortex-AI/.github/workflows/memory-review.yml), which:
+
+- compares the checked-in memory file against the base branch version
+- emits a Markdown review summary in GitHub Actions
+- uploads JSON and Markdown review artifacts
+- fails only on the gates you choose, such as `contradictions` and `temporal_gaps`
+
+You can customize the same behavior locally with:
+
+```bash
+cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
+cortex review context.json --against main --fail-on none --format json
 ```
 
 ## OpenClaw Integration

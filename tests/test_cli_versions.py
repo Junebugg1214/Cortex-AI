@@ -369,6 +369,101 @@ def test_memory_retract_records_claim_event(tmp_path, capsys):
     assert log_out["events"][0]["label"] == "Project Atlas"
 
 
+def test_claim_accept_reject_and_supersede_update_graph_and_ledger(tmp_path, capsys):
+    graph_path = tmp_path / "context.json"
+    store_dir = tmp_path / ".cortex"
+    _write_graph(graph_path, CortexGraph())
+
+    set_rc = main(
+        [
+            "memory",
+            "set",
+            str(graph_path),
+            "--label",
+            "Project Atlas",
+            "--tag",
+            "active_priorities",
+            "--status",
+            "planned",
+            "--source",
+            "manual-note",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    set_out = json.loads(capsys.readouterr().out)
+    assert set_rc == 0
+    claim_id = set_out["claim_id"]
+
+    reject_rc = main(
+        [
+            "claim",
+            "reject",
+            str(graph_path),
+            claim_id,
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    reject_out = json.loads(capsys.readouterr().out)
+    assert reject_rc == 0
+    assert reject_out["claim_id"] == claim_id
+    graph_after_reject = CortexGraph.from_v5_json(json.loads(graph_path.read_text(encoding="utf-8")))
+    assert not graph_after_reject.nodes
+
+    accept_rc = main(
+        [
+            "claim",
+            "accept",
+            str(graph_path),
+            claim_id,
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    accept_out = json.loads(capsys.readouterr().out)
+    assert accept_rc == 0
+    assert accept_out["restored"] is True
+    graph_after_accept = CortexGraph.from_v5_json(json.loads(graph_path.read_text(encoding="utf-8")))
+    assert "Project Atlas" in {node.label for node in graph_after_accept.nodes.values()}
+
+    supersede_rc = main(
+        [
+            "claim",
+            "supersede",
+            str(graph_path),
+            claim_id,
+            "--label",
+            "Project Atlas v2",
+            "--status",
+            "active",
+            "--tag",
+            "active_priorities",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    supersede_out = json.loads(capsys.readouterr().out)
+    assert supersede_rc == 0
+    assert supersede_out["superseded_claim_id"] == claim_id
+    assert supersede_out["new_claim_id"] != claim_id
+    graph_after_supersede = CortexGraph.from_v5_json(json.loads(graph_path.read_text(encoding="utf-8")))
+    assert "Project Atlas v2" in {node.label for node in graph_after_supersede.nodes.values()}
+
+    show_rc = main(["claim", "show", claim_id, "--store-dir", str(store_dir), "--format", "json"])
+    show_out = json.loads(capsys.readouterr().out)
+    assert show_rc == 0
+    assert [event["op"] for event in show_out["events"]] == ["assert", "reject", "accept", "supersede"]
+
+
 def test_extract_records_claim_events_and_provenance(tmp_path, capsys):
     input_path = tmp_path / "notes.txt"
     output_path = tmp_path / "context.json"
@@ -597,6 +692,96 @@ def test_merge_cli_merges_branch_into_current(tmp_path, capsys):
     assert "Project Atlas" in {
         node.label for node in VersionStore(store_dir).checkout(main_head.version_id).nodes.values()
     }
+
+
+def test_merge_cli_conflict_resolution_flow(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    graph_path = tmp_path / "context.json"
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], status="planned"))
+    _write_graph(graph_path, base_graph)
+    assert main(["commit", str(graph_path), "-m", "base", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    assert main(["branch", "feature/activate", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+    assert main(["switch", "feature/activate", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    feature_graph = CortexGraph()
+    feature_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-03-01T00:00:00Z",
+        )
+    )
+    _write_graph(graph_path, feature_graph)
+    assert main(["commit", str(graph_path), "-m", "activate atlas", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    assert main(["switch", "main", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    current_graph = CortexGraph()
+    current_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="historical",
+            valid_to="2026-02-01T00:00:00Z",
+        )
+    )
+    _write_graph(graph_path, current_graph)
+    assert main(["commit", str(graph_path), "-m", "archive atlas", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    merge_rc = main(["merge", "feature/activate", "--store-dir", str(store_dir), "--format", "json"])
+    merge_out = json.loads(capsys.readouterr().out)
+    assert merge_rc == 1
+    assert merge_out["pending_merge"] is True
+    conflict_id = merge_out["conflicts"][0]["id"]
+
+    conflicts_rc = main(["merge", "--conflicts", "--store-dir", str(store_dir), "--format", "json"])
+    conflicts_out = json.loads(capsys.readouterr().out)
+    assert conflicts_rc == 0
+    assert conflicts_out["pending"] is True
+    assert conflicts_out["conflicts"][0]["id"] == conflict_id
+
+    resolve_rc = main(
+        [
+            "merge",
+            "--resolve",
+            conflict_id,
+            "--choose",
+            "incoming",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    resolve_out = json.loads(capsys.readouterr().out)
+    assert resolve_rc == 0
+    assert resolve_out["remaining_conflicts"] == 0
+
+    commit_rc = main(["merge", "--commit-resolved", "--store-dir", str(store_dir), "--format", "json"])
+    commit_out = json.loads(capsys.readouterr().out)
+    assert commit_rc == 0
+    assert commit_out["commit_id"]
+    head = VersionStore(store_dir).head("main")
+    assert head is not None
+    graph = VersionStore(store_dir).checkout(head.version_id)
+    assert graph.nodes["n1"].status == "active"
+
+    conflicts_after_rc = main(["merge", "--conflicts", "--store-dir", str(store_dir), "--format", "json"])
+    conflicts_after = json.loads(capsys.readouterr().out)
+    assert conflicts_after_rc == 0
+    assert conflicts_after["pending"] is False
 
 
 def test_review_cli_reports_added_nodes_and_risks(tmp_path, capsys):

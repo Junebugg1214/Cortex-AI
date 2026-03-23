@@ -17,11 +17,13 @@ from cortex.adapters import ADAPTERS
 from cortex.claims import (
     ClaimEvent,
     ClaimLedger,
+    claim_event_to_node,
     extraction_source_label,
     record_graph_claims,
     stamp_graph_provenance,
 )
 from cortex.compat import upgrade_v4_to_v5
+from cortex.connectors import connector_to_text
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
     AggressiveExtractor,
@@ -52,7 +54,7 @@ from cortex.memory_ops import (
     set_memory_node,
     show_memory_nodes,
 )
-from cortex.merge import merge_refs
+from cortex.merge import clear_merge_state, load_merge_state, load_merge_worktree, merge_refs, resolve_merge_conflict, save_merge_state
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
@@ -252,6 +254,18 @@ def build_parser():
     ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
+    # -- ingest -------------------------------------------------------------
+    ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
+    ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
+    ing.add_argument("input_file", help="Path to connector export file or directory")
+    ing.add_argument("--output", "-o", help="Output JSON path")
+    ing.add_argument("--merge", "-m", help="Existing context file to merge with")
+    ing.add_argument("--redact", action="store_true")
+    ing.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+    ing.add_argument("--preview", action="store_true", help="Print normalized connector text without extracting")
+    ing.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    ing.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
+
     # -- import -------------------------------------------------------------
     imp = sub.add_parser("import", help="Import context to platform formats")
     imp.add_argument("input_file", help="Path to context JSON file")
@@ -428,7 +442,7 @@ def build_parser():
     clm_log.add_argument("--node-id", help="Filter by node id")
     clm_log.add_argument("--source", help="Filter by source")
     clm_log.add_argument("--version", help="Filter by version id prefix")
-    clm_log.add_argument("--op", choices=["assert", "retract"], help="Filter by operation")
+    clm_log.add_argument("--op", choices=["assert", "retract", "accept", "reject", "supersede"], help="Filter by operation")
     clm_log.add_argument("--limit", type=int, default=20, help="Max events to return (default: 20)")
     clm_log.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -436,6 +450,34 @@ def build_parser():
     clm_show.add_argument("claim_id", help="Claim id")
     clm_show.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     clm_show.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_accept = clm_sub.add_parser("accept", help="Accept a claim and restore it into the graph if needed")
+    clm_accept.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_accept.add_argument("claim_id", help="Claim id")
+    clm_accept.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_accept.add_argument("--commit-message", help="Optional version commit message")
+    clm_accept.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_reject = clm_sub.add_parser("reject", help="Reject a claim and remove its graph support")
+    clm_reject.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_reject.add_argument("claim_id", help="Claim id")
+    clm_reject.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_reject.add_argument("--commit-message", help="Optional version commit message")
+    clm_reject.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_sup = clm_sub.add_parser("supersede", help="Supersede a claim with an updated claim state")
+    clm_sup.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_sup.add_argument("claim_id", help="Claim id")
+    clm_sup.add_argument("--label", help="Override label")
+    clm_sup.add_argument("--tag", action="append", dest="tags", default=[], help="Replacement tag (repeatable)")
+    clm_sup.add_argument("--alias", action="append", default=[], help="Alias to keep on the superseding claim")
+    clm_sup.add_argument("--status", help="Override status")
+    clm_sup.add_argument("--valid-from", default="", help="Override valid_from timestamp")
+    clm_sup.add_argument("--valid-to", default="", help="Override valid_to timestamp")
+    clm_sup.add_argument("--confidence", type=float, help="Override confidence")
+    clm_sup.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_sup.add_argument("--commit-message", help="Optional version commit message")
+    clm_sup.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- checkout (version history) ----------------------------------------
     ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
@@ -477,12 +519,17 @@ def build_parser():
 
     # -- merge (Git-for-AI-Memory) ----------------------------------------
     mg = sub.add_parser("merge", help="Merge another memory branch/ref into the current branch")
-    mg.add_argument("ref_name", help="Branch or ref to merge into the current branch")
+    mg.add_argument("ref_name", nargs="?", help="Branch or ref to merge into the current branch")
     mg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     mg.add_argument("--message", help="Custom merge commit message")
     mg.add_argument("--dry-run", action="store_true", help="Compute merge result without committing")
     mg.add_argument("--output", "-o", help="Optional path to write the merged graph snapshot")
     mg.add_argument("--format", choices=["json", "text"], default="text")
+    mg.add_argument("--conflicts", action="store_true", help="Show pending merge conflicts")
+    mg.add_argument("--resolve", metavar="CONFLICT_ID", help="Resolve a pending merge conflict")
+    mg.add_argument("--choose", choices=["current", "incoming"], help="Conflict resolution choice")
+    mg.add_argument("--commit-resolved", action="store_true", help="Commit the current resolved merge state")
+    mg.add_argument("--abort", action="store_true", help="Abort the pending merge state")
 
     # -- review (Git-for-AI-Memory) ---------------------------------------
     rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
@@ -732,6 +779,69 @@ def run_extract(args):
         for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
             print(f"   {cat}: {count}")
 
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    print(f"Saved to: {output_path}")
+    if not args.no_claims:
+        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
+    return 0
+
+
+def run_ingest(args):
+    """Normalize connector input and extract it into Cortex memory."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    print(f"Loading connector input: {input_path}")
+    try:
+        normalized_text = connector_to_text(args.kind, input_path)
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+    if args.preview:
+        print(normalized_text, end="" if normalized_text.endswith("\n") else "\n")
+        return 0
+
+    redactor = None
+    if args.redact:
+        custom_patterns = None
+        if args.redact_patterns:
+            pp = Path(args.redact_patterns)
+            if not pp.exists():
+                print(f"Redaction patterns file not found: {pp}")
+                return 1
+            with open(pp, "r", encoding="utf-8") as f:
+                custom_patterns = json.load(f)
+        redactor = PIIRedactor(custom_patterns)
+        print("PII redaction enabled")
+
+    extractor = AggressiveExtractor(redactor=redactor)
+
+    if args.merge:
+        merge_path = Path(args.merge)
+        if merge_path.exists():
+            print(f"Merging with existing context: {merge_path}")
+            extractor = merge_contexts(merge_path, extractor)
+        else:
+            print(f"Merge file not found: {merge_path} (proceeding without merge)")
+
+    result = extractor.process_plain_text(normalized_text)
+    claim_count = 0
+    if not args.no_claims:
+        result, claim_count = _finalize_extraction_output(
+            result,
+            input_path=input_path,
+            fmt=f"connector:{args.kind}",
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
+
+    stats = extractor.context.stats()
+    print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
@@ -1504,6 +1614,221 @@ def run_history(args):
     return 0
 
 
+def _find_claim_target_node(graph: CortexGraph, event: ClaimEvent) -> Node | None:
+    if event.node_id and graph.get_node(event.node_id):
+        return graph.get_node(event.node_id)
+    if event.canonical_id:
+        for node in graph.nodes.values():
+            if node.canonical_id == event.canonical_id:
+                return node
+    matches = graph.find_node_ids_by_label(event.label)
+    if matches:
+        return graph.get_node(matches[0])
+    return None
+
+
+def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[ClaimLedger, ClaimEvent | None]:
+    ledger = ClaimLedger(store_dir)
+    return ledger, ledger.latest_event(claim_id)
+
+
+def run_claim_accept(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    restored = False
+    if node is None:
+        graph.add_node(claim_event_to_node(latest))
+        node = graph.get_node(latest.node_id)
+        restored = True
+    assert node is not None
+    node.label = latest.label
+    node.aliases = list(dict.fromkeys(node.aliases + list(latest.aliases)))
+    node.tags = list(dict.fromkeys(node.tags + list(latest.tags)))
+    node.confidence = max(node.confidence, latest.confidence)
+    if latest.status:
+        node.status = latest.status
+    if latest.valid_from:
+        node.valid_from = latest.valid_from
+    if latest.valid_to:
+        node.valid_to = latest.valid_to
+    if latest.canonical_id:
+        node.canonical_id = latest.canonical_id
+    if latest.source:
+        provenance_entry = {"source": latest.source, "method": "claim_accept"}
+        if provenance_entry not in node.provenance:
+            node.provenance.append(provenance_entry)
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    decision = ClaimEvent.decision_from_event(
+        latest,
+        op="accept",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"restored": restored},
+    )
+    ledger.append(decision)
+    payload = {
+        "status": "ok",
+        "claim_id": args.claim_id,
+        "node_id": node.id,
+        "restored": restored,
+        "claim_event_id": decision.event_id,
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Accepted claim {args.claim_id} for node {node.label}.")
+    return 0
+
+
+def run_claim_reject(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    removed = False
+    updated = False
+    if node is not None:
+        node.tags = [tag for tag in node.tags if tag not in latest.tags]
+        if latest.source:
+            node.provenance = [item for item in node.provenance if item.get("source") != latest.source]
+        if node.status == latest.status:
+            node.status = ""
+        if node.valid_from == latest.valid_from:
+            node.valid_from = ""
+        if node.valid_to == latest.valid_to:
+            node.valid_to = ""
+        if not node.tags and not node.provenance:
+            graph.remove_node(node.id)
+            removed = True
+        else:
+            updated = True
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    decision = ClaimEvent.decision_from_event(
+        latest,
+        op="reject",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"removed": removed, "updated": updated},
+    )
+    ledger.append(decision)
+    payload = {
+        "status": "ok",
+        "claim_id": args.claim_id,
+        "node_id": latest.node_id,
+        "removed": removed,
+        "updated": updated,
+        "claim_event_id": decision.event_id,
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Rejected claim {args.claim_id}.")
+    return 0
+
+
+def run_claim_supersede(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    updated_node = claim_event_to_node(latest)
+    if args.label:
+        updated_node.label = args.label
+    if args.tags:
+        updated_node.tags = list(dict.fromkeys(args.tags))
+    if args.alias:
+        updated_node.aliases = list(dict.fromkeys(updated_node.aliases + args.alias))
+    if args.status is not None:
+        updated_node.status = args.status or ""
+    if args.valid_from:
+        updated_node.valid_from = args.valid_from
+    if args.valid_to:
+        updated_node.valid_to = args.valid_to
+    if args.confidence is not None:
+        updated_node.confidence = args.confidence
+    if not any(
+        [
+            args.label,
+            args.tags,
+            args.alias,
+            args.status is not None,
+            args.valid_from,
+            args.valid_to,
+            args.confidence is not None,
+        ]
+    ):
+        print("Provide at least one override to supersede a claim.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    if node is not None:
+        graph.nodes[node.id] = updated_node
+    else:
+        graph.add_node(updated_node)
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    supersede_event = ClaimEvent.decision_from_event(
+        latest,
+        op="supersede",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"superseded_by_label": updated_node.label},
+    )
+    ledger.append(supersede_event)
+    new_assert = ClaimEvent.from_node(
+        updated_node,
+        op="assert",
+        source=latest.source,
+        method="claim_supersede",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"supersedes": args.claim_id},
+    )
+    ledger.append(new_assert)
+    payload = {
+        "status": "ok",
+        "superseded_claim_id": args.claim_id,
+        "new_claim_id": new_assert.claim_id,
+        "node_id": updated_node.id,
+        "claim_event_ids": [supersede_event.event_id, new_assert.event_id],
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Superseded claim {args.claim_id} with {new_assert.claim_id}.")
+    return 0
+
+
 def run_claim_log(args):
     ledger = ClaimLedger(Path(args.store_dir))
     events = ledger.list_events(
@@ -1848,6 +2173,92 @@ def run_merge(args):
     store = VersionStore(store_dir)
     current_branch = store.current_branch()
 
+    if args.abort:
+        state = load_merge_state(store_dir)
+        if state is None:
+            print("No pending merge state found.")
+            return 0
+        clear_merge_state(store_dir)
+        print(f"Aborted pending merge into {state['current_branch']} from {state['other_ref']}.")
+        return 0
+
+    if args.conflicts:
+        state = load_merge_state(store_dir)
+        if state is None:
+            payload = {"status": "ok", "pending": False, "conflicts": []}
+            if args.format == "json":
+                print(json.dumps(payload, indent=2))
+            else:
+                print("No pending merge conflicts.")
+            return 0
+        payload = {
+            "status": "ok",
+            "pending": True,
+            "current_branch": state["current_branch"],
+            "other_ref": state["other_ref"],
+            "conflicts": state.get("conflicts", []),
+        }
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Pending merge into {state['current_branch']} from {state['other_ref']}")
+            for conflict in state.get("conflicts", []):
+                field = f" [{conflict.get('field')}]" if conflict.get("field") else ""
+                print(f"  - {conflict['id']} {conflict['kind']}{field}: {conflict['description']}")
+        return 0
+
+    if args.resolve:
+        if not args.choose:
+            print("Specify --choose current|incoming when resolving a merge conflict.")
+            return 1
+        try:
+            payload = resolve_merge_conflict(store, store_dir, args.resolve, args.choose)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(
+                f"Resolved merge conflict {payload['resolved_conflict_id']} with {payload['choice']}; "
+                f"{payload['remaining_conflicts']} conflict(s) remain."
+            )
+        return 0
+
+    if args.commit_resolved:
+        state = load_merge_state(store_dir)
+        if state is None:
+            print("No pending merge state found.")
+            return 1
+        conflicts = state.get("conflicts", [])
+        if conflicts:
+            print(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
+            return 1
+        graph = load_merge_worktree(store_dir)
+        identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
+        message = args.message or f"Merge branch '{state['other_ref']}' into {state['current_branch']}"
+        merge_parent_ids = [state["other_version"]] if state.get("other_version") and state.get("other_version") != state.get("current_version") else []
+        version = store.commit(
+            graph,
+            message,
+            source="merge",
+            identity=identity,
+            parent_id=state.get("current_version"),
+            branch=state["current_branch"],
+            merge_parent_ids=merge_parent_ids,
+        )
+        clear_merge_state(store_dir)
+        payload = {"status": "ok", "commit_id": version.version_id, "message": message}
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Committed resolved merge: {version.version_id}")
+        return 0
+
+    if not args.ref_name:
+        print("Specify a branch/ref to merge, or use --conflicts, --resolve, --commit-resolved, or --abort.")
+        return 1
+
     try:
         result = merge_refs(store, "HEAD", args.ref_name)
     except ValueError as exc:
@@ -1892,6 +2303,15 @@ def run_merge(args):
             merge_parent_ids=merge_parent_ids,
         )
         payload["commit_id"] = version.version_id
+    elif result.conflicts and not args.dry_run:
+        state = save_merge_state(
+            store_dir,
+            current_branch=current_branch,
+            other_ref=args.ref_name,
+            result=result,
+        )
+        payload["pending_merge"] = True
+        payload["pending_conflicts"] = len(state["conflicts"])
 
     if args.format == "json":
         print(json.dumps(payload, indent=2))
@@ -1918,7 +2338,9 @@ def run_merge(args):
         print("  Conflicts:")
         for conflict in result.conflicts:
             field = f" [{conflict.field}]" if conflict.field else ""
-            print(f"    - {conflict.kind}{field}: {conflict.description}")
+            print(f"    - {conflict.id} {conflict.kind}{field}: {conflict.description}")
+        if not args.dry_run:
+            print("  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`.")
         return 1
     if payload.get("commit_id"):
         print(f"  Committed merge: {payload['commit_id']}")
@@ -2717,6 +3139,7 @@ def main(argv=None):
     # treat it as a file path and route to the "migrate" subcommand.
     known_subcommands = (
         "extract",
+        "ingest",
         "import",
         "memory",
         "migrate",
@@ -2766,6 +3189,8 @@ def main(argv=None):
 
     if args.subcommand == "extract":
         return run_extract(args)
+    elif args.subcommand == "ingest":
+        return run_ingest(args)
     elif args.subcommand == "import":
         return run_import(args)
     elif args.subcommand == "memory":
@@ -2804,7 +3229,13 @@ def main(argv=None):
             return run_claim_log(args)
         elif args.claim_subcommand == "show":
             return run_claim_show(args)
-        print("Specify a claim subcommand: log, show")
+        elif args.claim_subcommand == "accept":
+            return run_claim_accept(args)
+        elif args.claim_subcommand == "reject":
+            return run_claim_reject(args)
+        elif args.claim_subcommand == "supersede":
+            return run_claim_supersede(args)
+        print("Specify a claim subcommand: log, show, accept, reject, supersede")
         return 1
     elif args.subcommand == "checkout":
         return run_checkout(args)

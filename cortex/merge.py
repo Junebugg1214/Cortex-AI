@@ -8,9 +8,11 @@ detection for incompatible concurrent edits.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from cortex.contradictions import ContradictionEngine
@@ -32,6 +34,11 @@ def _edge_payload(edge: Edge | None) -> dict[str, Any] | None:
 
 def _clone_graph(graph: CortexGraph) -> CortexGraph:
     return CortexGraph.from_v5_json(graph.export_v5())
+
+
+def _make_merge_conflict_id(kind: str, node_id: str, field: str, description: str) -> str:
+    payload = f"{kind}:{node_id}:{field}:{description.strip().lower()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _field_value(node: Node, field_name: str) -> Any:
@@ -64,6 +71,7 @@ def _combine_lists(*values: list[Any]) -> list[Any]:
 
 @dataclass
 class MergeConflict:
+    id: str
     kind: str
     node_id: str = ""
     label: str = ""
@@ -75,6 +83,7 @@ class MergeConflict:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.id,
             "kind": self.kind,
             "node_id": self.node_id,
             "label": self.label,
@@ -129,6 +138,7 @@ def _merge_scalar(
 
     if field_name in conflict_fields:
         conflict = MergeConflict(
+            id=_make_merge_conflict_id("field_conflict", current.id, field_name, current.label),
             kind="field_conflict",
             node_id=current.id,
             label=current.label,
@@ -185,6 +195,7 @@ def _merge_node(base: Node | None, current: Node, other: Node) -> tuple[Node, li
     else:
         conflicts.append(
             MergeConflict(
+                id=_make_merge_conflict_id("field_conflict", current.id, "canonical_id", current.label),
                 kind="field_conflict",
                 node_id=current.id,
                 label=current.label,
@@ -230,6 +241,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
             if base_node is not None:
                 conflicts.append(
                     MergeConflict(
+                        id=_make_merge_conflict_id("delete_modify_conflict", node_id, "", other_node.label),
                         kind="delete_modify_conflict",
                         node_id=node_id,
                         label=other_node.label,
@@ -244,6 +256,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
             if base_node is not None:
                 conflicts.append(
                     MergeConflict(
+                        id=_make_merge_conflict_id("delete_modify_conflict", node_id, "", current_node.label),
                         kind="delete_modify_conflict",
                         node_id=node_id,
                         label=current_node.label,
@@ -286,6 +299,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
             continue
         conflicts.append(
             MergeConflict(
+                id=_make_merge_conflict_id("contradiction_conflict", contradiction.node_ids[0] if contradiction.node_ids else "", contradiction.type, contradiction.description),
                 kind="contradiction_conflict",
                 node_id=contradiction.node_ids[0] if contradiction.node_ids else "",
                 label=contradiction.node_label,
@@ -324,3 +338,129 @@ def merge_refs(store: VersionStore, current_ref: str, other_ref: str) -> MergeRe
     result.current_version = current_id
     result.other_version = other_id
     return result
+
+
+def _state_path(store_dir: Path) -> Path:
+    return store_dir / "merge_state.json"
+
+
+def _worktree_path(store_dir: Path) -> Path:
+    return store_dir / "merge_working.json"
+
+
+def save_merge_state(
+    store_dir: Path,
+    *,
+    current_branch: str,
+    other_ref: str,
+    result: MergeResult,
+) -> dict[str, Any]:
+    store_dir.mkdir(parents=True, exist_ok=True)
+    state = {
+        "current_branch": current_branch,
+        "other_ref": other_ref,
+        "base_version": result.base_version,
+        "current_version": result.current_version,
+        "other_version": result.other_version,
+        "conflicts": [conflict.to_dict() for conflict in result.conflicts],
+        "summary": result.summary,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _state_path(store_dir).write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _worktree_path(store_dir).write_text(json.dumps(result.merged.export_v5(), indent=2), encoding="utf-8")
+    return state
+
+
+def load_merge_state(store_dir: Path) -> dict[str, Any] | None:
+    path = _state_path(store_dir)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def clear_merge_state(store_dir: Path) -> None:
+    for path in (_state_path(store_dir), _worktree_path(store_dir)):
+        if path.exists():
+            path.unlink()
+
+
+def load_merge_worktree(store_dir: Path) -> CortexGraph:
+    path = _worktree_path(store_dir)
+    if not path.exists():
+        raise FileNotFoundError("No pending merge worktree found")
+    return CortexGraph.from_v5_json(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _save_merge_worktree(store_dir: Path, graph: CortexGraph) -> None:
+    _worktree_path(store_dir).write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+
+def resolve_merge_conflict(store: VersionStore, store_dir: Path, conflict_id: str, choose: str) -> dict[str, Any]:
+    state = load_merge_state(store_dir)
+    if state is None:
+        raise ValueError("No pending merge state found")
+    conflicts = list(state.get("conflicts", []))
+    conflict = next((item for item in conflicts if item.get("id") == conflict_id), None)
+    if conflict is None:
+        raise ValueError(f"Merge conflict not found: {conflict_id}")
+
+    if choose not in {"current", "incoming"}:
+        raise ValueError("Resolution choice must be 'current' or 'incoming'")
+
+    working = load_merge_worktree(store_dir)
+    current_graph = store.checkout(state["current_version"]) if state.get("current_version") else CortexGraph()
+    other_graph = store.checkout(state["other_version"]) if state.get("other_version") else CortexGraph()
+    node_id = conflict.get("node_id", "")
+    current_node = current_graph.get_node(node_id) if node_id else None
+    incoming_node = other_graph.get_node(node_id) if node_id else None
+
+    if conflict["kind"] == "field_conflict":
+        target = current_node if choose == "current" else incoming_node
+        if target is None:
+            raise ValueError(f"No {choose} node available for conflict {conflict_id}")
+        if working.get_node(node_id):
+            working.nodes[node_id] = copy.deepcopy(target)
+        else:
+            working.add_node(copy.deepcopy(target))
+        remaining = [
+            item
+            for item in conflicts
+            if not (item.get("node_id") == node_id)
+        ]
+    elif conflict["kind"] == "delete_modify_conflict":
+        target = current_node if choose == "current" else incoming_node
+        if target is None:
+            if node_id:
+                working.remove_node(node_id)
+        else:
+            if working.get_node(node_id):
+                working.nodes[node_id] = copy.deepcopy(target)
+            else:
+                working.add_node(copy.deepcopy(target))
+        remaining = [item for item in conflicts if item.get("node_id") != node_id]
+    elif conflict["kind"] == "contradiction_conflict":
+        target = current_node if choose == "current" else incoming_node
+        if target is None:
+            raise ValueError(f"No {choose} node available for contradiction conflict {conflict_id}")
+        if working.get_node(node_id):
+            working.nodes[node_id] = copy.deepcopy(target)
+        else:
+            working.add_node(copy.deepcopy(target))
+        remaining = [
+            item
+            for item in conflicts
+            if item.get("node_id") != node_id
+        ]
+    else:
+        raise ValueError(f"Unsupported merge conflict kind: {conflict['kind']}")
+
+    state["conflicts"] = remaining
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _state_path(store_dir).write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _save_merge_worktree(store_dir, working)
+    return {
+        "status": "ok",
+        "resolved_conflict_id": conflict_id,
+        "choice": choose,
+        "remaining_conflicts": len(remaining),
+    }

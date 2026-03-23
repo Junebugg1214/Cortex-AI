@@ -152,6 +152,41 @@ class ClaimEvent:
             metadata=dict(metadata or {}),
         )
 
+    @classmethod
+    def decision_from_event(
+        cls,
+        event: ClaimEvent,
+        *,
+        op: str,
+        version_id: str = "",
+        message: str = "",
+        metadata: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> ClaimEvent:
+        timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+        merged_metadata = dict(event.metadata)
+        merged_metadata.update(dict(metadata or {}))
+        return cls(
+            event_id=make_claim_event_id(event.claim_id, op, timestamp, version_id),
+            claim_id=event.claim_id,
+            op=op,
+            node_id=event.node_id,
+            canonical_id=event.canonical_id,
+            label=event.label,
+            aliases=list(event.aliases),
+            tags=list(event.tags),
+            confidence=event.confidence,
+            status=event.status,
+            valid_from=event.valid_from,
+            valid_to=event.valid_to,
+            source=event.source,
+            method=op,
+            timestamp=timestamp,
+            version_id=version_id,
+            message=message,
+            metadata=merged_metadata,
+        )
+
 
 class ClaimLedger:
     def __init__(self, store_dir: Path) -> None:
@@ -205,6 +240,10 @@ class ClaimLedger:
 
     def get_claim(self, claim_id: str) -> list[ClaimEvent]:
         return [event for event in self._load_all() if event.claim_id == claim_id]
+
+    def latest_event(self, claim_id: str) -> ClaimEvent | None:
+        events = self.get_claim(claim_id)
+        return events[-1] if events else None
 
     def lineage_for_node(self, node: Node, limit: int = 50, *, source: str = "", version_ref: str = "") -> dict[str, Any]:
         events = self.list_events(
@@ -288,6 +327,21 @@ class ClaimLedger:
 
 def extraction_source_label(input_path: Path) -> str:
     return f"extract:{input_path.name}"
+
+
+def claim_event_to_node(event: ClaimEvent) -> Node:
+    return Node(
+        id=event.node_id,
+        canonical_id=event.canonical_id or event.node_id,
+        label=event.label,
+        aliases=list(event.aliases),
+        tags=list(event.tags),
+        confidence=event.confidence,
+        status=event.status,
+        valid_from=event.valid_from,
+        valid_to=event.valid_to,
+        provenance=[{"source": event.source, "method": event.method}] if event.source else [],
+    )
 
 
 def stamp_graph_provenance(
