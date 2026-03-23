@@ -299,13 +299,34 @@ def parse_nl_query(query_str: str, engine: QueryEngine) -> dict | list | str:
 
     Returns result data or error string for unrecognized queries.
     """
-    m = _NL_CATEGORY.match(query_str.strip())
-    if m:
-        tag = m.group(1)
-        nodes = engine.query_category(tag)
+    query = query_str.strip()
+    normalized = " ".join(query.lower().rstrip("?.!").split())
+
+    def _node_list(nodes: list[Node]) -> list[dict]:
         return [{"label": n.label, "confidence": n.confidence, "tags": n.tags} for n in nodes]
 
-    m = _NL_PATH.match(query_str.strip())
+    m = _NL_CATEGORY.match(query)
+    if m:
+        tag = m.group(1)
+        return _node_list(engine.query_category(tag))
+
+    m = re.match(r"(?:what\s+are|show)\s+my\s+(.+)", normalized, re.IGNORECASE)
+    if m:
+        category_aliases = {
+            "tech stack": "technical_expertise",
+            "technical expertise": "technical_expertise",
+            "active priorities": "active_priorities",
+            "current work": "active_priorities",
+        }
+        tag = category_aliases.get(m.group(1), m.group(1).replace(" ", "_"))
+        return _node_list(engine.query_category(tag))
+
+    if normalized in {"what am i working on", "what am i working on right now"}:
+        return _node_list(engine.query_category("active_priorities"))
+
+    m = _NL_PATH.match(query)
+    if not m:
+        m = re.match(r"how\s+(?:does|is)\s+(.+?)\s+(?:relate\s+to|connected\s+to)\s+(.+)", query, re.IGNORECASE)
     if m:
         from_label = m.group(1).strip()
         to_label = m.group(2).strip()
@@ -317,11 +338,17 @@ def parse_nl_query(query_str: str, engine: QueryEngine) -> dict | list | str:
             "found": True,
         }
 
-    m = _NL_CHANGED.match(query_str.strip())
+    m = re.match(r"(?:who|what)\s+is\s+related\s+to\s+(.+)", query, re.IGNORECASE)
+    if m:
+        related = engine.query_related(m.group(1).strip())
+        return {"related": _node_list(related), "count": len(related)}
+
+    m = _NL_CHANGED.match(query)
     if m:
         since = m.group(1).strip()
         return engine.query_changed(since)
 
     return (
-        "Query not recognized. Supported: 'what are my <tag>', 'how does X relate to Y', 'what changed since <date>'."
+        "Query not recognized. Supported: 'what are my <tag>', 'show my <category>', 'how does X relate to Y', "
+        "'how is X connected to Y', 'who is related to X', 'what changed since <date>'."
     )
