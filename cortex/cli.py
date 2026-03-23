@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from cortex.adapters import ADAPTERS
+from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.compat import upgrade_v4_to_v5
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
@@ -22,7 +23,7 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
-from cortex.graph import CortexGraph
+from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
     NormalizedContext,
@@ -349,6 +350,24 @@ def build_parser():
     bl.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     bl.add_argument("--limit", type=int, default=20, help="Max versions to scan for blame history (default: 20)")
     bl.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- claim (ledger) ----------------------------------------------------
+    clm = sub.add_parser("claim", help="Inspect the local claim ledger")
+    clm_sub = clm.add_subparsers(dest="claim_subcommand")
+
+    clm_log = clm_sub.add_parser("log", help="List recent claim events")
+    clm_log.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_log.add_argument("--label", help="Filter by label or alias")
+    clm_log.add_argument("--node-id", help="Filter by node id")
+    clm_log.add_argument("--source", help="Filter by source")
+    clm_log.add_argument("--op", choices=["assert", "retract"], help="Filter by operation")
+    clm_log.add_argument("--limit", type=int, default=20, help="Max events to return (default: 20)")
+    clm_log.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_show = clm_sub.add_parser("show", help="Show all events for a claim id")
+    clm_show.add_argument("claim_id", help="Claim id")
+    clm_show.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_show.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- checkout (version history) ----------------------------------------
     ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
@@ -1103,6 +1122,20 @@ def run_memory_set(args):
     commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
     if commit_id:
         result["commit_id"] = commit_id
+    node = graph.get_node(result["node_id"])
+    if node is not None:
+        event = ClaimEvent.from_node(
+            node,
+            op="assert",
+            source=args.source or "manual",
+            method="manual_set",
+            version_id=commit_id or "",
+            message=args.commit_message or "",
+            metadata={"created": result["created"], "updated": result["updated"]},
+        )
+        ClaimLedger(Path(args.store_dir)).append(event)
+        result["claim_id"] = event.claim_id
+        result["claim_event_id"] = event.event_id
     if _emit_result(result, args.format) == 0:
         return 0
     print(f"{'Created' if result['created'] else 'Updated'} node {result['node_id']}.")
@@ -1115,6 +1148,7 @@ def run_memory_retract(args):
         print(f"File not found: {input_path}")
         return 1
     graph = _load_graph(input_path)
+    pre_nodes = {node_id: node.to_dict() for node_id, node in graph.nodes.items()}
     result = retract_source(
         graph,
         source=args.source,
@@ -1126,6 +1160,28 @@ def run_memory_retract(args):
         commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
         if commit_id:
             result["commit_id"] = commit_id
+        claim_events: list[str] = []
+        claim_ids: list[str] = []
+        ledger = ClaimLedger(Path(args.store_dir))
+        for node_id in result["node_ids"]:
+            snapshot = pre_nodes.get(node_id)
+            if snapshot is None:
+                continue
+            event = ClaimEvent.from_node(
+                Node.from_dict(snapshot),
+                op="retract",
+                source=args.source,
+                method="memory_retract",
+                version_id=commit_id or "",
+                message=args.commit_message or "",
+                metadata={"removed": node_id not in graph.nodes, "prune_orphans": not args.keep_orphans},
+            )
+            ledger.append(event)
+            claim_events.append(event.event_id)
+            claim_ids.append(event.claim_id)
+        if claim_events:
+            result["claim_event_ids"] = claim_events
+            result["claim_ids"] = claim_ids
     if _emit_result(result, args.format) == 0:
         return 0
     print(
@@ -1211,6 +1267,48 @@ def run_blame(args):
                     f"[{entry['source']}] {entry['message']}"
                 )
         print()
+    return 0
+
+
+def run_claim_log(args):
+    ledger = ClaimLedger(Path(args.store_dir))
+    events = ledger.list_events(
+        label=args.label or "",
+        node_id=args.node_id or "",
+        source=args.source or "",
+        op=args.op or "",
+        limit=args.limit,
+    )
+    payload = {"events": [event.to_dict() for event in events]}
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not events:
+        print("No claim events found.")
+        return 0
+    print(f"Claim events ({len(events)}):")
+    for event in events:
+        version = event.version_id[:8] if event.version_id else "local"
+        print(f"  {event.timestamp} [{event.op}] {event.label} source={event.source or '-'} version={version}")
+    return 0
+
+
+def run_claim_show(args):
+    ledger = ClaimLedger(Path(args.store_dir))
+    events = ledger.get_claim(args.claim_id)
+    payload = {"claim_id": args.claim_id, "events": [event.to_dict() for event in events]}
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not events:
+        print(f"No claim events found for {args.claim_id}.")
+        return 0
+    first = events[0]
+    print(f"Claim {args.claim_id}: {first.label}")
+    for event in events:
+        version = event.version_id[:8] if event.version_id else "local"
+        print(
+            f"  {event.timestamp} [{event.op}] source={event.source or '-'} "
+            f"method={event.method or '-'} version={version}"
+        )
     return 0
 
 
@@ -2176,6 +2274,7 @@ def main(argv=None):
         "drift",
         "diff",
         "blame",
+        "claim",
         "checkout",
         "identity",
         "commit",
@@ -2240,6 +2339,13 @@ def main(argv=None):
         return run_diff(args)
     elif args.subcommand == "blame":
         return run_blame(args)
+    elif args.subcommand == "claim":
+        if args.claim_subcommand == "log":
+            return run_claim_log(args)
+        elif args.claim_subcommand == "show":
+            return run_claim_show(args)
+        print("Specify a claim subcommand: log, show")
+        return 1
     elif args.subcommand == "checkout":
         return run_checkout(args)
     elif args.subcommand == "identity":

@@ -146,6 +146,108 @@ def test_memory_set_supports_alias_temporal_and_provenance(tmp_path):
     assert node.provenance[0]["source"] == "manual-test"
 
 
+def test_memory_set_records_claim_event(tmp_path, capsys):
+    graph_path = tmp_path / "context.json"
+    store_dir = tmp_path / ".cortex"
+    _write_graph(graph_path, CortexGraph())
+
+    rc = main(
+        [
+            "memory",
+            "set",
+            str(graph_path),
+            "--label",
+            "Project Atlas",
+            "--tag",
+            "active_priorities",
+            "--status",
+            "active",
+            "--source",
+            "manual-note",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["claim_id"]
+
+    log_rc = main(
+        [
+            "claim",
+            "log",
+            "--store-dir",
+            str(store_dir),
+            "--label",
+            "Project Atlas",
+            "--format",
+            "json",
+        ]
+    )
+    log_out = json.loads(capsys.readouterr().out)
+    assert log_rc == 0
+    assert log_out["events"][0]["op"] == "assert"
+    assert log_out["events"][0]["claim_id"] == out["claim_id"]
+
+    show_rc = main(["claim", "show", out["claim_id"], "--store-dir", str(store_dir), "--format", "json"])
+    show_out = json.loads(capsys.readouterr().out)
+    assert show_rc == 0
+    assert show_out["events"][0]["label"] == "Project Atlas"
+
+
+def test_memory_retract_records_claim_event(tmp_path, capsys):
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id=make_node_id("Project Atlas"),
+            label="Project Atlas",
+            tags=["active_priorities"],
+            provenance=[{"source": "manual-note", "method": "manual"}],
+        )
+    )
+    graph_path = tmp_path / "context.json"
+    store_dir = tmp_path / ".cortex"
+    _write_graph(graph_path, graph)
+
+    rc = main(
+        [
+            "memory",
+            "retract",
+            str(graph_path),
+            "--source",
+            "manual-note",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["claim_event_ids"]
+
+    log_rc = main(
+        [
+            "claim",
+            "log",
+            "--store-dir",
+            str(store_dir),
+            "--source",
+            "manual-note",
+            "--op",
+            "retract",
+            "--format",
+            "json",
+        ]
+    )
+    log_out = json.loads(capsys.readouterr().out)
+    assert log_rc == 0
+    assert log_out["events"][0]["op"] == "retract"
+    assert log_out["events"][0]["label"] == "Project Atlas"
+
+
 def test_version_diff_and_checkout_cli(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     store = VersionStore(store_dir)

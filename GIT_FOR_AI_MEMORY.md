@@ -7,6 +7,7 @@ Cortex now has the core local primitives for a `Git for AI Memory` workflow:
 - `diff`: compare versions
 - `checkout`: restore an older snapshot
 - `blame`: trace a claim to provenance and version history
+- `claim log` / `claim show`: inspect raw claim events
 - `memory retract`: remove memory evidence from a bad source
 - `query --at`: inspect what was true at a point in time
 
@@ -44,6 +45,10 @@ cortex commit context.json -m "Promote Project Atlas to active"
 
 # Explain why the claim exists
 cortex blame context.json --label "Project Atlas"
+
+# Inspect claim events directly
+cortex claim log --label "Project Atlas"
+cortex claim show <claim-id>
 
 # Compare versions
 cortex diff <old-version> <new-version>

@@ -34,6 +34,7 @@ sample_*.json
 
 # Local-only (not tracked)
 local/
+.cortex/
 corpus/
 autoresearch_log.jsonl
 autoresearch_status.json
