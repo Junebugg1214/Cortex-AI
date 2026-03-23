@@ -1474,6 +1474,104 @@ class AggressiveExtractor:
                 timestamp=timestamp,
             )
 
+        def add_preference_with_override(
+            topic: str,
+            source_quote: str,
+            categories: tuple[str, ...],
+            opposite_topics: tuple[str, ...] = (),
+        ):
+            def matches_override(existing_topic: str, target: str) -> bool:
+                existing_norm = normalize_text(existing_topic)
+                target_norm = normalize_text(target)
+                if not existing_norm or not target_norm:
+                    return False
+                return (
+                    existing_norm == target_norm
+                    or existing_norm.startswith(target_norm + " ")
+                    or existing_norm.endswith(" " + target_norm)
+                    or target_norm in existing_norm.split()
+                )
+
+            for category in categories:
+                self.context.add_topic(
+                    category=category,
+                    topic=topic,
+                    brief=f"Communication: {topic}" if category == "communication_preferences" else f"Prefers: {topic}",
+                    extraction_method="explicit_statement",
+                    source_quote=source_quote[:200],
+                    timestamp=timestamp,
+                )
+
+            if not opposite_topics:
+                return
+
+            for category in ("user_preferences", "communication_preferences"):
+                for existing in list(self.context.topics.get(category, {}).values()):
+                    if are_similar(existing.topic, topic, threshold=0.8):
+                        continue
+                    if timestamp and existing.last_seen and existing.last_seen >= timestamp:
+                        continue
+                    if not any(matches_override(existing.topic, opposite) for opposite in opposite_topics):
+                        continue
+                    self.context.add_topic(
+                        category="negations",
+                        topic=existing.topic,
+                        brief=f"Superseded preference: {existing.topic}",
+                        full_description=f"Later preference override: {topic}",
+                        extraction_method="explicit_statement",
+                        source_quote=source_quote[:200],
+                        timestamp=timestamp,
+                    )
+
+        evolving_preference_patterns = [
+            (
+                r"\b(?:i want|please|just|you can|can you|be|keep it|make it)\b[^.]{0,80}\b(concise|brief)\b",
+                "concise responses",
+                ("communication_preferences", "user_preferences"),
+                ("verbose", "verbose explanations", "detailed explanations", "thorough explanations"),
+            ),
+            (
+                r"\b(?:i want|please|just|you can|can you|be|keep it|make it)\b[^.]{0,80}\b(verbose|detailed|thorough)\b",
+                "verbose explanations",
+                ("communication_preferences", "user_preferences"),
+                ("concise", "concise responses", "brief responses"),
+            ),
+            (
+                r"\btreat me like an expert\b",
+                "expert-level explanations",
+                ("communication_preferences", "user_preferences"),
+                ("basic explanations", "beginner-level explanations", "skip the basics"),
+            ),
+            (
+                r"\bskip the basics\b",
+                "expert-level explanations",
+                ("communication_preferences", "user_preferences"),
+                ("basic explanations", "beginner-level explanations"),
+            ),
+        ]
+
+        for pattern, topic, categories, opposite_topics in evolving_preference_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                add_preference_with_override(topic, match.group(0), categories, opposite_topics)
+
+        indentation_patterns = [
+            r"\bi(?:\s+always)?\s+use\s+(tabs|spaces)\b(?:[^.]{0,40}\bindentation\b)?",
+            r"\b(tabs|spaces)\s+for\s+indentation\b",
+            r"\b(tabs|spaces)\s+everywhere\b",
+            r"\bfor\s+[a-z0-9+#.]+\b[^.]{0,40}\b(tabs|spaces)\b",
+        ]
+        for pattern in indentation_patterns:
+            for match in re.finditer(pattern, lower):
+                style = match.group(1).lower()
+                topic = f"Use {style}"
+                opposite = "spaces" if style == "tabs" else "tabs"
+                add_preference_with_override(
+                    topic,
+                    match.group(0),
+                    ("user_preferences",),
+                    (f"Use {opposite}", opposite, f"{opposite} for indentation"),
+                )
+
     def _extract_constraints(self, text: str, timestamp: datetime | None = None):
         """Extract constraints (budget, timeline, team size, requirements)."""
 
