@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -96,6 +95,18 @@ def forget_nodes(
         "node_ids": existing_ids,
         "nodes_removed": removed,
     }
+
+
+def retract_source(
+    graph: CortexGraph,
+    source: str,
+    dry_run: bool = False,
+    prune_orphans: bool = True,
+) -> dict[str, Any]:
+    working_graph = CortexGraph.from_v5_json(graph.export_v5()) if dry_run else graph
+    result = working_graph.retract_source(source=source, prune_orphans=prune_orphans)
+    result["dry_run"] = dry_run
+    return result
 
 
 def set_memory_node(

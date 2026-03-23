@@ -38,6 +38,7 @@ from cortex.import_memory import (
 from cortex.memory_ops import (
     forget_nodes,
     list_memory_conflicts,
+    retract_source,
     resolve_memory_conflict,
     set_memory_node,
     show_memory_nodes,
@@ -236,6 +237,19 @@ def build_parser():
     mem_forget.add_argument("--commit-message", help="Optional version commit message")
     mem_forget.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     mem_forget.add_argument("--format", choices=["json", "text"], default="text")
+
+    mem_retract = mem_sub.add_parser("retract", help="Retract memory evidence by provenance source")
+    mem_retract.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_retract.add_argument("--source", required=True, help="Provenance source label to retract")
+    mem_retract.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    mem_retract.add_argument(
+        "--keep-orphans",
+        action="store_true",
+        help="Keep touched nodes and edges even if they no longer have any source-backed evidence",
+    )
+    mem_retract.add_argument("--commit-message", help="Optional version commit message")
+    mem_retract.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mem_retract.add_argument("--format", choices=["json", "text"], default="text")
 
     mem_set = mem_sub.add_parser("set", help="Create or update a memory node")
     mem_set.add_argument("input_file", help="Path to context JSON (v4 or v5)")
@@ -1074,6 +1088,36 @@ def run_memory_set(args):
     if _emit_result(result, args.format) == 0:
         return 0
     print(f"{'Created' if result['created'] else 'Updated'} node {result['node_id']}.")
+    return 0
+
+
+def run_memory_retract(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    result = retract_source(
+        graph,
+        source=args.source,
+        dry_run=args.dry_run,
+        prune_orphans=not args.keep_orphans,
+    )
+    if not args.dry_run:
+        _save_graph(graph, input_path)
+        commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+        if commit_id:
+            result["commit_id"] = commit_id
+    if _emit_result(result, args.format) == 0:
+        return 0
+    print(
+        f"Retracted source {result['source']}: "
+        f"{result['nodes_touched']} node(s), {result['edges_touched']} edge(s), "
+        f"{result['snapshots_removed']} snapshot(s), "
+        f"{result['node_provenance_removed'] + result['edge_provenance_removed']} provenance entr{'y' if result['node_provenance_removed'] + result['edge_provenance_removed'] == 1 else 'ies'} removed."
+    )
+    if result["nodes_removed"] or result["edges_removed"]:
+        print(f"Pruned {result['nodes_removed']} node(s) and {result['edges_removed']} edge(s).")
     return 0
 
 
@@ -2061,11 +2105,13 @@ def main(argv=None):
             return run_memory_show(args)
         elif args.memory_subcommand == "forget":
             return run_memory_forget(args)
+        elif args.memory_subcommand == "retract":
+            return run_memory_retract(args)
         elif args.memory_subcommand == "set":
             return run_memory_set(args)
         elif args.memory_subcommand == "resolve":
             return run_memory_resolve(args)
-        print("Specify a memory subcommand: conflicts, show, forget, set, resolve")
+        print("Specify a memory subcommand: conflicts, show, forget, retract, set, resolve")
         return 1
     elif args.subcommand == "query":
         return run_query(args)

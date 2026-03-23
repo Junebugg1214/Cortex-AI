@@ -53,6 +53,37 @@ def _normalize_label(label: str) -> str:
     return " ".join(label.lower().strip().split())
 
 
+def _normalize_source_label(source: str) -> str:
+    """Normalize provenance source labels for case-insensitive matching."""
+    return " ".join(str(source).lower().strip().split())
+
+
+def _dedupe_dict_items(items: list[dict]) -> list[dict]:
+    """Deduplicate dict items while preserving order."""
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(item))
+    return deduped
+
+
+def _filter_items_by_source(items: list[dict], source: str) -> tuple[list[dict], list[dict]]:
+    """Split provenance-like dict items into kept and removed by source label."""
+    norm_source = _normalize_source_label(source)
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for item in items:
+        if _normalize_source_label(item.get("source", "")) == norm_source:
+            removed.append(dict(item))
+        else:
+            kept.append(dict(item))
+    return kept, removed
+
+
 def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
     """Diff two graphs. Returns added/removed/modified nodes and edges with a summary."""
     old_nids = set(old.nodes)
@@ -354,6 +385,91 @@ class CortexGraph:
         del self.edges[edge_id]
         self._invalidate_adjacency()
         return True
+
+    def retract_source(self, source: str, prune_orphans: bool = True) -> dict[str, Any]:
+        """Remove evidence contributed by a provenance source.
+
+        This strips matching provenance entries and snapshots. When
+        ``prune_orphans`` is true, nodes and edges touched by this source are
+        removed if they no longer have any source-backed evidence attached.
+        """
+        source = source.strip()
+        if not source:
+            raise ValueError("source must be non-empty")
+
+        touched_node_ids: set[str] = set()
+        touched_edge_ids: set[str] = set()
+        node_ids_to_remove: set[str] = set()
+        edge_ids_to_remove: set[str] = set()
+        node_provenance_removed = 0
+        edge_provenance_removed = 0
+        snapshots_removed = 0
+
+        for node in list(self.nodes.values()):
+            kept_provenance, removed_provenance = _filter_items_by_source(node.provenance, source)
+            kept_snapshots, removed_snapshots = _filter_items_by_source(node.snapshots, source)
+
+            if not removed_provenance and not removed_snapshots:
+                continue
+
+            touched_node_ids.add(node.id)
+            node.provenance = kept_provenance
+            node.snapshots = kept_snapshots
+            node_provenance_removed += len(removed_provenance)
+            snapshots_removed += len(removed_snapshots)
+
+            if prune_orphans and not node.provenance and not node.snapshots:
+                node_ids_to_remove.add(node.id)
+
+        for edge in list(self.edges.values()):
+            kept_provenance, removed_provenance = _filter_items_by_source(edge.provenance, source)
+            if not removed_provenance:
+                continue
+
+            touched_edge_ids.add(edge.id)
+            edge.provenance = kept_provenance
+            edge_provenance_removed += len(removed_provenance)
+
+            if prune_orphans and not edge.provenance:
+                edge_ids_to_remove.add(edge.id)
+
+        for edge_id in sorted(edge_ids_to_remove):
+            self.remove_edge(edge_id)
+
+        before_edge_ids = set(self.edges)
+        nodes_removed = self.remove_nodes(sorted(node_ids_to_remove))
+        edges_removed = len(before_edge_ids - set(self.edges)) + len(edge_ids_to_remove)
+
+        if touched_node_ids or touched_edge_ids or nodes_removed or edges_removed:
+            self.meta.setdefault("retractions", []).append(
+                {
+                    "source": source,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "prune_orphans": prune_orphans,
+                    "nodes_touched": len(touched_node_ids),
+                    "edges_touched": len(touched_edge_ids),
+                    "nodes_removed": nodes_removed,
+                    "edges_removed": edges_removed,
+                    "node_provenance_removed": node_provenance_removed,
+                    "edge_provenance_removed": edge_provenance_removed,
+                    "snapshots_removed": snapshots_removed,
+                }
+            )
+
+        return {
+            "status": "ok",
+            "source": source,
+            "prune_orphans": prune_orphans,
+            "node_ids": sorted(touched_node_ids),
+            "edge_ids": sorted(touched_edge_ids),
+            "nodes_touched": len(touched_node_ids),
+            "edges_touched": len(touched_edge_ids),
+            "nodes_removed": nodes_removed,
+            "edges_removed": edges_removed,
+            "node_provenance_removed": node_provenance_removed,
+            "edge_provenance_removed": edge_provenance_removed,
+            "snapshots_removed": snapshots_removed,
+        }
 
     # ── Temporal ─────────────────────────────────────────────────────────
 
@@ -700,15 +816,7 @@ class CortexGraph:
             a.status = b.status
         if not a.canonical_id:
             a.canonical_id = a.id
-        seen_provenance: set[str] = set()
-        merged_provenance: list[dict] = []
-        for item in a.provenance + b.provenance:
-            key = json.dumps(item, sort_keys=True, ensure_ascii=False)
-            if key in seen_provenance:
-                continue
-            seen_provenance.add(key)
-            merged_provenance.append(dict(item))
-        a.provenance = merged_provenance
+        a.provenance = _dedupe_dict_items(a.provenance + b.provenance)
         # Merge properties
         for k, v in b.properties.items():
             if k not in a.properties:

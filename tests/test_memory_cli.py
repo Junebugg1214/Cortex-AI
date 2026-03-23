@@ -88,6 +88,28 @@ def test_memory_forget_by_label(tmp_path):
     assert not saved.find_nodes(label="Python")
 
 
+def test_memory_retract_by_source_json(tmp_path, capsys):
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id=make_node_id("Response Style"),
+            label="Response Style",
+            tags=["communication_preferences"],
+            provenance=[{"source": "manual-a", "method": "manual"}],
+        )
+    )
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    rc = main(["memory", "retract", str(graph_path), "--source", "manual-a", "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["nodes_removed"] == 1
+    saved = CortexGraph.from_v5_json(json.loads(graph_path.read_text(encoding="utf-8")))
+    assert not saved.find_nodes(label="Response Style")
+
+
 def test_memory_resolve_ignore(tmp_path, capsys):
     graph = CortexGraph()
     graph.add_node(Node(id=make_node_id("Rust"), label="Rust", tags=["technical_expertise", "negations"]))
