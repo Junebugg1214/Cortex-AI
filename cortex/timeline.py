@@ -7,6 +7,8 @@ with markdown and HTML output formats.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from cortex.graph import CortexGraph
 
 
@@ -32,13 +34,18 @@ class TimelineGenerator:
         Returns sorted by timestamp ascending.
         """
         events: list[dict] = []
+        normalized_from = _normalize_timestamp(from_date) if from_date else None
+        normalized_to = _normalize_timestamp(to_date) if to_date else None
 
         for node in graph.nodes.values():
+            first_seen = _normalize_timestamp(node.first_seen) if node.first_seen else ""
+            last_seen = _normalize_timestamp(node.last_seen) if node.last_seen else ""
+
             # first_seen event
-            if node.first_seen:
+            if first_seen:
                 events.append(
                     {
-                        "timestamp": node.first_seen,
+                        "timestamp": first_seen,
                         "event_type": "first_seen",
                         "node_id": node.id,
                         "label": node.label,
@@ -51,10 +58,10 @@ class TimelineGenerator:
                 )
 
             # last_seen event (only if different from first_seen)
-            if node.last_seen and node.last_seen != node.first_seen:
+            if last_seen and last_seen != first_seen:
                 events.append(
                     {
-                        "timestamp": node.last_seen,
+                        "timestamp": last_seen,
                         "event_type": "last_seen",
                         "node_id": node.id,
                         "label": node.label,
@@ -69,7 +76,7 @@ class TimelineGenerator:
             # Snapshot events
             snapshots = node.snapshots if hasattr(node, "snapshots") else []
             for snap in snapshots:
-                ts = snap.get("timestamp", "")
+                ts = _normalize_timestamp(snap.get("timestamp", ""))
                 if not ts:
                     continue
                 events.append(
@@ -87,10 +94,10 @@ class TimelineGenerator:
                 )
 
         # Filter by date range
-        if from_date:
-            events = [e for e in events if e["timestamp"] >= from_date]
-        if to_date:
-            events = [e for e in events if e["timestamp"] <= to_date]
+        if normalized_from:
+            events = [e for e in events if e["timestamp"] >= normalized_from]
+        if normalized_to:
+            events = [e for e in events if e["timestamp"] <= normalized_to]
 
         # Sort chronologically
         events.sort(key=lambda e: e["timestamp"])
@@ -178,3 +185,25 @@ class TimelineGenerator:
 def _html_escape(s: str) -> str:
     """Basic HTML escaping."""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _normalize_timestamp(timestamp: str | None) -> str:
+    """Normalize supported ISO-8601 timestamps to canonical UTC."""
+    if not timestamp:
+        return ""
+
+    value = timestamp.strip()
+    if not value:
+        return ""
+
+    try:
+        normalized = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    else:
+        normalized = normalized.astimezone(timezone.utc)
+
+    return normalized.isoformat().replace("+00:00", "Z")
