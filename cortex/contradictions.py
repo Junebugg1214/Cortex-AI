@@ -147,6 +147,7 @@ class ContradictionEngine:
         """
         contradictions: list[Contradiction] = []
         now = datetime.now(timezone.utc).isoformat()
+        min_confidence_delta = 0.05
 
         for node in graph.nodes.values():
             snapshots = node.snapshots if hasattr(node, "snapshots") else []
@@ -156,14 +157,23 @@ class ContradictionEngine:
             # Sort snapshots by timestamp
             sorted_snaps = sorted(snapshots, key=lambda s: s.get("timestamp", ""))
             confidences = [s.get("confidence", 0.5) for s in sorted_snaps]
+            snapshot_tags = [set(s.get("tags", [])) for s in sorted_snaps]
 
-            # Count direction changes
-            direction_changes = 0
-            for i in range(2, len(confidences)):
-                prev_dir = confidences[i - 1] - confidences[i - 2]
-                curr_dir = confidences[i] - confidences[i - 1]
-                if (prev_dir > 0 and curr_dir < 0) or (prev_dir < 0 and curr_dir > 0):
-                    direction_changes += 1
+            # Treat semantic tag moves as tag conflicts, not temporal confidence flips.
+            if any(tags != snapshot_tags[0] for tags in snapshot_tags[1:]):
+                continue
+
+            # Ignore small confidence noise and count only meaningful reversals.
+            directions = []
+            for i in range(1, len(confidences)):
+                delta = confidences[i] - confidences[i - 1]
+                if abs(delta) < min_confidence_delta:
+                    continue
+                directions.append(1 if delta > 0 else -1)
+
+            direction_changes = sum(
+                1 for i in range(1, len(directions)) if directions[i] != directions[i - 1]
+            )
 
             if direction_changes >= 2:
                 severity = min(1.0, 0.4 + (direction_changes * 0.2))
