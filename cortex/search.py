@@ -184,12 +184,35 @@ STOP_WORDS: frozenset[str] = frozenset(
 # Tokenizer
 # ---------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-'][a-z0-9]+)*")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*")
+_COMPOUND_PART_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+")
 
 
 def tokenize(text: str) -> list[str]:
     """Lowercase, split into alphanumeric tokens, remove stop words."""
-    return [t for t in _TOKEN_RE.findall(text.lower()) if t not in STOP_WORDS]
+    tokens: list[str] = []
+    for raw_token in _TOKEN_RE.findall(text):
+        token = raw_token.lower()
+        if token not in STOP_WORDS:
+            tokens.append(token)
+
+        if raw_token == token:
+            continue
+
+        parts = [part.lower() for part in _COMPOUND_PART_RE.findall(raw_token)]
+        if len(parts) < 2:
+            continue
+
+        for part in parts:
+            if part not in STOP_WORDS and part != token:
+                tokens.append(part)
+
+        for idx in range(len(parts) - 1):
+            joined = "".join(parts[idx : idx + 2])
+            if joined not in STOP_WORDS and joined != token:
+                tokens.append(joined)
+
+    return tokens
 
 
 # ---------------------------------------------------------------------------
