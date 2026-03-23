@@ -1296,6 +1296,44 @@ class AggressiveExtractor:
                     self.context.add_topic(
                         "values",
                         value,
+                        full_description=match.group(0)[:200],
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for pattern, value_builder in [
+            (
+                r"i\s+care(?:\s+\w+){0,3}\s+about\s+([^.,]+)",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"\b([A-Za-z][A-Za-z0-9'/-]*(?:\s+[A-Za-z][A-Za-z0-9'/-]*){0,12}\s+is non-negotiable(?:\s+for\s+[^.,]+)?)",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"i(?:'d| would)\s+rather\s+([^.,]+?)\s+than\s+([^.,]+)",
+                lambda m: clean_extracted_text(f"{m.group(1)} over {m.group(2)}"),
+            ),
+            (
+                r"i(?:\s+also)?\s+document everything",
+                lambda _m: "Document everything",
+            ),
+            (
+                r"\b([A-Z]{2,}\s+license(?:\s+always)?)\b",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"if it(?:'s| is) not written down it did(?:n't| not) happen",
+                lambda _m: "Document everything",
+            ),
+        ]:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                value = value_builder(match)
+                if 5 < len(value) < 200:
+                    self.context.add_topic(
+                        "values",
+                        value,
+                        full_description=match.group(0)[:200],
                         extraction_method="explicit_statement",
                         source_quote=match.group(0),
                         timestamp=timestamp,
