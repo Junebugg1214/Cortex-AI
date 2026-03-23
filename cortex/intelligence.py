@@ -97,24 +97,16 @@ class GapAnalyzer:
         stale: list[Node] = []
 
         for node in graph.nodes.values():
-            # Skip nodes without temporal data
-            if not node.last_seen and not node.snapshots:
-                continue
-
-            # Check if any recent activity
-            is_recent = False
-            if node.last_seen and node.last_seen >= cutoff:
-                is_recent = True
-            if not is_recent:
-                for snap in node.snapshots:
-                    if snap.get("timestamp", "") >= cutoff:
-                        is_recent = True
-                        break
-
-            if not is_recent and node.last_seen:
+            timestamps = [node.last_seen] if node.last_seen else []
+            timestamps.extend(snap.get("timestamp", "") for snap in node.snapshots if snap.get("timestamp"))
+            if timestamps and max(timestamps) < cutoff:
                 stale.append(node)
 
-        stale.sort(key=lambda n: n.last_seen)
+        stale.sort(
+            key=lambda n: max(
+                [n.last_seen] + [snap.get("timestamp", "") for snap in n.snapshots if snap.get("timestamp")]
+            )
+        )
         return stale
 
     def all_gaps(self, graph: CortexGraph) -> dict:
