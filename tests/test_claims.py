@@ -89,3 +89,39 @@ def test_claim_ledger_lineage_for_node(tmp_path: Path):
     assert lineage["sources"] == ["extract:notes.txt"]
     assert lineage["introduced_at"]["version_id"] == "aaa111"
     assert lineage["latest_event"]["op"] == "retract"
+
+
+def test_claim_ledger_filters_by_version_prefix_and_source(tmp_path: Path):
+    ledger = ClaimLedger(tmp_path / ".cortex")
+    node = Node(
+        id="n1",
+        canonical_id="canonical-1",
+        label="Project Atlas",
+        tags=["active_priorities"],
+    )
+    ledger.append(
+        ClaimEvent.from_node(
+            node,
+            op="assert",
+            source="extract:notes.txt",
+            method="extract",
+            version_id="aaa111ffff",
+            timestamp="2026-03-23T00:00:00Z",
+        )
+    )
+    ledger.append(
+        ClaimEvent.from_node(
+            node,
+            op="assert",
+            source="manual-note",
+            method="manual_set",
+            version_id="bbb222ffff",
+            timestamp="2026-03-24T00:00:00Z",
+        )
+    )
+
+    filtered = ledger.list_events(source="manual-note", version_ref="bbb222", limit=10)
+
+    assert len(filtered) == 1
+    assert filtered[0].source == "manual-note"
+    assert filtered[0].version_id == "bbb222ffff"

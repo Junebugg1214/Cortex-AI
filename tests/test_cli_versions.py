@@ -128,6 +128,112 @@ def test_blame_json_includes_provenance_and_version_history(tmp_path, capsys):
     assert out["nodes"][0]["claim_lineage"]["sources"] == ["manual-a"]
 
 
+def test_blame_history_filters_by_source_and_ref(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    store = VersionStore(store_dir)
+    ledger = ClaimLedger(store_dir)
+
+    base_graph = CortexGraph()
+    base_graph.add_node(
+        Node(
+            id="n1",
+            label="PostgreSQL",
+            aliases=["postgres"],
+            tags=["technical_expertise"],
+            provenance=[{"source": "import-a", "method": "extract"}],
+        )
+    )
+    store.commit(base_graph, "base postgres")
+
+    store.create_branch("feature/db")
+    store.switch_branch("feature/db")
+    feature_node = Node(
+        id="n1",
+        canonical_id="n1",
+        label="PostgreSQL",
+        aliases=["postgres"],
+        tags=["technical_expertise"],
+        confidence=0.95,
+        provenance=[{"source": "manual-a", "method": "manual"}],
+        status="active",
+    )
+    feature_graph = CortexGraph()
+    feature_graph.add_node(feature_node)
+    feature_version = store.commit(feature_graph, "feature postgres", source="manual")
+    ledger.append(
+        ClaimEvent.from_node(
+            feature_node,
+            op="assert",
+            source="manual-a",
+            method="manual_set",
+            version_id=feature_version.version_id,
+            timestamp="2026-03-23T00:00:00Z",
+        )
+    )
+
+    store.switch_branch("main")
+    main_graph = CortexGraph()
+    main_graph.add_node(
+        Node(
+            id="n1",
+            label="PostgreSQL",
+            aliases=["postgres"],
+            tags=["technical_expertise"],
+            provenance=[{"source": "import-a", "method": "extract"}],
+        )
+    )
+    store.commit(main_graph, "main postgres", source="extraction")
+
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, feature_graph)
+
+    blame_rc = main(
+        [
+            "blame",
+            str(graph_path),
+            "--label",
+            "postgres",
+            "--store-dir",
+            str(store_dir),
+            "--ref",
+            "feature/db",
+            "--source",
+            "manual-a",
+            "--format",
+            "json",
+        ]
+    )
+    blame_out = json.loads(capsys.readouterr().out)
+
+    assert blame_rc == 0
+    assert blame_out["nodes"][0]["provenance_sources"] == ["manual-a"]
+    assert blame_out["nodes"][0]["history"]["versions_seen"] == 1
+    assert blame_out["nodes"][0]["claim_lineage"]["sources"] == ["manual-a"]
+
+    history_rc = main(
+        [
+            "history",
+            str(graph_path),
+            "--label",
+            "postgres",
+            "--store-dir",
+            str(store_dir),
+            "--ref",
+            "feature/db",
+            "--source",
+            "manual-a",
+            "--format",
+            "json",
+        ]
+    )
+    history_out = json.loads(capsys.readouterr().out)
+
+    assert history_rc == 0
+    assert history_out["ref"] == "feature/db"
+    assert history_out["source"] == "manual-a"
+    assert history_out["nodes"][0]["history"]["introduced_in"]["message"] == "feature postgres"
+
+
 def test_memory_set_supports_alias_temporal_and_provenance(tmp_path):
     graph_path = tmp_path / "context.json"
     _write_graph(graph_path, CortexGraph())

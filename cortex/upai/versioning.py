@@ -414,13 +414,16 @@ class VersionStore:
         label: str = "",
         aliases: list[str] | None = None,
         canonical_id: str = "",
+        ref: str = "HEAD",
+        source: str = "",
         limit: int = 20,
     ) -> dict[str, Any]:
         """Trace where a node appeared and changed across stored versions."""
         aliases = aliases or []
-        history = list(reversed(self.log(limit=limit)))
+        history = list(reversed(self.log(limit=limit, ref=ref)))
         occurrences: list[dict[str, Any]] = []
         previous_signature: str | None = None
+        source_norm = source.strip().lower()
 
         for version in history:
             graph = self.checkout(version.version_id)
@@ -434,6 +437,25 @@ class VersionStore:
             if matched is None:
                 continue
 
+            provenance_sources = sorted(
+                {
+                    str(item.get("source", "")).strip()
+                    for item in matched.provenance
+                    if str(item.get("source", "")).strip()
+                }
+            )
+            snapshot_sources = sorted(
+                {
+                    str(item.get("source", "")).strip()
+                    for item in matched.snapshots
+                    if str(item.get("source", "")).strip()
+                }
+            )
+            if source_norm:
+                event_sources = {value.lower() for value in provenance_sources + snapshot_sources}
+                if source_norm not in event_sources:
+                    continue
+
             signature = json.dumps(
                 {
                     "label": matched.label,
@@ -443,13 +465,7 @@ class VersionStore:
                     "status": matched.status,
                     "valid_from": matched.valid_from,
                     "valid_to": matched.valid_to,
-                    "sources": sorted(
-                        {
-                            str(item.get("source", "")).strip()
-                            for item in matched.provenance + matched.snapshots
-                            if str(item.get("source", "")).strip()
-                        }
-                    ),
+                    "sources": sorted({*provenance_sources, *snapshot_sources}),
                 },
                 sort_keys=True,
             )
@@ -473,20 +489,8 @@ class VersionStore:
                         "status": matched.status,
                         "valid_from": matched.valid_from,
                         "valid_to": matched.valid_to,
-                        "provenance_sources": sorted(
-                            {
-                                str(item.get("source", "")).strip()
-                                for item in matched.provenance
-                                if str(item.get("source", "")).strip()
-                            }
-                        ),
-                        "snapshot_sources": sorted(
-                            {
-                                str(item.get("source", "")).strip()
-                                for item in matched.snapshots
-                                if str(item.get("source", "")).strip()
-                            }
-                        ),
+                        "provenance_sources": provenance_sources,
+                        "snapshot_sources": snapshot_sources,
                     },
                 }
             )

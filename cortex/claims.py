@@ -174,6 +174,7 @@ class ClaimLedger:
         canonical_id: str = "",
         label: str = "",
         source: str = "",
+        version_ref: str = "",
         op: str = "",
         limit: int = 50,
     ) -> list[ClaimEvent]:
@@ -193,6 +194,8 @@ class ClaimLedger:
                     continue
             if source and event.source != source:
                 continue
+            if version_ref and not event.version_id.startswith(version_ref):
+                continue
             if op and event.op != op:
                 continue
             filtered.append(event)
@@ -203,18 +206,20 @@ class ClaimLedger:
     def get_claim(self, claim_id: str) -> list[ClaimEvent]:
         return [event for event in self._load_all() if event.claim_id == claim_id]
 
-    def lineage_for_node(self, node: Node, limit: int = 50) -> dict[str, Any]:
+    def lineage_for_node(self, node: Node, limit: int = 50, *, source: str = "", version_ref: str = "") -> dict[str, Any]:
         events = self.list_events(
             node_id=node.id,
             canonical_id=node.canonical_id or node.id,
             label=node.label,
+            source=source,
+            version_ref=version_ref,
             limit=limit,
         )
         if not events and node.aliases:
             combined: list[ClaimEvent] = []
             seen: set[str] = set()
             for alias in node.aliases:
-                for event in self.list_events(label=alias, limit=limit):
+                for event in self.list_events(label=alias, source=source, version_ref=version_ref, limit=limit):
                     if event.event_id in seen:
                         continue
                     seen.add(event.event_id)

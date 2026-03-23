@@ -401,8 +401,22 @@ def build_parser():
     bl_target.add_argument("--label", help="Node label or alias to trace")
     bl_target.add_argument("--node-id", help="Node ID to trace")
     bl.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    bl.add_argument("--ref", default="HEAD", help="Branch/ref/version ancestry to inspect (default: HEAD)")
+    bl.add_argument("--source", help="Filter receipts to a specific source label")
     bl.add_argument("--limit", type=int, default=20, help="Max versions to scan for blame history (default: 20)")
     bl.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- history (receipts timeline) --------------------------------------
+    hs = sub.add_parser("history", help="Show chronological memory receipts for a node")
+    hs.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    hs_target = hs.add_mutually_exclusive_group(required=True)
+    hs_target.add_argument("--label", help="Node label or alias to trace")
+    hs_target.add_argument("--node-id", help="Node ID to trace")
+    hs.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    hs.add_argument("--ref", default="HEAD", help="Branch/ref/version ancestry to inspect (default: HEAD)")
+    hs.add_argument("--source", help="Filter receipts to a specific source label")
+    hs.add_argument("--limit", type=int, default=20, help="Max versions to scan (default: 20)")
+    hs.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- claim (ledger) ----------------------------------------------------
     clm = sub.add_parser("claim", help="Inspect the local claim ledger")
@@ -413,6 +427,7 @@ def build_parser():
     clm_log.add_argument("--label", help="Filter by label or alias")
     clm_log.add_argument("--node-id", help="Filter by node id")
     clm_log.add_argument("--source", help="Filter by source")
+    clm_log.add_argument("--version", help="Filter by version id prefix")
     clm_log.add_argument("--op", choices=["assert", "retract"], help="Filter by operation")
     clm_log.add_argument("--limit", type=int, default=20, help="Max events to return (default: 20)")
     clm_log.add_argument("--format", choices=["json", "text"], default="text")
@@ -1320,6 +1335,8 @@ def run_blame(args):
         node_id=args.node_id,
         store=store,
         ledger=ledger,
+        ref=args.ref,
+        source=args.source or "",
         version_limit=args.limit,
     )
     if _emit_result(result, args.format) == 0:
@@ -1415,12 +1432,80 @@ def run_blame(args):
     return 0
 
 
+def run_history(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+
+    store_path = Path(args.store_dir)
+    store = VersionStore(store_path) if (store_path / "history.json").exists() else None
+    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
+    result = blame_memory_nodes(
+        graph,
+        label=args.label,
+        node_id=args.node_id,
+        store=store,
+        ledger=ledger,
+        ref=args.ref,
+        source=args.source or "",
+        version_limit=args.limit,
+    )
+    payload = {
+        "status": result["status"],
+        "ref": args.ref,
+        "source": args.source or "",
+        "nodes": result["nodes"],
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not result["nodes"]:
+        target = args.label or args.node_id or "target"
+        print(f"No history found for '{target}'.")
+        return 0
+
+    for item in result["nodes"]:
+        node = item["node"]
+        print(f"History: {node['label']} ({node['id']})")
+        if args.source:
+            print(f"  Source filter: {args.source}")
+        print(f"  Ref: {args.ref}")
+        history = item.get("history")
+        if history and history.get("history"):
+            print("  Version timeline:")
+            for entry in history["history"]:
+                version_node = entry["node"]
+                print(
+                    f"    {entry['timestamp']} {entry['version_id'][:8]} "
+                    f"[{entry['source']}] {entry['message']}"
+                )
+                print(
+                    f"      label={version_node['label']} tags={','.join(version_node['tags']) or '-'} "
+                    f"status={version_node.get('status') or '-'} "
+                    f"window={version_node.get('valid_from') or '?'}->{version_node.get('valid_to') or '?'}"
+                )
+        claim_lineage = item.get("claim_lineage")
+        if claim_lineage and claim_lineage.get("events"):
+            print("  Claim events:")
+            for event in reversed(claim_lineage["events"]):
+                version_label = event["version_id"][:8] if event.get("version_id") else "local"
+                print(
+                    f"    {event['timestamp']} [{event['op']}] "
+                    f"source={event.get('source') or '-'} method={event.get('method') or '-'} "
+                    f"version={version_label} claim={event['claim_id']}"
+                )
+        print()
+    return 0
+
+
 def run_claim_log(args):
     ledger = ClaimLedger(Path(args.store_dir))
     events = ledger.list_events(
         label=args.label or "",
         node_id=args.node_id or "",
         source=args.source or "",
+        version_ref=args.version or "",
         op=args.op or "",
         limit=args.limit,
     )
@@ -2624,6 +2709,7 @@ def main(argv=None):
         "drift",
         "diff",
         "blame",
+        "history",
         "claim",
         "checkout",
         "identity",
@@ -2693,6 +2779,8 @@ def main(argv=None):
         return run_diff(args)
     elif args.subcommand == "blame":
         return run_blame(args)
+    elif args.subcommand == "history":
+        return run_history(args)
     elif args.subcommand == "claim":
         if args.claim_subcommand == "log":
             return run_claim_log(args)

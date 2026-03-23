@@ -289,6 +289,66 @@ class TestVersionStore:
             assert blame["history"][0]["node"]["provenance_sources"] == ["import-a"]
             assert blame["history"][1]["node"]["status"] == "active"
 
+    def test_blame_node_filters_by_ref_and_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            base = CortexGraph()
+            base.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            store.commit(base, "base")
+
+            store.create_branch("feature/db")
+            store.switch_branch("feature/db")
+            feature = CortexGraph()
+            feature.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.95,
+                    provenance=[{"source": "manual-a", "method": "manual"}],
+                    status="active",
+                )
+            )
+            store.commit(feature, "feature promote")
+
+            store.switch_branch("main")
+            main = CortexGraph()
+            main.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            store.commit(main, "main steady")
+
+            blame = store.blame_node(
+                node_id="n1",
+                label="PostgreSQL",
+                aliases=["postgres"],
+                canonical_id="n1",
+                ref="feature/db",
+                source="manual-a",
+                limit=10,
+            )
+
+            assert blame["versions_seen"] == 1
+            assert blame["introduced_in"]["message"] == "feature promote"
+            assert blame["history"][0]["node"]["provenance_sources"] == ["manual-a"]
+
     def test_branch_bootstraps_main(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = VersionStore(Path(tmpdir) / ".cortex")

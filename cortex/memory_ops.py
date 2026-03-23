@@ -117,6 +117,8 @@ def blame_memory_nodes(
     node_id: str | None = None,
     store: VersionStore | None = None,
     ledger: ClaimLedger | None = None,
+    ref: str = "HEAD",
+    source: str = "",
     version_limit: int = 20,
 ) -> dict[str, Any]:
     target_ids: set[str] = set()
@@ -162,9 +164,23 @@ def blame_memory_nodes(
                 label=node.label,
                 aliases=list(node.aliases),
                 canonical_id=node.canonical_id or node.id,
+                ref=ref,
+                source=source,
                 limit=version_limit,
             )
-        claim_lineage = ledger.lineage_for_node(node, limit=version_limit) if ledger is not None else None
+        claim_lineage = ledger.lineage_for_node(node, limit=version_limit, source=source) if ledger is not None else None
+
+        if source:
+            normalized_source = source.strip().lower()
+            provenance_sources = [value for value in provenance_sources if value.lower() == normalized_source]
+            snapshot_sources = [value for value in snapshot_sources if value.lower() == normalized_source]
+            why_present = [reason for reason in why_present if normalized_source in reason.lower() or "Lifecycle claim" in reason]
+
+        has_filtered_receipt = bool(provenance_sources or snapshot_sources)
+        has_filtered_history = bool(history and history.get("versions_seen"))
+        has_filtered_claims = bool(claim_lineage and claim_lineage.get("event_count"))
+        if source and not any((has_filtered_receipt, has_filtered_history, has_filtered_claims)):
+            continue
 
         results.append(
             {

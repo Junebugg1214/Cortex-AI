@@ -76,7 +76,10 @@ cortex log
 cortex diff <version-a> <version-b>
 cortex checkout <version> -o restored.json
 cortex blame context.json --label "PostgreSQL"
+cortex blame context.json --label "PostgreSQL" --source manual-note --ref feature/project-atlas
+cortex history context.json --label "PostgreSQL" --ref main
 cortex claim log --label "PostgreSQL"
+cortex claim log --label "PostgreSQL" --version abc123
 cortex query context.json --node "Python"
 cortex query context.json --node "Current Project" --at 2026-06-01T00:00:00Z
 cortex timeline context.json --format md
@@ -112,8 +115,14 @@ cortex review context.json --against main
 # 5. Ask why a claim exists
 cortex blame context.json --label "Project Atlas"
 
-# 5b. Inspect claim events directly
+# 5b. Inspect receipts from one source on one branch
+cortex blame context.json --label "Project Atlas" --source planning-doc-v1 --ref experiment/planning-cleanup
+
+# 5c. Inspect claim events directly
 cortex claim log --label "Project Atlas"
+
+# 5d. Inspect the chronological receipts timeline
+cortex history context.json --label "Project Atlas" --ref experiment/planning-cleanup
 
 # 6. Retract a bad source if needed
 cortex memory retract context.json --source planning-doc-v1
