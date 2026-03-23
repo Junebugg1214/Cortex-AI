@@ -343,9 +343,19 @@ def _exec_path(graph: CortexGraph, q: PathQuery) -> dict:
 
 
 def _exec_search(graph: CortexGraph, q: SearchQuery) -> dict:
-    results = graph.search_nodes(q.query_text, limit=q.limit)
+    results = []
+    if hasattr(graph, "semantic_search"):
+        semantic_results = graph.semantic_search(q.query_text, limit=q.limit)
+        for item in semantic_results:
+            node = item.get("node")
+            if hasattr(node, "to_dict"):
+                results.append(node.to_dict())
+            elif isinstance(node, dict):
+                results.append(node)
+    if not results:
+        results = [n.to_dict() for n in graph.search_nodes(q.query_text, limit=q.limit)]
     return {
         "type": "search",
-        "results": [n.to_dict() for n in results],
+        "results": results,
         "count": len(results),
     }
