@@ -651,3 +651,58 @@ def test_review_cli_reports_added_nodes_and_risks(tmp_path, capsys):
     assert review_out["summary"]["added_nodes"] == 1
     assert review_out["summary"]["new_contradictions"] >= 1
     assert review_out["summary"]["new_temporal_gaps"] >= 1
+
+
+def test_review_cli_supports_markdown_and_custom_fail_on(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    baseline_graph = CortexGraph()
+    baseline_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    baseline_path = tmp_path / "baseline.json"
+    _write_graph(baseline_path, baseline_graph)
+    assert main(["commit", str(baseline_path), "-m", "baseline", "--store-dir", str(store_dir)]) == 0
+    capsys.readouterr()
+
+    current_graph = CortexGraph()
+    current_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.4))
+    current_path = tmp_path / "current.json"
+    _write_graph(current_path, current_graph)
+
+    review_rc = main(
+        [
+            "review",
+            str(current_path),
+            "--against",
+            "HEAD",
+            "--store-dir",
+            str(store_dir),
+            "--fail-on",
+            "low_confidence",
+            "--format",
+            "md",
+        ]
+    )
+    review_out = capsys.readouterr().out
+
+    assert review_rc == 1
+    assert "# Memory Review" in review_out
+    assert "Status: `fail`" in review_out
+
+    relaxed_rc = main(
+        [
+            "review",
+            str(current_path),
+            "--against",
+            "HEAD",
+            "--store-dir",
+            str(store_dir),
+            "--fail-on",
+            "none",
+            "--format",
+            "json",
+        ]
+    )
+    relaxed_out = json.loads(capsys.readouterr().out)
+
+    assert relaxed_rc == 0
+    assert relaxed_out["status"] == "pass"
+    assert relaxed_out["fail_on"] == ["none"]

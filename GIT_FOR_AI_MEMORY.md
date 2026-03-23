@@ -54,6 +54,12 @@ cortex switch experiment/slack-import
 # Review the current graph before merging
 cortex review context.json --against main
 
+# Emit a PR-friendly Markdown review and fail only on selected risks
+cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
+
+# Keep analysis informative but non-blocking
+cortex review context.json --against main --fail-on none --format json
+
 # Explain why the claim exists
 cortex blame context.json --label "Project Atlas"
 
@@ -92,6 +98,7 @@ cortex memory retract context.json --source planning-notes
 - most recent version that still contained the claim
 - which stored versions materially changed the claim
 - source-filtered and branch-filtered receipts for one claim
+- CI-friendly review gates and Markdown summaries for PR workflows
 
 ## Next Logical Steps
 

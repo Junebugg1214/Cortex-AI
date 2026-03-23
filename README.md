@@ -72,6 +72,7 @@ cortex branch feature/project-atlas
 cortex switch feature/project-atlas
 cortex merge main
 cortex review context.json --against main
+cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
 cortex log
 cortex diff <version-a> <version-b>
 cortex checkout <version> -o restored.json
@@ -111,6 +112,10 @@ cortex switch experiment/planning-cleanup
 cortex log
 cortex diff main experiment/planning-cleanup
 cortex review context.json --against main
+
+# 4b. Make review CI-strict or CI-relaxed
+cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
+cortex review context.json --against main --fail-on none --format json
 
 # 5. Ask why a claim exists
 cortex blame context.json --label "Project Atlas"

@@ -1,5 +1,5 @@
 from cortex.graph import CortexGraph, Node
-from cortex.review import review_graphs
+from cortex.review import parse_failure_policies, review_graphs
 
 
 def _graph_with(*nodes: Node) -> CortexGraph:
@@ -80,3 +80,26 @@ def test_review_graphs_reports_resolved_risks():
     assert result["resolved_contradictions"]
     assert result["resolved_temporal_gaps"]
     assert result["summary"]["blocking_issues"] == 0
+
+
+def test_review_markdown_and_failure_policies():
+    baseline = _graph_with(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    current = _graph_with(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.4))
+
+    review = review_graphs(current, baseline, current_label="current", against_label="base")
+    should_fail, counts = review.should_fail(parse_failure_policies("low_confidence"))
+    markdown = review.to_markdown(parse_failure_policies("low_confidence"))
+
+    assert should_fail
+    assert counts["low_confidence"] == 1
+    assert "# Memory Review" in markdown
+    assert "Status: `fail`" in markdown
+
+
+def test_parse_failure_policies_rejects_invalid_values():
+    try:
+        parse_failure_policies("blocking,nope")
+    except ValueError as exc:
+        assert "Unknown review failure policy" in str(exc)
+    else:
+        raise AssertionError("expected parse_failure_policies to raise")

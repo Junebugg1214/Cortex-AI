@@ -53,7 +53,7 @@ from cortex.memory_ops import (
     show_memory_nodes,
 )
 from cortex.merge import merge_refs
-from cortex.review import review_graphs
+from cortex.review import parse_failure_policies, review_graphs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -490,7 +490,12 @@ def build_parser():
     rvw.add_argument("--against", required=True, help="Baseline branch/ref/version to compare against")
     rvw.add_argument("--ref", default="HEAD", help="Current branch/ref/version when no input file is provided")
     rvw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
-    rvw.add_argument("--format", choices=["json", "text"], default="text")
+    rvw.add_argument(
+        "--fail-on",
+        default="blocking",
+        help="Comma-separated review gates: blocking, contradictions, temporal_gaps, low_confidence, retractions, changes, none",
+    )
+    rvw.add_argument("--format", choices=["json", "text", "md"], default="text")
 
     # -- log (Phase 3) -----------------------------------------------------
     lg = sub.add_parser("log", help="Show version history")
@@ -1927,6 +1932,11 @@ def run_review(args):
     store = VersionStore(Path(args.store_dir))
     against_version = _resolve_version_or_exit(store, args.against)
     against_graph = store.checkout(against_version)
+    try:
+        fail_policies = parse_failure_policies(args.fail_on)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
 
     if args.input_file:
         input_path = Path(args.input_file)
@@ -1940,15 +1950,22 @@ def run_review(args):
         current_graph = store.checkout(current_version)
         current_label = current_version
 
-    result = review_graphs(
+    review = review_graphs(
         current_graph,
         against_graph,
         current_label=current_label,
         against_label=against_version,
-    ).to_dict()
+    )
+    result = review.to_dict()
+    should_fail, failure_counts = review.should_fail(fail_policies)
+    result["fail_on"] = fail_policies
+    result["failure_counts"] = failure_counts
+    result["status"] = "fail" if should_fail else "pass"
 
     if args.format == "json":
         print(json.dumps(result, indent=2))
+    elif args.format == "md":
+        print(review.to_markdown(fail_policies), end="")
     else:
         summary = result["summary"]
         print(f"Review {result['current']} against {result['against']}")
@@ -1962,6 +1979,7 @@ def run_review(args):
             f" low_confidence={summary['introduced_low_confidence_active_priorities']}"
             f" retractions={summary['new_retractions']}"
         )
+        print(f"  Gates: {', '.join(fail_policies)} -> {result['status']}")
         if result["diff"]["added_nodes"]:
             print("  Added nodes:")
             for item in result["diff"]["added_nodes"][:10]:
@@ -1978,7 +1996,7 @@ def run_review(args):
             print("  New temporal gaps:")
             for item in result["new_temporal_gaps"][:10]:
                 print(f"    - {item['label']}: {item['kind']}")
-    return 0 if result["summary"]["blocking_issues"] == 0 else 1
+    return 0 if not should_fail else 1
 
 
 def run_log(args):
