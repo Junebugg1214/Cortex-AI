@@ -4,6 +4,7 @@ from typing import Any
 
 from cortex.contradictions import ContradictionEngine
 from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.upai.versioning import VersionStore
 
 
 @dataclass
@@ -107,6 +108,75 @@ def retract_source(
     result = working_graph.retract_source(source=source, prune_orphans=prune_orphans)
     result["dry_run"] = dry_run
     return result
+
+
+def blame_memory_nodes(
+    graph: CortexGraph,
+    label: str | None = None,
+    node_id: str | None = None,
+    store: VersionStore | None = None,
+    version_limit: int = 20,
+) -> dict[str, Any]:
+    target_ids: set[str] = set()
+    if node_id:
+        target_ids.add(node_id)
+    if label:
+        target_ids.update(graph.find_node_ids_by_label(label))
+
+    nodes = [graph.get_node(item_id) for item_id in sorted(target_ids)]
+    nodes = [node for node in nodes if node is not None]
+
+    results: list[dict[str, Any]] = []
+    for node in nodes:
+        provenance_sources = sorted(
+            {
+                str(item.get("source", "")).strip()
+                for item in node.provenance
+                if str(item.get("source", "")).strip()
+            }
+        )
+        snapshot_sources = sorted(
+            {
+                str(item.get("source", "")).strip()
+                for item in node.snapshots
+                if str(item.get("source", "")).strip()
+            }
+        )
+        why_present = []
+        if provenance_sources:
+            why_present.append(f"Current node carries provenance from: {', '.join(provenance_sources)}")
+        if snapshot_sources:
+            why_present.append(f"Observed in {len(node.snapshots)} snapshot(s) from: {', '.join(snapshot_sources)}")
+        if node.status or node.valid_from or node.valid_to:
+            status = node.status or "unspecified"
+            why_present.append(
+                f"Lifecycle claim is {status} with validity {node.valid_from or '?'} -> {node.valid_to or '?'}"
+            )
+
+        history = None
+        if store is not None:
+            history = store.blame_node(
+                node_id=node.id,
+                label=node.label,
+                aliases=list(node.aliases),
+                canonical_id=node.canonical_id or node.id,
+                limit=version_limit,
+            )
+
+        results.append(
+            {
+                "node": node.to_dict(),
+                "provenance_sources": provenance_sources,
+                "snapshot_sources": snapshot_sources,
+                "why_present": why_present,
+                "history": history,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "nodes": results,
+    }
 
 
 def set_memory_node(

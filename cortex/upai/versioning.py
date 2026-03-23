@@ -20,9 +20,10 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from typing import TYPE_CHECKING
 
-from cortex.graph import CortexGraph
+from cortex.graph import CortexGraph, Node, _normalize_label
 
 if TYPE_CHECKING:
     from cortex.upai.identity import UPAIIdentity
@@ -237,4 +238,130 @@ class VersionStore:
             return matches[0]
         if prefix in matches:
             return prefix
+        return None
+
+    def blame_node(
+        self,
+        *,
+        node_id: str = "",
+        label: str = "",
+        aliases: list[str] | None = None,
+        canonical_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Trace where a node appeared and changed across stored versions."""
+        aliases = aliases or []
+        history = list(reversed(self.log(limit=limit)))
+        occurrences: list[dict[str, Any]] = []
+        previous_signature: str | None = None
+
+        for version in history:
+            graph = self.checkout(version.version_id)
+            matched = self._match_historical_node(
+                graph,
+                node_id=node_id,
+                label=label,
+                aliases=aliases,
+                canonical_id=canonical_id,
+            )
+            if matched is None:
+                continue
+
+            signature = json.dumps(
+                {
+                    "label": matched.label,
+                    "aliases": sorted(matched.aliases),
+                    "tags": sorted(matched.tags),
+                    "confidence": round(matched.confidence, 4),
+                    "status": matched.status,
+                    "valid_from": matched.valid_from,
+                    "valid_to": matched.valid_to,
+                    "sources": sorted(
+                        {
+                            str(item.get("source", "")).strip()
+                            for item in matched.provenance + matched.snapshots
+                            if str(item.get("source", "")).strip()
+                        }
+                    ),
+                },
+                sort_keys=True,
+            )
+            changed = previous_signature is None or signature != previous_signature
+            previous_signature = signature
+
+            occurrences.append(
+                {
+                    "version_id": version.version_id,
+                    "timestamp": version.timestamp,
+                    "message": version.message,
+                    "source": version.source,
+                    "changed": changed,
+                    "node": {
+                        "id": matched.id,
+                        "canonical_id": matched.canonical_id,
+                        "label": matched.label,
+                        "aliases": list(matched.aliases),
+                        "tags": list(matched.tags),
+                        "confidence": matched.confidence,
+                        "status": matched.status,
+                        "valid_from": matched.valid_from,
+                        "valid_to": matched.valid_to,
+                        "provenance_sources": sorted(
+                            {
+                                str(item.get("source", "")).strip()
+                                for item in matched.provenance
+                                if str(item.get("source", "")).strip()
+                            }
+                        ),
+                        "snapshot_sources": sorted(
+                            {
+                                str(item.get("source", "")).strip()
+                                for item in matched.snapshots
+                                if str(item.get("source", "")).strip()
+                            }
+                        ),
+                    },
+                }
+            )
+
+        introduced_in = occurrences[0] if occurrences else None
+        last_seen_in = occurrences[-1] if occurrences else None
+        changed_in = [item for item in occurrences if item["changed"]]
+
+        return {
+            "versions_scanned": len(history),
+            "versions_seen": len(occurrences),
+            "versions_changed": len(changed_in),
+            "introduced_in": introduced_in,
+            "last_seen_in": last_seen_in,
+            "changed_in": changed_in,
+            "history": occurrences,
+        }
+
+    def _match_historical_node(
+        self,
+        graph: CortexGraph,
+        *,
+        node_id: str = "",
+        label: str = "",
+        aliases: list[str] | None = None,
+        canonical_id: str = "",
+    ) -> Node | None:
+        aliases = aliases or []
+        if node_id and node_id in graph.nodes:
+            return graph.nodes[node_id]
+
+        if canonical_id:
+            for node in graph.nodes.values():
+                if getattr(node, "canonical_id", "") == canonical_id:
+                    return node
+
+        search_terms = {_normalize_label(term) for term in [label, *aliases] if term}
+        if not search_terms:
+            return None
+
+        for node in graph.nodes.values():
+            node_terms = {_normalize_label(node.label), *(_normalize_label(alias) for alias in node.aliases)}
+            if search_terms & node_terms:
+                return node
         return None

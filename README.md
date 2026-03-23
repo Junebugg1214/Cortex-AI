@@ -4,6 +4,7 @@ Own your AI memory and identity.
 
 Cortex is a CLI-only toolkit for local, portable AI memory, identity, and versioned graph history.
 It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
+Think of it as the beginning of **Git for AI Memory**: commits, diffs, checkout, blame, retraction, and time-aware claims for agent context.
 
 ## What it does
 
@@ -26,6 +27,7 @@ Examples:
 - Compare two graph snapshots and see what changed
 - Feed a coding assistant the same context every time
 - Keep identity and memory portable across machines
+- Explain exactly why a claim exists, where it came from, and when it was true
 
 ## Open Source Scope
 
@@ -65,16 +67,46 @@ cortex import context.json --to all -o ./output
 ```bash
 cortex extract <file> -o context.json
 cortex import context.json --to claude -o ./output
+cortex commit context.json -m "Import meeting notes"
+cortex log
+cortex diff <version-a> <version-b>
+cortex checkout <version> -o restored.json
+cortex blame context.json --label "PostgreSQL"
 cortex query context.json --node "Python"
+cortex query context.json --node "Current Project" --at 2026-06-01T00:00:00Z
 cortex timeline context.json --format md
 cortex contradictions context.json
 cortex identity --init --name "Your Name"
 cortex memory show context.json --tag technical_expertise
 cortex memory set context.json --label "Response Style" --tag communication_preferences --brief "Prefers concise answers"
+cortex memory retract context.json --source meeting-notes-2026-03-22
 cortex memory conflicts context.json
 cortex context-export context.json
 cortex context-hook install context.json
 cortex context-write context.json
+```
+
+## Git For AI Memory Workflow
+
+```bash
+# 1. Extract or edit local AI memory
+cortex extract chat-export.json -o context.json
+
+# 2. Commit the memory snapshot
+cortex commit context.json -m "Import March planning notes"
+
+# 3. Inspect what changed
+cortex log
+cortex diff <older-version> <newer-version>
+
+# 4. Ask why a claim exists
+cortex blame context.json --label "Project Atlas"
+
+# 5. Retract a bad source if needed
+cortex memory retract context.json --source planning-doc-v1
+
+# 6. Query historical truth
+cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
 ```
 
 ## OpenClaw Integration

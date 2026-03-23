@@ -36,6 +36,7 @@ from cortex.import_memory import (
     export_system_prompt,
 )
 from cortex.memory_ops import (
+    blame_memory_nodes,
     forget_nodes,
     list_memory_conflicts,
     retract_source,
@@ -338,6 +339,16 @@ def build_parser():
     df.add_argument("version_b", help="Target version ID or unique prefix")
     df.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     df.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- blame (memory receipts) -------------------------------------------
+    bl = sub.add_parser("blame", help="Explain where a memory claim came from")
+    bl.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    bl_target = bl.add_mutually_exclusive_group(required=True)
+    bl_target.add_argument("--label", help="Node label or alias to trace")
+    bl_target.add_argument("--node-id", help="Node ID to trace")
+    bl.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    bl.add_argument("--limit", type=int, default=20, help="Max versions to scan for blame history (default: 20)")
+    bl.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- checkout (version history) ----------------------------------------
     ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
@@ -1125,6 +1136,81 @@ def run_memory_retract(args):
     )
     if result["nodes_removed"] or result["edges_removed"]:
         print(f"Pruned {result['nodes_removed']} node(s) and {result['edges_removed']} edge(s).")
+    return 0
+
+
+def run_blame(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+
+    store_path = Path(args.store_dir)
+    store = VersionStore(store_path) if (store_path / "history.json").exists() else None
+    result = blame_memory_nodes(
+        graph,
+        label=args.label,
+        node_id=args.node_id,
+        store=store,
+        version_limit=args.limit,
+    )
+    if _emit_result(result, args.format) == 0:
+        return 0
+    if not result["nodes"]:
+        target = args.label or args.node_id or "target"
+        print(f"No memory nodes found for '{target}'.")
+        return 0
+
+    for item in result["nodes"]:
+        node = item["node"]
+        print(f"Blame: {node['label']} ({node['id']})")
+        print(f"  Tags: {', '.join(node['tags']) if node['tags'] else 'none'}")
+        print(f"  Confidence: {node['confidence']:.2f}")
+        if node.get("aliases"):
+            print(f"  Aliases: {', '.join(node['aliases'])}")
+        if node.get("status") or node.get("valid_from") or node.get("valid_to"):
+            print(f"  Lifecycle: {node.get('status') or 'unspecified'} | {node.get('valid_from') or '?'} -> {node.get('valid_to') or '?'}")
+        if item["provenance_sources"]:
+            print(f"  Provenance sources: {', '.join(item['provenance_sources'])}")
+        if item["snapshot_sources"]:
+            print(f"  Snapshot sources: {', '.join(item['snapshot_sources'])}")
+        if item["why_present"]:
+            print("  Why present:")
+            for reason in item["why_present"]:
+                print(f"    - {reason}")
+        if node.get("source_quotes"):
+            print("  Source quotes:")
+            for quote in node["source_quotes"][:3]:
+                print(f"    - {quote}")
+
+        history = item.get("history")
+        if history and history.get("versions_seen"):
+            introduced = history.get("introduced_in")
+            last_seen = history.get("last_seen_in")
+            print("  Version history:")
+            if introduced:
+                print(
+                    f"    Introduced: {introduced['version_id'][:8]} {introduced['timestamp']} "
+                    f"[{introduced['source']}] {introduced['message']}"
+                )
+            if last_seen:
+                print(
+                    f"    Last seen:  {last_seen['version_id'][:8]} {last_seen['timestamp']} "
+                    f"[{last_seen['source']}] {last_seen['message']}"
+                )
+            print(
+                f"    Seen in {history['versions_seen']} version(s); "
+                f"changed in {history['versions_changed']} version(s)."
+            )
+            print("    Recent history:")
+            for entry in history["history"][-5:]:
+                marker = "*" if entry["changed"] else "-"
+                print(
+                    f"      {marker} {entry['version_id'][:8]} {entry['timestamp']} "
+                    f"[{entry['source']}] {entry['message']}"
+                )
+        print()
     return 0
 
 
@@ -2089,6 +2175,7 @@ def main(argv=None):
         "contradictions",
         "drift",
         "diff",
+        "blame",
         "checkout",
         "identity",
         "commit",
@@ -2151,6 +2238,8 @@ def main(argv=None):
         return run_drift(args)
     elif args.subcommand == "diff":
         return run_diff(args)
+    elif args.subcommand == "blame":
+        return run_blame(args)
     elif args.subcommand == "checkout":
         return run_checkout(args)
     elif args.subcommand == "identity":

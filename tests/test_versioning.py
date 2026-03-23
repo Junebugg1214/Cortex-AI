@@ -237,3 +237,50 @@ class TestVersionStore:
             graph = _sample_graph()
             version = store.commit(graph, "from extraction", source="extraction")
             assert version.source == "extraction"
+
+    def test_blame_node_tracks_introduction_and_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            g1 = CortexGraph()
+            g1.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            v1 = store.commit(g1, "initial memory", source="extraction")
+
+            g2 = CortexGraph()
+            g2.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.95,
+                    status="active",
+                    valid_from="2026-01-01T00:00:00Z",
+                    provenance=[{"source": "manual-a", "method": "manual"}],
+                )
+            )
+            v2 = store.commit(g2, "promote postgres", source="manual")
+
+            blame = store.blame_node(
+                node_id="n1",
+                label="PostgreSQL",
+                aliases=["postgres"],
+                canonical_id="n1",
+                limit=10,
+            )
+
+            assert blame["versions_seen"] == 2
+            assert blame["introduced_in"]["version_id"] == v1.version_id
+            assert blame["last_seen_in"]["version_id"] == v2.version_id
+            assert blame["versions_changed"] == 2
+            assert blame["history"][0]["node"]["provenance_sources"] == ["import-a"]
+            assert blame["history"][1]["node"]["status"] == "active"

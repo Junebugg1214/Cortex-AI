@@ -58,6 +58,61 @@ def test_query_at_filters_temporal_graph(tmp_path, capsys):
     assert "No node found" in missing_out
 
 
+def test_blame_json_includes_provenance_and_version_history(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    store = VersionStore(store_dir)
+
+    graph_v1 = CortexGraph()
+    graph_v1.add_node(
+        Node(
+            id="n1",
+            label="PostgreSQL",
+            aliases=["postgres"],
+            tags=["technical_expertise"],
+            confidence=0.8,
+            provenance=[{"source": "import-a", "method": "extract"}],
+        )
+    )
+    store.commit(graph_v1, "initial postgres", source="extraction")
+
+    graph_v2 = CortexGraph()
+    graph_v2.add_node(
+        Node(
+            id="n1",
+            label="PostgreSQL",
+            aliases=["postgres"],
+            tags=["technical_expertise"],
+            confidence=0.95,
+            provenance=[{"source": "manual-a", "method": "manual"}],
+            status="active",
+        )
+    )
+    store.commit(graph_v2, "refine postgres", source="manual")
+
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph_v2)
+
+    rc = main(
+        [
+            "blame",
+            str(graph_path),
+            "--label",
+            "postgres",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["nodes"][0]["node"]["label"] == "PostgreSQL"
+    assert out["nodes"][0]["provenance_sources"] == ["manual-a"]
+    assert out["nodes"][0]["history"]["versions_seen"] == 2
+    assert out["nodes"][0]["history"]["introduced_in"]["message"] == "initial postgres"
+
+
 def test_memory_set_supports_alias_temporal_and_provenance(tmp_path):
     graph_path = tmp_path / "context.json"
     _write_graph(graph_path, CortexGraph())
