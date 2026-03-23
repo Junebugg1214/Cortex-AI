@@ -36,3 +36,13 @@ sample_*.json
 local/
 corpus/
 autoresearch_log.jsonl
+autoresearch_status.json
+autoresearch_status.md
+autoresearch.out
+autoresearch_chain.out
+autoresearch_targets/**/corpus/
+autoresearch_targets/**/autoresearch_log.jsonl
+autoresearch_targets/**/autoresearch_status.json
+autoresearch_targets/**/autoresearch_status.md
+autoresearch_targets/chain_status.json
+autoresearch_targets/chain_status.md
