@@ -14,12 +14,19 @@ import sys
 from pathlib import Path
 
 from cortex.adapters import ADAPTERS
-from cortex.claims import ClaimEvent, ClaimLedger
+from cortex.claims import (
+    ClaimEvent,
+    ClaimLedger,
+    extraction_source_label,
+    record_graph_claims,
+    stamp_graph_provenance,
+)
 from cortex.compat import upgrade_v4_to_v5
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
     AggressiveExtractor,
     PIIRedactor,
+    build_eval_compat_view,
     load_file,
     merge_contexts,
 )
@@ -139,6 +146,46 @@ def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
     return outputs
 
 
+def _finalize_extraction_output(
+    v4_output: dict,
+    *,
+    input_path: Path,
+    fmt: str,
+    store_dir: Path | None = None,
+    record_claims: bool = True,
+) -> tuple[dict, int]:
+    graph = upgrade_v4_to_v5(v4_output)
+    source = extraction_source_label(input_path)
+    claim_count = 0
+
+    if record_claims:
+        stamp_graph_provenance(
+            graph,
+            source=source,
+            method="extract",
+            metadata={"input_format": fmt, "input_file": str(input_path)},
+        )
+        if store_dir is not None:
+            ledger = ClaimLedger(store_dir)
+            events = record_graph_claims(
+                graph,
+                ledger,
+                op="assert",
+                source=source,
+                method="extract",
+                metadata={"input_format": fmt, "input_file": str(input_path)},
+            )
+            claim_count = len(events)
+
+    result = graph.export_v4()
+    if "conflicts" in v4_output:
+        result["conflicts"] = list(v4_output.get("conflicts", []))
+    if "redaction_summary" in v4_output:
+        result["redaction_summary"] = v4_output["redaction_summary"]
+    result.update(build_eval_compat_view(result))
+    return result, claim_count
+
+
 # ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
@@ -178,6 +225,8 @@ def build_parser():
     mig.add_argument("--verbose", "-v", action="store_true")
     mig.add_argument("--stats", action="store_true", help="Show category stats")
     mig.add_argument("--schema", choices=["v4", "v5"], default="v4", help="Output schema version (default: v4)")
+    mig.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    mig.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
     mig.add_argument(
         "--discover-edges", action="store_true", help="Run smart edge extraction (pattern + co-occurrence)"
     )
@@ -198,6 +247,8 @@ def build_parser():
     ext.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
     ext.add_argument("--verbose", "-v", action="store_true")
     ext.add_argument("--stats", action="store_true")
+    ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
     # -- import -------------------------------------------------------------
     imp = sub.add_parser("import", help="Import context to platform formats")
@@ -609,6 +660,15 @@ def run_extract(args):
             print(f"Merge file not found: {merge_path} (proceeding without merge)")
 
     result = _run_extraction(extractor, data, fmt)
+    claim_count = 0
+    if not args.no_claims:
+        result, claim_count = _finalize_extraction_output(
+            result,
+            input_path=input_path,
+            fmt=fmt,
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
 
     stats = extractor.context.stats()
     print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
@@ -620,6 +680,8 @@ def run_extract(args):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(f"Saved to: {output_path}")
+    if not args.no_claims:
+        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
@@ -699,6 +761,15 @@ def run_migrate(args):
             print(f"Merge file not found: {merge_path} (proceeding without merge)")
 
     v4_data = _run_extraction(extractor, data, fmt)
+    claim_count = 0
+    if not args.no_claims and not args.dry_run:
+        v4_data, claim_count = _finalize_extraction_output(
+            v4_data,
+            input_path=input_path,
+            fmt=fmt,
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
 
     stats = extractor.context.stats()
     print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
@@ -789,6 +860,8 @@ def run_migrate(args):
     print("   context: context.json")
     for key, path in outputs:
         print(f"   {key}: {path.name}")
+    if not args.no_claims and not args.dry_run:
+        print(f"   claims: {claim_count} event(s) -> {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 

@@ -1,6 +1,7 @@
 import json
 
 from cortex.cli import main
+from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.upai.versioning import VersionStore
 
@@ -246,6 +247,84 @@ def test_memory_retract_records_claim_event(tmp_path, capsys):
     assert log_rc == 0
     assert log_out["events"][0]["op"] == "retract"
     assert log_out["events"][0]["label"] == "Project Atlas"
+
+
+def test_extract_records_claim_events_and_provenance(tmp_path, capsys):
+    input_path = tmp_path / "notes.txt"
+    output_path = tmp_path / "context.json"
+    store_dir = tmp_path / ".cortex"
+    input_path.write_text("I use Python for backend services.", encoding="utf-8")
+
+    rc = main(
+        [
+            "extract",
+            str(input_path),
+            "--format",
+            "text",
+            "--output",
+            str(output_path),
+            "--store-dir",
+            str(store_dir),
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "Recorded" in out
+
+    saved = json.loads(output_path.read_text(encoding="utf-8"))
+    graph = upgrade_v4_to_v5(saved)
+    python_nodes = graph.find_nodes(label="Python")
+    assert python_nodes
+    assert python_nodes[0].provenance[0]["source"] == "extract:notes.txt"
+
+    log_rc = main(
+        [
+            "claim",
+            "log",
+            "--store-dir",
+            str(store_dir),
+            "--source",
+            "extract:notes.txt",
+            "--format",
+            "json",
+        ]
+    )
+    log_out = json.loads(capsys.readouterr().out)
+    assert log_rc == 0
+    assert log_out["events"]
+    assert all(event["source"] == "extract:notes.txt" for event in log_out["events"])
+
+
+def test_extract_no_claims_skips_ledger(tmp_path, capsys):
+    input_path = tmp_path / "notes.txt"
+    output_path = tmp_path / "context.json"
+    store_dir = tmp_path / ".cortex"
+    input_path.write_text("I use Python for backend services.", encoding="utf-8")
+
+    rc = main(
+        [
+            "extract",
+            str(input_path),
+            "--format",
+            "text",
+            "--output",
+            str(output_path),
+            "--store-dir",
+            str(store_dir),
+            "--no-claims",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert not (store_dir / "claims.jsonl").exists()
+
+    saved = json.loads(output_path.read_text(encoding="utf-8"))
+    graph = upgrade_v4_to_v5(saved)
+    python_nodes = graph.find_nodes(label="Python")
+    assert python_nodes
+    assert python_nodes[0].provenance == []
 
 
 def test_version_diff_and_checkout_cli(tmp_path, capsys):

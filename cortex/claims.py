@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import Node, _normalize_label
+from cortex.graph import CortexGraph, Node, _normalize_label
 
 
 def make_claim_id(
@@ -211,3 +211,51 @@ class ClaimLedger:
                     continue
                 events.append(ClaimEvent.from_dict(json.loads(raw)))
         return events
+
+
+def extraction_source_label(input_path: Path) -> str:
+    return f"extract:{input_path.name}"
+
+
+def stamp_graph_provenance(
+    graph: CortexGraph,
+    *,
+    source: str,
+    method: str,
+    metadata: dict[str, Any] | None = None,
+) -> int:
+    metadata = dict(metadata or {})
+    stamped = 0
+    for node in graph.nodes.values():
+        entry = {"source": source, "method": method, **metadata}
+        if entry not in node.provenance:
+            node.provenance.append(entry)
+            stamped += 1
+    return stamped
+
+
+def record_graph_claims(
+    graph: CortexGraph,
+    ledger: ClaimLedger,
+    *,
+    op: str,
+    source: str,
+    method: str,
+    version_id: str = "",
+    message: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> list[ClaimEvent]:
+    events: list[ClaimEvent] = []
+    for node in graph.nodes.values():
+        event = ClaimEvent.from_node(
+            node,
+            op=op,
+            source=source,
+            method=method,
+            version_id=version_id,
+            message=message,
+            metadata=metadata,
+        )
+        ledger.append(event)
+        events.append(event)
+    return events
