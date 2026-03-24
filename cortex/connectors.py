@@ -94,10 +94,20 @@ def github_export_to_text(input_path: Path) -> str:
             ]
         )
         for comment in _normalize_comment_blocks(item.get("comments")):
-            comment_author = comment.get("author", {}).get("login") if isinstance(comment.get("author"), dict) else comment.get("user", "")
-            lines.append(f"Comment by {comment_author or '-'}: {comment.get('body', '') or comment.get('bodyText', '')}")
+            comment_author = (
+                comment.get("author", {}).get("login")
+                if isinstance(comment.get("author"), dict)
+                else comment.get("user", "")
+            )
+            lines.append(
+                f"Comment by {comment_author or '-'}: {comment.get('body', '') or comment.get('bodyText', '')}"
+            )
         for review in _normalize_comment_blocks(item.get("reviews")):
-            review_author = review.get("author", {}).get("login") if isinstance(review.get("author"), dict) else review.get("user", "")
+            review_author = (
+                review.get("author", {}).get("login")
+                if isinstance(review.get("author"), dict)
+                else review.get("user", "")
+            )
             review_state = review.get("state", "")
             lines.append(
                 f"Review by {review_author or '-'} [{review_state or '-'}]: {review.get('body', '') or review.get('bodyText', '')}"
@@ -128,10 +138,14 @@ def slack_export_to_text(input_path: Path) -> str:
             if not isinstance(message, dict):
                 continue
             user = (
-                message.get("user_profile", {}).get("real_name")
-                if isinstance(message.get("user_profile"), dict)
-                else message.get("username")
-            ) or message.get("user") or "unknown"
+                (
+                    message.get("user_profile", {}).get("real_name")
+                    if isinstance(message.get("user_profile"), dict)
+                    else message.get("username")
+                )
+                or message.get("user")
+                or "unknown"
+            )
             ts = _normalize_timestamp(str(message.get("ts", "")))
             text = str(message.get("text", "")).strip()
             subtype = str(message.get("subtype", "")).strip()
@@ -149,9 +163,7 @@ def docs_to_text(input_path: Path) -> str:
         root = input_path.parent
     else:
         paths = sorted(
-            path
-            for path in input_path.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".md", ".txt", ".rst"}
+            path for path in input_path.rglob("*") if path.is_file() and path.suffix.lower() in {".md", ".txt", ".rst"}
         )
         root = input_path
     lines: list[str] = []

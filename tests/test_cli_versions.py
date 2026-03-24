@@ -555,7 +555,9 @@ def test_version_diff_and_checkout_cli(tmp_path, capsys):
     graph_b.add_node(Node(id="n2", label="Rust", tags=["technical_expertise"], confidence=0.7))
     version_b = store.commit(graph_b, "second")
 
-    diff_rc = main(["diff", version_a.version_id[:8], version_b.version_id[:8], "--store-dir", str(store_dir), "--format", "json"])
+    diff_rc = main(
+        ["diff", version_a.version_id[:8], version_b.version_id[:8], "--store-dir", str(store_dir), "--format", "json"]
+    )
     diff_out = json.loads(capsys.readouterr().out)
     assert diff_rc == 0
     assert "n2" in diff_out["added"]
@@ -1064,7 +1066,9 @@ def test_remote_push_pull_and_fork_workflows(tmp_path, capsys):
 
     assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(local_store_dir)]) == 0
     capsys.readouterr()
-    push_rc = main(["remote", "push", "origin", "--branch", "main", "--store-dir", str(local_store_dir), "--format", "json"])
+    push_rc = main(
+        ["remote", "push", "origin", "--branch", "main", "--store-dir", str(local_store_dir), "--format", "json"]
+    )
     push_out = json.loads(capsys.readouterr().out)
 
     assert push_rc == 0

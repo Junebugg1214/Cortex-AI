@@ -22,7 +22,9 @@ def test_merge_refs_combines_non_conflicting_branch_changes():
 
         store.create_branch("feature/atlas")
         store.switch_branch("feature/atlas")
-        atlas = Node(id=make_node_id("Project Atlas"), label="Project Atlas", tags=["active_priorities"], confidence=0.8)
+        atlas = Node(
+            id=make_node_id("Project Atlas"), label="Project Atlas", tags=["active_priorities"], confidence=0.8
+        )
         feature = store.commit(_graph_with_nodes(python, atlas), "feature add atlas")
 
         store.switch_branch("main")

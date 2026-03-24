@@ -299,11 +299,7 @@ class InsightGenerator:
             cur_valid_to = _normalize_timestamp(getattr(cur_node, "valid_to", "") or "")
             prev_valid_to = _normalize_timestamp(getattr(prev_node, "valid_to", "") or "")
 
-            if (
-                cur_status == prev_status
-                and cur_valid_from == prev_valid_from
-                and cur_valid_to == prev_valid_to
-            ):
+            if cur_status == prev_status and cur_valid_from == prev_valid_from and cur_valid_to == prev_valid_to:
                 continue
 
             temporal_changes.append(

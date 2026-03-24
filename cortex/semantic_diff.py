@@ -23,7 +23,9 @@ def _source_set(node) -> list[str]:
     return sorted(values)
 
 
-def _push_change(changes: list[dict[str, Any]], *, change_type: str, severity: str, description: str, **payload: Any) -> None:
+def _push_change(
+    changes: list[dict[str, Any]], *, change_type: str, severity: str, description: str, **payload: Any
+) -> None:
     changes.append(
         {
             "type": change_type,

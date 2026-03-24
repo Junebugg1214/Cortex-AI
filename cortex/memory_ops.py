@@ -134,18 +134,10 @@ def blame_memory_nodes(
     results: list[dict[str, Any]] = []
     for node in nodes:
         provenance_sources = sorted(
-            {
-                str(item.get("source", "")).strip()
-                for item in node.provenance
-                if str(item.get("source", "")).strip()
-            }
+            {str(item.get("source", "")).strip() for item in node.provenance if str(item.get("source", "")).strip()}
         )
         snapshot_sources = sorted(
-            {
-                str(item.get("source", "")).strip()
-                for item in node.snapshots
-                if str(item.get("source", "")).strip()
-            }
+            {str(item.get("source", "")).strip() for item in node.snapshots if str(item.get("source", "")).strip()}
         )
         why_present = []
         if provenance_sources:
@@ -169,13 +161,17 @@ def blame_memory_nodes(
                 source=source,
                 limit=version_limit,
             )
-        claim_lineage = ledger.lineage_for_node(node, limit=version_limit, source=source) if ledger is not None else None
+        claim_lineage = (
+            ledger.lineage_for_node(node, limit=version_limit, source=source) if ledger is not None else None
+        )
 
         if source:
             normalized_source = source.strip().lower()
             provenance_sources = [value for value in provenance_sources if value.lower() == normalized_source]
             snapshot_sources = [value for value in snapshot_sources if value.lower() == normalized_source]
-            why_present = [reason for reason in why_present if normalized_source in reason.lower() or "Lifecycle claim" in reason]
+            why_present = [
+                reason for reason in why_present if normalized_source in reason.lower() or "Lifecycle claim" in reason
+            ]
 
         has_filtered_receipt = bool(provenance_sources or snapshot_sources)
         has_filtered_history = bool(history and history.get("versions_seen"))

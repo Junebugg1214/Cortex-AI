@@ -61,7 +61,9 @@ class MemoryUIBackend:
             "head": store.resolve_ref("HEAD"),
         }
 
-    def review(self, *, input_file: str | None, against: str, ref: str = "HEAD", fail_on: str = "blocking") -> dict[str, Any]:
+    def review(
+        self, *, input_file: str | None, against: str, ref: str = "HEAD", fail_on: str = "blocking"
+    ) -> dict[str, Any]:
         store = VersionStore(self.store_dir)
         against_version = store.resolve_ref(against)
         if against_version is None:
@@ -197,10 +199,7 @@ class MemoryUIBackend:
     def list_remotes(self) -> dict[str, Any]:
         registry = RemoteRegistry(self.store_dir)
         return {
-            "remotes": [
-                remote.to_dict() | {"store_path": str(remote.store_path)}
-                for remote in registry.list_remotes()
-            ]
+            "remotes": [remote.to_dict() | {"store_path": str(remote.store_path)} for remote in registry.list_remotes()]
         }
 
     def add_remote(self, *, name: str, path: str, default_branch: str = "main") -> dict[str, Any]:
@@ -214,7 +213,9 @@ class MemoryUIBackend:
         removed = registry.remove(name)
         return {"status": "ok" if removed else "missing", "name": name}
 
-    def remote_push(self, *, name: str, branch: str = "HEAD", to_branch: str | None = None, force: bool = False) -> dict[str, Any]:
+    def remote_push(
+        self, *, name: str, branch: str = "HEAD", to_branch: str | None = None, force: bool = False
+    ) -> dict[str, Any]:
         registry = RemoteRegistry(self.store_dir)
         remote = registry.get(name)
         if remote is None:
@@ -243,7 +244,9 @@ class MemoryUIBackend:
             force=force,
         )
 
-    def remote_fork(self, *, name: str, branch_name: str, remote_branch: str | None = None, switch: bool = False) -> dict[str, Any]:
+    def remote_fork(
+        self, *, name: str, branch_name: str, remote_branch: str | None = None, switch: bool = False
+    ) -> dict[str, Any]:
         registry = RemoteRegistry(self.store_dir)
         remote = registry.get(name)
         if remote is None:

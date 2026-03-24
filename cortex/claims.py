@@ -245,7 +245,9 @@ class ClaimLedger:
         events = self.get_claim(claim_id)
         return events[-1] if events else None
 
-    def lineage_for_node(self, node: Node, limit: int = 50, *, source: str = "", version_ref: str = "") -> dict[str, Any]:
+    def lineage_for_node(
+        self, node: Node, limit: int = 50, *, source: str = "", version_ref: str = ""
+    ) -> dict[str, Any]:
         events = self.list_events(
             node_id=node.id,
             canonical_id=node.canonical_id or node.id,

@@ -140,13 +140,11 @@ class GovernanceStore:
 
         if baseline_graph is not None:
             structural = diff_graphs(baseline_graph, current_graph)
-            touched_ids = {
-                item["id"] for item in structural.get("added_nodes", [])
-            } | {
-                item["id"] for item in structural.get("modified_nodes", [])
-            } | {
-                item["id"] for item in structural.get("removed_nodes", [])
-            }
+            touched_ids = (
+                {item["id"] for item in structural.get("added_nodes", [])}
+                | {item["id"] for item in structural.get("modified_nodes", [])}
+                | {item["id"] for item in structural.get("removed_nodes", [])}
+            )
             changed_nodes = [current_graph.nodes[node_id] for node_id in touched_ids if node_id in current_graph.nodes]
             semantic_changes = semantic_diff_graphs(baseline_graph, current_graph)["changes"]
 
@@ -157,26 +155,15 @@ class GovernanceStore:
             )
             if risky:
                 preview = ", ".join(f"{node.label} ({node.confidence:.2f})" for node in risky[:5])
-                reasons.append(
-                    f"Low-confidence changes below {float(rule.approval_below_confidence):.2f}: {preview}"
-                )
+                reasons.append(f"Low-confidence changes below {float(rule.approval_below_confidence):.2f}: {preview}")
 
         if rule.approval_tags:
-            matched = [
-                node.label
-                for node in changed_nodes
-                if any(tag in set(node.tags) for tag in rule.approval_tags)
-            ]
+            matched = [node.label for node in changed_nodes if any(tag in set(node.tags) for tag in rule.approval_tags)]
             if matched:
-                reasons.append(
-                    "Protected tag changes: "
-                    + ", ".join(sorted(dict.fromkeys(matched))[:10])
-                )
+                reasons.append("Protected tag changes: " + ", ".join(sorted(dict.fromkeys(matched))[:10]))
 
         if rule.approval_change_types and semantic_changes:
-            matched = [
-                change for change in semantic_changes if change.get("type") in set(rule.approval_change_types)
-            ]
+            matched = [change for change in semantic_changes if change.get("type") in set(rule.approval_change_types)]
             if matched:
                 preview = ", ".join(sorted(dict.fromkeys(change["type"] for change in matched)))
                 reasons.append(f"Semantic changes requiring review: {preview}")

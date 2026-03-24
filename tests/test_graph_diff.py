@@ -67,7 +67,9 @@ class TestDiffGraphs:
     def test_modified_temporal_fields(self):
         nid = "fixed-id"
         old = CortexGraph()
-        old.add_node(Node(id=nid, label="Project Atlas", tags=["t"], status="planned", valid_from="2026-01-01T00:00:00Z"))
+        old.add_node(
+            Node(id=nid, label="Project Atlas", tags=["t"], status="planned", valid_from="2026-01-01T00:00:00Z")
+        )
         new = CortexGraph()
         new.add_node(
             Node(

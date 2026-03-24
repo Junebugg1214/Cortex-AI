@@ -454,7 +454,9 @@ def build_parser():
     clm_log.add_argument("--node-id", help="Filter by node id")
     clm_log.add_argument("--source", help="Filter by source")
     clm_log.add_argument("--version", help="Filter by version id prefix")
-    clm_log.add_argument("--op", choices=["assert", "retract", "accept", "reject", "supersede"], help="Filter by operation")
+    clm_log.add_argument(
+        "--op", choices=["assert", "retract", "accept", "reject", "supersede"], help="Filter by operation"
+    )
     clm_log.add_argument("--limit", type=int, default=20, help="Max events to return (default: 20)")
     clm_log.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -504,7 +506,9 @@ def build_parser():
     rb.add_argument("input_file", help="Path to context JSON (v4 or v5) to overwrite with the restored graph")
     rb_target = rb.add_mutually_exclusive_group(required=True)
     rb_target.add_argument("--to", dest="target_ref", help="Version ID, unique prefix, branch name, or HEAD")
-    rb_target.add_argument("--at", dest="target_time", help="Restore the latest version at or before this ISO timestamp")
+    rb_target.add_argument(
+        "--at", dest="target_time", help="Restore the latest version at or before this ISO timestamp"
+    )
     rb.add_argument("--ref", default="HEAD", help="Restrict --at lookup to this branch/ref (default: HEAD)")
     rb.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     rb.add_argument("--message", help="Optional rollback commit message")
@@ -543,7 +547,9 @@ def build_parser():
     sw = sub.add_parser("switch", help="Switch the active memory branch")
     sw.add_argument("branch_name", help="Branch name to switch to")
     sw.add_argument("-c", "--create", action="store_true", help="Create the branch if it does not exist")
-    sw.add_argument("--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)")
+    sw.add_argument(
+        "--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)"
+    )
     sw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
 
     # -- merge (Git-for-AI-Memory) ----------------------------------------
@@ -599,7 +605,9 @@ def build_parser():
     gov_add.add_argument("--require-approval", action="store_true", help="Always require approval for this rule")
     gov_add.add_argument("--approval-below-confidence", type=float, help="Require approval below this confidence")
     gov_add.add_argument("--approval-tag", action="append", default=[], help="Tag that requires approval when changed")
-    gov_add.add_argument("--approval-change", action="append", default=[], help="Semantic change type requiring approval")
+    gov_add.add_argument(
+        "--approval-change", action="append", default=[], help="Semantic change type requiring approval"
+    )
     gov_add.add_argument("--description", default="", help="Optional rule description")
     gov_add.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
     gov_add.add_argument("--format", choices=["json", "text"], default="text")
@@ -1613,12 +1621,15 @@ def run_blame(args):
 
     store_path = Path(args.store_dir)
     store = VersionStore(store_path)
-    if _governance_decision_or_error(
-        store_dir=store_path,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, args.ref),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_path,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.ref),
+        )
+        is None
+    ):
         return 1
     store = store if (store_path / "history.json").exists() else None
     ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
@@ -1647,7 +1658,9 @@ def run_blame(args):
         if node.get("aliases"):
             print(f"  Aliases: {', '.join(node['aliases'])}")
         if node.get("status") or node.get("valid_from") or node.get("valid_to"):
-            print(f"  Lifecycle: {node.get('status') or 'unspecified'} | {node.get('valid_from') or '?'} -> {node.get('valid_to') or '?'}")
+            print(
+                f"  Lifecycle: {node.get('status') or 'unspecified'} | {node.get('valid_from') or '?'} -> {node.get('valid_to') or '?'}"
+            )
         if item["provenance_sources"]:
             print(f"  Provenance sources: {', '.join(item['provenance_sources'])}")
         if item["snapshot_sources"]:
@@ -1734,12 +1747,15 @@ def run_history(args):
 
     store_path = Path(args.store_dir)
     store = VersionStore(store_path)
-    if _governance_decision_or_error(
-        store_dir=store_path,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, args.ref),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_path,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.ref),
+        )
+        is None
+    ):
         return 1
     store = store if (store_path / "history.json").exists() else None
     ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
@@ -1777,10 +1793,7 @@ def run_history(args):
             print("  Version timeline:")
             for entry in history["history"]:
                 version_node = entry["node"]
-                print(
-                    f"    {entry['timestamp']} {entry['version_id'][:8]} "
-                    f"[{entry['source']}] {entry['message']}"
-                )
+                print(f"    {entry['timestamp']} {entry['version_id'][:8]} [{entry['source']}] {entry['message']}")
                 print(
                     f"      label={version_node['label']} tags={','.join(version_node['tags']) or '-'} "
                     f"status={version_node.get('status') or '-'} "
@@ -2163,19 +2176,25 @@ def run_diff(args):
     """Compare two stored graph versions."""
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, args.version_a),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_a),
+        )
+        is None
+    ):
         return 1
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, args.version_b),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_b),
+        )
+        is None
+    ):
         return 1
     version_a = _resolve_version_or_exit(store, args.version_a)
     version_b = _resolve_version_or_exit(store, args.version_b)
@@ -2217,12 +2236,15 @@ def run_checkout(args):
     """Write a stored graph version to a file."""
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, args.version_id),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_id),
+        )
+        is None
+    ):
         return 1
     version_id = _resolve_version_or_exit(store, args.version_id)
     graph = store.checkout(version_id, verify=not args.no_verify)
@@ -2254,15 +2276,18 @@ def run_rollback(args):
     restored = store.checkout(target_version)
     baseline_version = store.resolve_ref("HEAD")
     baseline_graph = store.checkout(baseline_version) if baseline_version else None
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="rollback",
-        namespace=current_branch,
-        current_graph=restored,
-        baseline_graph=baseline_graph,
-        approve=args.approve,
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="rollback",
+            namespace=current_branch,
+            current_graph=restored,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        )
+        is None
+    ):
         return 1
 
     _save_graph(restored, input_path)
@@ -2372,15 +2397,18 @@ def run_commit(args):
     store = VersionStore(store_dir)
     baseline_version = store.resolve_ref("HEAD")
     baseline_graph = store.checkout(baseline_version) if baseline_version else None
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="write",
-        namespace=store.current_branch(),
-        current_graph=graph,
-        baseline_graph=baseline_graph,
-        approve=args.approve,
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="write",
+            namespace=store.current_branch(),
+            current_graph=graph,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        )
+        is None
+    ):
         return 1
     version = store.commit(graph, args.message, source=args.source, identity=identity)
 
@@ -2402,12 +2430,15 @@ def run_branch(args):
     store = VersionStore(store_dir)
 
     if args.branch_name:
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="branch",
-            namespace=args.branch_name,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="branch",
+                namespace=args.branch_name,
+            )
+            is None
+        ):
             return 1
         try:
             head = store.create_branch(args.branch_name, from_ref=args.from_ref, switch=args.switch)
@@ -2477,12 +2508,15 @@ def run_merge(args):
         return 0
 
     if args.conflicts:
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="read",
-            namespace=current_branch,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="read",
+                namespace=current_branch,
+            )
+            is None
+        ):
             return 1
         state = load_merge_state(store_dir)
         if state is None:
@@ -2538,19 +2572,26 @@ def run_merge(args):
             print(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
             return 1
         graph = load_merge_worktree(store_dir)
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="merge",
-            namespace=current_branch,
-            current_graph=graph,
-            baseline_graph=baseline_graph,
-            approve=args.approve,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="merge",
+                namespace=current_branch,
+                current_graph=graph,
+                baseline_graph=baseline_graph,
+                approve=args.approve,
+            )
+            is None
+        ):
             return 1
         identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
         message = args.message or f"Merge branch '{state['other_ref']}' into {state['current_branch']}"
-        merge_parent_ids = [state["other_version"]] if state.get("other_version") and state.get("other_version") != state.get("current_version") else []
+        merge_parent_ids = (
+            [state["other_version"]]
+            if state.get("other_version") and state.get("other_version") != state.get("current_version")
+            else []
+        )
         version = store.commit(
             graph,
             message,
@@ -2605,19 +2646,24 @@ def run_merge(args):
     if result.ok and not args.dry_run and not no_changes:
         baseline_version = store.resolve_ref("HEAD")
         baseline_graph = store.checkout(baseline_version) if baseline_version else None
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="merge",
-            namespace=current_branch,
-            current_graph=result.merged,
-            baseline_graph=baseline_graph,
-            approve=args.approve,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="merge",
+                namespace=current_branch,
+                current_graph=result.merged,
+                baseline_graph=baseline_graph,
+                approve=args.approve,
+            )
+            is None
+        ):
             return 1
         identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
         message = args.message or f"Merge branch '{args.ref_name}' into {current_branch}"
-        merge_parent_ids = [result.other_version] if result.other_version and result.other_version != result.current_version else []
+        merge_parent_ids = (
+            [result.other_version] if result.other_version and result.other_version != result.current_version else []
+        )
         version = store.commit(
             result.merged,
             message,
@@ -2665,7 +2711,9 @@ def run_merge(args):
             field = f" [{conflict.field}]" if conflict.field else ""
             print(f"    - {conflict.id} {conflict.kind}{field}: {conflict.description}")
         if not args.dry_run:
-            print("  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`.")
+            print(
+                "  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`."
+            )
         return 1
     if payload.get("commit_id"):
         print(f"  Committed merge: {payload['commit_id']}")
@@ -2756,12 +2804,15 @@ def run_log(args):
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
     ref = None if args.all else (args.branch or "HEAD")
-    if _governance_decision_or_error(
-        store_dir=store_dir,
-        actor=args.actor,
-        action="read",
-        namespace=_current_branch_or_ref(store, ref),
-    ) is None:
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, ref),
+        )
+        is None
+    ):
         return 1
     versions = store.log(limit=args.limit, ref=ref)
 
@@ -2922,12 +2973,15 @@ def run_remote(args):
 
     if args.remote_subcommand == "push":
         namespace = _current_branch_or_ref(store, args.branch)
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="push",
-            namespace=namespace,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="push",
+                namespace=namespace,
+            )
+            is None
+        ):
             return 1
         try:
             payload = push_remote(
@@ -2948,12 +3002,15 @@ def run_remote(args):
     if args.remote_subcommand == "pull":
         remote_branch = args.branch or remote.default_branch
         namespace = args.into_branch or f"remotes/{remote.name}/{remote_branch}"
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="pull",
-            namespace=namespace,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="pull",
+                namespace=namespace,
+            )
+            is None
+        ):
             return 1
         try:
             payload = pull_remote(
@@ -2974,12 +3031,15 @@ def run_remote(args):
 
     if args.remote_subcommand == "fork":
         remote_branch = args.remote_branch or remote.default_branch
-        if _governance_decision_or_error(
-            store_dir=store_dir,
-            actor=args.actor,
-            action="branch",
-            namespace=args.branch_name,
-        ) is None:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="branch",
+                namespace=args.branch_name,
+            )
+            is None
+        ):
             return 1
         try:
             payload = fork_remote(
@@ -3111,10 +3171,7 @@ def run_gaps(args):
     if gaps["temporal_gaps"]:
         print(f"\nTemporal gaps ({len(gaps['temporal_gaps'])}):")
         for g in gaps["temporal_gaps"]:
-            print(
-                f"  - {g['label']}: {g['kind']}"
-                + (f" [{g['status']}]" if g.get("status") else "")
-            )
+            print(f"  - {g['label']}: {g['kind']}" + (f" [{g['status']}]" if g.get("status") else ""))
 
     if gaps["isolated_nodes"]:
         print(f"\nIsolated nodes ({len(gaps['isolated_nodes'])}):")

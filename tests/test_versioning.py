@@ -126,7 +126,9 @@ class TestVersionStore:
             store = VersionStore(Path(tmpdir) / ".cortex")
 
             g1 = CortexGraph()
-            g1.add_node(Node(id="n1", label="Project Atlas", tags=["tech"], status="planned", valid_from="2026-01-01T00:00:00Z"))
+            g1.add_node(
+                Node(id="n1", label="Project Atlas", tags=["tech"], status="planned", valid_from="2026-01-01T00:00:00Z")
+            )
             v1 = store.commit(g1, "v1")
 
             g2 = CortexGraph()

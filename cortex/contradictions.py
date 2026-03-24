@@ -224,9 +224,7 @@ class ContradictionEngine:
                     continue
                 directions.append(1 if delta > 0 else -1)
 
-            direction_changes = sum(
-                1 for i in range(1, len(directions)) if directions[i] != directions[i - 1]
-            )
+            direction_changes = sum(1 for i in range(1, len(directions)) if directions[i] != directions[i - 1])
 
             if direction_changes >= 2:
                 severity = min(1.0, 0.4 + (direction_changes * 0.2))
@@ -369,9 +367,7 @@ class ContradictionEngine:
                         type="tag_conflict",
                         node_ids=[node.id],
                         severity=severity,
-                        description=(
-                            f"Node '{node.label}' moved from '{old_tag}' to '{new_tag}' between snapshots"
-                        ),
+                        description=(f"Node '{node.label}' moved from '{old_tag}' to '{new_tag}' between snapshots"),
                         detected_at=now,
                         resolution="prefer_newer",
                         node_label=node.label,

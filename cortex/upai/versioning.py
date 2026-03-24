@@ -414,7 +414,9 @@ class VersionStore:
                 record_ts = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
             except ValueError:
                 continue
-            if record_ts <= target and (best is None or record_ts > datetime.fromisoformat(best.timestamp.replace("Z", "+00:00"))):
+            if record_ts <= target and (
+                best is None or record_ts > datetime.fromisoformat(best.timestamp.replace("Z", "+00:00"))
+            ):
                 best = record
         return best.version_id if best is not None else None
 
@@ -467,7 +469,13 @@ class VersionStore:
         shared = set(distances_a) & set(distances_b)
         if not shared:
             return None
-        return min(shared, key=lambda version_id: (distances_a[version_id] + distances_b[version_id], max(distances_a[version_id], distances_b[version_id])))
+        return min(
+            shared,
+            key=lambda version_id: (
+                distances_a[version_id] + distances_b[version_id],
+                max(distances_a[version_id], distances_b[version_id]),
+            ),
+        )
 
     def blame_node(
         self,

@@ -1492,8 +1492,16 @@ class AggressiveExtractor:
         directive_prefs = [
             (r"\bplease be concise\b", "concise responses", "communication_preferences"),
             (r"\bskip the disclaimers\b", "no disclaimers", "communication_preferences"),
-            (r"\bdon'?t use bullet points(?: for everything)?\b", "prose over bullet points when appropriate", "communication_preferences"),
-            (r"\bwrite in prose(?: when it makes sense)?\b", "prose over bullet points when appropriate", "communication_preferences"),
+            (
+                r"\bdon'?t use bullet points(?: for everything)?\b",
+                "prose over bullet points when appropriate",
+                "communication_preferences",
+            ),
+            (
+                r"\bwrite in prose(?: when it makes sense)?\b",
+                "prose over bullet points when appropriate",
+                "communication_preferences",
+            ),
             (r"\bno filler phrases\b", "no filler phrases", "communication_preferences"),
             (r"\bjust answer\b", "direct answers", "communication_preferences"),
             (r"\bi dislike long explanations\b", "dislikes long explanations", "user_preferences"),

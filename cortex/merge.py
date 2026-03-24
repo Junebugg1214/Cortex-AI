@@ -299,7 +299,12 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
             continue
         conflicts.append(
             MergeConflict(
-                id=_make_merge_conflict_id("contradiction_conflict", contradiction.node_ids[0] if contradiction.node_ids else "", contradiction.type, contradiction.description),
+                id=_make_merge_conflict_id(
+                    "contradiction_conflict",
+                    contradiction.node_ids[0] if contradiction.node_ids else "",
+                    contradiction.type,
+                    contradiction.description,
+                ),
                 kind="contradiction_conflict",
                 node_id=contradiction.node_ids[0] if contradiction.node_ids else "",
                 label=contradiction.node_label,
@@ -422,11 +427,7 @@ def resolve_merge_conflict(store: VersionStore, store_dir: Path, conflict_id: st
             working.nodes[node_id] = copy.deepcopy(target)
         else:
             working.add_node(copy.deepcopy(target))
-        remaining = [
-            item
-            for item in conflicts
-            if not (item.get("node_id") == node_id)
-        ]
+        remaining = [item for item in conflicts if not (item.get("node_id") == node_id)]
     elif conflict["kind"] == "delete_modify_conflict":
         target = current_node if choose == "current" else incoming_node
         if target is None:
@@ -446,11 +447,7 @@ def resolve_merge_conflict(store: VersionStore, store_dir: Path, conflict_id: st
             working.nodes[node_id] = copy.deepcopy(target)
         else:
             working.add_node(copy.deepcopy(target))
-        remaining = [
-            item
-            for item in conflicts
-            if item.get("node_id") != node_id
-        ]
+        remaining = [item for item in conflicts if item.get("node_id") != node_id]
     else:
         raise ValueError(f"Unsupported merge conflict kind: {conflict['kind']}")
 

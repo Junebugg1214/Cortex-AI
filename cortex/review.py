@@ -137,7 +137,8 @@ class ReviewResult:
         if self.diff.get("modified_nodes"):
             lines.extend(["", "## Modified Nodes", ""])
             lines.extend(
-                f"- `{item['label']}`: {', '.join(sorted(item['changes']))}" for item in self.diff["modified_nodes"][:20]
+                f"- `{item['label']}`: {', '.join(sorted(item['changes']))}"
+                for item in self.diff["modified_nodes"][:20]
             )
         if self.new_contradictions:
             lines.extend(["", "## New Contradictions", ""])
@@ -159,10 +160,7 @@ class ReviewResult:
             )
         if self.semantic_changes:
             lines.extend(["", "## Semantic Changes", ""])
-            lines.extend(
-                f"- `{item['type']}`: {item['description']}"
-                for item in self.semantic_changes[:20]
-            )
+            lines.extend(f"- `{item['type']}`: {item['description']}" for item in self.semantic_changes[:20])
         return "\n".join(lines).rstrip() + "\n"
 
     def to_dict(self) -> dict[str, Any]:
@@ -195,21 +193,27 @@ def parse_failure_policies(spec: str) -> list[str]:
     return policies
 
 
-def review_graphs(current: CortexGraph, baseline: CortexGraph, *, current_label: str, against_label: str) -> ReviewResult:
+def review_graphs(
+    current: CortexGraph, baseline: CortexGraph, *, current_label: str, against_label: str
+) -> ReviewResult:
     diff = diff_graphs(baseline, current)
 
     contradiction_engine = ContradictionEngine()
     current_contradictions = {item.id: item.to_dict() for item in contradiction_engine.detect_all(current)}
     baseline_contradictions = {item.id: item.to_dict() for item in contradiction_engine.detect_all(baseline)}
-    new_contradictions = [current_contradictions[key] for key in sorted(set(current_contradictions) - set(baseline_contradictions))]
+    new_contradictions = [
+        current_contradictions[key] for key in sorted(set(current_contradictions) - set(baseline_contradictions))
+    ]
     resolved_contradictions = [
         baseline_contradictions[key] for key in sorted(set(baseline_contradictions) - set(current_contradictions))
     ]
 
     gap_analyzer = GapAnalyzer()
-    current_temporal_gaps = { _gap_key(item): item for item in gap_analyzer.temporal_gaps(current) }
-    baseline_temporal_gaps = { _gap_key(item): item for item in gap_analyzer.temporal_gaps(baseline) }
-    new_temporal_gaps = [current_temporal_gaps[key] for key in sorted(set(current_temporal_gaps) - set(baseline_temporal_gaps))]
+    current_temporal_gaps = {_gap_key(item): item for item in gap_analyzer.temporal_gaps(current)}
+    baseline_temporal_gaps = {_gap_key(item): item for item in gap_analyzer.temporal_gaps(baseline)}
+    new_temporal_gaps = [
+        current_temporal_gaps[key] for key in sorted(set(current_temporal_gaps) - set(baseline_temporal_gaps))
+    ]
     resolved_temporal_gaps = [
         baseline_temporal_gaps[key] for key in sorted(set(baseline_temporal_gaps) - set(current_temporal_gaps))
     ]
