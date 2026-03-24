@@ -1,184 +1,181 @@
 # Cortex
 
-Own your AI memory and identity.
+**Git for AI Memory.**
 
-Cortex is a local toolkit for portable AI memory, identity, versioned graph history, and a lightweight infrastructure UI.
-It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
-Think of it as the beginning of **Git for AI Memory**: commits, branches, merges, review gates, receipts, retraction, claim workflows, and time-aware agent memory.
+Cortex is a local-first toolkit for building, reviewing, governing, and syncing AI memory with the same kinds of primitives developers expect from source control:
 
-## What it does
+- commit
+- branch
+- merge
+- review
+- rollback
+- blame
+- history
+- remote push/pull
+- governance
 
-- Builds a graph from exports or captured notes
-- Lets you inspect stats, timelines, contradictions, and memory conflicts
-- Stores memory and context locally in files you can version
-- Initializes and signs UPAI identity material
-- Exports compact context for downstream tools
-- Writes context into coding-tool config files
-- Integrates with local tools such as OpenClaw through the CLI
-- Exposes a small local web UI for review, blame, history, governance, and remote sync
+It turns exports, notes, docs, tickets, coding sessions, and manually curated context into a versioned memory graph you can inspect, diff, explain, and share without giving up control of the underlying files.
 
-## Why it matters
+## Why This Exists
 
-Think of Cortex as a notebook for your AI: local, portable, and easy to audit.
+Most AI memory systems are opaque.
 
-Examples:
+When an agent says something important, you usually cannot answer:
 
-- Remember that you prefer concise answers
-- Track what your assistant knew on a given day
-- Compare two graph snapshots and see what changed
-- Feed a coding assistant the same context every time
-- Keep identity and memory portable across machines
-- Explain exactly why a claim exists, where it came from, and when it was true
+- Where did that claim come from?
+- When was it true?
+- What changed between versions?
+- Which source introduced the bad memory?
+- Can I roll it back without destroying history?
+- Who is allowed to write or merge this memory?
 
-## Open Source Scope
+Cortex is built to answer those questions directly.
 
-- Local CLI and local web UI workflows
-- No hosted backend or managed cloud surface
-- Designed for developer-owned files, portability, and versioned graph history
+## What Cortex Does
 
-## Install
+- Extracts memory from chat exports, notes, plain text, coding sessions, and normalized GitHub, Slack, and docs inputs
+- Stores memory as a local graph you can query, diff, branch, merge, and roll back
+- Tracks provenance so you can blame a claim to its source and inspect its receipt trail
+- Detects contradictions, semantic drift, timeline changes, and temporal gaps
+- Lets you retract memory by source instead of manually cleaning a graph
+- Adds governance rules for who can read, write, branch, merge, roll back, push, or pull
+- Syncs memory stores explicitly with remote push, pull, and fork semantics
+- Exposes a small local web UI for review, blame, history, governance, and remotes
+- Exports context for downstream tools and coding workflows
 
-```bash
-pip install cortex-identity
+## Who It's For
+
+- Developers building long-lived AI agents
+- Teams that want auditable memory instead of opaque context blobs
+- People who want portable AI identity and memory across tools
+- Builders who need a local memory control plane, not another hosted SaaS
+
+## Example Use Cases
+
+- **Agent debugging**: explain why an agent believed `Project Atlas` was active, who introduced that claim, and what changed afterward
+- **Memory CI**: compare `context.json` on a PR against `main` and fail only on contradictions or temporal gaps
+- **Safe experimentation**: branch memory for a new persona, project mode, or imported source before merging it back
+- **Bad import recovery**: retract everything that came from one bad export or roll back to a known-good memory state
+- **Multi-agent collaboration**: push and pull memory branches between local stores with explicit governance and approval rules
+- **Coding assistants with receipts**: export stable project context, inspect history, and keep assistant memory tied to real sources
+
+## Mental Model
+
+```mermaid
+flowchart LR
+    A["Sources<br/>chat exports, notes, GitHub, Slack, docs, coding sessions"] --> B["cortex extract / ingest"]
+    B --> C["Local memory graph<br/>context.json + version store"]
+    C --> D["Commit / Branch / Merge / Rollback"]
+    C --> E["Blame / History / Timeline / Contradictions"]
+    D --> F["Review / Governance / Memory CI"]
+    C --> G["Context export / Hooks / Local UI / Remote sync"]
 ```
 
-Extras:
+## 60-Second Demo
 
 ```bash
-pip install cortex-identity[crypto]
-pip install cortex-identity[fast]
-pip install cortex-identity[full]
-```
+# Install Cortex
+pip install "cortex-identity[full]"
 
-## CLI Quickstart
-
-```bash
-# Build graph from export
-cortex extract <export-file> -o context.json
-
-# Inspect
-cortex stats context.json
-
-# Export to target formats
-cortex import context.json --to all -o ./output
-```
-
-## Common Commands
-
-```bash
-cortex extract <file> -o context.json
-cortex import context.json --to claude -o ./output
-cortex commit context.json -m "Import meeting notes"
-cortex branch feature/project-atlas
-cortex switch feature/project-atlas
-cortex merge main
-cortex review context.json --against main
-cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
-cortex merge feature/project-atlas --conflicts
-cortex merge --resolve <conflict-id> --choose incoming
-cortex merge --commit-resolved
-cortex log
-cortex diff <version-a> <version-b>
-cortex checkout <version> -o restored.json
-cortex blame context.json --label "PostgreSQL"
-cortex blame context.json --label "PostgreSQL" --source manual-note --ref feature/project-atlas
-cortex history context.json --label "PostgreSQL" --ref main
-cortex claim log --label "PostgreSQL"
-cortex claim log --label "PostgreSQL" --version abc123
-cortex claim accept context.json <claim-id>
-cortex claim reject context.json <claim-id>
-cortex claim supersede context.json <claim-id> --label "PostgreSQL 16" --status active
-cortex rollback context.json --to <version>
-cortex governance allow protect-main --actor "agent/*" --action write --namespace main --approval-below-confidence 0.75
-cortex remote add origin /path/to/other/store
-cortex remote push origin --branch main
-cortex ui --context-file context.json
-cortex ingest github issue.json -o context.json
-cortex ingest slack ./slack-export -o context.json
-cortex ingest docs ./docs -o context.json
-cortex query context.json --node "Python"
-cortex query context.json --node "Current Project" --at 2026-06-01T00:00:00Z
-cortex timeline context.json --format md
-cortex contradictions context.json
-cortex identity --init --name "Your Name"
-cortex memory show context.json --tag technical_expertise
-cortex memory set context.json --label "Response Style" --tag communication_preferences --brief "Prefers concise answers"
-cortex memory retract context.json --source meeting-notes-2026-03-22
-cortex memory conflicts context.json
-cortex context-export context.json
-cortex context-hook install context.json
-cortex context-write context.json
-```
-
-## Git For AI Memory Workflow
-
-```bash
-# 1. Extract or edit local AI memory
+# Build a memory graph from a source file
 cortex extract chat-export.json -o context.json
 
-# 2. Commit the memory snapshot
-cortex commit context.json -m "Import March planning notes"
+# Save a versioned memory snapshot
+cortex commit context.json -m "Import planning notes"
 
-# 3. Create a parallel memory branch for an experiment
+# Create a safe experimental memory branch
 cortex branch experiment/planning-cleanup
 cortex switch experiment/planning-cleanup
 
-# 4. Inspect what changed
-cortex log
-cortex diff main experiment/planning-cleanup
-cortex review context.json --against main
-
-# 4b. Make review CI-strict or CI-relaxed
+# Review changes before merging
 cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
-cortex review context.json --against main --fail-on none --format json
 
-# 5. Ask why a claim exists
+# Ask why a memory claim exists
 cortex blame context.json --label "Project Atlas"
 
-# 5b. Inspect receipts from one source on one branch
-cortex blame context.json --label "Project Atlas" --source planning-doc-v1 --ref experiment/planning-cleanup
+# Query what was true at a point in time
+cortex query context.json --node "Project Atlas" --at 2026-03-15T00:00:00Z
 
-# 5c. Inspect claim events directly
-cortex claim log --label "Project Atlas"
-cortex claim show <claim-id>
-
-# 5d. Accept, reject, or supersede a claim directly
-cortex claim accept context.json <claim-id>
-cortex claim reject context.json <claim-id>
-cortex claim supersede context.json <claim-id> --status active --valid-from 2026-04-01T00:00:00Z
-
-# 5e. Inspect the chronological receipts timeline
-cortex history context.json --label "Project Atlas" --ref experiment/planning-cleanup
-
-# 6. Retract a bad source if needed
-cortex memory retract context.json --source planning-doc-v1
-
-# 7. Resolve merge conflicts if needed
-cortex merge experiment/planning-cleanup
-cortex merge --conflicts
-cortex merge --resolve <conflict-id> --choose incoming
-cortex merge --commit-resolved
-
-# 8. Ingest local GitHub/Slack/docs sources
-cortex ingest github issue.json -o context.json
-cortex ingest slack ./slack-export -o context.json
-cortex ingest docs ./docs -o context.json
-
-# 9. Query historical truth
-cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
-
-# 10. Launch the local infrastructure UI
+# Open the local infrastructure console
 cortex ui --context-file context.json
 ```
 
-## Infrastructure UI
+## Core Workflows
 
-Cortex now ships with a small local web app for the operational side of Git for AI Memory:
+### 1. Build Memory from Real Inputs
 
-- review and semantic drift inspection
-- blame and history receipts
-- governance policy management
-- explicit remote push, pull, and fork flows
+```bash
+cortex extract notes.json -o context.json
+cortex ingest github issue.json -o context.json
+cortex ingest slack ./slack-export -o context.json
+cortex ingest docs ./docs -o context.json
+```
+
+### 2. Version AI Memory Like Code
+
+```bash
+cortex commit context.json -m "Import March planning notes"
+cortex log
+cortex diff <version-a> <version-b>
+cortex checkout <version> -o restored.json
+cortex rollback context.json --to <version>
+```
+
+### 3. Create Safe Branches for Experiments
+
+```bash
+cortex branch feature/project-atlas
+cortex switch feature/project-atlas
+cortex review context.json --against main
+cortex merge main
+```
+
+### 4. Explain, Audit, and Retract
+
+```bash
+cortex blame context.json --label "PostgreSQL"
+cortex history context.json --label "PostgreSQL"
+cortex claim log --label "PostgreSQL"
+cortex memory retract context.json --source planning-doc-v1
+```
+
+### 5. Govern and Sync Memory
+
+```bash
+cortex governance allow protect-main \
+  --actor "agent/*" \
+  --action write \
+  --namespace main \
+  --approval-below-confidence 0.75
+
+cortex remote add origin /path/to/other/store
+cortex remote push origin --branch main
+cortex remote pull origin --branch main --into-branch remotes/origin/main
+```
+
+## Why Cortex Feels Different
+
+Most memory tooling focuses on storage and retrieval.
+
+Cortex focuses on **operability**:
+
+- not just storing memory, but versioning it
+- not just retrieving claims, but explaining them
+- not just importing data, but retracting bad evidence
+- not just sharing context, but governing who can change it
+- not just diffing JSON, but surfacing semantic drift and contradiction risk
+
+If Git gives developers confidence in code changes, Cortex is trying to do the same for AI memory changes.
+
+## Local Infrastructure UI
+
+Cortex ships with a small local web app for the operational side of memory:
+
+- review results
+- blame receipts
+- claim history
+- governance policies
+- remote sync flows
 
 Run it with:
 
@@ -188,28 +185,47 @@ cortex ui --context-file context.json
 
 ## Memory CI
 
-The repo now includes [`.github/workflows/memory-review.yml`](/Users/marcsaint-jour/Desktop/Cortex-AI/.github/workflows/memory-review.yml), which:
+The repo includes [`.github/workflows/memory-review.yml`](.github/workflows/memory-review.yml), which can:
 
-- compares the checked-in memory file against the base branch version
-- emits a Markdown review summary in GitHub Actions
-- uploads JSON and Markdown review artifacts
-- fails only on the gates you choose, such as `contradictions` and `temporal_gaps`
+- compare a checked-in memory file against the base branch
+- emit a Markdown review summary in GitHub Actions
+- upload JSON and Markdown review artifacts
+- fail only on gates you choose, such as `contradictions` and `temporal_gaps`
 
-You can customize the same behavior locally with:
+Local equivalent:
 
 ```bash
 cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
 cortex review context.json --against main --fail-on none --format json
 ```
 
-## OpenClaw Integration
+## More Detailed Product Walkthrough
 
-OpenClaw can use Cortex as a local memory layer, so the assistant can preview context, explain why it answered a certain way, surface conflicts, and sync coding context without needing a server.
+For the full Git-for-AI-Memory feature walkthrough, see [GIT_FOR_AI_MEMORY.md](GIT_FOR_AI_MEMORY.md).
+
+## Install
+
+```bash
+pip install cortex-identity
+```
+
+Recommended extras:
+
+```bash
+pip install "cortex-identity[full]"
+```
+
+Other extras:
+
+```bash
+pip install "cortex-identity[crypto]"
+pip install "cortex-identity[fast]"
+```
 
 ## Repository Layout
 
-- `cortex/`: core CLI, graph, extraction, import/export, identity, and versioning code
-- `tests/`: CLI/core-library test suite
+- `cortex/`: CLI, graph model, extraction, review, governance, remotes, UI, identity, and versioning
+- `tests/`: CLI and core-library regression suite
 
 ## License
 
