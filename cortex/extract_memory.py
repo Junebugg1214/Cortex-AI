@@ -713,7 +713,7 @@ def get_message_text(message: dict) -> str:
 
 
 def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
-    """Provide the node/contradiction aliases expected by the autoresearch eval harness."""
+    """Provide flat node and contradiction aliases for downstream compatibility."""
     from cortex.compat import upgrade_v4_to_v5
 
     graph = upgrade_v4_to_v5(v4_output)
