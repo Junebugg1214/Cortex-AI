@@ -10,11 +10,10 @@ from __future__ import annotations
 import json
 import threading
 import webbrowser
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from cortex.claims import ClaimLedger
 from cortex.cli import _load_graph

@@ -2,8 +2,8 @@ from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 from cortex.memory_ops import (
     forget_nodes,
     list_memory_conflicts,
-    retract_source,
     resolve_memory_conflict,
+    retract_source,
     set_memory_node,
     show_memory_nodes,
 )

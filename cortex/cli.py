@@ -32,8 +32,8 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
-from cortex.graph import CortexGraph, Node
 from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceRule, GovernanceStore
+from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
     NormalizedContext,
@@ -50,12 +50,19 @@ from cortex.memory_ops import (
     blame_memory_nodes,
     forget_nodes,
     list_memory_conflicts,
-    retract_source,
     resolve_memory_conflict,
+    retract_source,
     set_memory_node,
     show_memory_nodes,
 )
-from cortex.merge import clear_merge_state, load_merge_state, load_merge_worktree, merge_refs, resolve_merge_conflict, save_merge_state
+from cortex.merge import (
+    clear_merge_state,
+    load_merge_state,
+    load_merge_worktree,
+    merge_refs,
+    resolve_merge_conflict,
+    save_merge_state,
+)
 from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.temporal import drift_score

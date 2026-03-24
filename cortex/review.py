@@ -112,7 +112,7 @@ class ReviewResult:
         summary = self.summary()
         should_fail, counts = self.should_fail(policies or ["blocking"])
         lines = [
-            f"# Memory Review",
+            "# Memory Review",
             "",
             f"- Current: `{self.current_label}`",
             f"- Against: `{self.against_label}`",

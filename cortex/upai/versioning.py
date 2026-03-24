@@ -20,8 +20,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cortex.graph import CortexGraph, Node, _normalize_label
 from cortex.semantic_diff import semantic_diff_graphs

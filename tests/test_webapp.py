@@ -3,7 +3,7 @@ import json
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.graph import CortexGraph, Node
 from cortex.upai.versioning import VersionStore
-from cortex.webapp import MemoryUIBackend, UI_HTML
+from cortex.webapp import UI_HTML, MemoryUIBackend
 
 
 def _write_graph(path, graph: CortexGraph) -> None:
