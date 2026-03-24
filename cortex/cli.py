@@ -801,6 +801,14 @@ def build_parser():
     cw.add_argument("--watch", action="store_true", help="Watch graph file and auto-refresh on change")
     cw.add_argument("--interval", type=int, default=30, help="Watch poll interval in seconds (default: 30)")
 
+    # -- ui (local web interface) -----------------------------------------
+    ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
+    ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
+    ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
+    ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
+
     # -- pull (import from platform export) --------------------------------
     pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
     pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
@@ -3573,6 +3581,29 @@ def run_context_write(args):
     return 0
 
 
+def run_ui(args):
+    """Launch the local Cortex infrastructure UI."""
+    from cortex.webapp import start_ui_server
+
+    server, url = start_ui_server(
+        host=args.host,
+        port=args.port,
+        store_dir=args.store_dir,
+        context_file=args.context_file,
+        open_browser=args.open,
+    )
+    print(f"Cortex UI running at {url}")
+    print("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("\nCortex UI stopped.")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -3716,6 +3747,7 @@ def main(argv=None):
         "context-hook",
         "context-export",
         "context-write",
+        "ui",
         "rotate",
         "pull",
         "completion",
@@ -3830,6 +3862,8 @@ def main(argv=None):
         return run_rotate(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
+    elif args.subcommand == "ui":
+        return run_ui(args)
     elif args.subcommand == "completion":
         return run_completion(args)
     else:

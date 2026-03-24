@@ -2,7 +2,7 @@
 
 Own your AI memory and identity.
 
-Cortex is a CLI-only toolkit for local, portable AI memory, identity, and versioned graph history.
+Cortex is a local toolkit for portable AI memory, identity, versioned graph history, and a lightweight infrastructure UI.
 It turns exports, notes, and context captures into files you can inspect, compare, query, sign, and share.
 Think of it as the beginning of **Git for AI Memory**: commits, branches, merges, review gates, receipts, retraction, claim workflows, and time-aware agent memory.
 
@@ -15,6 +15,7 @@ Think of it as the beginning of **Git for AI Memory**: commits, branches, merges
 - Exports compact context for downstream tools
 - Writes context into coding-tool config files
 - Integrates with local tools such as OpenClaw through the CLI
+- Exposes a small local web UI for review, blame, history, governance, and remote sync
 
 ## Why it matters
 
@@ -31,8 +32,8 @@ Examples:
 
 ## Open Source Scope
 
-- Local CLI workflows only
-- No HTTP server, web app, hosted backend, or SDK surface
+- Local CLI and local web UI workflows
+- No hosted backend or managed cloud surface
 - Designed for developer-owned files, portability, and versioned graph history
 
 ## Install
@@ -87,6 +88,11 @@ cortex claim log --label "PostgreSQL" --version abc123
 cortex claim accept context.json <claim-id>
 cortex claim reject context.json <claim-id>
 cortex claim supersede context.json <claim-id> --label "PostgreSQL 16" --status active
+cortex rollback context.json --to <version>
+cortex governance allow protect-main --actor "agent/*" --action write --namespace main --approval-below-confidence 0.75
+cortex remote add origin /path/to/other/store
+cortex remote push origin --branch main
+cortex ui --context-file context.json
 cortex ingest github issue.json -o context.json
 cortex ingest slack ./slack-export -o context.json
 cortex ingest docs ./docs -o context.json
@@ -160,6 +166,24 @@ cortex ingest docs ./docs -o context.json
 
 # 9. Query historical truth
 cortex query context.json --node "Project Atlas" --at 2026-04-01T00:00:00Z
+
+# 10. Launch the local infrastructure UI
+cortex ui --context-file context.json
+```
+
+## Infrastructure UI
+
+Cortex now ships with a small local web app for the operational side of Git for AI Memory:
+
+- review and semantic drift inspection
+- blame and history receipts
+- governance policy management
+- explicit remote push, pull, and fork flows
+
+Run it with:
+
+```bash
+cortex ui --context-file context.json
 ```
 
 ## Memory CI

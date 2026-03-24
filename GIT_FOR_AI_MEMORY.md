@@ -9,13 +9,17 @@ Cortex now has the core local primitives for a `Git for AI Memory` workflow:
 - `log`: inspect the memory history
 - `diff`: compare versions
 - `checkout`: restore an older snapshot
+- `rollback`: restore an older state as a new commit, by hash or timestamp
 - `blame`: trace a claim to provenance and version history
 - `history`: inspect chronological receipts for a node across versions and claim events
 - `claim log` / `claim show`: inspect raw claim events
 - `claim accept` / `claim reject` / `claim supersede`: move claims through explicit lifecycle decisions
+- `governance`: define who can read, write, branch, merge, roll back, push, or pull which memory namespaces
+- `remote`: explicit push, pull, and fork semantics for memory stores
 - `ingest github|slack|docs`: normalize local work exports into extractable memory
 - `memory retract`: remove memory evidence from a bad source
 - `query --at`: inspect what was true at a point in time
+- `ui`: local infrastructure console for review, blame, history, governance, and remotes
 
 ## Why This Matters
 
@@ -79,6 +83,10 @@ cortex claim show <claim-id>
 # Compare versions
 cortex diff <old-version> <new-version>
 
+# Roll back safely without rewriting history
+cortex rollback context.json --to <old-version>
+cortex rollback context.json --at 2026-03-23T12:00:00Z --ref main
+
 # Merge when review passes
 cortex merge experiment/slack-import
 
@@ -96,6 +104,17 @@ cortex claim supersede context.json <claim-id> --status active
 cortex ingest github issue.json -o context.json
 cortex ingest slack ./slack-export -o context.json
 cortex ingest docs ./docs -o context.json
+
+# Add approval-gated governance
+cortex governance allow protect-main --actor "agent/*" --action write --namespace main --approval-below-confidence 0.75
+
+# Push/pull memory explicitly across agents
+cortex remote add origin /path/to/other/store
+cortex remote push origin --branch main
+cortex remote pull origin --branch main --into-branch remotes/origin/main
+
+# Open the local infrastructure console
+cortex ui --context-file context.json
 
 # Query what was true at a given time
 cortex query context.json --node "Project Atlas" --at 2026-03-15T00:00:00Z
@@ -119,9 +138,13 @@ cortex memory retract context.json --source planning-notes
 - explicit claim lifecycle transitions
 - merge conflict resolution state in `.cortex`
 - local connector ingestion for GitHub, Slack, and docs
+- semantic drift surfaced alongside structural diff
+- approval-gated protected namespaces
+- explicit remote memory sync and fork flows
+- a local UI for operating the memory system
 
 ## Next Logical Steps
 
 - richer claim-level provenance beyond node reconstruction
-- hosted or app-based UI for receipts, diffs, and retractions
+- stronger hosted multi-user collaboration flows if desired later
 - external API connectors instead of local export ingestion only
