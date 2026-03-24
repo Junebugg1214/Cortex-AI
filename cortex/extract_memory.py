@@ -172,6 +172,8 @@ TECH_KEYWORDS = {
         "vim",
         "cursor",
         "copilot",
+        "pytest",
+        "ruff",
     ],
 }
 
@@ -710,6 +712,31 @@ def get_message_text(message: dict) -> str:
     return ""
 
 
+def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
+    """Provide flat node and contradiction aliases for downstream compatibility."""
+    from cortex.compat import upgrade_v4_to_v5
+
+    graph = upgrade_v4_to_v5(v4_output)
+    nodes = []
+    for node in graph.nodes.values():
+        nodes.append(
+            {
+                "id": node.id,
+                "label": node.label,
+                "value": node.full_description or node.brief or node.label,
+                "category": node.tags[0] if node.tags else "mentions",
+                "tags": list(node.tags),
+                "confidence": round(node.confidence, 2),
+                "mention_count": node.mention_count,
+            }
+        )
+    nodes.sort(key=lambda node: (-node["confidence"], node["label"].lower()))
+    return {
+        "nodes": nodes,
+        "contradictions": list(v4_output.get("conflicts", [])),
+    }
+
+
 # ============================================================================
 # DATA STRUCTURES
 # ============================================================================
@@ -952,6 +979,7 @@ class ExtractionContext:
             output["conflicts"] = self.conflicts
         if self.redaction_summary is not None:
             output["redaction_summary"] = self.redaction_summary
+        output.update(build_eval_compat_view(output))
         return output
 
     def stats(self) -> dict:
@@ -1268,6 +1296,44 @@ class AggressiveExtractor:
                     self.context.add_topic(
                         "values",
                         value,
+                        full_description=match.group(0)[:200],
+                        extraction_method="explicit_statement",
+                        source_quote=match.group(0),
+                        timestamp=timestamp,
+                    )
+        for pattern, value_builder in [
+            (
+                r"i\s+care(?:\s+\w+){0,3}\s+about\s+([^.,]+)",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"\b([A-Za-z][A-Za-z0-9'/-]*(?:\s+[A-Za-z][A-Za-z0-9'/-]*){0,12}\s+is non-negotiable(?:\s+for\s+[^.,]+)?)",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"i(?:'d| would)\s+rather\s+([^.,]+?)\s+than\s+([^.,]+)",
+                lambda m: clean_extracted_text(f"{m.group(1)} over {m.group(2)}"),
+            ),
+            (
+                r"i(?:\s+also)?\s+document everything",
+                lambda _m: "Document everything",
+            ),
+            (
+                r"\b([A-Z]{2,}\s+license(?:\s+always)?)\b",
+                lambda m: clean_extracted_text(m.group(1)),
+            ),
+            (
+                r"if it(?:'s| is) not written down it did(?:n't| not) happen",
+                lambda _m: "Document everything",
+            ),
+        ]:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                value = value_builder(match)
+                if 5 < len(value) < 200:
+                    self.context.add_topic(
+                        "values",
+                        value,
+                        full_description=match.group(0)[:200],
                         extraction_method="explicit_statement",
                         source_quote=match.group(0),
                         timestamp=timestamp,
@@ -1422,6 +1488,135 @@ class AggressiveExtractor:
                         source_quote=match.group(0)[:200],
                         timestamp=timestamp,
                     )
+        # Directive-style communication preferences
+        directive_prefs = [
+            (r"\bplease be concise\b", "concise responses", "communication_preferences"),
+            (r"\bskip the disclaimers\b", "no disclaimers", "communication_preferences"),
+            (
+                r"\bdon'?t use bullet points(?: for everything)?\b",
+                "prose over bullet points when appropriate",
+                "communication_preferences",
+            ),
+            (
+                r"\bwrite in prose(?: when it makes sense)?\b",
+                "prose over bullet points when appropriate",
+                "communication_preferences",
+            ),
+            (r"\bno filler phrases\b", "no filler phrases", "communication_preferences"),
+            (r"\bjust answer\b", "direct answers", "communication_preferences"),
+            (r"\bi dislike long explanations\b", "dislikes long explanations", "user_preferences"),
+        ]
+
+        for pattern, topic, category in directive_prefs:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if not match:
+                continue
+            self.context.add_topic(
+                category=category,
+                topic=topic,
+                brief=f"Communication: {topic}" if category == "communication_preferences" else f"Prefers: {topic}",
+                extraction_method="explicit_statement",
+                source_quote=match.group(0)[:200],
+                timestamp=timestamp,
+            )
+
+        def add_preference_with_override(
+            topic: str,
+            source_quote: str,
+            categories: tuple[str, ...],
+            opposite_topics: tuple[str, ...] = (),
+        ):
+            def matches_override(existing_topic: str, target: str) -> bool:
+                existing_norm = normalize_text(existing_topic)
+                target_norm = normalize_text(target)
+                if not existing_norm or not target_norm:
+                    return False
+                return (
+                    existing_norm == target_norm
+                    or existing_norm.startswith(target_norm + " ")
+                    or existing_norm.endswith(" " + target_norm)
+                    or target_norm in existing_norm.split()
+                )
+
+            for category in categories:
+                self.context.add_topic(
+                    category=category,
+                    topic=topic,
+                    brief=f"Communication: {topic}" if category == "communication_preferences" else f"Prefers: {topic}",
+                    extraction_method="explicit_statement",
+                    source_quote=source_quote[:200],
+                    timestamp=timestamp,
+                )
+
+            if not opposite_topics:
+                return
+
+            for category in ("user_preferences", "communication_preferences"):
+                for existing in list(self.context.topics.get(category, {}).values()):
+                    if are_similar(existing.topic, topic, threshold=0.8):
+                        continue
+                    if timestamp and existing.last_seen and existing.last_seen >= timestamp:
+                        continue
+                    if not any(matches_override(existing.topic, opposite) for opposite in opposite_topics):
+                        continue
+                    self.context.add_topic(
+                        category="negations",
+                        topic=existing.topic,
+                        brief=f"Superseded preference: {existing.topic}",
+                        full_description=f"Later preference override: {topic}",
+                        extraction_method="explicit_statement",
+                        source_quote=source_quote[:200],
+                        timestamp=timestamp,
+                    )
+
+        evolving_preference_patterns = [
+            (
+                r"\b(?:i want|please|just|you can|can you|be|keep it|make it)\b[^.]{0,80}\b(concise|brief)\b",
+                "concise responses",
+                ("communication_preferences", "user_preferences"),
+                ("verbose", "verbose explanations", "detailed explanations", "thorough explanations"),
+            ),
+            (
+                r"\b(?:i want|please|just|you can|can you|be|keep it|make it)\b[^.]{0,80}\b(verbose|detailed|thorough)\b",
+                "verbose explanations",
+                ("communication_preferences", "user_preferences"),
+                ("concise", "concise responses", "brief responses"),
+            ),
+            (
+                r"\btreat me like an expert\b",
+                "expert-level explanations",
+                ("communication_preferences", "user_preferences"),
+                ("basic explanations", "beginner-level explanations", "skip the basics"),
+            ),
+            (
+                r"\bskip the basics\b",
+                "expert-level explanations",
+                ("communication_preferences", "user_preferences"),
+                ("basic explanations", "beginner-level explanations"),
+            ),
+        ]
+
+        for pattern, topic, categories, opposite_topics in evolving_preference_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                add_preference_with_override(topic, match.group(0), categories, opposite_topics)
+
+        indentation_patterns = [
+            r"\bi(?:\s+always)?\s+use\s+(tabs|spaces)\b(?:[^.]{0,40}\bindentation\b)?",
+            r"\b(tabs|spaces)\s+for\s+indentation\b",
+            r"\b(tabs|spaces)\s+everywhere\b",
+            r"\bfor\s+[a-z0-9+#.]+\b[^.]{0,40}\b(tabs|spaces)\b",
+        ]
+        for pattern in indentation_patterns:
+            for match in re.finditer(pattern, lower):
+                style = match.group(1).lower()
+                topic = f"Use {style}"
+                opposite = "spaces" if style == "tabs" else "tabs"
+                add_preference_with_override(
+                    topic,
+                    match.group(0),
+                    ("user_preferences",),
+                    (f"Use {opposite}", opposite, f"{opposite} for indentation"),
+                )
 
     def _extract_constraints(self, text: str, timestamp: datetime | None = None):
         """Extract constraints (budget, timeline, team size, requirements)."""
@@ -1556,7 +1751,12 @@ class AggressiveExtractor:
                     del self.context.topics["mentions"][key]
 
     def process_openai_export(self, data: list | dict) -> dict:
-        conversations = data if isinstance(data, list) else data.get("conversations", data.get("items", []))
+        if isinstance(data, list):
+            conversations = data
+        elif isinstance(data, dict) and "mapping" in data:
+            conversations = [data]
+        else:
+            conversations = data.get("conversations", data.get("items", []))
         for conv in conversations:
             for node in conv.get("mapping", {}).values():
                 if not isinstance(node, dict):

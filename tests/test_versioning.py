@@ -121,6 +121,38 @@ class TestVersionStore:
             assert mod["changes"]["confidence"]["from"] == 0.7
             assert mod["changes"]["confidence"]["to"] == 0.9
 
+    def test_diff_shows_temporal_field_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            g1 = CortexGraph()
+            g1.add_node(
+                Node(id="n1", label="Project Atlas", tags=["tech"], status="planned", valid_from="2026-01-01T00:00:00Z")
+            )
+            v1 = store.commit(g1, "v1")
+
+            g2 = CortexGraph()
+            g2.add_node(
+                Node(
+                    id="n1",
+                    label="Project Atlas",
+                    tags=["tech"],
+                    status="active",
+                    valid_from="2026-02-01T00:00:00Z",
+                    valid_to="2026-12-31T00:00:00Z",
+                )
+            )
+            v2 = store.commit(g2, "v2")
+
+            d = store.diff(v1.version_id, v2.version_id)
+            assert len(d["modified"]) == 1
+            mod = d["modified"][0]
+            assert mod["changes"]["status"]["from"] == "planned"
+            assert mod["changes"]["status"]["to"] == "active"
+            assert mod["changes"]["valid_from"]["from"] == "2026-01-01T00:00:00Z"
+            assert mod["changes"]["valid_to"]["to"] == "2026-12-31T00:00:00Z"
+            assert any(change["type"] == "lifecycle_shift" for change in d["semantic_changes"])
+
     def test_diff_identical_versions(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = VersionStore(Path(tmpdir) / ".cortex")
@@ -173,6 +205,40 @@ class TestVersionStore:
             assert v2.parent_id == v1.version_id
             assert v3.parent_id == v2.version_id
 
+    def test_resolve_at_returns_latest_version_before_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            resolved = store.resolve_at(v1.timestamp)
+
+            assert resolved == v1.version_id
+            assert resolved != v2.version_id
+
+    def test_is_ancestor_detects_branch_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            store.create_branch("feature/demo")
+            store.switch_branch("feature/demo")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            assert store.is_ancestor(v1.version_id, v2.version_id) is True
+            assert store.is_ancestor(v2.version_id, v1.version_id) is False
+
+    def test_lineage_records_include_branch_ancestry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            v1 = store.commit(_sample_graph(), "first")
+            store.create_branch("feature/demo")
+            store.switch_branch("feature/demo")
+            v2 = store.commit(_sample_graph(" v2"), "second")
+
+            records = store.lineage_records("feature/demo")
+
+            assert [item["version_id"] for item in records] == [v1.version_id, v2.version_id]
+
     def test_store_directory_created_on_commit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store_dir = Path(tmpdir) / "new_store" / ".cortex"
@@ -187,7 +253,9 @@ class TestVersionStore:
         v = ContextVersion(
             version_id="abc123",
             parent_id="parent1",
+            merge_parent_ids=["parent2"],
             timestamp="2025-01-01T00:00:00Z",
+            branch="main",
             source="extraction",
             message="test message",
             graph_hash="deadbeef",
@@ -199,6 +267,8 @@ class TestVersionStore:
         v2 = ContextVersion.from_dict(d)
         assert v2.version_id == v.version_id
         assert v2.parent_id == v.parent_id
+        assert v2.merge_parent_ids == v.merge_parent_ids
+        assert v2.branch == v.branch
         assert v2.message == v.message
         assert v2.signature == v.signature
 
@@ -208,3 +278,140 @@ class TestVersionStore:
             graph = _sample_graph()
             version = store.commit(graph, "from extraction", source="extraction")
             assert version.source == "extraction"
+
+    def test_blame_node_tracks_introduction_and_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            g1 = CortexGraph()
+            g1.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            v1 = store.commit(g1, "initial memory", source="extraction")
+
+            g2 = CortexGraph()
+            g2.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.95,
+                    status="active",
+                    valid_from="2026-01-01T00:00:00Z",
+                    provenance=[{"source": "manual-a", "method": "manual"}],
+                )
+            )
+            v2 = store.commit(g2, "promote postgres", source="manual")
+
+            blame = store.blame_node(
+                node_id="n1",
+                label="PostgreSQL",
+                aliases=["postgres"],
+                canonical_id="n1",
+                limit=10,
+            )
+
+            assert blame["versions_seen"] == 2
+            assert blame["introduced_in"]["version_id"] == v1.version_id
+            assert blame["last_seen_in"]["version_id"] == v2.version_id
+            assert blame["versions_changed"] == 2
+            assert blame["history"][0]["node"]["provenance_sources"] == ["import-a"]
+            assert blame["history"][1]["node"]["status"] == "active"
+
+    def test_blame_node_filters_by_ref_and_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            base = CortexGraph()
+            base.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            store.commit(base, "base")
+
+            store.create_branch("feature/db")
+            store.switch_branch("feature/db")
+            feature = CortexGraph()
+            feature.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.95,
+                    provenance=[{"source": "manual-a", "method": "manual"}],
+                    status="active",
+                )
+            )
+            store.commit(feature, "feature promote")
+
+            store.switch_branch("main")
+            main = CortexGraph()
+            main.add_node(
+                Node(
+                    id="n1",
+                    label="PostgreSQL",
+                    aliases=["postgres"],
+                    tags=["technical_expertise"],
+                    confidence=0.8,
+                    provenance=[{"source": "import-a", "method": "extract"}],
+                )
+            )
+            store.commit(main, "main steady")
+
+            blame = store.blame_node(
+                node_id="n1",
+                label="PostgreSQL",
+                aliases=["postgres"],
+                canonical_id="n1",
+                ref="feature/db",
+                source="manual-a",
+                limit=10,
+            )
+
+            assert blame["versions_seen"] == 1
+            assert blame["introduced_in"]["message"] == "feature promote"
+            assert blame["history"][0]["node"]["provenance_sources"] == ["manual-a"]
+
+    def test_branch_bootstraps_main(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+            version = store.commit(_sample_graph(), "initial")
+            assert store.current_branch() == "main"
+            assert store.head("HEAD") is not None
+            assert store.head("HEAD").version_id == version.version_id
+            assert store.resolve_ref("main") == version.version_id
+
+    def test_branch_create_switch_and_log_follow_ref_ancestry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = VersionStore(Path(tmpdir) / ".cortex")
+
+            main_v1 = store.commit(_sample_graph(), "main-1")
+            store.create_branch("feature/atlas")
+            store.switch_branch("feature/atlas")
+            feature_v1 = store.commit(_sample_graph(" feature"), "feature-1")
+
+            store.switch_branch("main")
+            main_v2 = store.commit(_sample_graph(" main"), "main-2")
+
+            feature_log = store.log(limit=10, ref="feature/atlas")
+            main_log = store.log(limit=10, ref="main")
+
+            assert feature_log[0].version_id == feature_v1.version_id
+            assert feature_log[1].version_id == main_v1.version_id
+            assert main_log[0].version_id == main_v2.version_id
+            assert main_log[1].version_id == main_v1.version_id
+            assert store.resolve_ref("feature/atlas") == feature_v1.version_id

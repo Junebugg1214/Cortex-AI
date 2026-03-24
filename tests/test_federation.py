@@ -349,6 +349,29 @@ class TestImportBundle:
         assert r2.success is False
         assert "Replay" in r2.errors[0]
 
+    def test_replay_protection_persists_across_manager_restarts(self, graph, identity_a, identity_b, tmp_path):
+        mgr_a = FederationManager(identity=identity_a, sign_exports=False)
+        bundle = mgr_a.export_bundle(graph)
+
+        target = CortexGraph()
+        store_dir = tmp_path / ".cortex"
+        mgr_b = FederationManager(
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
+            store_dir=store_dir,
+        )
+        r1 = mgr_b.import_bundle(target, bundle, verify_signature=False)
+        assert r1.success is True
+
+        restarted = FederationManager(
+            identity=identity_b,
+            trusted_dids=[identity_a.did],
+            store_dir=store_dir,
+        )
+        r2 = restarted.import_bundle(target, bundle, verify_signature=False)
+        assert r2.success is False
+        assert "Replay" in r2.errors[0]
+
     def test_expired_bundle(self, graph, identity_a, identity_b):
         mgr_a = FederationManager(identity=identity_a, sign_exports=False, bundle_ttl_seconds=0)
         bundle = mgr_a.export_bundle(graph)

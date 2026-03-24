@@ -7,6 +7,8 @@ with markdown and HTML output formats.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from cortex.graph import CortexGraph
 
 
@@ -23,7 +25,7 @@ class TimelineGenerator:
 
         Each event dict has:
             - timestamp: str (ISO-8601)
-            - event_type: str ("first_seen", "last_seen", "snapshot")
+            - event_type: str ("first_seen", "last_seen", "valid_from", "valid_to", "snapshot")
             - node_id: str
             - label: str
             - tags: list[str]
@@ -32,13 +34,18 @@ class TimelineGenerator:
         Returns sorted by timestamp ascending.
         """
         events: list[dict] = []
+        normalized_from = _normalize_timestamp(from_date) if from_date else None
+        normalized_to = _normalize_timestamp(to_date) if to_date else None
 
         for node in graph.nodes.values():
+            first_seen = _normalize_timestamp(node.first_seen) if node.first_seen else ""
+            last_seen = _normalize_timestamp(node.last_seen) if node.last_seen else ""
+
             # first_seen event
-            if node.first_seen:
+            if first_seen:
                 events.append(
                     {
-                        "timestamp": node.first_seen,
+                        "timestamp": first_seen,
                         "event_type": "first_seen",
                         "node_id": node.id,
                         "label": node.label,
@@ -51,10 +58,10 @@ class TimelineGenerator:
                 )
 
             # last_seen event (only if different from first_seen)
-            if node.last_seen and node.last_seen != node.first_seen:
+            if last_seen and last_seen != first_seen:
                 events.append(
                     {
-                        "timestamp": node.last_seen,
+                        "timestamp": last_seen,
                         "event_type": "last_seen",
                         "node_id": node.id,
                         "label": node.label,
@@ -66,10 +73,43 @@ class TimelineGenerator:
                     }
                 )
 
+            valid_from = _normalize_timestamp(node.valid_from) if getattr(node, "valid_from", "") else ""
+            valid_to = _normalize_timestamp(node.valid_to) if getattr(node, "valid_to", "") else ""
+
+            if valid_from and valid_from not in {first_seen, last_seen}:
+                events.append(
+                    {
+                        "timestamp": valid_from,
+                        "event_type": "valid_from",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "status": getattr(node, "status", ""),
+                            "confidence": node.confidence,
+                        },
+                    }
+                )
+
+            if valid_to and valid_to not in {first_seen, last_seen, valid_from}:
+                events.append(
+                    {
+                        "timestamp": valid_to,
+                        "event_type": "valid_to",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "tags": list(node.tags),
+                        "details": {
+                            "status": getattr(node, "status", ""),
+                            "confidence": node.confidence,
+                        },
+                    }
+                )
+
             # Snapshot events
             snapshots = node.snapshots if hasattr(node, "snapshots") else []
             for snap in snapshots:
-                ts = snap.get("timestamp", "")
+                ts = _normalize_timestamp(snap.get("timestamp", ""))
                 if not ts:
                     continue
                 events.append(
@@ -87,10 +127,10 @@ class TimelineGenerator:
                 )
 
         # Filter by date range
-        if from_date:
-            events = [e for e in events if e["timestamp"] >= from_date]
-        if to_date:
-            events = [e for e in events if e["timestamp"] <= to_date]
+        if normalized_from:
+            events = [e for e in events if e["timestamp"] >= normalized_from]
+        if normalized_to:
+            events = [e for e in events if e["timestamp"] <= normalized_to]
 
         # Sort chronologically
         events.sort(key=lambda e: e["timestamp"])
@@ -121,6 +161,12 @@ class TimelineGenerator:
                 lines.append(f"- **{label}** first appeared [{tags}]")
             elif etype == "last_seen":
                 lines.append(f"- **{label}** last seen [{tags}]")
+            elif etype == "valid_from":
+                status = event["details"].get("status", "active") or "active"
+                lines.append(f"- **{label}** became valid as {status} [{tags}]")
+            elif etype == "valid_to":
+                status = event["details"].get("status", "historical") or "historical"
+                lines.append(f"- **{label}** stopped being valid as {status} [{tags}]")
             elif etype == "snapshot":
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)
@@ -164,6 +210,12 @@ class TimelineGenerator:
                 desc = f"<strong>{label}</strong> first appeared"
             elif etype == "last_seen":
                 desc = f"<strong>{label}</strong> last seen"
+            elif etype == "valid_from":
+                status = _html_escape(event["details"].get("status", "active") or "active")
+                desc = f"<strong>{label}</strong> became valid as {status}"
+            elif etype == "valid_to":
+                status = _html_escape(event["details"].get("status", "historical") or "historical")
+                desc = f"<strong>{label}</strong> stopped being valid as {status}"
             else:
                 source = event["details"].get("source", "unknown")
                 conf = event["details"].get("confidence", 0.0)
@@ -178,3 +230,25 @@ class TimelineGenerator:
 def _html_escape(s: str) -> str:
     """Basic HTML escaping."""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _normalize_timestamp(timestamp: str | None) -> str:
+    """Normalize supported ISO-8601 timestamps to canonical UTC."""
+    if not timestamp:
+        return ""
+
+    value = timestamp.strip()
+    if not value:
+        return ""
+
+    try:
+        normalized = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    else:
+        normalized = normalized.astimezone(timezone.utc)
+
+    return normalized.isoformat().replace("+00:00", "Z")

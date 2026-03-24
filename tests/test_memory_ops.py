@@ -3,6 +3,7 @@ from cortex.memory_ops import (
     forget_nodes,
     list_memory_conflicts,
     resolve_memory_conflict,
+    retract_source,
     set_memory_node,
     show_memory_nodes,
 )
@@ -173,3 +174,85 @@ def test_resolve_source_conflict_merge():
     result = resolve_memory_conflict(graph, conflict.id, "merge")
     assert result["status"] == "ok"
     assert len(graph.find_nodes(label="Go")) == 1
+
+
+def test_retract_source_prunes_orphaned_node_and_edge():
+    graph = CortexGraph()
+    python_id = make_node_id("Python")
+    pytest_id = make_node_id("Pytest")
+    graph.add_node(
+        Node(
+            id=python_id,
+            label="Python",
+            tags=["technical_expertise"],
+            provenance=[{"source": "import-a", "method": "extract"}],
+            snapshots=[{"timestamp": "2026-01-01T00:00:00Z", "source": "import-a"}],
+        )
+    )
+    graph.add_node(
+        Node(
+            id=pytest_id,
+            label="Pytest",
+            tags=["technical_expertise"],
+            provenance=[{"source": "import-b", "method": "extract"}],
+        )
+    )
+    edge_id = make_edge_id(python_id, pytest_id, "used_with")
+    graph.add_edge(
+        Edge(
+            id=edge_id,
+            source_id=python_id,
+            target_id=pytest_id,
+            relation="used_with",
+            provenance=[{"source": "import-a", "method": "extract"}],
+        )
+    )
+
+    result = retract_source(graph, source="import-a")
+
+    assert result["status"] == "ok"
+    assert result["nodes_removed"] == 1
+    assert result["edges_removed"] == 1
+    assert python_id not in graph.nodes
+    assert pytest_id in graph.nodes
+    assert edge_id not in graph.edges
+    assert graph.meta["retractions"][-1]["source"] == "import-a"
+
+
+def test_retract_source_dry_run_preserves_graph():
+    graph = CortexGraph()
+    node_id = make_node_id("Response Style")
+    graph.add_node(
+        Node(
+            id=node_id,
+            label="Response Style",
+            tags=["communication_preferences"],
+            provenance=[{"source": "manual-a", "method": "manual"}],
+        )
+    )
+
+    result = retract_source(graph, source="manual-a", dry_run=True)
+
+    assert result["dry_run"] is True
+    assert result["nodes_removed"] == 1
+    assert node_id in graph.nodes
+    assert graph.get_node(node_id).provenance == [{"source": "manual-a", "method": "manual"}]
+
+
+def test_retract_source_keep_orphans_retains_touched_node():
+    graph = CortexGraph()
+    node_id = make_node_id("Response Style")
+    graph.add_node(
+        Node(
+            id=node_id,
+            label="Response Style",
+            tags=["communication_preferences"],
+            provenance=[{"source": "manual-a", "method": "manual"}],
+        )
+    )
+
+    result = retract_source(graph, source="manual-a", prune_orphans=False)
+
+    assert result["nodes_removed"] == 0
+    assert node_id in graph.nodes
+    assert graph.get_node(node_id).provenance == []

@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from cortex.claims import ClaimLedger
 from cortex.contradictions import ContradictionEngine
 from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.upai.versioning import VersionStore
 
 
 @dataclass
@@ -98,24 +100,128 @@ def forget_nodes(
     }
 
 
+def retract_source(
+    graph: CortexGraph,
+    source: str,
+    dry_run: bool = False,
+    prune_orphans: bool = True,
+) -> dict[str, Any]:
+    working_graph = CortexGraph.from_v5_json(graph.export_v5()) if dry_run else graph
+    result = working_graph.retract_source(source=source, prune_orphans=prune_orphans)
+    result["dry_run"] = dry_run
+    return result
+
+
+def blame_memory_nodes(
+    graph: CortexGraph,
+    label: str | None = None,
+    node_id: str | None = None,
+    store: VersionStore | None = None,
+    ledger: ClaimLedger | None = None,
+    ref: str = "HEAD",
+    source: str = "",
+    version_limit: int = 20,
+) -> dict[str, Any]:
+    target_ids: set[str] = set()
+    if node_id:
+        target_ids.add(node_id)
+    if label:
+        target_ids.update(graph.find_node_ids_by_label(label))
+
+    nodes = [graph.get_node(item_id) for item_id in sorted(target_ids)]
+    nodes = [node for node in nodes if node is not None]
+
+    results: list[dict[str, Any]] = []
+    for node in nodes:
+        provenance_sources = sorted(
+            {str(item.get("source", "")).strip() for item in node.provenance if str(item.get("source", "")).strip()}
+        )
+        snapshot_sources = sorted(
+            {str(item.get("source", "")).strip() for item in node.snapshots if str(item.get("source", "")).strip()}
+        )
+        why_present = []
+        if provenance_sources:
+            why_present.append(f"Current node carries provenance from: {', '.join(provenance_sources)}")
+        if snapshot_sources:
+            why_present.append(f"Observed in {len(node.snapshots)} snapshot(s) from: {', '.join(snapshot_sources)}")
+        if node.status or node.valid_from or node.valid_to:
+            status = node.status or "unspecified"
+            why_present.append(
+                f"Lifecycle claim is {status} with validity {node.valid_from or '?'} -> {node.valid_to or '?'}"
+            )
+
+        history = None
+        if store is not None:
+            history = store.blame_node(
+                node_id=node.id,
+                label=node.label,
+                aliases=list(node.aliases),
+                canonical_id=node.canonical_id or node.id,
+                ref=ref,
+                source=source,
+                limit=version_limit,
+            )
+        claim_lineage = (
+            ledger.lineage_for_node(node, limit=version_limit, source=source) if ledger is not None else None
+        )
+
+        if source:
+            normalized_source = source.strip().lower()
+            provenance_sources = [value for value in provenance_sources if value.lower() == normalized_source]
+            snapshot_sources = [value for value in snapshot_sources if value.lower() == normalized_source]
+            why_present = [
+                reason for reason in why_present if normalized_source in reason.lower() or "Lifecycle claim" in reason
+            ]
+
+        has_filtered_receipt = bool(provenance_sources or snapshot_sources)
+        has_filtered_history = bool(history and history.get("versions_seen"))
+        has_filtered_claims = bool(claim_lineage and claim_lineage.get("event_count"))
+        if source and not any((has_filtered_receipt, has_filtered_history, has_filtered_claims)):
+            continue
+
+        results.append(
+            {
+                "node": node.to_dict(),
+                "provenance_sources": provenance_sources,
+                "snapshot_sources": snapshot_sources,
+                "why_present": why_present,
+                "history": history,
+                "claim_lineage": claim_lineage,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "nodes": results,
+    }
+
+
 def set_memory_node(
     graph: CortexGraph,
     label: str,
     tags: list[str],
+    aliases: list[str] | None = None,
     brief: str = "",
     description: str = "",
     properties: dict[str, str] | None = None,
     confidence: float = 0.95,
+    valid_from: str = "",
+    valid_to: str = "",
+    status: str = "",
+    provenance_source: str = "",
     replace_label: str | None = None,
 ) -> dict[str, Any]:
     target_ids = graph.find_node_ids_by_label(replace_label or label)
     created = False
     updated = False
+    aliases = list(dict.fromkeys(aliases or []))
+    provenance_entry = {"source": provenance_source, "method": "manual"} if provenance_source else None
     if target_ids:
         node = graph.get_node(target_ids[0])
         assert node is not None
         node.label = label
         node.tags = list(dict.fromkeys(node.tags + tags))
+        node.aliases = list(dict.fromkeys(node.aliases + aliases))
         node.confidence = confidence
         if brief:
             node.brief = brief
@@ -123,16 +229,29 @@ def set_memory_node(
             node.full_description = description
         if properties:
             node.properties.update(properties)
+        if valid_from:
+            node.valid_from = valid_from
+        if valid_to:
+            node.valid_to = valid_to
+        if status:
+            node.status = status
+        if provenance_entry and provenance_entry not in node.provenance:
+            node.provenance.append(provenance_entry)
         updated = True
     else:
         node = Node(
             id=make_node_id(label),
             label=label,
             tags=list(dict.fromkeys(tags)),
+            aliases=aliases,
             confidence=confidence,
             properties=dict(properties or {}),
             brief=brief,
             full_description=description,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            status=status,
+            provenance=[provenance_entry] if provenance_entry else [],
         )
         graph.add_node(node)
         created = True

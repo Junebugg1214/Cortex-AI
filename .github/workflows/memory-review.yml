@@ -1,0 +1,107 @@
+name: Memory Review
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      context_file:
+        description: Context file to review
+        required: false
+        default: context.json
+      base_ref:
+        description: Base branch/ref to compare against
+        required: false
+        default: main
+      fail_on:
+        description: Review failure gates
+        required: false
+        default: contradictions,temporal_gaps
+
+permissions:
+  contents: read
+
+jobs:
+  memory-review:
+    runs-on: ubuntu-latest
+    env:
+      CONTEXT_FILE: ${{ inputs.context_file || 'context.json' }}
+      BASE_REF: ${{ inputs.base_ref || github.base_ref || 'main' }}
+      FAIL_ON: ${{ inputs.fail_on || 'contradictions,temporal_gaps' }}
+      REVIEW_STORE: /tmp/cortex-memory-review
+      REVIEW_DIR: /tmp/cortex-memory-review-output
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Cortex
+        run: pip install -e ".[dev,full]"
+
+      - name: Prepare baseline and run memory review
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$REVIEW_STORE" "$REVIEW_DIR"
+
+          if [[ ! -f "$CONTEXT_FILE" ]]; then
+            {
+              echo "# Memory Review"
+              echo
+              echo "- Status: \`skipped\`"
+              echo "- Reason: \`$CONTEXT_FILE\` not found in this branch"
+            } > "$REVIEW_DIR/memory_review.md"
+            printf '{\n  "status": "skipped",\n  "reason": "context file not found",\n  "context_file": "%s"\n}\n' "$CONTEXT_FILE" > "$REVIEW_DIR/memory_review.json"
+            cat "$REVIEW_DIR/memory_review.md" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git fetch origin "$BASE_REF" --depth=1
+
+          if git cat-file -e "origin/$BASE_REF:$CONTEXT_FILE" 2>/dev/null; then
+            git show "origin/$BASE_REF:$CONTEXT_FILE" > "$REVIEW_DIR/baseline.json"
+          else
+            cat > "$REVIEW_DIR/baseline.json" <<'EOF'
+          {
+            "schema_version": "5.2",
+            "nodes": [],
+            "edges": [],
+            "meta": {
+              "features": [
+                "graph_model",
+                "multi_tag_nodes",
+                "edge_relationships",
+                "temporal_snapshots",
+                "conflict_detection"
+              ],
+              "node_count": 0,
+              "edge_count": 0
+            }
+          }
+          EOF
+          fi
+
+          python -m cortex commit "$REVIEW_DIR/baseline.json" -m "memory review baseline" --store-dir "$REVIEW_STORE" >/tmp/cortex_memory_review_commit.log
+
+          set +e
+          python -m cortex review "$CONTEXT_FILE" --against HEAD --store-dir "$REVIEW_STORE" --fail-on "$FAIL_ON" --format md > "$REVIEW_DIR/memory_review.md"
+          REVIEW_EXIT=$?
+          python -m cortex review "$CONTEXT_FILE" --against HEAD --store-dir "$REVIEW_STORE" --fail-on "$FAIL_ON" --format json > "$REVIEW_DIR/memory_review.json" || true
+          set -e
+
+          cat "$REVIEW_DIR/memory_review.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$REVIEW_EXIT"
+
+      - name: Upload memory review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-review
+          path: |
+            /tmp/cortex-memory-review-output/memory_review.md
+            /tmp/cortex-memory-review-output/memory_review.json

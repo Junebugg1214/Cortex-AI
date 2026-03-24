@@ -258,6 +258,30 @@ class TestFormatCompactMarkdown:
         assert "**Preferences:**" not in result
         assert "**Relationships:**" not in result
 
+    def test_focus_terms_reorder_section_relevance(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id=make_node_id("Infra Toolkit"),
+                label="Infra Toolkit",
+                tags=["technical_expertise"],
+                confidence=0.95,
+                brief="Infrastructure utilities",
+            )
+        )
+        g.add_node(
+            Node(
+                id=make_node_id("Payments SDK"),
+                label="Payments SDK",
+                aliases=["billing"],
+                tags=["technical_expertise"],
+                confidence=0.7,
+                brief="Core payments stack",
+            )
+        )
+        result = _format_compact_markdown(g, 1500, focus_terms={"payments"})
+        assert result.index("Payments SDK") < result.index("Infra Toolkit")
+
     def test_max_chars_truncation(self):
         g = self._make_graph_with_nodes(
             [(f"Tech{i}", ["technical_expertise"], 0.9, f"Uses Tech{i}") for i in range(50)]

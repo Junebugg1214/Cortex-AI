@@ -26,6 +26,7 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -150,6 +151,8 @@ def _apply_policy(node_dict: dict, policy_name: str) -> dict:
         "label": node_dict["label"],
         "tags": node_dict.get("tags", []),
     }
+    if node_dict.get("aliases"):
+        result["aliases"] = list(node_dict.get("aliases", []))
     if policy["include_confidence"]:
         result["confidence"] = node_dict.get("confidence", 0.0)
     if policy["include_descriptions"]:
@@ -157,10 +160,17 @@ def _apply_policy(node_dict: dict, policy_name: str) -> dict:
         result["full_description"] = node_dict.get("full_description", "")
     if policy["include_properties"]:
         result["properties"] = node_dict.get("properties", {})
+        if node_dict.get("provenance"):
+            result["provenance"] = [dict(item) for item in node_dict.get("provenance", [])]
     if policy["include_timeline"]:
         result["timeline"] = node_dict.get("timeline", [])
         result["first_seen"] = node_dict.get("first_seen", "")
         result["last_seen"] = node_dict.get("last_seen", "")
+        result["valid_from"] = node_dict.get("valid_from", "")
+        result["valid_to"] = node_dict.get("valid_to", "")
+        result["status"] = node_dict.get("status", "")
+    if node_dict.get("canonical_id"):
+        result["canonical_id"] = node_dict.get("canonical_id", "")
     return result
 
 
@@ -210,12 +220,38 @@ class FederationManager:
         trusted_dids: list[str] | None = None,
         sign_exports: bool = True,
         bundle_ttl_seconds: int = 3600,
+        store_dir: str | Path | None = None,
     ) -> None:
         self.identity = identity
         self.trusted_dids: set[str] = set(trusted_dids or [])
         self.sign_exports = sign_exports
         self.bundle_ttl_seconds = bundle_ttl_seconds
-        self._seen_nonces: set[str] = set()
+        self.store_dir = Path(store_dir) if store_dir else None
+        self._nonce_store_path = self.store_dir / "federation_state.json" if self.store_dir else None
+        self._seen_nonces: set[str] = self._load_seen_nonces()
+
+    def _load_seen_nonces(self) -> set[str]:
+        if self._nonce_store_path is None or not self._nonce_store_path.exists():
+            return set()
+        try:
+            data = json.loads(self._nonce_store_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return set()
+        return set(data.get("seen_nonces", []))
+
+    def _save_seen_nonces(self) -> None:
+        if self._nonce_store_path is None:
+            return
+        self._nonce_store_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "seen_nonces": sorted(self._seen_nonces),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._nonce_store_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    def _record_nonce(self, nonce: str) -> None:
+        self._seen_nonces.add(nonce)
+        self._save_seen_nonces()
 
     # ── Export ────────────────────────────────────────────────────────
 
@@ -365,7 +401,7 @@ class FederationManager:
                 )
 
         # Record nonce
-        self._seen_nonces.add(bundle.nonce)
+        self._record_nonce(bundle.nonce)
 
         # 6. Merge nodes and edges
         from cortex.graph import Edge, Node
@@ -383,10 +419,21 @@ class FederationManager:
                     existing = graph.nodes[nid]
                     merged_tags = list(set(existing.tags) | set(node.tags))
                     existing.tags = merged_tags
+                    existing.aliases = list(dict.fromkeys(existing.aliases + node.aliases))
                     if node.confidence > existing.confidence:
                         existing.confidence = node.confidence
                     if node.brief and not existing.brief:
                         existing.brief = node.brief
+                    if node.valid_from and (not existing.valid_from or node.valid_from < existing.valid_from):
+                        existing.valid_from = node.valid_from
+                    if node.valid_to and (not existing.valid_to or node.valid_to > existing.valid_to):
+                        existing.valid_to = node.valid_to
+                    if node.status and not existing.status:
+                        existing.status = node.status
+                    if node.provenance:
+                        for item in node.provenance:
+                            if item not in existing.provenance:
+                                existing.provenance.append(dict(item))
                     nodes_updated += 1
                 else:
                     graph.add_node(node)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -52,6 +53,37 @@ def _normalize_label(label: str) -> str:
     return " ".join(label.lower().strip().split())
 
 
+def _normalize_source_label(source: str) -> str:
+    """Normalize provenance source labels for case-insensitive matching."""
+    return " ".join(str(source).lower().strip().split())
+
+
+def _dedupe_dict_items(items: list[dict]) -> list[dict]:
+    """Deduplicate dict items while preserving order."""
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(item))
+    return deduped
+
+
+def _filter_items_by_source(items: list[dict], source: str) -> tuple[list[dict], list[dict]]:
+    """Split provenance-like dict items into kept and removed by source label."""
+    norm_source = _normalize_source_label(source)
+    kept: list[dict] = []
+    removed: list[dict] = []
+    for item in items:
+        if _normalize_source_label(item.get("source", "")) == norm_source:
+            removed.append(dict(item))
+        else:
+            kept.append(dict(item))
+    return kept, removed
+
+
 def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
     """Diff two graphs. Returns added/removed/modified nodes and edges with a summary."""
     old_nids = set(old.nodes)
@@ -78,6 +110,12 @@ def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
             changes["tags"] = {"old": sorted(a.tags), "new": sorted(b.tags)}
         if a.brief != b.brief:
             changes["brief"] = {"old": a.brief, "new": b.brief}
+        if a.status != b.status:
+            changes["status"] = {"old": a.status, "new": b.status}
+        if a.valid_from != b.valid_from:
+            changes["valid_from"] = {"old": a.valid_from, "new": b.valid_from}
+        if a.valid_to != b.valid_to:
+            changes["valid_to"] = {"old": a.valid_to, "new": b.valid_to}
         if changes:
             modified_nodes.append({"id": nid, "label": b.label, "changes": changes})
 
@@ -148,6 +186,7 @@ class Node:
     id: str
     label: str
     tags: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
     confidence: float = 0.5
     properties: dict = field(default_factory=dict)
     brief: str = ""
@@ -159,6 +198,11 @@ class Node:
     source_quotes: list[str] = field(default_factory=list)
     first_seen: str = ""
     last_seen: str = ""
+    valid_from: str = ""
+    valid_to: str = ""
+    status: str = ""
+    canonical_id: str = ""
+    provenance: list[dict] = field(default_factory=list)
     relationship_type: str = ""
     snapshots: list[dict] = field(default_factory=list)
 
@@ -167,6 +211,7 @@ class Node:
             "id": self.id,
             "label": self.label,
             "tags": list(self.tags),
+            "aliases": list(self.aliases),
             "confidence": round(self.confidence, 2),
             "properties": dict(self.properties),
             "brief": self.brief,
@@ -178,6 +223,11 @@ class Node:
             "source_quotes": list(self.source_quotes),
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to,
+            "status": self.status,
+            "canonical_id": self.canonical_id,
+            "provenance": [dict(item) for item in self.provenance],
             "relationship_type": self.relationship_type,
             "snapshots": [{k: list(v) if isinstance(v, list) else v for k, v in s.items()} for s in self.snapshots],
         }
@@ -189,6 +239,7 @@ class Node:
             id=d["id"],
             label=d["label"],
             tags=list(d.get("tags", [])),
+            aliases=list(d.get("aliases", [])),
             confidence=d.get("confidence", 0.5),
             properties=dict(d.get("properties", {})),
             brief=d.get("brief", ""),
@@ -200,6 +251,11 @@ class Node:
             source_quotes=list(d.get("source_quotes", [])),
             first_seen=d.get("first_seen", ""),
             last_seen=d.get("last_seen", ""),
+            valid_from=d.get("valid_from", ""),
+            valid_to=d.get("valid_to", ""),
+            status=d.get("status", ""),
+            canonical_id=d.get("canonical_id", ""),
+            provenance=[dict(item) for item in d.get("provenance", [])],
             relationship_type=d.get("relationship_type", ""),
             snapshots=list(d.get("snapshots", [])),
         )
@@ -213,6 +269,8 @@ class Edge:
     relation: str
     confidence: float = 0.5
     properties: dict = field(default_factory=dict)
+    qualifiers: dict = field(default_factory=dict)
+    provenance: list[dict] = field(default_factory=list)
     first_seen: str = ""
     last_seen: str = ""
 
@@ -224,6 +282,8 @@ class Edge:
             "relation": self.relation,
             "confidence": round(self.confidence, 2),
             "properties": dict(self.properties),
+            "qualifiers": dict(self.qualifiers),
+            "provenance": [dict(item) for item in self.provenance],
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
         }
@@ -237,6 +297,8 @@ class Edge:
             relation=d["relation"],
             confidence=d.get("confidence", 0.5),
             properties=d.get("properties", {}),
+            qualifiers=d.get("qualifiers", {}),
+            provenance=[dict(item) for item in d.get("provenance", [])],
             first_seen=d.get("first_seen", ""),
             last_seen=d.get("last_seen", ""),
         )
@@ -286,6 +348,8 @@ class CortexGraph:
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def add_node(self, node: Node) -> str:
+        if not node.canonical_id:
+            node.canonical_id = node.id
         self.nodes[node.id] = node
         self._invalidate_search_index()
         self._invalidate_adjacency()
@@ -328,6 +392,91 @@ class CortexGraph:
         self._invalidate_adjacency()
         return True
 
+    def retract_source(self, source: str, prune_orphans: bool = True) -> dict[str, Any]:
+        """Remove evidence contributed by a provenance source.
+
+        This strips matching provenance entries and snapshots. When
+        ``prune_orphans`` is true, nodes and edges touched by this source are
+        removed if they no longer have any source-backed evidence attached.
+        """
+        source = source.strip()
+        if not source:
+            raise ValueError("source must be non-empty")
+
+        touched_node_ids: set[str] = set()
+        touched_edge_ids: set[str] = set()
+        node_ids_to_remove: set[str] = set()
+        edge_ids_to_remove: set[str] = set()
+        node_provenance_removed = 0
+        edge_provenance_removed = 0
+        snapshots_removed = 0
+
+        for node in list(self.nodes.values()):
+            kept_provenance, removed_provenance = _filter_items_by_source(node.provenance, source)
+            kept_snapshots, removed_snapshots = _filter_items_by_source(node.snapshots, source)
+
+            if not removed_provenance and not removed_snapshots:
+                continue
+
+            touched_node_ids.add(node.id)
+            node.provenance = kept_provenance
+            node.snapshots = kept_snapshots
+            node_provenance_removed += len(removed_provenance)
+            snapshots_removed += len(removed_snapshots)
+
+            if prune_orphans and not node.provenance and not node.snapshots:
+                node_ids_to_remove.add(node.id)
+
+        for edge in list(self.edges.values()):
+            kept_provenance, removed_provenance = _filter_items_by_source(edge.provenance, source)
+            if not removed_provenance:
+                continue
+
+            touched_edge_ids.add(edge.id)
+            edge.provenance = kept_provenance
+            edge_provenance_removed += len(removed_provenance)
+
+            if prune_orphans and not edge.provenance:
+                edge_ids_to_remove.add(edge.id)
+
+        for edge_id in sorted(edge_ids_to_remove):
+            self.remove_edge(edge_id)
+
+        before_edge_ids = set(self.edges)
+        nodes_removed = self.remove_nodes(sorted(node_ids_to_remove))
+        edges_removed = len(before_edge_ids - set(self.edges)) + len(edge_ids_to_remove)
+
+        if touched_node_ids or touched_edge_ids or nodes_removed or edges_removed:
+            self.meta.setdefault("retractions", []).append(
+                {
+                    "source": source,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "prune_orphans": prune_orphans,
+                    "nodes_touched": len(touched_node_ids),
+                    "edges_touched": len(touched_edge_ids),
+                    "nodes_removed": nodes_removed,
+                    "edges_removed": edges_removed,
+                    "node_provenance_removed": node_provenance_removed,
+                    "edge_provenance_removed": edge_provenance_removed,
+                    "snapshots_removed": snapshots_removed,
+                }
+            )
+
+        return {
+            "status": "ok",
+            "source": source,
+            "prune_orphans": prune_orphans,
+            "node_ids": sorted(touched_node_ids),
+            "edge_ids": sorted(touched_edge_ids),
+            "nodes_touched": len(touched_node_ids),
+            "edges_touched": len(touched_edge_ids),
+            "nodes_removed": nodes_removed,
+            "edges_removed": edges_removed,
+            "node_provenance_removed": node_provenance_removed,
+            "edge_provenance_removed": edge_provenance_removed,
+            "snapshots_removed": snapshots_removed,
+        }
+
     # ── Temporal ─────────────────────────────────────────────────────────
 
     def create_snapshot(self, source: str, timestamp: str | None = None) -> None:
@@ -366,6 +515,10 @@ class CortexGraph:
         for nid, node in self.nodes.items():
             # Check if node existed at this time
             if node.first_seen and _normalize_ts(node.first_seen) > norm_timestamp:
+                continue
+            if node.valid_from and _normalize_ts(node.valid_from) > norm_timestamp:
+                continue
+            if node.valid_to and _normalize_ts(node.valid_to) < norm_timestamp:
                 continue
 
             node_copy = copy.deepcopy(node)
@@ -407,11 +560,14 @@ class CortexGraph:
         min_confidence: float = 0.0,
     ) -> list[Node]:
         results = []
+        normalized_label = _normalize_label(label) if label is not None else ""
         for node in self.nodes.values():
             if node.confidence < min_confidence:
                 continue
-            if label is not None and _normalize_label(node.label) != _normalize_label(label):
-                continue
+            if label is not None:
+                alias_terms = {_normalize_label(alias) for alias in node.aliases}
+                if _normalize_label(node.label) != normalized_label and normalized_label not in alias_terms:
+                    continue
             if tag is not None and tag not in node.tags:
                 continue
             results.append(node)
@@ -419,7 +575,12 @@ class CortexGraph:
 
     def find_node_ids_by_label(self, label: str) -> list[str]:
         norm_label = _normalize_label(label)
-        return sorted(node.id for node in self.nodes.values() if _normalize_label(node.label) == norm_label)
+        return sorted(
+            node.id
+            for node in self.nodes.values()
+            if _normalize_label(node.label) == norm_label
+            or norm_label in {_normalize_label(alias) for alias in node.aliases}
+        )
 
     def find_node_ids_by_tag(self, tag: str) -> list[str]:
         return sorted(node.id for node in self.nodes.values() if tag in node.tags)
@@ -493,6 +654,11 @@ class CortexGraph:
             matched = False
             if "label" in search_fields and q_lower in node.label.lower():
                 matched = True
+            if not matched and "label" in search_fields:
+                for alias in node.aliases:
+                    if q_lower in alias.lower():
+                        matched = True
+                        break
             if not matched and "brief" in search_fields and q_lower in node.brief.lower():
                 matched = True
             if not matched and "full_description" in search_fields and q_lower in node.full_description.lower():
@@ -520,17 +686,50 @@ class CortexGraph:
         descending relevance.  The index is built lazily on first call and
         cached until a mutation invalidates it.
         """
+        import difflib
+
         from cortex.search import TFIDFIndex
 
         if not hasattr(self, "_search_index") or not self._search_index.is_built:
             self._search_index = TFIDFIndex()
             self._search_index.build(self.nodes.values())
-        results = self._search_index.search(query, limit=limit, min_score=min_score)
-        # Replace node dicts with actual Node objects where available
-        for r in results:
-            node_id = r["node"].get("id", "")
+
+        semantic_results = self._search_index.search(query, limit=max(limit * 3, 10), min_score=min_score)
+        combined_scores: dict[str, float] = {}
+        query_norm = _normalize_label(query)
+
+        for item in semantic_results:
+            node_id = item["node"].get("id", "")
+            if node_id:
+                combined_scores[node_id] = max(combined_scores.get(node_id, 0.0), float(item["score"]))
+
+        for node in self.nodes.values():
+            label_norm = _normalize_label(node.label)
+            alias_norms = [_normalize_label(alias) for alias in node.aliases]
+            boost = 0.0
+
+            if query_norm and query_norm == label_norm:
+                boost = max(boost, 1.0)
+            if query_norm and query_norm in alias_norms:
+                boost = max(boost, 0.95)
+            if query_norm and (query_norm in label_norm or any(query_norm in alias for alias in alias_norms)):
+                boost = max(boost, 0.55)
+
+            candidate_terms = [label_norm, *alias_norms]
+            candidate_terms = [term for term in candidate_terms if term]
+            if query_norm and candidate_terms:
+                fuzzy = max(difflib.SequenceMatcher(None, query_norm, term).ratio() for term in candidate_terms)
+                if fuzzy >= 0.75:
+                    boost = max(boost, round(fuzzy * 0.45, 4))
+
+            if boost > 0:
+                combined_scores[node.id] = max(combined_scores.get(node.id, 0.0), boost)
+
+        ranked = sorted(combined_scores.items(), key=lambda item: (-item[1], item[0]))
+        results: list[dict] = []
+        for node_id, score in ranked[:limit]:
             if node_id in self.nodes:
-                r["node"] = self.nodes[node_id]
+                results.append({"node": self.nodes[node_id], "score": round(score, 4)})
         return results
 
     def _invalidate_search_index(self) -> None:
@@ -601,6 +800,9 @@ class CortexGraph:
         a.confidence = max(a.confidence, b.confidence)
         a.mention_count += b.mention_count
         a.tags = list(dict.fromkeys(a.tags + b.tags))  # deduplicated, order preserved
+        if _normalize_label(a.label) != _normalize_label(b.label):
+            a.aliases = list(dict.fromkeys(a.aliases + [b.label]))
+        a.aliases = list(dict.fromkeys(a.aliases + b.aliases))
         if len(b.brief) > len(a.brief):
             a.brief = b.brief
         if len(b.full_description) > len(a.full_description):
@@ -612,6 +814,15 @@ class CortexGraph:
             a.first_seen = b.first_seen
         if b.last_seen and (not a.last_seen or b.last_seen > a.last_seen):
             a.last_seen = b.last_seen
+        if b.valid_from and (not a.valid_from or b.valid_from < a.valid_from):
+            a.valid_from = b.valid_from
+        if b.valid_to and (not a.valid_to or b.valid_to > a.valid_to):
+            a.valid_to = b.valid_to
+        if not a.status and b.status:
+            a.status = b.status
+        if not a.canonical_id:
+            a.canonical_id = a.id
+        a.provenance = _dedupe_dict_items(a.provenance + b.provenance)
         # Merge properties
         for k, v in b.properties.items():
             if k not in a.properties:
@@ -639,6 +850,8 @@ class CortexGraph:
                     relation=edge.relation,
                     confidence=edge.confidence,
                     properties=dict(edge.properties),
+                    qualifiers=dict(edge.qualifiers),
+                    provenance=[dict(item) for item in edge.provenance],
                     first_seen=edge.first_seen,
                     last_seen=edge.last_seen,
                 )
@@ -694,6 +907,18 @@ class CortexGraph:
             }
             if node.relationship_type:
                 topic_dict["relationship_type"] = node.relationship_type
+            if node.aliases:
+                topic_dict["_aliases"] = list(node.aliases)
+            if node.canonical_id:
+                topic_dict["_canonical_id"] = node.canonical_id
+            if node.provenance:
+                topic_dict["_provenance"] = [dict(item) for item in node.provenance]
+            if node.valid_from:
+                topic_dict["_valid_from"] = node.valid_from
+            if node.valid_to:
+                topic_dict["_valid_to"] = node.valid_to
+            if node.status:
+                topic_dict["_status"] = node.status
             categories.setdefault(primary_tag, []).append(topic_dict)
 
         # Sort each category by (confidence, mention_count) descending

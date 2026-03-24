@@ -155,6 +155,22 @@ class TestConflictDetection:
         assert "conflicts" in result
         assert len(result["conflicts"]) == 1
 
+    def test_export_includes_eval_compat_aliases(self):
+        """Export should expose eval-compatible node and contradiction fields."""
+        ctx = ExtractionContext()
+        ctx.add_topic("technical_expertise", "Python", confidence=0.9)
+        ctx.add_topic("domain_knowledge", "Python", confidence=0.8)
+        ctx.add_topic("negations", "Python", confidence=0.85)
+        ctx.conflicts = ctx.detect_conflicts()
+
+        result = ctx.export()
+
+        python_nodes = [node for node in result["nodes"] if node["label"] == "Python"]
+        assert len(python_nodes) == 1
+        assert python_nodes[0]["category"] == "technical_expertise"
+        assert "domain_knowledge" in python_nodes[0]["tags"]
+        assert result["contradictions"] == result["conflicts"]
+
 
 class TestIncrementalMerge:
     """Tests for Feature 3: Incremental Merge"""
@@ -690,6 +706,33 @@ class TestIntegration:
 
         # Should have preserved data
         assert len(ctx.categories) > 0
+
+    def test_openai_root_mapping_single_conversation_extracts_topics(self):
+        """Single-conversation ChatGPT exports with a root mapping should be processed."""
+        data = {
+            "title": "Synthetic conversation",
+            "mapping": {
+                "msg_0000": {
+                    "id": "msg_0000",
+                    "message": {
+                        "id": "msg_0000",
+                        "author": {"role": "user"},
+                        "content": {"content_type": "text", "parts": ["I use Python and pytest on Linux."]},
+                        "create_time": 1759323600.0,
+                    },
+                    "parent": None,
+                    "children": [],
+                }
+            },
+        }
+
+        extractor = AggressiveExtractor()
+        result = extractor.process_openai_export(data)
+
+        tech_topics = {topic["topic"] for topic in result["categories"].get("technical_expertise", [])}
+        assert "Python" in tech_topics
+        assert "Pytest" in tech_topics
+        assert any(node["label"] == "Python" for node in result["nodes"])
 
 
 def run_tests():

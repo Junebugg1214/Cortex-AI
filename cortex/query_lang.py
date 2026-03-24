@@ -278,11 +278,8 @@ def _resolve_node_id(graph: CortexGraph, label_or_id: str) -> str | None:
     """Resolve a label or ID to a node ID."""
     if label_or_id in graph.nodes:
         return label_or_id
-    # Try matching by label
-    for nid, node in graph.nodes.items():
-        if node.label.lower() == label_or_id.lower():
-            return nid
-    return None
+    matches = graph.find_node_ids_by_label(label_or_id)
+    return matches[0] if matches else None
 
 
 def execute_query(
@@ -343,9 +340,19 @@ def _exec_path(graph: CortexGraph, q: PathQuery) -> dict:
 
 
 def _exec_search(graph: CortexGraph, q: SearchQuery) -> dict:
-    results = graph.search_nodes(q.query_text, limit=q.limit)
+    results = []
+    if hasattr(graph, "semantic_search"):
+        semantic_results = graph.semantic_search(q.query_text, limit=q.limit)
+        for item in semantic_results:
+            node = item.get("node")
+            if hasattr(node, "to_dict"):
+                results.append(node.to_dict())
+            elif isinstance(node, dict):
+                results.append(node)
+    if not results:
+        results = [n.to_dict() for n in graph.search_nodes(q.query_text, limit=q.limit)]
     return {
         "type": "search",
-        "results": [n.to_dict() for n in results],
+        "results": results,
         "count": len(results),
     }

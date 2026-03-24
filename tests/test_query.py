@@ -200,6 +200,21 @@ class TestQueryChanged:
         result = engine.query_changed("2025-05-01")
         assert len(result["updated_nodes"]) == 1
 
+    def test_validity_timestamp_counted(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="n1",
+                label="Planned launch",
+                tags=["active_priorities"],
+                first_seen="2024-01-01",
+                valid_from="2025-07-01T00:00:00Z",
+            )
+        )
+        engine = QueryEngine(g)
+        result = engine.query_changed("2025-05-01")
+        assert len(result["updated_nodes"]) == 1
+
 
 # ============================================================================
 # QueryEngine.query_related

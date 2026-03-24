@@ -14,15 +14,26 @@ import sys
 from pathlib import Path
 
 from cortex.adapters import ADAPTERS
+from cortex.claims import (
+    ClaimEvent,
+    ClaimLedger,
+    claim_event_to_node,
+    extraction_source_label,
+    record_graph_claims,
+    stamp_graph_provenance,
+)
 from cortex.compat import upgrade_v4_to_v5
+from cortex.connectors import connector_to_text
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
     AggressiveExtractor,
     PIIRedactor,
+    build_eval_compat_view,
     load_file,
     merge_contexts,
 )
-from cortex.graph import CortexGraph
+from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceRule, GovernanceStore
+from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
     NormalizedContext,
@@ -36,12 +47,24 @@ from cortex.import_memory import (
     export_system_prompt,
 )
 from cortex.memory_ops import (
+    blame_memory_nodes,
     forget_nodes,
     list_memory_conflicts,
     resolve_memory_conflict,
+    retract_source,
     set_memory_node,
     show_memory_nodes,
 )
+from cortex.merge import (
+    clear_merge_state,
+    load_merge_state,
+    load_merge_worktree,
+    merge_refs,
+    resolve_merge_conflict,
+    save_merge_state,
+)
+from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
+from cortex.review import parse_failure_policies, review_graphs
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -136,6 +159,46 @@ def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
     return outputs
 
 
+def _finalize_extraction_output(
+    v4_output: dict,
+    *,
+    input_path: Path,
+    fmt: str,
+    store_dir: Path | None = None,
+    record_claims: bool = True,
+) -> tuple[dict, int]:
+    graph = upgrade_v4_to_v5(v4_output)
+    source = extraction_source_label(input_path)
+    claim_count = 0
+
+    if record_claims:
+        stamp_graph_provenance(
+            graph,
+            source=source,
+            method="extract",
+            metadata={"input_format": fmt, "input_file": str(input_path)},
+        )
+        if store_dir is not None:
+            ledger = ClaimLedger(store_dir)
+            events = record_graph_claims(
+                graph,
+                ledger,
+                op="assert",
+                source=source,
+                method="extract",
+                metadata={"input_format": fmt, "input_file": str(input_path)},
+            )
+            claim_count = len(events)
+
+    result = graph.export_v4()
+    if "conflicts" in v4_output:
+        result["conflicts"] = list(v4_output.get("conflicts", []))
+    if "redaction_summary" in v4_output:
+        result["redaction_summary"] = v4_output["redaction_summary"]
+    result.update(build_eval_compat_view(result))
+    return result, claim_count
+
+
 # ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
@@ -175,6 +238,8 @@ def build_parser():
     mig.add_argument("--verbose", "-v", action="store_true")
     mig.add_argument("--stats", action="store_true", help="Show category stats")
     mig.add_argument("--schema", choices=["v4", "v5"], default="v4", help="Output schema version (default: v4)")
+    mig.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    mig.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
     mig.add_argument(
         "--discover-edges", action="store_true", help="Run smart edge extraction (pattern + co-occurrence)"
     )
@@ -195,6 +260,20 @@ def build_parser():
     ext.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
     ext.add_argument("--verbose", "-v", action="store_true")
     ext.add_argument("--stats", action="store_true")
+    ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
+
+    # -- ingest -------------------------------------------------------------
+    ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
+    ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
+    ing.add_argument("input_file", help="Path to connector export file or directory")
+    ing.add_argument("--output", "-o", help="Output JSON path")
+    ing.add_argument("--merge", "-m", help="Existing context file to merge with")
+    ing.add_argument("--redact", action="store_true")
+    ing.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+    ing.add_argument("--preview", action="store_true", help="Print normalized connector text without extracting")
+    ing.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    ing.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
     # -- import -------------------------------------------------------------
     imp = sub.add_parser("import", help="Import context to platform formats")
@@ -237,6 +316,19 @@ def build_parser():
     mem_forget.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     mem_forget.add_argument("--format", choices=["json", "text"], default="text")
 
+    mem_retract = mem_sub.add_parser("retract", help="Retract memory evidence by provenance source")
+    mem_retract.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    mem_retract.add_argument("--source", required=True, help="Provenance source label to retract")
+    mem_retract.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    mem_retract.add_argument(
+        "--keep-orphans",
+        action="store_true",
+        help="Keep touched nodes and edges even if they no longer have any source-backed evidence",
+    )
+    mem_retract.add_argument("--commit-message", help="Optional version commit message")
+    mem_retract.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mem_retract.add_argument("--format", choices=["json", "text"], default="text")
+
     mem_set = mem_sub.add_parser("set", help="Create or update a memory node")
     mem_set.add_argument("input_file", help="Path to context JSON (v4 or v5)")
     mem_set.add_argument("--label", required=True, help="Node label")
@@ -244,7 +336,12 @@ def build_parser():
     mem_set.add_argument("--brief", default="", help="Short summary")
     mem_set.add_argument("--description", default="", help="Long description")
     mem_set.add_argument("--property", action="append", help="Node property key=value (repeatable)")
+    mem_set.add_argument("--alias", action="append", help="Alternate label/alias (repeatable)")
     mem_set.add_argument("--confidence", type=float, default=0.95, help="Confidence score")
+    mem_set.add_argument("--valid-from", default="", help="Validity start timestamp (ISO-8601)")
+    mem_set.add_argument("--valid-to", default="", help="Validity end timestamp (ISO-8601)")
+    mem_set.add_argument("--status", default="", help="Lifecycle status such as active, planned, or historical")
+    mem_set.add_argument("--source", default="", help="Provenance source label for this manual edit")
     mem_set.add_argument("--replace-label", help="Update first node matching this label")
     mem_set.add_argument("--commit-message", help="Optional version commit message")
     mem_set.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -277,7 +374,11 @@ def build_parser():
     qry.add_argument("--related", nargs="?", const="", metavar="LABEL", help="Nodes related to LABEL (default depth=2)")
     qry.add_argument("--related-depth", type=int, default=2, help="Depth for --related traversal (default: 2)")
     qry.add_argument("--components", action="store_true", help="Show connected components")
+    qry.add_argument("--search", metavar="QUERY", help="Hybrid search across labels, aliases, and descriptions")
+    qry.add_argument("--limit", type=int, default=10, help="Result limit for --search or --dsl SEARCH (default: 10)")
+    qry.add_argument("--dsl", metavar="QUERY", help="Run the Cortex query DSL directly")
     qry.add_argument("--nl", metavar="QUERY", help="Natural-language query (limited patterns)")
+    qry.add_argument("--at", help="Query the graph as-of an ISO timestamp using validity windows and snapshots")
 
     # -- stats (Phase 1) ---------------------------------------------------
     st = sub.add_parser("stats", help="Show graph/context statistics")
@@ -299,7 +400,7 @@ def build_parser():
     ct.add_argument(
         "--type",
         dest="contradiction_type",
-        choices=["negation_conflict", "temporal_flip", "source_conflict", "tag_conflict"],
+        choices=["negation_conflict", "temporal_flip", "source_conflict", "tag_conflict", "temporal_claim_conflict"],
         help="Filter by contradiction type",
     )
     ct.add_argument("--format", choices=["json", "text"], default="text", help="Output format (default: text)")
@@ -308,6 +409,112 @@ def build_parser():
     dr = sub.add_parser("drift", help="Compute identity drift between two graphs")
     dr.add_argument("input_file", help="Path to first context JSON (v4 or v5)")
     dr.add_argument("--compare", required=True, help="Path to second context JSON to compare against")
+
+    # -- diff (version history) --------------------------------------------
+    df = sub.add_parser("diff", help="Compare two stored graph versions")
+    df.add_argument("version_a", help="Base version ID, unique prefix, branch name, or HEAD")
+    df.add_argument("version_b", help="Target version ID, unique prefix, branch name, or HEAD")
+    df.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    df.add_argument("--format", choices=["json", "text"], default="text")
+    df.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- blame (memory receipts) -------------------------------------------
+    bl = sub.add_parser("blame", help="Explain where a memory claim came from")
+    bl.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    bl_target = bl.add_mutually_exclusive_group(required=True)
+    bl_target.add_argument("--label", help="Node label or alias to trace")
+    bl_target.add_argument("--node-id", help="Node ID to trace")
+    bl.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    bl.add_argument("--ref", default="HEAD", help="Branch/ref/version ancestry to inspect (default: HEAD)")
+    bl.add_argument("--source", help="Filter receipts to a specific source label")
+    bl.add_argument("--limit", type=int, default=20, help="Max versions to scan for blame history (default: 20)")
+    bl.add_argument("--format", choices=["json", "text"], default="text")
+    bl.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- history (receipts timeline) --------------------------------------
+    hs = sub.add_parser("history", help="Show chronological memory receipts for a node")
+    hs.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    hs_target = hs.add_mutually_exclusive_group(required=True)
+    hs_target.add_argument("--label", help="Node label or alias to trace")
+    hs_target.add_argument("--node-id", help="Node ID to trace")
+    hs.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    hs.add_argument("--ref", default="HEAD", help="Branch/ref/version ancestry to inspect (default: HEAD)")
+    hs.add_argument("--source", help="Filter receipts to a specific source label")
+    hs.add_argument("--limit", type=int, default=20, help="Max versions to scan (default: 20)")
+    hs.add_argument("--format", choices=["json", "text"], default="text")
+    hs.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- claim (ledger) ----------------------------------------------------
+    clm = sub.add_parser("claim", help="Inspect the local claim ledger")
+    clm_sub = clm.add_subparsers(dest="claim_subcommand")
+
+    clm_log = clm_sub.add_parser("log", help="List recent claim events")
+    clm_log.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_log.add_argument("--label", help="Filter by label or alias")
+    clm_log.add_argument("--node-id", help="Filter by node id")
+    clm_log.add_argument("--source", help="Filter by source")
+    clm_log.add_argument("--version", help="Filter by version id prefix")
+    clm_log.add_argument(
+        "--op", choices=["assert", "retract", "accept", "reject", "supersede"], help="Filter by operation"
+    )
+    clm_log.add_argument("--limit", type=int, default=20, help="Max events to return (default: 20)")
+    clm_log.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_show = clm_sub.add_parser("show", help="Show all events for a claim id")
+    clm_show.add_argument("claim_id", help="Claim id")
+    clm_show.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_show.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_accept = clm_sub.add_parser("accept", help="Accept a claim and restore it into the graph if needed")
+    clm_accept.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_accept.add_argument("claim_id", help="Claim id")
+    clm_accept.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_accept.add_argument("--commit-message", help="Optional version commit message")
+    clm_accept.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_reject = clm_sub.add_parser("reject", help="Reject a claim and remove its graph support")
+    clm_reject.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_reject.add_argument("claim_id", help="Claim id")
+    clm_reject.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_reject.add_argument("--commit-message", help="Optional version commit message")
+    clm_reject.add_argument("--format", choices=["json", "text"], default="text")
+
+    clm_sup = clm_sub.add_parser("supersede", help="Supersede a claim with an updated claim state")
+    clm_sup.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    clm_sup.add_argument("claim_id", help="Claim id")
+    clm_sup.add_argument("--label", help="Override label")
+    clm_sup.add_argument("--tag", action="append", dest="tags", default=[], help="Replacement tag (repeatable)")
+    clm_sup.add_argument("--alias", action="append", default=[], help="Alias to keep on the superseding claim")
+    clm_sup.add_argument("--status", help="Override status")
+    clm_sup.add_argument("--valid-from", default="", help="Override valid_from timestamp")
+    clm_sup.add_argument("--valid-to", default="", help="Override valid_to timestamp")
+    clm_sup.add_argument("--confidence", type=float, help="Override confidence")
+    clm_sup.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
+    clm_sup.add_argument("--commit-message", help="Optional version commit message")
+    clm_sup.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- checkout (version history) ----------------------------------------
+    ck = sub.add_parser("checkout", help="Write a stored graph version to a file")
+    ck.add_argument("version_id", help="Version ID, unique prefix, branch name, or HEAD")
+    ck.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    ck.add_argument("--output", "-o", help="Output file path (default: <version>.json)")
+    ck.add_argument("--no-verify", action="store_true", help="Skip snapshot integrity verification")
+    ck.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- rollback (version history) ----------------------------------------
+    rb = sub.add_parser("rollback", help="Restore a prior memory state as a new commit")
+    rb.add_argument("input_file", help="Path to context JSON (v4 or v5) to overwrite with the restored graph")
+    rb_target = rb.add_mutually_exclusive_group(required=True)
+    rb_target.add_argument("--to", dest="target_ref", help="Version ID, unique prefix, branch name, or HEAD")
+    rb_target.add_argument(
+        "--at", dest="target_time", help="Restore the latest version at or before this ISO timestamp"
+    )
+    rb.add_argument("--ref", default="HEAD", help="Restrict --at lookup to this branch/ref (default: HEAD)")
+    rb.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rb.add_argument("--message", help="Optional rollback commit message")
+    rb.add_argument("--format", choices=["json", "text"], default="text")
+    rb.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    rb.add_argument("--approve", action="store_true", help="Explicitly approve a gated rollback")
 
     # -- identity (Phase 3) ------------------------------------------------
     ident = sub.add_parser("identity", help="Init/show UPAI identity")
@@ -324,11 +531,157 @@ def build_parser():
     cm.add_argument("-m", "--message", required=True, help="Commit message")
     cm.add_argument("--source", default="manual", help="Source label (extraction, merge, manual)")
     cm.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    cm.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    cm.add_argument("--approve", action="store_true", help="Explicitly approve a gated commit")
+
+    # -- branch (Git-for-AI-Memory) ---------------------------------------
+    br = sub.add_parser("branch", help="List or create memory branches")
+    br.add_argument("branch_name", nargs="?", help="Branch name to create")
+    br.add_argument("--from", dest="from_ref", default="HEAD", help="Start point ref (default: HEAD)")
+    br.add_argument("--switch", action="store_true", help="Switch to the new branch after creating it")
+    br.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    br.add_argument("--format", choices=["json", "text"], default="text")
+    br.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- switch (Git-for-AI-Memory) ---------------------------------------
+    sw = sub.add_parser("switch", help="Switch the active memory branch")
+    sw.add_argument("branch_name", help="Branch name to switch to")
+    sw.add_argument("-c", "--create", action="store_true", help="Create the branch if it does not exist")
+    sw.add_argument(
+        "--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)"
+    )
+    sw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+
+    # -- merge (Git-for-AI-Memory) ----------------------------------------
+    mg = sub.add_parser("merge", help="Merge another memory branch/ref into the current branch")
+    mg.add_argument("ref_name", nargs="?", help="Branch or ref to merge into the current branch")
+    mg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    mg.add_argument("--message", help="Custom merge commit message")
+    mg.add_argument("--dry-run", action="store_true", help="Compute merge result without committing")
+    mg.add_argument("--output", "-o", help="Optional path to write the merged graph snapshot")
+    mg.add_argument("--format", choices=["json", "text"], default="text")
+    mg.add_argument("--conflicts", action="store_true", help="Show pending merge conflicts")
+    mg.add_argument("--resolve", metavar="CONFLICT_ID", help="Resolve a pending merge conflict")
+    mg.add_argument("--choose", choices=["current", "incoming"], help="Conflict resolution choice")
+    mg.add_argument("--commit-resolved", action="store_true", help="Commit the current resolved merge state")
+    mg.add_argument("--abort", action="store_true", help="Abort the pending merge state")
+    mg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+    mg.add_argument("--approve", action="store_true", help="Explicitly approve a gated merge")
+
+    # -- review (Git-for-AI-Memory) ---------------------------------------
+    rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
+    rvw.add_argument("input_file", nargs="?", help="Optional context JSON to review instead of a stored ref")
+    rvw.add_argument("--against", required=True, help="Baseline branch/ref/version to compare against")
+    rvw.add_argument("--ref", default="HEAD", help="Current branch/ref/version when no input file is provided")
+    rvw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rvw.add_argument(
+        "--fail-on",
+        default="blocking",
+        help="Comma-separated review gates: blocking, contradictions, temporal_gaps, low_confidence, retractions, changes, none",
+    )
+    rvw.add_argument("--format", choices=["json", "text", "md"], default="text")
 
     # -- log (Phase 3) -----------------------------------------------------
     lg = sub.add_parser("log", help="Show version history")
     lg.add_argument("--limit", type=int, default=10, help="Max entries to show")
+    lg.add_argument("--branch", help="Branch/ref to inspect (default: current branch)")
+    lg.add_argument("--all", action="store_true", help="Show global history instead of branch ancestry")
     lg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    lg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    # -- governance --------------------------------------------------------
+    gov = sub.add_parser("governance", help="Manage access control and approval policies")
+    gov_sub = gov.add_subparsers(dest="governance_subcommand")
+
+    gov_list = gov_sub.add_parser("list", help="List governance rules")
+    gov_list.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_add = gov_sub.add_parser("allow", help="Create or replace an allow rule")
+    gov_add.add_argument("name", help="Rule name")
+    gov_add.add_argument("--actor", dest="actor_pattern", default="*", help="Actor glob pattern")
+    gov_add.add_argument("--action", action="append", required=True, help="Action to allow (repeatable or '*')")
+    gov_add.add_argument("--namespace", action="append", required=True, help="Namespace/branch glob pattern")
+    gov_add.add_argument("--require-approval", action="store_true", help="Always require approval for this rule")
+    gov_add.add_argument("--approval-below-confidence", type=float, help="Require approval below this confidence")
+    gov_add.add_argument("--approval-tag", action="append", default=[], help="Tag that requires approval when changed")
+    gov_add.add_argument(
+        "--approval-change", action="append", default=[], help="Semantic change type requiring approval"
+    )
+    gov_add.add_argument("--description", default="", help="Optional rule description")
+    gov_add.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_add.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_deny = gov_sub.add_parser("deny", help="Create or replace a deny rule")
+    gov_deny.add_argument("name", help="Rule name")
+    gov_deny.add_argument("--actor", dest="actor_pattern", default="*", help="Actor glob pattern")
+    gov_deny.add_argument("--action", action="append", required=True, help="Action to deny (repeatable or '*')")
+    gov_deny.add_argument("--namespace", action="append", required=True, help="Namespace/branch glob pattern")
+    gov_deny.add_argument("--description", default="", help="Optional rule description")
+    gov_deny.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_deny.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_rm = gov_sub.add_parser("delete", help="Delete a governance rule")
+    gov_rm.add_argument("name", help="Rule name")
+    gov_rm.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_rm.add_argument("--format", choices=["json", "text"], default="text")
+
+    gov_check = gov_sub.add_parser("check", help="Check whether an actor may perform an action")
+    gov_check.add_argument("--actor", required=True, help="Actor identity")
+    gov_check.add_argument("--action", required=True, choices=sorted(GOVERNANCE_ACTIONS), help="Action to evaluate")
+    gov_check.add_argument("--namespace", required=True, help="Namespace or branch name")
+    gov_check.add_argument("--input-file", help="Optional current graph to evaluate for approval gating")
+    gov_check.add_argument("--against", help="Optional baseline ref for semantic diff/approval gating")
+    gov_check.add_argument("--store-dir", default=".cortex", help="Governance store directory (default: .cortex)")
+    gov_check.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- remote ------------------------------------------------------------
+    rem = sub.add_parser("remote", help="Manage remote memory stores and sync branches")
+    rem_sub = rem.add_subparsers(dest="remote_subcommand")
+
+    rem_list = rem_sub.add_parser("list", help="List configured remotes")
+    rem_list.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_add = rem_sub.add_parser("add", help="Add or replace a remote memory store")
+    rem_add.add_argument("name", help="Remote name")
+    rem_add.add_argument("path", help="Path to another .cortex store or its parent directory")
+    rem_add.add_argument("--default-branch", default="main", help="Default remote branch (default: main)")
+    rem_add.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_add.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_rm = rem_sub.add_parser("remove", help="Remove a remote definition")
+    rem_rm.add_argument("name", help="Remote name")
+    rem_rm.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_rm.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem_push = rem_sub.add_parser("push", help="Push a memory branch to a remote store")
+    rem_push.add_argument("name", help="Remote name")
+    rem_push.add_argument("--branch", default="HEAD", help="Local branch/ref to push (default: HEAD)")
+    rem_push.add_argument("--to-branch", help="Remote branch name (default: same as source branch)")
+    rem_push.add_argument("--force", action="store_true", help="Allow non-fast-forward remote updates")
+    rem_push.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_push.add_argument("--format", choices=["json", "text"], default="text")
+    rem_push.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    rem_pull = rem_sub.add_parser("pull", help="Pull a remote branch into a local branch")
+    rem_pull.add_argument("name", help="Remote name")
+    rem_pull.add_argument("--branch", help="Remote branch to pull (default: remote default branch)")
+    rem_pull.add_argument("--into-branch", help="Local branch to update (default: remotes/<name>/<branch>)")
+    rem_pull.add_argument("--switch", action="store_true", help="Switch to the updated branch after pulling")
+    rem_pull.add_argument("--force", action="store_true", help="Allow non-fast-forward local updates")
+    rem_pull.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_pull.add_argument("--format", choices=["json", "text"], default="text")
+    rem_pull.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
+
+    rem_fork = rem_sub.add_parser("fork", help="Fork a remote branch into a new local branch")
+    rem_fork.add_argument("name", help="Remote name")
+    rem_fork.add_argument("branch_name", help="New local branch name")
+    rem_fork.add_argument("--remote-branch", help="Remote branch to fork (default: remote default branch)")
+    rem_fork.add_argument("--switch", action="store_true", help="Switch to the new local branch after forking")
+    rem_fork.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rem_fork.add_argument("--format", choices=["json", "text"], default="text")
+    rem_fork.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- sync (Phase 3) ----------------------------------------------------
     sy = sub.add_parser("sync", help="Disclosure-filtered export via platform adapters")
@@ -463,6 +816,14 @@ def build_parser():
     cw.add_argument("--watch", action="store_true", help="Watch graph file and auto-refresh on change")
     cw.add_argument("--interval", type=int, default=30, help="Watch poll interval in seconds (default: 30)")
 
+    # -- ui (local web interface) -----------------------------------------
+    ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
+    ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
+    ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
+    ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
+
     # -- pull (import from platform export) --------------------------------
     pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
     pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
@@ -542,6 +903,15 @@ def run_extract(args):
             print(f"Merge file not found: {merge_path} (proceeding without merge)")
 
     result = _run_extraction(extractor, data, fmt)
+    claim_count = 0
+    if not args.no_claims:
+        result, claim_count = _finalize_extraction_output(
+            result,
+            input_path=input_path,
+            fmt=fmt,
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
 
     stats = extractor.context.stats()
     print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
@@ -553,6 +923,71 @@ def run_extract(args):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(f"Saved to: {output_path}")
+    if not args.no_claims:
+        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
+    return 0
+
+
+def run_ingest(args):
+    """Normalize connector input and extract it into Cortex memory."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    print(f"Loading connector input: {input_path}")
+    try:
+        normalized_text = connector_to_text(args.kind, input_path)
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+    if args.preview:
+        print(normalized_text, end="" if normalized_text.endswith("\n") else "\n")
+        return 0
+
+    redactor = None
+    if args.redact:
+        custom_patterns = None
+        if args.redact_patterns:
+            pp = Path(args.redact_patterns)
+            if not pp.exists():
+                print(f"Redaction patterns file not found: {pp}")
+                return 1
+            with open(pp, "r", encoding="utf-8") as f:
+                custom_patterns = json.load(f)
+        redactor = PIIRedactor(custom_patterns)
+        print("PII redaction enabled")
+
+    extractor = AggressiveExtractor(redactor=redactor)
+
+    if args.merge:
+        merge_path = Path(args.merge)
+        if merge_path.exists():
+            print(f"Merging with existing context: {merge_path}")
+            extractor = merge_contexts(merge_path, extractor)
+        else:
+            print(f"Merge file not found: {merge_path} (proceeding without merge)")
+
+    result = extractor.process_plain_text(normalized_text)
+    claim_count = 0
+    if not args.no_claims:
+        result, claim_count = _finalize_extraction_output(
+            result,
+            input_path=input_path,
+            fmt=f"connector:{args.kind}",
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
+
+    stats = extractor.context.stats()
+    print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    print(f"Saved to: {output_path}")
+    if not args.no_claims:
+        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
@@ -632,6 +1067,15 @@ def run_migrate(args):
             print(f"Merge file not found: {merge_path} (proceeding without merge)")
 
     v4_data = _run_extraction(extractor, data, fmt)
+    claim_count = 0
+    if not args.no_claims and not args.dry_run:
+        v4_data, claim_count = _finalize_extraction_output(
+            v4_data,
+            input_path=input_path,
+            fmt=fmt,
+            store_dir=Path(args.store_dir),
+            record_claims=True,
+        )
 
     stats = extractor.context.stats()
     print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
@@ -722,6 +1166,8 @@ def run_migrate(args):
     print("   context: context.json")
     for key, path in outputs:
         print(f"   {key}: {path.name}")
+    if not args.no_claims and not args.dry_run:
+        print(f"   claims: {claim_count} event(s) -> {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
@@ -733,6 +1179,8 @@ def run_query(args):
         return 1
 
     graph = _load_graph(input_path)
+    if args.at:
+        graph = graph.graph_at(args.at)
 
     # --- Phase 1 queries (--node, --neighbors) ---
     if args.node:
@@ -745,6 +1193,10 @@ def run_query(args):
             print(f"  Tags: {', '.join(node.tags)}")
             print(f"  Confidence: {node.confidence:.2f}")
             print(f"  Mentions: {node.mention_count}")
+            if getattr(node, "status", ""):
+                print(f"  Status: {node.status}")
+            if getattr(node, "valid_from", "") or getattr(node, "valid_to", ""):
+                print(f"  Valid: {getattr(node, 'valid_from', '') or '?'} -> {getattr(node, 'valid_to', '') or '?'}")
             if node.brief:
                 print(f"  Brief: {node.brief}")
             if node.full_description:
@@ -773,6 +1225,7 @@ def run_query(args):
         connected_components,
         parse_nl_query,
     )
+    from cortex.query_lang import execute_query
 
     engine = QueryEngine(graph)
 
@@ -859,6 +1312,26 @@ def run_query(args):
             print(f"  {i}. [{len(comp)} nodes] {', '.join(labels[:10])}{'...' if len(labels) > 10 else ''}")
         return 0
 
+    if args.search:
+        results = graph.semantic_search(args.search, limit=args.limit)
+        if not results:
+            print(f"No search results for '{args.search}'")
+            return 0
+        print(f"Search results for '{args.search}' ({len(results)}):")
+        for item in results:
+            node = item["node"]
+            aliases = f" | aliases: {', '.join(node.aliases)}" if getattr(node, "aliases", []) else ""
+            print(f"  {node.label} (score={item['score']:.4f}, conf={node.confidence:.2f}){aliases}")
+        return 0
+
+    if args.dsl:
+        result = execute_query(graph, args.dsl)
+        if result.get("type") == "search" and args.limit and len(result.get("results", [])) > args.limit:
+            result["results"] = result["results"][: args.limit]
+            result["count"] = len(result["results"])
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
     if args.nl:
         result = parse_nl_query(args.nl, engine)
         print(json.dumps(result, indent=2, default=str))
@@ -867,7 +1340,7 @@ def run_query(args):
     print(
         "Specify a query flag: --node, --neighbors, --category, --path, "
         "--changed-since, --strongest, --weakest, --isolated, --related, "
-        "--components, --nl"
+        "--components, --search, --dsl, --nl, --at"
     )
     return 1
 
@@ -909,6 +1382,44 @@ def _load_identity(store_dir: Path) -> UPAIIdentity | None:
     if id_path.exists():
         return UPAIIdentity.load(store_dir)
     return None
+
+
+def _current_branch_or_ref(store: VersionStore, ref: str | None = None) -> str:
+    if not ref or ref == "HEAD":
+        return store.current_branch()
+    return ref
+
+
+def _governance_decision_or_error(
+    *,
+    store_dir: Path,
+    actor: str,
+    action: str,
+    namespace: str,
+    current_graph: CortexGraph | None = None,
+    baseline_graph: CortexGraph | None = None,
+    approve: bool = False,
+) -> GovernanceDecision | None:
+    governance = GovernanceStore(store_dir)
+    decision = governance.authorize(
+        actor,
+        action,
+        namespace,
+        current_graph=current_graph,
+        baseline_graph=baseline_graph,
+    )
+    if not decision.allowed:
+        print(f"Access denied: actor '{actor}' cannot {action} namespace '{namespace}'.")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        return None
+    if decision.require_approval and not approve:
+        print(f"Approval required: actor '{actor}' cannot {action} namespace '{namespace}' without review.")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        print("Re-run with --approve after human review.")
+        return None
+    return decision
 
 
 def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None) -> str | None:
@@ -1013,19 +1524,550 @@ def run_memory_set(args):
         graph,
         label=args.label,
         tags=args.tag,
+        aliases=args.alias,
         brief=args.brief,
         description=args.description,
         properties=_parse_properties(args.property),
         confidence=args.confidence,
+        valid_from=args.valid_from,
+        valid_to=args.valid_to,
+        status=args.status,
+        provenance_source=args.source,
         replace_label=args.replace_label,
     )
     _save_graph(graph, input_path)
     commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
     if commit_id:
         result["commit_id"] = commit_id
+    node = graph.get_node(result["node_id"])
+    if node is not None:
+        event = ClaimEvent.from_node(
+            node,
+            op="assert",
+            source=args.source or "manual",
+            method="manual_set",
+            version_id=commit_id or "",
+            message=args.commit_message or "",
+            metadata={"created": result["created"], "updated": result["updated"]},
+        )
+        ClaimLedger(Path(args.store_dir)).append(event)
+        result["claim_id"] = event.claim_id
+        result["claim_event_id"] = event.event_id
     if _emit_result(result, args.format) == 0:
         return 0
     print(f"{'Created' if result['created'] else 'Updated'} node {result['node_id']}.")
+    return 0
+
+
+def run_memory_retract(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    pre_nodes = {node_id: node.to_dict() for node_id, node in graph.nodes.items()}
+    result = retract_source(
+        graph,
+        source=args.source,
+        dry_run=args.dry_run,
+        prune_orphans=not args.keep_orphans,
+    )
+    if not args.dry_run:
+        _save_graph(graph, input_path)
+        commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+        if commit_id:
+            result["commit_id"] = commit_id
+        claim_events: list[str] = []
+        claim_ids: list[str] = []
+        ledger = ClaimLedger(Path(args.store_dir))
+        for node_id in result["node_ids"]:
+            snapshot = pre_nodes.get(node_id)
+            if snapshot is None:
+                continue
+            event = ClaimEvent.from_node(
+                Node.from_dict(snapshot),
+                op="retract",
+                source=args.source,
+                method="memory_retract",
+                version_id=commit_id or "",
+                message=args.commit_message or "",
+                metadata={"removed": node_id not in graph.nodes, "prune_orphans": not args.keep_orphans},
+            )
+            ledger.append(event)
+            claim_events.append(event.event_id)
+            claim_ids.append(event.claim_id)
+        if claim_events:
+            result["claim_event_ids"] = claim_events
+            result["claim_ids"] = claim_ids
+    if _emit_result(result, args.format) == 0:
+        return 0
+    print(
+        f"Retracted source {result['source']}: "
+        f"{result['nodes_touched']} node(s), {result['edges_touched']} edge(s), "
+        f"{result['snapshots_removed']} snapshot(s), "
+        f"{result['node_provenance_removed'] + result['edge_provenance_removed']} provenance entr{'y' if result['node_provenance_removed'] + result['edge_provenance_removed'] == 1 else 'ies'} removed."
+    )
+    if result["nodes_removed"] or result["edges_removed"]:
+        print(f"Pruned {result['nodes_removed']} node(s) and {result['edges_removed']} edge(s).")
+    return 0
+
+
+def run_blame(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+
+    store_path = Path(args.store_dir)
+    store = VersionStore(store_path)
+    if (
+        _governance_decision_or_error(
+            store_dir=store_path,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.ref),
+        )
+        is None
+    ):
+        return 1
+    store = store if (store_path / "history.json").exists() else None
+    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
+    result = blame_memory_nodes(
+        graph,
+        label=args.label,
+        node_id=args.node_id,
+        store=store,
+        ledger=ledger,
+        ref=args.ref,
+        source=args.source or "",
+        version_limit=args.limit,
+    )
+    if _emit_result(result, args.format) == 0:
+        return 0
+    if not result["nodes"]:
+        target = args.label or args.node_id or "target"
+        print(f"No memory nodes found for '{target}'.")
+        return 0
+
+    for item in result["nodes"]:
+        node = item["node"]
+        print(f"Blame: {node['label']} ({node['id']})")
+        print(f"  Tags: {', '.join(node['tags']) if node['tags'] else 'none'}")
+        print(f"  Confidence: {node['confidence']:.2f}")
+        if node.get("aliases"):
+            print(f"  Aliases: {', '.join(node['aliases'])}")
+        if node.get("status") or node.get("valid_from") or node.get("valid_to"):
+            print(
+                f"  Lifecycle: {node.get('status') or 'unspecified'} | {node.get('valid_from') or '?'} -> {node.get('valid_to') or '?'}"
+            )
+        if item["provenance_sources"]:
+            print(f"  Provenance sources: {', '.join(item['provenance_sources'])}")
+        if item["snapshot_sources"]:
+            print(f"  Snapshot sources: {', '.join(item['snapshot_sources'])}")
+        if item["why_present"]:
+            print("  Why present:")
+            for reason in item["why_present"]:
+                print(f"    - {reason}")
+        if node.get("source_quotes"):
+            print("  Source quotes:")
+            for quote in node["source_quotes"][:3]:
+                print(f"    - {quote}")
+
+        history = item.get("history")
+        if history and history.get("versions_seen"):
+            introduced = history.get("introduced_in")
+            last_seen = history.get("last_seen_in")
+            print("  Version history:")
+            if introduced:
+                print(
+                    f"    Introduced: {introduced['version_id'][:8]} {introduced['timestamp']} "
+                    f"[{introduced['source']}] {introduced['message']}"
+                )
+            if last_seen:
+                print(
+                    f"    Last seen:  {last_seen['version_id'][:8]} {last_seen['timestamp']} "
+                    f"[{last_seen['source']}] {last_seen['message']}"
+                )
+            print(
+                f"    Seen in {history['versions_seen']} version(s); "
+                f"changed in {history['versions_changed']} version(s)."
+            )
+            print("    Recent history:")
+            for entry in history["history"][-5:]:
+                marker = "*" if entry["changed"] else "-"
+                print(
+                    f"      {marker} {entry['version_id'][:8]} {entry['timestamp']} "
+                    f"[{entry['source']}] {entry['message']}"
+                )
+        claim_lineage = item.get("claim_lineage")
+        if claim_lineage and claim_lineage.get("event_count"):
+            print("  Claim ledger:")
+            print(
+                f"    {claim_lineage['event_count']} event(s) across {claim_lineage['claim_count']} claim(s); "
+                f"{claim_lineage['assert_count']} assert, {claim_lineage['retract_count']} retract."
+            )
+            if claim_lineage.get("sources"):
+                print(f"    Sources: {', '.join(claim_lineage['sources'])}")
+            introduced = claim_lineage.get("introduced_at")
+            if introduced:
+                version = introduced.get("version_id", "")
+                version_label = version[:8] if version else "local"
+                print(
+                    f"    First claim event: {introduced['timestamp']} "
+                    f"[{introduced.get('source') or '-'}] {introduced.get('method') or '-'} {version_label}"
+                )
+            latest_event = claim_lineage.get("latest_event")
+            if latest_event:
+                version = latest_event.get("version_id", "")
+                version_label = version[:8] if version else "local"
+                print(
+                    f"    Latest claim event: {latest_event['timestamp']} "
+                    f"[{latest_event.get('op')}] {latest_event.get('source') or '-'} "
+                    f"{latest_event.get('method') or '-'} {version_label}"
+                )
+            print("    Recent claim events:")
+            for event in claim_lineage["events"][:5]:
+                version_label = event["version_id"][:8] if event.get("version_id") else "local"
+                print(
+                    f"      - {event['timestamp']} [{event['op']}] "
+                    f"{event.get('source') or '-'} {event.get('method') or '-'} "
+                    f"{version_label} claim={event['claim_id']}"
+                )
+        print()
+    return 0
+
+
+def run_history(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+
+    store_path = Path(args.store_dir)
+    store = VersionStore(store_path)
+    if (
+        _governance_decision_or_error(
+            store_dir=store_path,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.ref),
+        )
+        is None
+    ):
+        return 1
+    store = store if (store_path / "history.json").exists() else None
+    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
+    result = blame_memory_nodes(
+        graph,
+        label=args.label,
+        node_id=args.node_id,
+        store=store,
+        ledger=ledger,
+        ref=args.ref,
+        source=args.source or "",
+        version_limit=args.limit,
+    )
+    payload = {
+        "status": result["status"],
+        "ref": args.ref,
+        "source": args.source or "",
+        "nodes": result["nodes"],
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not result["nodes"]:
+        target = args.label or args.node_id or "target"
+        print(f"No history found for '{target}'.")
+        return 0
+
+    for item in result["nodes"]:
+        node = item["node"]
+        print(f"History: {node['label']} ({node['id']})")
+        if args.source:
+            print(f"  Source filter: {args.source}")
+        print(f"  Ref: {args.ref}")
+        history = item.get("history")
+        if history and history.get("history"):
+            print("  Version timeline:")
+            for entry in history["history"]:
+                version_node = entry["node"]
+                print(f"    {entry['timestamp']} {entry['version_id'][:8]} [{entry['source']}] {entry['message']}")
+                print(
+                    f"      label={version_node['label']} tags={','.join(version_node['tags']) or '-'} "
+                    f"status={version_node.get('status') or '-'} "
+                    f"window={version_node.get('valid_from') or '?'}->{version_node.get('valid_to') or '?'}"
+                )
+        claim_lineage = item.get("claim_lineage")
+        if claim_lineage and claim_lineage.get("events"):
+            print("  Claim events:")
+            for event in reversed(claim_lineage["events"]):
+                version_label = event["version_id"][:8] if event.get("version_id") else "local"
+                print(
+                    f"    {event['timestamp']} [{event['op']}] "
+                    f"source={event.get('source') or '-'} method={event.get('method') or '-'} "
+                    f"version={version_label} claim={event['claim_id']}"
+                )
+        print()
+    return 0
+
+
+def _find_claim_target_node(graph: CortexGraph, event: ClaimEvent) -> Node | None:
+    if event.node_id and graph.get_node(event.node_id):
+        return graph.get_node(event.node_id)
+    if event.canonical_id:
+        for node in graph.nodes.values():
+            if node.canonical_id == event.canonical_id:
+                return node
+    matches = graph.find_node_ids_by_label(event.label)
+    if matches:
+        return graph.get_node(matches[0])
+    return None
+
+
+def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[ClaimLedger, ClaimEvent | None]:
+    ledger = ClaimLedger(store_dir)
+    return ledger, ledger.latest_event(claim_id)
+
+
+def run_claim_accept(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    restored = False
+    if node is None:
+        graph.add_node(claim_event_to_node(latest))
+        node = graph.get_node(latest.node_id)
+        restored = True
+    assert node is not None
+    node.label = latest.label
+    node.aliases = list(dict.fromkeys(node.aliases + list(latest.aliases)))
+    node.tags = list(dict.fromkeys(node.tags + list(latest.tags)))
+    node.confidence = max(node.confidence, latest.confidence)
+    if latest.status:
+        node.status = latest.status
+    if latest.valid_from:
+        node.valid_from = latest.valid_from
+    if latest.valid_to:
+        node.valid_to = latest.valid_to
+    if latest.canonical_id:
+        node.canonical_id = latest.canonical_id
+    if latest.source:
+        provenance_entry = {"source": latest.source, "method": "claim_accept"}
+        if provenance_entry not in node.provenance:
+            node.provenance.append(provenance_entry)
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    decision = ClaimEvent.decision_from_event(
+        latest,
+        op="accept",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"restored": restored},
+    )
+    ledger.append(decision)
+    payload = {
+        "status": "ok",
+        "claim_id": args.claim_id,
+        "node_id": node.id,
+        "restored": restored,
+        "claim_event_id": decision.event_id,
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Accepted claim {args.claim_id} for node {node.label}.")
+    return 0
+
+
+def run_claim_reject(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    removed = False
+    updated = False
+    if node is not None:
+        node.tags = [tag for tag in node.tags if tag not in latest.tags]
+        if latest.source:
+            node.provenance = [item for item in node.provenance if item.get("source") != latest.source]
+        if node.status == latest.status:
+            node.status = ""
+        if node.valid_from == latest.valid_from:
+            node.valid_from = ""
+        if node.valid_to == latest.valid_to:
+            node.valid_to = ""
+        if not node.tags and not node.provenance:
+            graph.remove_node(node.id)
+            removed = True
+        else:
+            updated = True
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    decision = ClaimEvent.decision_from_event(
+        latest,
+        op="reject",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"removed": removed, "updated": updated},
+    )
+    ledger.append(decision)
+    payload = {
+        "status": "ok",
+        "claim_id": args.claim_id,
+        "node_id": latest.node_id,
+        "removed": removed,
+        "updated": updated,
+        "claim_event_id": decision.event_id,
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Rejected claim {args.claim_id}.")
+    return 0
+
+
+def run_claim_supersede(args):
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+    graph = _load_graph(input_path)
+    ledger, latest = _load_claim_or_error(Path(args.store_dir), args.claim_id)
+    if latest is None:
+        print(f"No claim events found for {args.claim_id}.")
+        return 1
+
+    updated_node = claim_event_to_node(latest)
+    if args.label:
+        updated_node.label = args.label
+    if args.tags:
+        updated_node.tags = list(dict.fromkeys(args.tags))
+    if args.alias:
+        updated_node.aliases = list(dict.fromkeys(updated_node.aliases + args.alias))
+    if args.status is not None:
+        updated_node.status = args.status or ""
+    if args.valid_from:
+        updated_node.valid_from = args.valid_from
+    if args.valid_to:
+        updated_node.valid_to = args.valid_to
+    if args.confidence is not None:
+        updated_node.confidence = args.confidence
+    if not any(
+        [
+            args.label,
+            args.tags,
+            args.alias,
+            args.status is not None,
+            args.valid_from,
+            args.valid_to,
+            args.confidence is not None,
+        ]
+    ):
+        print("Provide at least one override to supersede a claim.")
+        return 1
+
+    node = _find_claim_target_node(graph, latest)
+    if node is not None:
+        graph.nodes[node.id] = updated_node
+    else:
+        graph.add_node(updated_node)
+
+    _save_graph(graph, input_path)
+    commit_id = _maybe_commit_graph(graph, Path(args.store_dir), args.commit_message)
+    supersede_event = ClaimEvent.decision_from_event(
+        latest,
+        op="supersede",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"superseded_by_label": updated_node.label},
+    )
+    ledger.append(supersede_event)
+    new_assert = ClaimEvent.from_node(
+        updated_node,
+        op="assert",
+        source=latest.source,
+        method="claim_supersede",
+        version_id=commit_id or "",
+        message=args.commit_message or "",
+        metadata={"supersedes": args.claim_id},
+    )
+    ledger.append(new_assert)
+    payload = {
+        "status": "ok",
+        "superseded_claim_id": args.claim_id,
+        "new_claim_id": new_assert.claim_id,
+        "node_id": updated_node.id,
+        "claim_event_ids": [supersede_event.event_id, new_assert.event_id],
+    }
+    if commit_id:
+        payload["commit_id"] = commit_id
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Superseded claim {args.claim_id} with {new_assert.claim_id}.")
+    return 0
+
+
+def run_claim_log(args):
+    ledger = ClaimLedger(Path(args.store_dir))
+    events = ledger.list_events(
+        label=args.label or "",
+        node_id=args.node_id or "",
+        source=args.source or "",
+        version_ref=args.version or "",
+        op=args.op or "",
+        limit=args.limit,
+    )
+    payload = {"events": [event.to_dict() for event in events]}
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not events:
+        print("No claim events found.")
+        return 0
+    print(f"Claim events ({len(events)}):")
+    for event in events:
+        version = event.version_id[:8] if event.version_id else "local"
+        print(f"  {event.timestamp} [{event.op}] {event.label} source={event.source or '-'} version={version}")
+    return 0
+
+
+def run_claim_show(args):
+    ledger = ClaimLedger(Path(args.store_dir))
+    events = ledger.get_claim(args.claim_id)
+    payload = {"claim_id": args.claim_id, "events": [event.to_dict() for event in events]}
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not events:
+        print(f"No claim events found for {args.claim_id}.")
+        return 0
+    first = events[0]
+    print(f"Claim {args.claim_id}: {first.label}")
+    for event in events:
+        version = event.version_id[:8] if event.version_id else "local"
+        print(
+            f"  {event.timestamp} [{event.op}] source={event.source or '-'} "
+            f"method={event.method or '-'} version={version}"
+        )
     return 0
 
 
@@ -1110,6 +2152,160 @@ def run_drift(args):
     print(f"  Confidence drift: {result['details']['confidence_drift']:.4f}")
     print(f"  Graph A: {result['details']['node_count_a']} nodes")
     print(f"  Graph B: {result['details']['node_count_b']} nodes")
+    return 0
+
+
+def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
+    resolved = store.resolve_ref(version_ref)
+    if resolved is None:
+        print(f"Version not found or ambiguous: {version_ref}")
+        raise SystemExit(1)
+    return resolved
+
+
+def _resolve_version_at_or_exit(store: VersionStore, timestamp: str, ref: str | None = None) -> str:
+    resolved = store.resolve_at(timestamp, ref=ref)
+    if resolved is None:
+        scope = f" on {ref}" if ref else ""
+        print(f"Version not found at or before {timestamp}{scope}")
+        raise SystemExit(1)
+    return resolved
+
+
+def run_diff(args):
+    """Compare two stored graph versions."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_a),
+        )
+        is None
+    ):
+        return 1
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_b),
+        )
+        is None
+    ):
+        return 1
+    version_a = _resolve_version_or_exit(store, args.version_a)
+    version_b = _resolve_version_or_exit(store, args.version_b)
+    diff = store.diff(version_a, version_b)
+    payload = {
+        "version_a": version_a,
+        "version_b": version_b,
+        **diff,
+    }
+    if args.format == "json":
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print(f"Diff {version_a} -> {version_b}")
+    print(f"  Added: {len(diff['added'])}")
+    print(f"  Removed: {len(diff['removed'])}")
+    print(f"  Modified: {len(diff['modified'])}")
+    print(f"  Semantic changes: {diff.get('semantic_summary', {}).get('total', 0)}")
+    if diff["added"]:
+        print("\nAdded:")
+        for node_id in diff["added"]:
+            print(f"  + {node_id}")
+    if diff["removed"]:
+        print("\nRemoved:")
+        for node_id in diff["removed"]:
+            print(f"  - {node_id}")
+    if diff["modified"]:
+        print("\nModified:")
+        for item in diff["modified"]:
+            print(f"  ~ {item['node_id']}: {', '.join(sorted(item['changes'].keys()))}")
+    if diff.get("semantic_changes"):
+        print("\nSemantic changes:")
+        for item in diff["semantic_changes"][:20]:
+            print(f"  * {item['type']}: {item['description']}")
+    return 0
+
+
+def run_checkout(args):
+    """Write a stored graph version to a file."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, args.version_id),
+        )
+        is None
+    ):
+        return 1
+    version_id = _resolve_version_or_exit(store, args.version_id)
+    graph = store.checkout(version_id, verify=not args.no_verify)
+    output_path = Path(args.output) if args.output else Path(f"{version_id}.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+    print(f"Checked out {version_id} to {output_path}")
+    return 0
+
+
+def run_rollback(args):
+    """Restore a stored graph state as a new commit without rewriting history."""
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    current_branch = store.current_branch()
+
+    if args.target_ref:
+        target_version = _resolve_version_or_exit(store, args.target_ref)
+        target_label = args.target_ref
+    else:
+        target_version = _resolve_version_at_or_exit(store, args.target_time, ref=args.ref)
+        target_label = args.target_time
+
+    restored = store.checkout(target_version)
+    baseline_version = store.resolve_ref("HEAD")
+    baseline_graph = store.checkout(baseline_version) if baseline_version else None
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="rollback",
+            namespace=current_branch,
+            current_graph=restored,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        )
+        is None
+    ):
+        return 1
+
+    _save_graph(restored, input_path)
+    identity = _load_identity(store_dir)
+    message = args.message or f"Rollback {current_branch} to {target_label}"
+    version = store.commit(restored, message, source="rollback", identity=identity)
+    payload = {
+        "status": "ok",
+        "target": target_label,
+        "target_version": target_version,
+        "rollback_commit": version.version_id,
+        "branch": version.branch,
+        "output": str(input_path),
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print(f"Rolled back {current_branch} to {target_version} as new commit {version.version_id}.")
+    print(f"  Wrote restored graph to {input_path}")
     return 0
 
 
@@ -1199,9 +2395,25 @@ def run_commit(args):
         identity = UPAIIdentity.load(store_dir)
 
     store = VersionStore(store_dir)
+    baseline_version = store.resolve_ref("HEAD")
+    baseline_graph = store.checkout(baseline_version) if baseline_version else None
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="write",
+            namespace=store.current_branch(),
+            current_graph=graph,
+            baseline_graph=baseline_graph,
+            approve=args.approve,
+        )
+        is None
+    ):
+        return 1
     version = store.commit(graph, args.message, source=args.source, identity=identity)
 
     print(f"Committed: {version.version_id}")
+    print(f"  Branch: {version.branch}")
     print(f"  Message: {version.message}")
     print(f"  Source: {version.source}")
     print(f"  Nodes: {version.node_count}, Edges: {version.edge_count}")
@@ -1212,24 +2424,641 @@ def run_commit(args):
     return 0
 
 
+def run_branch(args):
+    """List or create memory branches."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+
+    if args.branch_name:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="branch",
+                namespace=args.branch_name,
+            )
+            is None
+        ):
+            return 1
+        try:
+            head = store.create_branch(args.branch_name, from_ref=args.from_ref, switch=args.switch)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        payload = {
+            "branch": args.branch_name,
+            "head": head,
+            "current_branch": store.current_branch(),
+            "created": True,
+        }
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+            return 0
+        print(f"Created branch {args.branch_name}")
+        if head:
+            print(f"  From: {head}")
+        if args.switch:
+            print(f"  Switched to {args.branch_name}")
+        return 0
+
+    branches = store.list_branches()
+    if args.format == "json":
+        print(json.dumps({"current_branch": store.current_branch(), "branches": branches}, indent=2))
+        return 0
+
+    for branch in branches:
+        marker = "*" if branch["current"] else " "
+        head = branch["head"][:8] if branch["head"] else "(empty)"
+        print(f"{marker} {branch['name']:<24} {head}")
+    return 0
+
+
+def run_switch(args):
+    """Switch the active memory branch."""
+    store = VersionStore(Path(args.store_dir))
+    try:
+        if args.create:
+            store.create_branch(args.branch_name, from_ref=args.from_ref, switch=True)
+        else:
+            store.switch_branch(args.branch_name)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    head = store.resolve_ref("HEAD")
+    print(f"Switched to {store.current_branch()}")
+    if head:
+        print(f"  Head: {head}")
+    return 0
+
+
+def run_merge(args):
+    """Merge another branch/ref into the current branch."""
+    store_dir = Path(args.store_dir)
+    store = VersionStore(store_dir)
+    current_branch = store.current_branch()
+
+    if args.abort:
+        state = load_merge_state(store_dir)
+        if state is None:
+            print("No pending merge state found.")
+            return 0
+        clear_merge_state(store_dir)
+        print(f"Aborted pending merge into {state['current_branch']} from {state['other_ref']}.")
+        return 0
+
+    if args.conflicts:
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="read",
+                namespace=current_branch,
+            )
+            is None
+        ):
+            return 1
+        state = load_merge_state(store_dir)
+        if state is None:
+            payload = {"status": "ok", "pending": False, "conflicts": []}
+            if args.format == "json":
+                print(json.dumps(payload, indent=2))
+            else:
+                print("No pending merge conflicts.")
+            return 0
+        payload = {
+            "status": "ok",
+            "pending": True,
+            "current_branch": state["current_branch"],
+            "other_ref": state["other_ref"],
+            "conflicts": state.get("conflicts", []),
+        }
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Pending merge into {state['current_branch']} from {state['other_ref']}")
+            for conflict in state.get("conflicts", []):
+                field = f" [{conflict.get('field')}]" if conflict.get("field") else ""
+                print(f"  - {conflict['id']} {conflict['kind']}{field}: {conflict['description']}")
+        return 0
+
+    if args.resolve:
+        if not args.choose:
+            print("Specify --choose current|incoming when resolving a merge conflict.")
+            return 1
+        try:
+            payload = resolve_merge_conflict(store, store_dir, args.resolve, args.choose)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(
+                f"Resolved merge conflict {payload['resolved_conflict_id']} with {payload['choice']}; "
+                f"{payload['remaining_conflicts']} conflict(s) remain."
+            )
+        return 0
+
+    if args.commit_resolved:
+        baseline_version = store.resolve_ref("HEAD")
+        baseline_graph = store.checkout(baseline_version) if baseline_version else None
+        state = load_merge_state(store_dir)
+        if state is None:
+            print("No pending merge state found.")
+            return 1
+        conflicts = state.get("conflicts", [])
+        if conflicts:
+            print(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
+            return 1
+        graph = load_merge_worktree(store_dir)
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="merge",
+                namespace=current_branch,
+                current_graph=graph,
+                baseline_graph=baseline_graph,
+                approve=args.approve,
+            )
+            is None
+        ):
+            return 1
+        identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
+        message = args.message or f"Merge branch '{state['other_ref']}' into {state['current_branch']}"
+        merge_parent_ids = (
+            [state["other_version"]]
+            if state.get("other_version") and state.get("other_version") != state.get("current_version")
+            else []
+        )
+        version = store.commit(
+            graph,
+            message,
+            source="merge",
+            identity=identity,
+            parent_id=state.get("current_version"),
+            branch=state["current_branch"],
+            merge_parent_ids=merge_parent_ids,
+        )
+        clear_merge_state(store_dir)
+        payload = {"status": "ok", "commit_id": version.version_id, "message": message}
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Committed resolved merge: {version.version_id}")
+        return 0
+
+    if not args.ref_name:
+        print("Specify a branch/ref to merge, or use --conflicts, --resolve, --commit-resolved, or --abort.")
+        return 1
+
+    try:
+        result = merge_refs(store, "HEAD", args.ref_name)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    payload = {
+        "current_branch": current_branch,
+        "merged_ref": args.ref_name,
+        "base_version": result.base_version,
+        "current_version": result.current_version,
+        "other_version": result.other_version,
+        "summary": result.summary,
+        "conflicts": [conflict.to_dict() for conflict in result.conflicts],
+    }
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(result.merged.export_v5(), indent=2), encoding="utf-8")
+        payload["output"] = str(output_path)
+
+    no_changes = (
+        result.summary.get("summary", {}).get("added", 0) == 0
+        and result.summary.get("summary", {}).get("removed", 0) == 0
+        and result.summary.get("summary", {}).get("modified", 0) == 0
+        and result.summary.get("summary", {}).get("edges_added", 0) == 0
+        and result.summary.get("summary", {}).get("edges_removed", 0) == 0
+    )
+
+    if result.ok and not args.dry_run and not no_changes:
+        baseline_version = store.resolve_ref("HEAD")
+        baseline_graph = store.checkout(baseline_version) if baseline_version else None
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="merge",
+                namespace=current_branch,
+                current_graph=result.merged,
+                baseline_graph=baseline_graph,
+                approve=args.approve,
+            )
+            is None
+        ):
+            return 1
+        identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
+        message = args.message or f"Merge branch '{args.ref_name}' into {current_branch}"
+        merge_parent_ids = (
+            [result.other_version] if result.other_version and result.other_version != result.current_version else []
+        )
+        version = store.commit(
+            result.merged,
+            message,
+            source="merge",
+            identity=identity,
+            parent_id=result.current_version,
+            branch=current_branch,
+            merge_parent_ids=merge_parent_ids,
+        )
+        payload["commit_id"] = version.version_id
+    elif result.conflicts and not args.dry_run:
+        state = save_merge_state(
+            store_dir,
+            current_branch=current_branch,
+            other_ref=args.ref_name,
+            result=result,
+        )
+        payload["pending_merge"] = True
+        payload["pending_conflicts"] = len(state["conflicts"])
+
+    if args.format == "json":
+        print(json.dumps(payload, indent=2))
+        return 0 if result.ok else 1
+
+    if no_changes and result.ok:
+        print(f"Already up to date: {current_branch} already contains {args.ref_name}")
+        return 0
+
+    print(f"Merging {args.ref_name} into {current_branch}")
+    if result.base_version:
+        print(f"  Base:    {result.base_version}")
+    if result.current_version:
+        print(f"  Current: {result.current_version}")
+    if result.other_version:
+        print(f"  Other:   {result.other_version}")
+    print(
+        "  Summary:"
+        f" +{result.summary.get('summary', {}).get('added', 0)}"
+        f" -{result.summary.get('summary', {}).get('removed', 0)}"
+        f" ~{result.summary.get('summary', {}).get('modified', 0)}"
+    )
+    if result.conflicts:
+        print("  Conflicts:")
+        for conflict in result.conflicts:
+            field = f" [{conflict.field}]" if conflict.field else ""
+            print(f"    - {conflict.id} {conflict.kind}{field}: {conflict.description}")
+        if not args.dry_run:
+            print(
+                "  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`."
+            )
+        return 1
+    if payload.get("commit_id"):
+        print(f"  Committed merge: {payload['commit_id']}")
+    elif args.dry_run:
+        print("  Dry run only, no commit created.")
+    return 0
+
+
+def run_review(args):
+    """Review a graph or stored ref against a baseline."""
+    store = VersionStore(Path(args.store_dir))
+    against_version = _resolve_version_or_exit(store, args.against)
+    against_graph = store.checkout(against_version)
+    try:
+        fail_policies = parse_failure_policies(args.fail_on)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    if args.input_file:
+        input_path = Path(args.input_file)
+        if not input_path.exists():
+            print(f"File not found: {input_path}")
+            return 1
+        current_graph = _load_graph(input_path)
+        current_label = str(input_path)
+    else:
+        current_version = _resolve_version_or_exit(store, args.ref)
+        current_graph = store.checkout(current_version)
+        current_label = current_version
+
+    review = review_graphs(
+        current_graph,
+        against_graph,
+        current_label=current_label,
+        against_label=against_version,
+    )
+    result = review.to_dict()
+    should_fail, failure_counts = review.should_fail(fail_policies)
+    result["fail_on"] = fail_policies
+    result["failure_counts"] = failure_counts
+    result["status"] = "fail" if should_fail else "pass"
+
+    if args.format == "json":
+        print(json.dumps(result, indent=2))
+    elif args.format == "md":
+        print(review.to_markdown(fail_policies), end="")
+    else:
+        summary = result["summary"]
+        print(f"Review {result['current']} against {result['against']}")
+        print(
+            "  Summary:"
+            f" +{summary['added_nodes']}"
+            f" -{summary['removed_nodes']}"
+            f" ~{summary['modified_nodes']}"
+            f" contradictions={summary['new_contradictions']}"
+            f" temporal_gaps={summary['new_temporal_gaps']}"
+            f" low_confidence={summary['introduced_low_confidence_active_priorities']}"
+            f" retractions={summary['new_retractions']}"
+            f" semantic={summary['semantic_changes']}"
+        )
+        print(f"  Gates: {', '.join(fail_policies)} -> {result['status']}")
+        if result["diff"]["added_nodes"]:
+            print("  Added nodes:")
+            for item in result["diff"]["added_nodes"][:10]:
+                print(f"    + {item['label']} ({item['id']})")
+        if result["diff"]["modified_nodes"]:
+            print("  Modified nodes:")
+            for item in result["diff"]["modified_nodes"][:10]:
+                print(f"    ~ {item['label']}: {', '.join(sorted(item['changes']))}")
+        if result["new_contradictions"]:
+            print("  New contradictions:")
+            for item in result["new_contradictions"][:10]:
+                print(f"    - {item['type']}: {item['description']}")
+        if result["new_temporal_gaps"]:
+            print("  New temporal gaps:")
+            for item in result["new_temporal_gaps"][:10]:
+                print(f"    - {item['label']}: {item['kind']}")
+        if result["semantic_changes"]:
+            print("  Semantic changes:")
+            for item in result["semantic_changes"][:10]:
+                print(f"    - {item['type']}: {item['description']}")
+    return 0 if not should_fail else 1
+
+
 def run_log(args):
     """Show version history."""
     store_dir = Path(args.store_dir)
     store = VersionStore(store_dir)
-    versions = store.log(limit=args.limit)
+    ref = None if args.all else (args.branch or "HEAD")
+    if (
+        _governance_decision_or_error(
+            store_dir=store_dir,
+            actor=args.actor,
+            action="read",
+            namespace=_current_branch_or_ref(store, ref),
+        )
+        is None
+    ):
+        return 1
+    versions = store.log(limit=args.limit, ref=ref)
 
     if not versions:
         print("No version history found.")
         return 0
 
+    current_head = store.resolve_ref("HEAD")
     for v in versions:
-        print(f"  {v.version_id}  {v.timestamp}  [{v.source}]")
+        marker = "*" if v.version_id == current_head else " "
+        print(f"{marker} {v.version_id}  {v.timestamp}  [{v.source}] ({v.branch})")
         print(f"    {v.message}")
         print(f"    nodes={v.node_count} edges={v.edge_count}", end="")
         if v.signature:
             print("  signed", end="")
         print()
     return 0
+
+
+def _rule_from_args(args, effect: str) -> GovernanceRule:
+    invalid_actions = [item for item in args.action if item != "*" and item not in GOVERNANCE_ACTIONS]
+    if invalid_actions:
+        raise ValueError(f"Unknown governance action(s): {', '.join(sorted(invalid_actions))}")
+    return GovernanceRule(
+        name=args.name,
+        effect=effect,
+        actor_pattern=args.actor_pattern,
+        actions=list(args.action),
+        namespaces=list(args.namespace),
+        require_approval=bool(getattr(args, "require_approval", False)),
+        approval_below_confidence=getattr(args, "approval_below_confidence", None),
+        approval_tags=list(getattr(args, "approval_tag", [])),
+        approval_change_types=list(getattr(args, "approval_change", [])),
+        description=getattr(args, "description", ""),
+    )
+
+
+def run_governance(args):
+    store_dir = Path(args.store_dir)
+    governance = GovernanceStore(store_dir)
+
+    if args.governance_subcommand == "list":
+        rules = [rule.to_dict() for rule in governance.list_rules()]
+        payload = {"rules": rules}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not rules:
+            print("No governance rules configured.")
+            return 0
+        for rule in rules:
+            approval = " approval" if rule.get("require_approval") else ""
+            print(
+                f"{rule['name']}: {rule['effect']} actor={rule['actor_pattern']} "
+                f"actions={','.join(rule['actions'])} namespaces={','.join(rule['namespaces'])}{approval}"
+            )
+        return 0
+
+    if args.governance_subcommand in {"allow", "deny"}:
+        try:
+            rule = _rule_from_args(args, effect=args.governance_subcommand)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        governance.upsert_rule(rule)
+        payload = {"status": "ok", "rule": rule.to_dict()}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Saved governance rule {rule.name}.")
+        return 0
+
+    if args.governance_subcommand == "delete":
+        removed = governance.remove_rule(args.name)
+        payload = {"status": "ok" if removed else "missing", "name": args.name}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if removed:
+            print(f"Deleted governance rule {args.name}.")
+        else:
+            print(f"Governance rule not found: {args.name}")
+        return 0 if removed else 1
+
+    if args.governance_subcommand == "check":
+        current_graph = None
+        baseline_graph = None
+        if args.input_file:
+            input_path = Path(args.input_file)
+            if not input_path.exists():
+                print(f"File not found: {input_path}")
+                return 1
+            current_graph = _load_graph(input_path)
+        if args.against:
+            store = VersionStore(store_dir)
+            baseline_graph = store.checkout(_resolve_version_or_exit(store, args.against))
+        decision = governance.authorize(
+            args.actor,
+            args.action,
+            args.namespace,
+            current_graph=current_graph,
+            baseline_graph=baseline_graph,
+        )
+        if _emit_result(decision.to_dict(), args.format) == 0:
+            return 0
+        status = "allow" if decision.allowed else "deny"
+        print(f"{status.upper()}: actor '{decision.actor}' -> {decision.action} {decision.namespace}")
+        if decision.matched_rules:
+            print(f"  Rules: {', '.join(decision.matched_rules)}")
+        if decision.require_approval:
+            print("  Approval required")
+        for reason in decision.reasons:
+            print(f"  - {reason}")
+        return 0 if decision.allowed else 1
+
+    print("Specify a governance subcommand: list, allow, deny, delete, check")
+    return 1
+
+
+def run_remote(args):
+    store_dir = Path(args.store_dir)
+    registry = RemoteRegistry(store_dir)
+    store = VersionStore(store_dir)
+
+    if args.remote_subcommand == "list":
+        remotes = [remote.to_dict() | {"store_path": str(remote.store_path)} for remote in registry.list_remotes()]
+        payload = {"remotes": remotes}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not remotes:
+            print("No remotes configured.")
+            return 0
+        for remote in remotes:
+            print(f"{remote['name']}: {remote['store_path']} (default={remote['default_branch']})")
+        return 0
+
+    if args.remote_subcommand == "add":
+        remote = MemoryRemote(name=args.name, path=args.path, default_branch=args.default_branch)
+        registry.add(remote)
+        payload = {"status": "ok", "remote": remote.to_dict() | {"store_path": str(remote.store_path)}}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Added remote {remote.name} -> {remote.store_path}")
+        return 0
+
+    if args.remote_subcommand == "remove":
+        removed = registry.remove(args.name)
+        payload = {"status": "ok" if removed else "missing", "name": args.name}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if removed:
+            print(f"Removed remote {args.name}.")
+        else:
+            print(f"Remote not found: {args.name}")
+        return 0 if removed else 1
+
+    remote = registry.get(args.name)
+    if remote is None:
+        print(f"Remote not found: {args.name}")
+        return 1
+
+    if args.remote_subcommand == "push":
+        namespace = _current_branch_or_ref(store, args.branch)
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="push",
+                namespace=namespace,
+            )
+            is None
+        ):
+            return 1
+        try:
+            payload = push_remote(
+                store,
+                remote,
+                branch=args.branch,
+                target_branch=args.to_branch,
+                force=args.force,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Pushed {payload['branch']} -> {remote.name}:{payload['remote_branch']} ({payload['head']})")
+        return 0
+
+    if args.remote_subcommand == "pull":
+        remote_branch = args.branch or remote.default_branch
+        namespace = args.into_branch or f"remotes/{remote.name}/{remote_branch}"
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="pull",
+                namespace=namespace,
+            )
+            is None
+        ):
+            return 1
+        try:
+            payload = pull_remote(
+                store,
+                remote,
+                branch=remote_branch,
+                into_branch=args.into_branch,
+                force=args.force,
+                switch=args.switch,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Pulled {remote.name}:{remote_branch} -> {payload['branch']} ({payload['head']})")
+        return 0
+
+    if args.remote_subcommand == "fork":
+        remote_branch = args.remote_branch or remote.default_branch
+        if (
+            _governance_decision_or_error(
+                store_dir=store_dir,
+                actor=args.actor,
+                action="branch",
+                namespace=args.branch_name,
+            )
+            is None
+        ):
+            return 1
+        try:
+            payload = fork_remote(
+                store,
+                remote,
+                remote_branch=remote_branch,
+                local_branch=args.branch_name,
+                switch=args.switch,
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print(f"Forked {remote.name}:{remote_branch} -> {args.branch_name} ({payload['head']})")
+        return 0
+
+    print("Specify a remote subcommand: list, add, remove, push, pull, fork")
+    return 1
 
 
 def run_sync(args):
@@ -1339,6 +3168,11 @@ def run_gaps(args):
         for g in gaps["relationship_gaps"]:
             print(f"  - {g['tag']}: {g['node_count']} nodes, 0 edges")
 
+    if gaps["temporal_gaps"]:
+        print(f"\nTemporal gaps ({len(gaps['temporal_gaps'])}):")
+        for g in gaps["temporal_gaps"]:
+            print(f"  - {g['label']}: {g['kind']}" + (f" [{g['status']}]" if g.get("status") else ""))
+
     if gaps["isolated_nodes"]:
         print(f"\nIsolated nodes ({len(gaps['isolated_nodes'])}):")
         for g in gaps["isolated_nodes"]:
@@ -1353,6 +3187,7 @@ def run_gaps(args):
         len(gaps["category_gaps"])
         + len(gaps["confidence_gaps"])
         + len(gaps["relationship_gaps"])
+        + len(gaps["temporal_gaps"])
         + len(gaps["isolated_nodes"])
         + len(gaps["stale_nodes"])
     )
@@ -1394,6 +3229,16 @@ def run_digest(args):
         for c in digest["confidence_changes"]:
             direction = "+" if c["delta"] > 0 else ""
             print(f"  {c['label']}: {c['previous']:.2f} -> {c['current']:.2f} ({direction}{c['delta']:.2f})")
+
+    if digest["temporal_changes"]:
+        print(f"\nTemporal changes ({len(digest['temporal_changes'])}):")
+        for c in digest["temporal_changes"]:
+            print(
+                f"  {c['label']}: "
+                f"status {c['previous_status'] or '?'} -> {c['current_status'] or '?'}; "
+                f"valid_from {c['previous_valid_from'] or '?'} -> {c['current_valid_from'] or '?'}; "
+                f"valid_to {c['previous_valid_to'] or '?'} -> {c['current_valid_to'] or '?'}"
+            )
 
     if digest["new_edges"]:
         print(f"\nNew edges ({len(digest['new_edges'])}):")
@@ -1800,6 +3645,29 @@ def run_context_write(args):
     return 0
 
 
+def run_ui(args):
+    """Launch the local Cortex infrastructure UI."""
+    from cortex.webapp import start_ui_server
+
+    server, url = start_ui_server(
+        host=args.host,
+        port=args.port,
+        store_dir=args.store_dir,
+        context_file=args.context_file,
+        open_browser=args.open,
+    )
+    print(f"Cortex UI running at {url}")
+    print("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("\nCortex UI stopped.")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -1908,6 +3776,7 @@ def main(argv=None):
     # treat it as a file path and route to the "migrate" subcommand.
     known_subcommands = (
         "extract",
+        "ingest",
         "import",
         "memory",
         "migrate",
@@ -1916,9 +3785,21 @@ def main(argv=None):
         "timeline",
         "contradictions",
         "drift",
+        "diff",
+        "blame",
+        "history",
+        "claim",
+        "checkout",
+        "rollback",
         "identity",
         "commit",
+        "branch",
+        "switch",
+        "merge",
+        "review",
         "log",
+        "governance",
+        "remote",
         "sync",
         "verify",
         "gaps",
@@ -1930,6 +3811,7 @@ def main(argv=None):
         "context-hook",
         "context-export",
         "context-write",
+        "ui",
         "rotate",
         "pull",
         "completion",
@@ -1948,6 +3830,8 @@ def main(argv=None):
 
     if args.subcommand == "extract":
         return run_extract(args)
+    elif args.subcommand == "ingest":
+        return run_ingest(args)
     elif args.subcommand == "import":
         return run_import(args)
     elif args.subcommand == "memory":
@@ -1957,11 +3841,13 @@ def main(argv=None):
             return run_memory_show(args)
         elif args.memory_subcommand == "forget":
             return run_memory_forget(args)
+        elif args.memory_subcommand == "retract":
+            return run_memory_retract(args)
         elif args.memory_subcommand == "set":
             return run_memory_set(args)
         elif args.memory_subcommand == "resolve":
             return run_memory_resolve(args)
-        print("Specify a memory subcommand: conflicts, show, forget, set, resolve")
+        print("Specify a memory subcommand: conflicts, show, forget, retract, set, resolve")
         return 1
     elif args.subcommand == "query":
         return run_query(args)
@@ -1973,12 +3859,47 @@ def main(argv=None):
         return run_contradictions(args)
     elif args.subcommand == "drift":
         return run_drift(args)
+    elif args.subcommand == "diff":
+        return run_diff(args)
+    elif args.subcommand == "blame":
+        return run_blame(args)
+    elif args.subcommand == "history":
+        return run_history(args)
+    elif args.subcommand == "claim":
+        if args.claim_subcommand == "log":
+            return run_claim_log(args)
+        elif args.claim_subcommand == "show":
+            return run_claim_show(args)
+        elif args.claim_subcommand == "accept":
+            return run_claim_accept(args)
+        elif args.claim_subcommand == "reject":
+            return run_claim_reject(args)
+        elif args.claim_subcommand == "supersede":
+            return run_claim_supersede(args)
+        print("Specify a claim subcommand: log, show, accept, reject, supersede")
+        return 1
+    elif args.subcommand == "checkout":
+        return run_checkout(args)
+    elif args.subcommand == "rollback":
+        return run_rollback(args)
     elif args.subcommand == "identity":
         return run_identity(args)
     elif args.subcommand == "commit":
         return run_commit(args)
+    elif args.subcommand == "branch":
+        return run_branch(args)
+    elif args.subcommand == "switch":
+        return run_switch(args)
+    elif args.subcommand == "merge":
+        return run_merge(args)
+    elif args.subcommand == "review":
+        return run_review(args)
     elif args.subcommand == "log":
         return run_log(args)
+    elif args.subcommand == "governance":
+        return run_governance(args)
+    elif args.subcommand == "remote":
+        return run_remote(args)
     elif args.subcommand == "sync":
         return run_sync(args)
     elif args.subcommand == "verify":
@@ -2005,6 +3926,8 @@ def main(argv=None):
         return run_rotate(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
+    elif args.subcommand == "ui":
+        return run_ui(args)
     elif args.subcommand == "completion":
         return run_completion(args)
     else:

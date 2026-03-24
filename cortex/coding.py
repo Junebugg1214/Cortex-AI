@@ -89,6 +89,7 @@ CONFIG_FILE_PATTERNS: dict[str, str] = {
 BASH_TOOL_PATTERNS: dict[str, str] = {
     r"\bpytest\b": "Pytest",
     r"\bpython3?\b": "Python",
+    r"\buv\b": "uv",
     r"\bnpm\b": "npm",
     r"\byarn\b": "Yarn",
     r"\bpnpm\b": "pnpm",
@@ -325,9 +326,13 @@ def _is_test_file(file_path: str) -> bool:
         name.startswith("test_")
         or name.endswith("_test.py")
         or name.endswith(".test.ts")
+        or name.endswith(".test.tsx")
         or name.endswith(".test.js")
+        or name.endswith(".test.jsx")
         or name.endswith(".spec.ts")
+        or name.endswith(".spec.tsx")
         or name.endswith(".spec.js")
+        or name.endswith(".spec.jsx")
         or "/tests/" in file_path
         or "/test/" in file_path
         or "/__tests__/" in file_path

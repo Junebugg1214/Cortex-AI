@@ -16,6 +16,42 @@ if TYPE_CHECKING:
     from cortex.graph import CortexGraph
 
 
+def _normalize_timestamp(timestamp: str) -> str:
+    if not timestamp:
+        return ""
+    value = timestamp.strip()
+    if not value:
+        return ""
+    try:
+        normalized = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    else:
+        normalized = normalized.astimezone(timezone.utc)
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _normalize_temporal_status(node: Node) -> str:
+    raw = (getattr(node, "status", "") or "").strip().lower()
+    if raw in {"planned", "future", "upcoming", "intended"}:
+        return "planned"
+    if raw in {"active", "current", "ongoing", "present"}:
+        return "active"
+    if raw in {"historical", "past", "former", "inactive", "completed", "ended"}:
+        return "historical"
+
+    timeline = {str(item).strip().lower() for item in getattr(node, "timeline", [])}
+    if "planned" in timeline or "future" in timeline:
+        return "planned"
+    if "past" in timeline or "historical" in timeline:
+        return "historical"
+    if "current" in timeline or "active" in timeline:
+        return "active"
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # Gap Analyzer
 # ---------------------------------------------------------------------------
@@ -97,25 +133,75 @@ class GapAnalyzer:
         stale: list[Node] = []
 
         for node in graph.nodes.values():
-            # Skip nodes without temporal data
-            if not node.last_seen and not node.snapshots:
-                continue
-
-            # Check if any recent activity
-            is_recent = False
-            if node.last_seen and node.last_seen >= cutoff:
-                is_recent = True
-            if not is_recent:
-                for snap in node.snapshots:
-                    if snap.get("timestamp", "") >= cutoff:
-                        is_recent = True
-                        break
-
-            if not is_recent and node.last_seen:
+            timestamps = [node.last_seen] if node.last_seen else []
+            timestamps.extend(snap.get("timestamp", "") for snap in node.snapshots if snap.get("timestamp"))
+            if timestamps and max(timestamps) < cutoff:
                 stale.append(node)
 
-        stale.sort(key=lambda n: n.last_seen)
+        stale.sort(
+            key=lambda n: max(
+                [n.last_seen] + [snap.get("timestamp", "") for snap in n.snapshots if snap.get("timestamp")]
+            )
+        )
         return stale
+
+    def temporal_gaps(self, graph: CortexGraph, now: datetime | None = None) -> list[dict]:
+        """Lifecycle and validity-window issues that make temporal claims ambiguous."""
+        now = now or datetime.now(timezone.utc)
+        now_iso = now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        results: list[dict] = []
+
+        for node in graph.nodes.values():
+            status = _normalize_temporal_status(node)
+            valid_from = _normalize_timestamp(getattr(node, "valid_from", "") or "")
+            valid_to = _normalize_timestamp(getattr(node, "valid_to", "") or "")
+
+            if valid_from and valid_to and valid_to < valid_from:
+                results.append(
+                    {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "kind": "invalid_window",
+                        "status": status,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                    }
+                )
+            if status == "planned" and not valid_from:
+                results.append(
+                    {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "kind": "planned_missing_start",
+                        "status": status,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                    }
+                )
+            if status == "historical" and not valid_to:
+                results.append(
+                    {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "kind": "historical_missing_end",
+                        "status": status,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                    }
+                )
+            if status == "active" and valid_to and valid_to < now_iso:
+                results.append(
+                    {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "kind": "expired_still_active",
+                        "status": status,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to,
+                    }
+                )
+
+        return results
 
     def all_gaps(self, graph: CortexGraph) -> dict:
         """Run all gap analyses and return combined dict."""
@@ -125,6 +211,7 @@ class GapAnalyzer:
             "category_gaps": self.category_gaps(graph),
             "confidence_gaps": self.confidence_gaps(graph),
             "relationship_gaps": self.relationship_gaps(graph),
+            "temporal_gaps": self.temporal_gaps(graph),
             "isolated_nodes": [{"id": n.id, "label": n.label, "confidence": n.confidence} for n in isolated],
             "stale_nodes": [{"id": n.id, "label": n.label, "last_seen": n.last_seen} for n in stale],
         }
@@ -201,6 +288,32 @@ class InsightGenerator:
                 )
         confidence_changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
 
+        temporal_changes: list[dict] = []
+        for lbl in cur_labels & prev_labels:
+            cur_node = cur_by_label[lbl]
+            prev_node = prev_by_label[lbl]
+            cur_status = _normalize_temporal_status(cur_node)
+            prev_status = _normalize_temporal_status(prev_node)
+            cur_valid_from = _normalize_timestamp(getattr(cur_node, "valid_from", "") or "")
+            prev_valid_from = _normalize_timestamp(getattr(prev_node, "valid_from", "") or "")
+            cur_valid_to = _normalize_timestamp(getattr(cur_node, "valid_to", "") or "")
+            prev_valid_to = _normalize_timestamp(getattr(prev_node, "valid_to", "") or "")
+
+            if cur_status == prev_status and cur_valid_from == prev_valid_from and cur_valid_to == prev_valid_to:
+                continue
+
+            temporal_changes.append(
+                {
+                    "label": cur_node.label,
+                    "previous_status": prev_status,
+                    "current_status": cur_status,
+                    "previous_valid_from": prev_valid_from,
+                    "current_valid_from": cur_valid_from,
+                    "previous_valid_to": prev_valid_to,
+                    "current_valid_to": cur_valid_to,
+                }
+            )
+
         # New edges
         prev_edge_ids = set(previous.edges.keys())
         new_edges = []
@@ -219,9 +332,10 @@ class InsightGenerator:
         # Drift score
         ds = drift_score(previous, current)
 
-        # Contradictions in current
+        # Contradictions newly introduced in current
         engine = ContradictionEngine()
-        contradictions = engine.detect_all(current)
+        previous_contradiction_ids = {c.id for c in engine.detect_all(previous)}
+        contradictions = [c for c in engine.detect_all(current) if c.id not in previous_contradiction_ids]
         contradiction_dicts = [
             {"type": c.type, "description": c.description, "severity": c.severity} for c in contradictions
         ]
@@ -234,6 +348,7 @@ class InsightGenerator:
             "new_nodes": new_nodes,
             "removed_nodes": removed_nodes,
             "confidence_changes": confidence_changes,
+            "temporal_changes": temporal_changes,
             "new_edges": new_edges,
             "drift_score": ds,
             "new_contradictions": contradiction_dicts,

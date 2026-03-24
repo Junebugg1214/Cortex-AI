@@ -8,6 +8,7 @@ Uses existing CortexGraph.merge_nodes() for actual merging.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,14 +20,30 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+_ALIAS_MAP = {
+    "js": "javascript",
+    "k8s": "kubernetes",
+    "postgres": "postgresql",
+}
+
+
+def _canonicalize_label(label: str) -> tuple[str, str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+    canonical = " ".join(_ALIAS_MAP.get(token, token) for token in normalized.split())
+    base = re.sub(r"(?:\s+v?\d+(?:\s+\d+)*)+$", "", canonical).strip() or canonical
+    return canonical, base
+
+
 def text_similarity(label_a: str, label_b: str) -> float:
     """Text similarity between two labels using SequenceMatcher.
 
     Returns float in [0.0, 1.0].
     """
-    a = label_a.lower().strip()
-    b = label_b.lower().strip()
+    a, a_base = _canonicalize_label(label_a)
+    b, b_base = _canonicalize_label(label_b)
     if a == b:
+        return 1.0
+    if a_base == b_base:
         return 1.0
     return difflib.SequenceMatcher(None, a, b).ratio()
 
