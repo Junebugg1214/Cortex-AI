@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from cortex.claims import ClaimLedger
 from cortex.cli import _load_graph
-from cortex.governance import GOVERNANCE_ACTIONS, GovernanceRule, GovernanceStore
+from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.memory_ops import blame_memory_nodes
-from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
 from cortex.review import parse_failure_policies, review_graphs
-from cortex.upai.versioning import VersionStore
+from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
+from cortex.storage import get_storage_backend
+from cortex.storage.base import StorageBackend
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -29,9 +29,15 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 class MemoryUIBackend:
-    def __init__(self, store_dir: str | Path, context_file: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        store_dir: str | Path,
+        context_file: str | Path | None = None,
+        backend: StorageBackend | None = None,
+    ) -> None:
         self.store_dir = Path(store_dir)
         self.context_file = Path(context_file).resolve() if context_file else None
+        self.backend = backend or get_storage_backend(self.store_dir)
 
     def _default_context_file(self) -> Path | None:
         if self.context_file:
@@ -52,33 +58,33 @@ class MemoryUIBackend:
         return path
 
     def meta(self) -> dict[str, Any]:
-        store = VersionStore(self.store_dir)
-        current = store.current_branch()
+        versions = self.backend.versions
+        current = versions.current_branch()
         return {
             "store_dir": str(self.store_dir.resolve()),
             "context_file": str(self._default_context_file()) if self._default_context_file() else "",
             "current_branch": current,
-            "head": store.resolve_ref("HEAD"),
+            "head": versions.resolve_ref("HEAD"),
         }
 
     def review(
         self, *, input_file: str | None, against: str, ref: str = "HEAD", fail_on: str = "blocking"
     ) -> dict[str, Any]:
-        store = VersionStore(self.store_dir)
-        against_version = store.resolve_ref(against)
+        versions = self.backend.versions
+        against_version = versions.resolve_ref(against)
         if against_version is None:
             raise ValueError(f"Unknown baseline ref: {against}")
-        against_graph = store.checkout(against_version)
+        against_graph = versions.checkout(against_version)
 
         if input_file:
             input_path = self._resolve_input_file(input_file)
             current_graph = _load_graph(input_path)
             current_label = str(input_path)
         else:
-            current_version = store.resolve_ref(ref)
+            current_version = versions.resolve_ref(ref)
             if current_version is None:
                 raise ValueError(f"Unknown current ref: {ref}")
-            current_graph = store.checkout(current_version)
+            current_graph = versions.checkout(current_version)
             current_label = current_version
 
         fail_policies = parse_failure_policies(fail_on)
@@ -102,8 +108,8 @@ class MemoryUIBackend:
     ) -> dict[str, Any]:
         input_path = self._resolve_input_file(input_file)
         graph = _load_graph(input_path)
-        store = VersionStore(self.store_dir) if (self.store_dir / "history.json").exists() else None
-        ledger = ClaimLedger(self.store_dir) if (self.store_dir / "claims.jsonl").exists() else None
+        store = self.backend.versions if (self.store_dir / "history.json").exists() else None
+        ledger = self.backend.claims if (self.store_dir / "claims.jsonl").exists() else None
         return blame_memory_nodes(
             graph,
             label=label or None,
@@ -140,8 +146,7 @@ class MemoryUIBackend:
         }
 
     def list_governance_rules(self) -> dict[str, Any]:
-        governance = GovernanceStore(self.store_dir)
-        return {"rules": [rule.to_dict() for rule in governance.list_rules()]}
+        return {"rules": [rule.to_dict() for rule in self.backend.governance.list_rules()]}
 
     def save_governance_rule(self, *, effect: str, payload: dict[str, Any]) -> dict[str, Any]:
         actions = list(payload.get("actions") or payload.get("action") or [])
@@ -149,7 +154,8 @@ class MemoryUIBackend:
         invalid = [item for item in actions if item != "*" and item not in GOVERNANCE_ACTIONS]
         if invalid:
             raise ValueError(f"Unknown governance action(s): {', '.join(sorted(invalid))}")
-        rule = GovernanceRule(
+        rule = GovernanceRuleRecord(
+            tenant_id=self.backend.tenant_id,
             name=payload["name"],
             effect=effect,
             actor_pattern=payload.get("actor_pattern", "*"),
@@ -161,13 +167,11 @@ class MemoryUIBackend:
             approval_change_types=list(payload.get("approval_change_types", [])),
             description=payload.get("description", ""),
         )
-        governance = GovernanceStore(self.store_dir)
-        governance.upsert_rule(rule)
+        self.backend.governance.upsert_rule(rule)
         return {"status": "ok", "rule": rule.to_dict()}
 
     def delete_governance_rule(self, name: str) -> dict[str, Any]:
-        governance = GovernanceStore(self.store_dir)
-        removed = governance.remove_rule(name)
+        removed = self.backend.governance.remove_rule(name)
         return {"status": "ok" if removed else "missing", "name": name}
 
     def check_governance(
@@ -182,13 +186,11 @@ class MemoryUIBackend:
         current_graph = _load_graph(self._resolve_input_file(input_file)) if input_file else None
         baseline_graph = None
         if against:
-            store = VersionStore(self.store_dir)
-            version_id = store.resolve_ref(against)
+            version_id = self.backend.versions.resolve_ref(against)
             if version_id is None:
                 raise ValueError(f"Unknown baseline ref: {against}")
-            baseline_graph = store.checkout(version_id)
-        governance = GovernanceStore(self.store_dir)
-        return governance.authorize(
+            baseline_graph = self.backend.versions.checkout(version_id)
+        return self.backend.governance.authorize(
             actor,
             action,
             namespace,
@@ -197,30 +199,32 @@ class MemoryUIBackend:
         ).to_dict()
 
     def list_remotes(self) -> dict[str, Any]:
-        registry = RemoteRegistry(self.store_dir)
         return {
-            "remotes": [remote.to_dict() | {"store_path": str(remote.store_path)} for remote in registry.list_remotes()]
+            "remotes": [
+                remote.to_dict() | {"store_path": remote.resolved_store_path}
+                for remote in self.backend.remotes.list_remotes()
+            ]
         }
 
     def add_remote(self, *, name: str, path: str, default_branch: str = "main") -> dict[str, Any]:
-        remote = MemoryRemote(name=name, path=path, default_branch=default_branch)
-        registry = RemoteRegistry(self.store_dir)
-        registry.add(remote)
-        return {"status": "ok", "remote": remote.to_dict() | {"store_path": str(remote.store_path)}}
+        remote = RemoteRecord(
+            tenant_id=self.backend.tenant_id,
+            name=name,
+            path=path,
+            default_branch=default_branch,
+        )
+        self.backend.remotes.add_remote(remote)
+        stored = next(item for item in self.backend.remotes.list_remotes() if item.name == name)
+        return {"status": "ok", "remote": stored.to_dict() | {"store_path": stored.resolved_store_path}}
 
     def remove_remote(self, name: str) -> dict[str, Any]:
-        registry = RemoteRegistry(self.store_dir)
-        removed = registry.remove(name)
+        removed = self.backend.remotes.remove_remote(name)
         return {"status": "ok" if removed else "missing", "name": name}
 
     def remote_push(
         self, *, name: str, branch: str = "HEAD", to_branch: str | None = None, force: bool = False
     ) -> dict[str, Any]:
-        registry = RemoteRegistry(self.store_dir)
-        remote = registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return push_remote(VersionStore(self.store_dir), remote, branch=branch, target_branch=to_branch, force=force)
+        return self.backend.remotes.push_remote(name, branch=branch, target_branch=to_branch, force=force)
 
     def remote_pull(
         self,
@@ -231,14 +235,14 @@ class MemoryUIBackend:
         switch: bool = False,
         force: bool = False,
     ) -> dict[str, Any]:
-        registry = RemoteRegistry(self.store_dir)
-        remote = registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return pull_remote(
-            VersionStore(self.store_dir),
-            remote,
-            branch=branch or remote.default_branch,
+        if branch is None:
+            matching = next((item for item in self.backend.remotes.list_remotes() if item.name == name), None)
+            if matching is None:
+                raise ValueError(f"Unknown remote: {name}")
+            branch = matching.default_branch
+        return self.backend.remotes.pull_remote(
+            name,
+            branch=branch,
             into_branch=into_branch,
             switch=switch,
             force=force,
@@ -247,14 +251,14 @@ class MemoryUIBackend:
     def remote_fork(
         self, *, name: str, branch_name: str, remote_branch: str | None = None, switch: bool = False
     ) -> dict[str, Any]:
-        registry = RemoteRegistry(self.store_dir)
-        remote = registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return fork_remote(
-            VersionStore(self.store_dir),
-            remote,
-            remote_branch=remote_branch or remote.default_branch,
+        if remote_branch is None:
+            matching = next((item for item in self.backend.remotes.list_remotes() if item.name == name), None)
+            if matching is None:
+                raise ValueError(f"Unknown remote: {name}")
+            remote_branch = matching.default_branch
+        return self.backend.remotes.fork_remote(
+            name,
+            remote_branch=remote_branch,
             local_branch=branch_name,
             switch=switch,
         )
