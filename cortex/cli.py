@@ -32,7 +32,7 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
-from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceRule, GovernanceStore
+from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceStore
 from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
@@ -63,8 +63,9 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
-from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
 from cortex.review import parse_failure_policies, review_graphs
+from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
+from cortex.storage import get_storage_backend
 from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
@@ -1384,7 +1385,7 @@ def _load_identity(store_dir: Path) -> UPAIIdentity | None:
     return None
 
 
-def _current_branch_or_ref(store: VersionStore, ref: str | None = None) -> str:
+def _current_branch_or_ref(store, ref: str | None = None) -> str:
     if not ref or ref == "HEAD":
         return store.current_branch()
     return ref
@@ -1620,7 +1621,8 @@ def run_blame(args):
     graph = _load_graph(input_path)
 
     store_path = Path(args.store_dir)
-    store = VersionStore(store_path)
+    backend = get_storage_backend(store_path)
+    store = backend.versions
     if (
         _governance_decision_or_error(
             store_dir=store_path,
@@ -1632,7 +1634,7 @@ def run_blame(args):
     ):
         return 1
     store = store if (store_path / "history.json").exists() else None
-    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
+    ledger = backend.claims if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
         label=args.label,
@@ -1746,7 +1748,8 @@ def run_history(args):
     graph = _load_graph(input_path)
 
     store_path = Path(args.store_dir)
-    store = VersionStore(store_path)
+    backend = get_storage_backend(store_path)
+    store = backend.versions
     if (
         _governance_decision_or_error(
             store_dir=store_path,
@@ -1758,7 +1761,7 @@ def run_history(args):
     ):
         return 1
     store = store if (store_path / "history.json").exists() else None
-    ledger = ClaimLedger(store_path) if (store_path / "claims.jsonl").exists() else None
+    ledger = backend.claims if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
         label=args.label,
@@ -2724,7 +2727,8 @@ def run_merge(args):
 
 def run_review(args):
     """Review a graph or stored ref against a baseline."""
-    store = VersionStore(Path(args.store_dir))
+    backend = get_storage_backend(Path(args.store_dir))
+    store = backend.versions
     against_version = _resolve_version_or_exit(store, args.against)
     against_graph = store.checkout(against_version)
     try:
@@ -2802,7 +2806,8 @@ def run_review(args):
 def run_log(args):
     """Show version history."""
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    backend = get_storage_backend(store_dir)
+    store = backend.versions
     ref = None if args.all else (args.branch or "HEAD")
     if (
         _governance_decision_or_error(
@@ -2823,7 +2828,7 @@ def run_log(args):
     current_head = store.resolve_ref("HEAD")
     for v in versions:
         marker = "*" if v.version_id == current_head else " "
-        print(f"{marker} {v.version_id}  {v.timestamp}  [{v.source}] ({v.branch})")
+        print(f"{marker} {v.version_id}  {v.timestamp}  [{v.source}] ({v.namespace})")
         print(f"    {v.message}")
         print(f"    nodes={v.node_count} edges={v.edge_count}", end="")
         if v.signature:
@@ -2832,11 +2837,12 @@ def run_log(args):
     return 0
 
 
-def _rule_from_args(args, effect: str) -> GovernanceRule:
+def _rule_from_args(args, effect: str, tenant_id: str) -> GovernanceRuleRecord:
     invalid_actions = [item for item in args.action if item != "*" and item not in GOVERNANCE_ACTIONS]
     if invalid_actions:
         raise ValueError(f"Unknown governance action(s): {', '.join(sorted(invalid_actions))}")
-    return GovernanceRule(
+    return GovernanceRuleRecord(
+        tenant_id=tenant_id,
         name=args.name,
         effect=effect,
         actor_pattern=args.actor_pattern,
@@ -2852,7 +2858,8 @@ def _rule_from_args(args, effect: str) -> GovernanceRule:
 
 def run_governance(args):
     store_dir = Path(args.store_dir)
-    governance = GovernanceStore(store_dir)
+    backend = get_storage_backend(store_dir)
+    governance = backend.governance
 
     if args.governance_subcommand == "list":
         rules = [rule.to_dict() for rule in governance.list_rules()]
@@ -2872,7 +2879,7 @@ def run_governance(args):
 
     if args.governance_subcommand in {"allow", "deny"}:
         try:
-            rule = _rule_from_args(args, effect=args.governance_subcommand)
+            rule = _rule_from_args(args, effect=args.governance_subcommand, tenant_id=backend.tenant_id)
         except ValueError as exc:
             print(str(exc))
             return 1
@@ -2904,7 +2911,7 @@ def run_governance(args):
                 return 1
             current_graph = _load_graph(input_path)
         if args.against:
-            store = VersionStore(store_dir)
+            store = backend.versions
             baseline_graph = store.checkout(_resolve_version_or_exit(store, args.against))
         decision = governance.authorize(
             args.actor,
@@ -2931,11 +2938,13 @@ def run_governance(args):
 
 def run_remote(args):
     store_dir = Path(args.store_dir)
-    registry = RemoteRegistry(store_dir)
-    store = VersionStore(store_dir)
+    backend = get_storage_backend(store_dir)
+    store = backend.versions
 
     if args.remote_subcommand == "list":
-        remotes = [remote.to_dict() | {"store_path": str(remote.store_path)} for remote in registry.list_remotes()]
+        remotes = [
+            remote.to_dict() | {"store_path": remote.resolved_store_path} for remote in backend.remotes.list_remotes()
+        ]
         payload = {"remotes": remotes}
         if _emit_result(payload, args.format) == 0:
             return 0
@@ -2947,16 +2956,22 @@ def run_remote(args):
         return 0
 
     if args.remote_subcommand == "add":
-        remote = MemoryRemote(name=args.name, path=args.path, default_branch=args.default_branch)
-        registry.add(remote)
-        payload = {"status": "ok", "remote": remote.to_dict() | {"store_path": str(remote.store_path)}}
+        remote = RemoteRecord(
+            tenant_id=backend.tenant_id,
+            name=args.name,
+            path=args.path,
+            default_branch=args.default_branch,
+        )
+        backend.remotes.add_remote(remote)
+        stored = next(item for item in backend.remotes.list_remotes() if item.name == args.name)
+        payload = {"status": "ok", "remote": stored.to_dict() | {"store_path": stored.resolved_store_path}}
         if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Added remote {remote.name} -> {remote.store_path}")
+        print(f"Added remote {stored.name} -> {stored.resolved_store_path}")
         return 0
 
     if args.remote_subcommand == "remove":
-        removed = registry.remove(args.name)
+        removed = backend.remotes.remove_remote(args.name)
         payload = {"status": "ok" if removed else "missing", "name": args.name}
         if _emit_result(payload, args.format) == 0:
             return 0
@@ -2966,7 +2981,8 @@ def run_remote(args):
             print(f"Remote not found: {args.name}")
         return 0 if removed else 1
 
-    remote = registry.get(args.name)
+    remotes_by_name = {remote.name: remote for remote in backend.remotes.list_remotes()}
+    remote = remotes_by_name.get(args.name)
     if remote is None:
         print(f"Remote not found: {args.name}")
         return 1
@@ -2984,9 +3000,8 @@ def run_remote(args):
         ):
             return 1
         try:
-            payload = push_remote(
-                store,
-                remote,
+            payload = backend.remotes.push_remote(
+                args.name,
                 branch=args.branch,
                 target_branch=args.to_branch,
                 force=args.force,
@@ -3013,9 +3028,8 @@ def run_remote(args):
         ):
             return 1
         try:
-            payload = pull_remote(
-                store,
-                remote,
+            payload = backend.remotes.pull_remote(
+                args.name,
                 branch=remote_branch,
                 into_branch=args.into_branch,
                 force=args.force,
@@ -3042,9 +3056,8 @@ def run_remote(args):
         ):
             return 1
         try:
-            payload = fork_remote(
-                store,
-                remote,
+            payload = backend.remotes.fork_remote(
+                args.name,
                 remote_branch=remote_branch,
                 local_branch=args.branch_name,
                 switch=args.switch,
