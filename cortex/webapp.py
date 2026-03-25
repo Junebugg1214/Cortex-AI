@@ -108,14 +108,12 @@ class MemoryUIBackend:
     ) -> dict[str, Any]:
         input_path = self._resolve_input_file(input_file)
         graph = _load_graph(input_path)
-        store = self.backend.versions if (self.store_dir / "history.json").exists() else None
-        ledger = self.backend.claims if (self.store_dir / "claims.jsonl").exists() else None
         return blame_memory_nodes(
             graph,
             label=label or None,
             node_id=node_id or None,
-            store=store,
-            ledger=ledger,
+            store=self.backend.versions,
+            ledger=self.backend.claims,
             ref=ref,
             source=source,
             version_limit=limit,

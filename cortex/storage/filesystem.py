@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from cortex.claims import ClaimLedger
+from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.governance import GovernanceRule, GovernanceStore
 from cortex.graph import CortexGraph, Node
 from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
@@ -57,8 +57,17 @@ class FilesystemVersionBackend:
     def resolve_at(self, timestamp: str, ref: str | None = None) -> str | None:
         return self.store.resolve_at(timestamp, ref=ref)
 
+    def is_ancestor(self, ancestor_ref: str, descendant_ref: str) -> bool:
+        return self.store.is_ancestor(ancestor_ref, descendant_ref)
+
+    def merge_base(self, ref_a: str, ref_b: str) -> str | None:
+        return self.store.merge_base(ref_a, ref_b)
+
     def checkout(self, version_id: str, verify: bool = True) -> CortexGraph:
         return self.store.checkout(version_id, verify=verify)
+
+    def diff(self, version_id_a: str, version_id_b: str) -> dict[str, Any]:
+        return self.store.diff(version_id_a, version_id_b)
 
     def head(self, ref: str = "HEAD") -> CommitRecord | None:
         version = self.store.head(ref=ref)
@@ -128,6 +137,10 @@ class FilesystemClaimBackend:
     versions: FilesystemVersionBackend
     tenant_id: str = DEFAULT_TENANT_ID
 
+    def append(self, event: Any) -> None:
+        claim_event = event if isinstance(event, ClaimEvent) else ClaimEvent.from_dict(event.to_dict())
+        self.ledger.append(claim_event)
+
     def list_events(
         self,
         *,
@@ -162,6 +175,23 @@ class FilesystemClaimBackend:
         version_ref: str = "",
     ) -> dict[str, Any]:
         return self.ledger.lineage_for_node(node, limit=limit, source=source, version_ref=version_ref)
+
+    def get_claim(self, claim_id: str) -> list[ClaimRecord]:
+        namespace = self.versions.current_branch()
+        return [
+            ClaimRecord.from_claim_event(event, tenant_id=self.tenant_id, namespace=namespace)
+            for event in self.ledger.get_claim(claim_id)
+        ]
+
+    def latest_event(self, claim_id: str) -> ClaimRecord | None:
+        event = self.ledger.latest_event(claim_id)
+        if event is None:
+            return None
+        return ClaimRecord.from_claim_event(
+            event,
+            tenant_id=self.tenant_id,
+            namespace=self.versions.current_branch(),
+        )
 
 
 @dataclass(slots=True)
