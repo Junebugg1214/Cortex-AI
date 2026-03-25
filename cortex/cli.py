@@ -16,7 +16,6 @@ from pathlib import Path
 from cortex.adapters import ADAPTERS
 from cortex.claims import (
     ClaimEvent,
-    ClaimLedger,
     claim_event_to_node,
     extraction_source_label,
     record_graph_claims,
@@ -32,7 +31,7 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
-from cortex.governance import GOVERNANCE_ACTIONS, GovernanceDecision, GovernanceStore
+from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
@@ -70,7 +69,6 @@ from cortex.temporal import drift_score
 from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
 from cortex.upai.identity import UPAIIdentity
-from cortex.upai.versioning import VersionStore
 
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
@@ -180,7 +178,7 @@ def _finalize_extraction_output(
             metadata={"input_format": fmt, "input_file": str(input_path)},
         )
         if store_dir is not None:
-            ledger = ClaimLedger(store_dir)
+            ledger = get_storage_backend(store_dir).claims
             events = record_graph_claims(
                 graph,
                 ledger,
@@ -1400,8 +1398,8 @@ def _governance_decision_or_error(
     current_graph: CortexGraph | None = None,
     baseline_graph: CortexGraph | None = None,
     approve: bool = False,
-) -> GovernanceDecision | None:
-    governance = GovernanceStore(store_dir)
+) -> object | None:
+    governance = get_storage_backend(store_dir).governance
     decision = governance.authorize(
         actor,
         action,
@@ -1426,10 +1424,19 @@ def _governance_decision_or_error(
 def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None) -> str | None:
     if not message:
         return None
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     identity = _load_identity(store_dir)
     version = store.commit(graph, message, source="manual", identity=identity)
     return version.version_id
+
+
+def _claim_event_from_record(record: object | None) -> ClaimEvent | None:
+    if record is None:
+        return None
+    if isinstance(record, ClaimEvent):
+        return record
+    payload = record.to_dict() if hasattr(record, "to_dict") else dict(record)
+    return ClaimEvent.from_dict(payload)
 
 
 def _emit_result(result, output_format: str) -> int:
@@ -1551,7 +1558,7 @@ def run_memory_set(args):
             message=args.commit_message or "",
             metadata={"created": result["created"], "updated": result["updated"]},
         )
-        ClaimLedger(Path(args.store_dir)).append(event)
+        get_storage_backend(Path(args.store_dir)).claims.append(event)
         result["claim_id"] = event.claim_id
         result["claim_event_id"] = event.event_id
     if _emit_result(result, args.format) == 0:
@@ -1580,7 +1587,7 @@ def run_memory_retract(args):
             result["commit_id"] = commit_id
         claim_events: list[str] = []
         claim_ids: list[str] = []
-        ledger = ClaimLedger(Path(args.store_dir))
+        ledger = get_storage_backend(Path(args.store_dir)).claims
         for node_id in result["node_ids"]:
             snapshot = pre_nodes.get(node_id)
             if snapshot is None:
@@ -1633,14 +1640,12 @@ def run_blame(args):
         is None
     ):
         return 1
-    store = store if (store_path / "history.json").exists() else None
-    ledger = backend.claims if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
         label=args.label,
         node_id=args.node_id,
-        store=store,
-        ledger=ledger,
+        store=backend.versions,
+        ledger=backend.claims,
         ref=args.ref,
         source=args.source or "",
         version_limit=args.limit,
@@ -1760,14 +1765,12 @@ def run_history(args):
         is None
     ):
         return 1
-    store = store if (store_path / "history.json").exists() else None
-    ledger = backend.claims if (store_path / "claims.jsonl").exists() else None
     result = blame_memory_nodes(
         graph,
         label=args.label,
         node_id=args.node_id,
-        store=store,
-        ledger=ledger,
+        store=backend.versions,
+        ledger=backend.claims,
         ref=args.ref,
         source=args.source or "",
         version_limit=args.limit,
@@ -1829,9 +1832,9 @@ def _find_claim_target_node(graph: CortexGraph, event: ClaimEvent) -> Node | Non
     return None
 
 
-def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[ClaimLedger, ClaimEvent | None]:
-    ledger = ClaimLedger(store_dir)
-    return ledger, ledger.latest_event(claim_id)
+def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[object, ClaimEvent | None]:
+    ledger = get_storage_backend(store_dir).claims
+    return ledger, _claim_event_from_record(ledger.latest_event(claim_id))
 
 
 def run_claim_accept(args):
@@ -2032,7 +2035,7 @@ def run_claim_supersede(args):
 
 
 def run_claim_log(args):
-    ledger = ClaimLedger(Path(args.store_dir))
+    ledger = get_storage_backend(Path(args.store_dir)).claims
     events = ledger.list_events(
         label=args.label or "",
         node_id=args.node_id or "",
@@ -2055,7 +2058,7 @@ def run_claim_log(args):
 
 
 def run_claim_show(args):
-    ledger = ClaimLedger(Path(args.store_dir))
+    ledger = get_storage_backend(Path(args.store_dir)).claims
     events = ledger.get_claim(args.claim_id)
     payload = {"claim_id": args.claim_id, "events": [event.to_dict() for event in events]}
     if _emit_result(payload, args.format) == 0:
@@ -2158,7 +2161,7 @@ def run_drift(args):
     return 0
 
 
-def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
+def _resolve_version_or_exit(store, version_ref: str) -> str:
     resolved = store.resolve_ref(version_ref)
     if resolved is None:
         print(f"Version not found or ambiguous: {version_ref}")
@@ -2166,7 +2169,7 @@ def _resolve_version_or_exit(store: VersionStore, version_ref: str) -> str:
     return resolved
 
 
-def _resolve_version_at_or_exit(store: VersionStore, timestamp: str, ref: str | None = None) -> str:
+def _resolve_version_at_or_exit(store, timestamp: str, ref: str | None = None) -> str:
     resolved = store.resolve_at(timestamp, ref=ref)
     if resolved is None:
         scope = f" on {ref}" if ref else ""
@@ -2178,7 +2181,7 @@ def _resolve_version_at_or_exit(store: VersionStore, timestamp: str, ref: str | 
 def run_diff(args):
     """Compare two stored graph versions."""
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     if (
         _governance_decision_or_error(
             store_dir=store_dir,
@@ -2238,7 +2241,7 @@ def run_diff(args):
 def run_checkout(args):
     """Write a stored graph version to a file."""
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     if (
         _governance_decision_or_error(
             store_dir=store_dir,
@@ -2266,7 +2269,7 @@ def run_rollback(args):
         return 1
 
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     current_branch = store.current_branch()
 
     if args.target_ref:
@@ -2302,7 +2305,7 @@ def run_rollback(args):
         "target": target_label,
         "target_version": target_version,
         "rollback_commit": version.version_id,
-        "branch": version.branch,
+        "branch": version.namespace,
         "output": str(input_path),
     }
     if _emit_result(payload, args.format) == 0:
@@ -2397,7 +2400,7 @@ def run_commit(args):
     if id_path.exists():
         identity = UPAIIdentity.load(store_dir)
 
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     baseline_version = store.resolve_ref("HEAD")
     baseline_graph = store.checkout(baseline_version) if baseline_version else None
     if (
@@ -2416,7 +2419,7 @@ def run_commit(args):
     version = store.commit(graph, args.message, source=args.source, identity=identity)
 
     print(f"Committed: {version.version_id}")
-    print(f"  Branch: {version.branch}")
+    print(f"  Branch: {version.namespace}")
     print(f"  Message: {version.message}")
     print(f"  Source: {version.source}")
     print(f"  Nodes: {version.node_count}, Edges: {version.edge_count}")
@@ -2430,7 +2433,7 @@ def run_commit(args):
 def run_branch(args):
     """List or create memory branches."""
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
 
     if args.branch_name:
         if (
@@ -2466,19 +2469,24 @@ def run_branch(args):
 
     branches = store.list_branches()
     if args.format == "json":
-        print(json.dumps({"current_branch": store.current_branch(), "branches": branches}, indent=2))
+        print(
+            json.dumps(
+                {"current_branch": store.current_branch(), "branches": [branch.to_dict() for branch in branches]},
+                indent=2,
+            )
+        )
         return 0
 
     for branch in branches:
-        marker = "*" if branch["current"] else " "
-        head = branch["head"][:8] if branch["head"] else "(empty)"
-        print(f"{marker} {branch['name']:<24} {head}")
+        marker = "*" if branch.current else " "
+        head = branch.head[:8] if branch.head else "(empty)"
+        print(f"{marker} {branch.name:<24} {head}")
     return 0
 
 
 def run_switch(args):
     """Switch the active memory branch."""
-    store = VersionStore(Path(args.store_dir))
+    store = get_storage_backend(Path(args.store_dir)).versions
     try:
         if args.create:
             store.create_branch(args.branch_name, from_ref=args.from_ref, switch=True)
@@ -2498,7 +2506,7 @@ def run_switch(args):
 def run_merge(args):
     """Merge another branch/ref into the current branch."""
     store_dir = Path(args.store_dir)
-    store = VersionStore(store_dir)
+    store = get_storage_backend(store_dir).versions
     current_branch = store.current_branch()
 
     if args.abort:
