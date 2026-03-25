@@ -823,6 +823,14 @@ def build_parser():
     ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
     ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
 
+    # -- server (local REST API) -----------------------------------------
+    srv = sub.add_parser("server", help="Launch the local Cortex REST API server")
+    srv.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    srv.add_argument("--context-file", help="Optional default context graph file")
+    srv.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    srv.add_argument("--port", type=int, default=8766, help="Bind port (default: 8766, or 0 for any free port)")
+    srv.add_argument("--api-key", help="Optional API key required for requests")
+
     # -- pull (import from platform export) --------------------------------
     pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
     pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
@@ -3689,6 +3697,29 @@ def run_ui(args):
     return 0
 
 
+def run_server(args):
+    """Launch the local Cortex REST API server."""
+    from cortex.server import start_api_server
+
+    server, url = start_api_server(
+        host=args.host,
+        port=args.port,
+        store_dir=args.store_dir,
+        context_file=args.context_file,
+        api_key=args.api_key,
+    )
+    print(f"Cortex API running at {url}")
+    print("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("\nCortex API stopped.")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -3949,6 +3980,8 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "ui":
         return run_ui(args)
+    elif args.subcommand == "server":
+        return run_server(args)
     elif args.subcommand == "completion":
         return run_completion(args)
     else:
