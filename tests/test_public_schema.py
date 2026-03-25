@@ -60,9 +60,7 @@ def test_branch_rule_and_remote_records_validate():
             matched_rules=["protect-main"],
         )
     )
-    remote = RemoteRecord.from_memory_remote(
-        MemoryRemote(name="origin", path="/tmp/remote", default_branch="main")
-    )
+    remote = RemoteRecord.from_memory_remote(MemoryRemote(name="origin", path="/tmp/remote", default_branch="main"))
 
     assert branch.current is True
     assert rule.require_approval is True

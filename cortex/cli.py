@@ -2942,7 +2942,9 @@ def run_remote(args):
     store = backend.versions
 
     if args.remote_subcommand == "list":
-        remotes = [remote.to_dict() | {"store_path": remote.resolved_store_path} for remote in backend.remotes.list_remotes()]
+        remotes = [
+            remote.to_dict() | {"store_path": remote.resolved_store_path} for remote in backend.remotes.list_remotes()
+        ]
         payload = {"remotes": remotes}
         if _emit_result(payload, args.format) == 0:
             return 0

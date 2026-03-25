@@ -65,9 +65,7 @@ def test_filesystem_backend_remotes_and_injected_webapp_backend(tmp_path):
     VersionStore(local_store_dir).commit(graph, "baseline")
 
     backend = build_filesystem_backend(local_store_dir)
-    backend.remotes.add_remote(
-        RemoteRecord(name="origin", path=str(remote_root), default_branch="main")
-    )
+    backend.remotes.add_remote(RemoteRecord(name="origin", path=str(remote_root), default_branch="main"))
 
     registry = RemoteRegistry(local_store_dir)
     assert registry.get("origin") is not None

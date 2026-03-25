@@ -87,7 +87,9 @@ class FilesystemVersionBackend:
         return CommitRecord.from_context_version(version, tenant_id=self.tenant_id)
 
     def log(self, limit: int = 10, ref: str | None = None) -> list[CommitRecord]:
-        return [CommitRecord.from_context_version(item, tenant_id=self.tenant_id) for item in self.store.log(limit, ref)]
+        return [
+            CommitRecord.from_context_version(item, tenant_id=self.tenant_id) for item in self.store.log(limit, ref)
+        ]
 
     def list_branches(self) -> list[BranchRecord]:
         return [BranchRecord.from_branch_payload(item, tenant_id=self.tenant_id) for item in self.store.list_branches()]
@@ -149,10 +151,7 @@ class FilesystemClaimBackend:
             op=op,
             limit=limit,
         )
-        return [
-            ClaimRecord.from_claim_event(event, tenant_id=self.tenant_id, namespace=namespace)
-            for event in events
-        ]
+        return [ClaimRecord.from_claim_event(event, tenant_id=self.tenant_id, namespace=namespace) for event in events]
 
     def lineage_for_node(
         self,
@@ -171,7 +170,10 @@ class FilesystemGovernanceBackend:
     tenant_id: str = DEFAULT_TENANT_ID
 
     def list_rules(self) -> list[GovernanceRuleRecord]:
-        return [GovernanceRuleRecord.from_governance_rule(rule, tenant_id=self.tenant_id) for rule in self.store.list_rules()]
+        return [
+            GovernanceRuleRecord.from_governance_rule(rule, tenant_id=self.tenant_id)
+            for rule in self.store.list_rules()
+        ]
 
     def upsert_rule(self, rule: GovernanceRuleRecord) -> None:
         self.store.upsert_rule(_to_governance_model(rule))
@@ -205,7 +207,9 @@ class FilesystemRemoteBackend:
     tenant_id: str = DEFAULT_TENANT_ID
 
     def list_remotes(self) -> list[RemoteRecord]:
-        return [RemoteRecord.from_memory_remote(remote, tenant_id=self.tenant_id) for remote in self.registry.list_remotes()]
+        return [
+            RemoteRecord.from_memory_remote(remote, tenant_id=self.tenant_id) for remote in self.registry.list_remotes()
+        ]
 
     def add_remote(self, remote: RemoteRecord) -> None:
         self.registry.add(_to_remote_model(remote))
