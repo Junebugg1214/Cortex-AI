@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cortex": {
+      "command": "cortex-mcp",
+      "args": [
+        "--config",
+        "/absolute/path/to/.cortex/config.toml"
+      ]
+    }
+  }
+}

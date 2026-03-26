@@ -1,0 +1,11 @@
+services:
+  cortexd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["server", "--config", "/data/.cortex/config.toml"]
+    ports:
+      - "8766:8766"
+    volumes:
+      - ./.cortex:/data/.cortex
+    restart: unless-stopped

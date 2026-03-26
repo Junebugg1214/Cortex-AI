@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
@@ -9,6 +10,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+from cortex.auth import authorize_api_key
+from cortex.config import ALL_SCOPES, APIKeyConfig, format_startup_diagnostics, load_selfhost_config
 from cortex.service import MemoryService
 
 
@@ -28,13 +31,6 @@ def _query_int(values: dict[str, list[str]], key: str, default: int) -> int:
     if raw is None or raw == "":
         return default
     return int(raw)
-
-
-def _query_bool(values: dict[str, list[str]], key: str, default: bool) -> bool:
-    raw = _query_value(values, key)
-    if raw is None:
-        return default
-    return raw.lower() in {"1", "true", "yes", "on"}
 
 
 def _server_url(headers: dict[str, str]) -> str | None:
@@ -79,6 +75,54 @@ def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
     return 500, {"status": "error", "error": str(exc)}
 
 
+def _global_route(path: str) -> bool:
+    return path in {"/v1/health", "/v1/meta", "/v1/openapi.json"}
+
+
+def _required_scope(method: str, path: str) -> str:
+    read_post_paths = {
+        "/v1/checkout",
+        "/v1/diff",
+        "/v1/review",
+        "/v1/blame",
+        "/v1/history",
+        "/v1/conflicts/detect",
+        "/v1/query/category",
+        "/v1/query/path",
+        "/v1/query/related",
+        "/v1/query/search",
+        "/v1/query/dsl",
+        "/v1/query/nl",
+    }
+    if path in {"/v1/health", "/v1/meta", "/v1/openapi.json", "/v1/metrics"}:
+        return "read"
+    if path.startswith("/v1/index/"):
+        return "index"
+    if path.startswith("/v1/prune"):
+        return "prune"
+    if path in read_post_paths:
+        return "read"
+    if method == "GET":
+        return "read"
+    if path in {"/v1/branches", "/v1/branches/switch"}:
+        return "branch"
+    if path.startswith("/v1/merge") or path.startswith("/v1/merge-"):
+        return "merge"
+    if path == "/v1/conflicts/resolve":
+        return "write"
+    if path in {"/v1/index/rebuild"}:
+        return "index"
+    if path in {"/v1/prune"}:
+        return "prune"
+    return "write"
+
+
+def _legacy_api_keys(api_key: str | None) -> tuple[APIKeyConfig, ...]:
+    if not api_key:
+        return ()
+    return (APIKeyConfig(name="legacy-default", token=api_key, scopes=ALL_SCOPES, namespaces=("*",)),)
+
+
 def dispatch_api_request(
     service: MemoryService,
     *,
@@ -87,34 +131,43 @@ def dispatch_api_request(
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
     api_key: str | None = None,
+    auth_keys: tuple[APIKeyConfig, ...] = (),
 ) -> tuple[int, dict[str, Any]]:
     headers = headers or {}
     normalized_headers = {key.lower(): value for key, value in headers.items()}
     started = perf_counter()
     request_id = normalized_headers.get("x-request-id", "").strip() or uuid4().hex[:16]
-    header_key = normalized_headers.get("x-api-key", "")
-    auth_header = normalized_headers.get("authorization", "")
-    bearer_key = auth_header[len("Bearer ") :] if auth_header.startswith("Bearer ") else ""
-    if api_key and header_key != api_key and bearer_key != api_key:
-        response = {"status": "error", "error": "Unauthorized", "request_id": request_id}
-        service.observability.record_request(
-            request_id=request_id,
-            method=method,
-            path=path,
-            status=401,
-            duration_ms=(perf_counter() - started) * 1000,
-            namespace="",
-            backend=_backend_name(service),
-            error="Unauthorized",
-        )
-        return 401, response
 
     parsed = urlparse(path)
     query = parse_qs(parsed.query)
     payload = payload or {}
     namespace = _request_namespace(query=query, payload=payload, headers=headers)
+
+    decision = authorize_api_key(
+        keys=auth_keys + _legacy_api_keys(api_key),
+        headers=headers,
+        required_scope=_required_scope(method, parsed.path),
+        namespace=namespace,
+        namespace_required=not _global_route(parsed.path),
+    )
+    if not decision.allowed:
+        response = {"status": "error", "error": decision.error, "request_id": request_id}
+        service.observability.record_request(
+            request_id=request_id,
+            method=method,
+            path=path,
+            status=decision.status_code,
+            duration_ms=(perf_counter() - started) * 1000,
+            namespace=namespace or "",
+            backend=_backend_name(service),
+            error=decision.error,
+        )
+        return decision.status_code, response
+
+    namespace = decision.namespace or namespace
     if namespace and "namespace" not in payload:
         payload = {**payload, "namespace": namespace}
+
     status = 404
     response: dict[str, Any] = {"status": "error", "error": "Not found"}
     try:
@@ -209,6 +262,7 @@ def dispatch_api_request(
                         namespace=namespace,
                     ),
                 )
+
         if method == "POST":
             if parsed.path == "/v1/commit":
                 status, response = 201, service.commit(**payload)
@@ -272,6 +326,7 @@ def dispatch_api_request(
                 status, response = 200, service.switch_branch(**payload)
     except Exception as exc:  # pragma: no cover - exercised through tests and handler
         status, response = _error_payload(exc)
+
     response = {**response, "request_id": request_id}
     try:
         index_lag = service.backend.indexing.status(ref="HEAD").get("lag_commits")
@@ -291,7 +346,12 @@ def dispatch_api_request(
     return status, response
 
 
-def make_api_handler(service: MemoryService, *, api_key: str | None = None):
+def make_api_handler(
+    service: MemoryService,
+    *,
+    api_key: str | None = None,
+    auth_keys: tuple[APIKeyConfig, ...] = (),
+):
     class CortexAPIHandler(BaseHTTPRequestHandler):
         server_version = "CortexAPI/1.0"
 
@@ -320,6 +380,7 @@ def make_api_handler(service: MemoryService, *, api_key: str | None = None):
                 path=self.path,
                 headers={key: value for key, value in self.headers.items()},
                 api_key=api_key,
+                auth_keys=auth_keys,
             )
             self._send_json(response, status=status)
 
@@ -331,6 +392,7 @@ def make_api_handler(service: MemoryService, *, api_key: str | None = None):
                 payload=self._read_json(),
                 headers={key: value for key, value in self.headers.items()},
                 api_key=api_key,
+                auth_keys=auth_keys,
             )
             self._send_json(response, status=status)
 
@@ -344,32 +406,54 @@ def start_api_server(
     store_dir: str | Path = ".cortex",
     context_file: str | Path | None = None,
     api_key: str | None = None,
+    auth_keys: tuple[APIKeyConfig, ...] = (),
 ) -> tuple[ThreadingHTTPServer, str]:
     service = MemoryService(store_dir=store_dir, context_file=context_file)
-    server = ThreadingHTTPServer((host, port), make_api_handler(service, api_key=api_key))
+    server = ThreadingHTTPServer((host, port), make_api_handler(service, api_key=api_key, auth_keys=auth_keys))
     actual_host, actual_port = server.server_address
     return server, f"http://{actual_host}:{actual_port}"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cortexd", description="Run the local Cortex REST API server.")
-    parser.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    parser.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     parser.add_argument("--context-file", help="Optional default context graph file")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8766, help="Bind port (default: 8766, or 0 for any free port)")
-    parser.add_argument("--api-key", help="Optional API key required for requests")
+    parser.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
+    parser.add_argument("--api-key", help="Legacy single API key shortcut")
+    parser.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    parser.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        config = load_selfhost_config(
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            server_host=args.host,
+            server_port=args.port,
+            api_key=args.api_key,
+        )
+    except ValueError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 1
+
+    diagnostics = format_startup_diagnostics(config, mode="server")
+    if args.check:
+        print(diagnostics)
+        return 0
+
     server, url = start_api_server(
-        host=args.host,
-        port=args.port,
-        store_dir=args.store_dir,
-        context_file=args.context_file,
-        api_key=args.api_key,
+        host=config.server_host,
+        port=config.server_port,
+        store_dir=config.store_dir,
+        context_file=config.context_file,
+        auth_keys=config.api_keys,
     )
+    print(diagnostics)
     print(f"Cortex API running at {url}")
     print("Press Ctrl+C to stop.")
     try:

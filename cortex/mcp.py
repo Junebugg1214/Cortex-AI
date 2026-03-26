@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
+from cortex.config import format_startup_diagnostics, load_selfhost_config
 from cortex.service import MemoryService
 
 JSONRPC_VERSION = "2.0"
@@ -990,21 +991,39 @@ class CortexMCPServer:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cortex-mcp", description="Run Cortex as a local MCP tool server over stdio.")
-    parser.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    parser.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     parser.add_argument("--context-file", help="Optional default context graph file")
     parser.add_argument(
         "--namespace",
         help="Optional namespace prefix to pin the MCP session to, such as 'team' or 'team/atlas'",
     )
+    parser.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    parser.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        config = load_selfhost_config(
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            mcp_namespace=args.namespace,
+        )
+    except ValueError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 1
+
+    diagnostics = format_startup_diagnostics(config, mode="mcp")
+    if args.check:
+        print(diagnostics)
+        return 0
+
     server = CortexMCPServer(
-        store_dir=args.store_dir,
-        context_file=args.context_file,
-        namespace=args.namespace,
+        store_dir=config.store_dir,
+        context_file=config.context_file,
+        namespace=config.mcp_namespace,
     )
     return server.serve_streams(sys.stdin, sys.stdout)
 
