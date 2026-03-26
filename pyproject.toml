@@ -36,6 +36,7 @@ dev = ["pytest>=7.0", "pynacl>=1.5.0"]
 cortex = "cortex.cli:main"
 cortex-hook = "cortex._hook:main"
 cortexd = "cortex.server:main"
+cortex-mcp = "cortex.mcp:main"
 
 [tool.setuptools.packages.find]
 include = ["cortex*"]

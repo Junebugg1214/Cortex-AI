@@ -836,6 +836,15 @@ def build_parser():
     srv.add_argument("--port", type=int, default=8766, help="Bind port (default: 8766, or 0 for any free port)")
     srv.add_argument("--api-key", help="Optional API key required for requests")
 
+    # -- mcp (local Model Context Protocol server) -----------------------
+    mcp = sub.add_parser("mcp", help="Launch the local Cortex MCP server over stdio")
+    mcp.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    mcp.add_argument("--context-file", help="Optional default context graph file")
+    mcp.add_argument(
+        "--namespace",
+        help="Optional namespace prefix to pin the MCP session to, such as 'team' or 'team/atlas'",
+    )
+
     # -- pull (import from platform export) --------------------------------
     pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
     pl.add_argument("input_file", help="Path to platform export file (.json, .md, .html)")
@@ -3725,6 +3734,18 @@ def run_server(args):
     return 0
 
 
+def run_mcp(args):
+    """Launch the local Cortex MCP server over stdio."""
+    from cortex.mcp import main as mcp_main
+
+    argv = ["--store-dir", args.store_dir]
+    if args.context_file:
+        argv.extend(["--context-file", args.context_file])
+    if args.namespace:
+        argv.extend(["--namespace", args.namespace])
+    return mcp_main(argv)
+
+
 def run_openapi(args):
     """Write the OpenAPI contract to disk."""
     from cortex.openapi import write_openapi_spec
@@ -3878,6 +3899,7 @@ def main(argv=None):
         "context-export",
         "context-write",
         "ui",
+        "mcp",
         "openapi",
         "rotate",
         "pull",
@@ -3999,6 +4021,8 @@ def main(argv=None):
         return run_openapi(args)
     elif args.subcommand == "server":
         return run_server(args)
+    elif args.subcommand == "mcp":
+        return run_mcp(args)
     elif args.subcommand == "completion":
         return run_completion(args)
     else:
