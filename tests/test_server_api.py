@@ -8,7 +8,7 @@ import pytest
 
 from cortex.claims import ClaimEvent
 from cortex.client import CortexClient
-from cortex.graph import CortexGraph, Node
+from cortex.graph import CortexGraph, Edge, Node
 from cortex.server import dispatch_api_request
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
@@ -164,3 +164,114 @@ def test_cortex_api_review_blame_and_history_support_payload_graphs(tmp_path, mo
     assert blame["nodes"][0]["history"]["versions_seen"] == 1
     assert blame["nodes"][0]["claim_lineage"]["event_count"] == 1
     assert history["nodes"][0]["history"]["introduced_in"]["message"] == "baseline"
+
+
+def test_cortex_api_query_endpoints_support_ref_backed_queries(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.82))
+    graph.add_node(
+        Node(
+            id="n2",
+            label="Project Atlas",
+            aliases=["atlas"],
+            tags=["active_priorities"],
+            confidence=0.93,
+            brief="Local memory infrastructure",
+        )
+    )
+    graph.add_node(
+        Node(
+            id="n3",
+            label="SDK",
+            aliases=["python sdk"],
+            tags=["infrastructure"],
+            confidence=0.75,
+            brief="Python SDK for Cortex",
+        )
+    )
+    graph.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="supports"))
+    graph.add_edge(Edge(id="e2", source_id="n2", target_id="n3", relation="requires"))
+    backend.versions.commit(graph, "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    category = client.query_category(tag="active_priorities")
+    path = client.query_path(from_label="Python", to_label="SDK")
+    related = client.query_related(label="Project Atlas", depth=1)
+    search = client.query_search(query="atlas", limit=5)
+    dsl = client.query_dsl(query='FIND nodes WHERE tag = "active_priorities" LIMIT 5')
+    nl = client.query_nl(query="how does Python relate to SDK")
+
+    assert category["count"] == 1
+    assert category["nodes"][0]["label"] == "Project Atlas"
+    assert category["graph_source"]
+    assert path["found"] is True
+    assert [node["label"] for node in path["paths"][0]] == ["Python", "Project Atlas", "SDK"]
+    assert [node["label"] for node in related["nodes"]] == ["Python", "SDK"]
+    assert search["results"][0]["node"]["label"] == "Project Atlas"
+    assert search["count"] >= 1
+    assert dsl["type"] == "find"
+    assert dsl["count"] == 1
+    assert nl["recognized"] is True
+    assert [node["label"] for node in nl["result"]["path"]] == ["Python", "Project Atlas", "SDK"]
+
+
+def test_cortex_api_query_endpoints_support_payload_graphs(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    baseline = CortexGraph()
+    baseline.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    backend.versions.commit(baseline, "baseline")
+
+    payload_graph = CortexGraph()
+    payload_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    payload_graph.add_node(
+        Node(
+            id="n2",
+            label="Embedding Index",
+            aliases=["vector index"],
+            tags=["infrastructure"],
+            confidence=0.86,
+            brief="Hybrid retrieval index",
+        )
+    )
+    payload_graph.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="uses"))
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    payload_search = client.query_search(query="vector index", graph=payload_graph.export_v5(), limit=5)
+    payload_path = client.query_path(
+        from_label="Project Atlas",
+        to_label="Embedding Index",
+        graph=payload_graph.export_v5(),
+    )
+    unknown_nl = client.query_nl(query="tell me something unexpected", graph=payload_graph.export_v5())
+
+    assert payload_search["graph_source"] == "payload"
+    assert payload_search["results"][0]["node"]["label"] == "Embedding Index"
+    assert payload_path["graph_source"] == "payload"
+    assert payload_path["found"] is True
+    assert [node["label"] for node in payload_path["paths"][0]] == ["Project Atlas", "Embedding Index"]
+    assert unknown_nl["recognized"] is False
+    assert "Query not recognized" in unknown_nl["message"]
+
+
+def test_cortex_api_query_dsl_returns_client_error_for_invalid_queries(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Python")), "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    with pytest.raises(RuntimeError, match="Unknown statement type"):
+        client.query_dsl(query="BOGUS QUERY")
