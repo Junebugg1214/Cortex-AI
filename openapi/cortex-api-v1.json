@@ -6,6 +6,7 @@
     "description": "Local-first REST API for Cortex, the Git-for-AI-Memory runtime. This surface covers versioning, review, query, conflicts, and merge workflows.",
     "x-cortex-release": {
       "project_version": "1.4.1",
+      "maturity": "beta",
       "package_name": "cortex-identity",
       "api_version": "v1",
       "openapi_version": "1.0.0",

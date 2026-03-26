@@ -13,6 +13,7 @@ from cortex.release import (
     build_contract_compatibility_snapshot,
     build_release_manifest,
     build_release_notes,
+    classify_release_tag,
 )
 
 try:  # pragma: no cover - Python 3.11+ hits stdlib path in practice
@@ -35,6 +36,19 @@ def test_build_release_notes_mentions_install_surfaces():
     assert str(OPENAPI_COMPAT_PATH) in notes
 
 
+def test_prerelease_tag_changes_manifest_and_notes():
+    spec = build_openapi_spec()
+    manifest = build_release_manifest(spec, tag="v1.4.1-rc1", commit_sha="abc123")
+    notes = build_release_notes(spec, tag="v1.4.1-rc1", commit_sha="abc123")
+
+    assert manifest["prerelease"] is True
+    assert manifest["stage"] == "prerelease"
+    assert manifest["artifacts"]["python"]["publish_on_tag"] is False
+    assert manifest["artifacts"]["typescript"]["dist_tag"] == "beta"
+    assert manifest["artifacts"]["docker"]["tags"] == ["v1.4.1-rc1", "beta"]
+    assert "This tag is a prerelease" in notes
+
+
 def test_build_release_manifest_includes_contract_and_artifacts():
     spec = build_openapi_spec()
     manifest = build_release_manifest(spec, tag="v-test", commit_sha="deadbeef")
@@ -46,6 +60,18 @@ def test_build_release_manifest_includes_contract_and_artifacts():
     assert manifest["artifacts"]["python"]["package"] == PACKAGE_NAME
     assert manifest["artifacts"]["typescript"]["package"] == TYPESCRIPT_SDK_NAME
     assert manifest["artifacts"]["docker"]["image"] == DOCKER_IMAGE_NAME
+
+
+def test_classify_release_tag_handles_stable_and_prerelease_tags():
+    stable = classify_release_tag("v1.4.1")
+    prerelease = classify_release_tag("v1.4.1-beta1")
+
+    assert stable["prerelease"] is False
+    assert stable["publish_registry_packages"] is True
+    assert stable["docker_tags"] == ["v1.4.1", PROJECT_VERSION, "latest"]
+    assert prerelease["prerelease"] is True
+    assert prerelease["publish_registry_packages"] is False
+    assert prerelease["docker_tags"] == ["v1.4.1-beta1", "beta"]
 
 
 def test_release_notes_cli_writes_markdown_and_manifest(tmp_path, capsys):

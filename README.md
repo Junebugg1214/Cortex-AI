@@ -2,6 +2,12 @@
 
 **Git for AI Memory.**
 
+Status:
+
+- self-hosted public beta
+- user-owned storage
+- stable local `v1` API contract
+
 Cortex is a local-first toolkit for building, reviewing, governing, and syncing AI memory with the same kinds of primitives developers expect from source control:
 
 - commit
@@ -30,6 +36,24 @@ When an agent says something important, you usually cannot answer:
 - Who is allowed to write or merge this memory?
 
 Cortex is built to answer those questions directly.
+
+## Beta Status
+
+Cortex is ready for self-hosted beta use by technical teams, not mass-market rollout yet.
+
+The right posture for this release is:
+
+- run it on user-owned storage
+- keep verified backups
+- prefer scoped API keys and namespace boundaries
+- treat prerelease tags as evaluation builds
+
+Beta launch docs:
+
+- [docs/BETA_QUICKSTART.md](docs/BETA_QUICKSTART.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- [beta feedback template](.github/ISSUE_TEMPLATE/beta_feedback.md)
 
 ## What Cortex Does
 
@@ -214,7 +238,10 @@ Cortex now ships a stable v1 local contract with:
 
 Release operator docs:
 
+- [docs/BETA_QUICKSTART.md](docs/BETA_QUICKSTART.md)
 - [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 - [docs/UPGRADING.md](docs/UPGRADING.md)
 - [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
 

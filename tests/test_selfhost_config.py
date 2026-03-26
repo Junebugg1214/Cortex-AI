@@ -117,3 +117,23 @@ def test_format_startup_diagnostics_mentions_local_trust_mode(tmp_path):
 
     assert "local trust mode" in diagnostics
     assert "API v1" in diagnostics
+
+
+def test_startup_diagnostics_show_key_name_but_not_token(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[[auth.keys]]
+name = "maintainer"
+token = "super-secret-token"
+scopes = ["admin"]
+namespaces = ["team"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_selfhost_config(config_path=config_path, env={})
+    diagnostics = format_startup_diagnostics(config, mode="server")
+
+    assert "maintainer" in diagnostics
+    assert "super-secret-token" not in diagnostics

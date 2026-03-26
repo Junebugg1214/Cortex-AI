@@ -10,6 +10,12 @@ Cortex is designed to stay local-first and user-owned. The self-host path is:
 Release metadata is exposed consistently across REST, Python, TypeScript, and MCP surfaces so operators can confirm
 the running package version, API generation, and frozen v1 contract hash.
 
+For the public beta rollout, pair this guide with:
+
+- [BETA_QUICKSTART.md](BETA_QUICKSTART.md)
+- [OPERATIONS.md](OPERATIONS.md)
+- [THREAT_MODEL.md](THREAT_MODEL.md)
+
 ## Shared `config.toml`
 
 By default, Cortex looks for `config.toml` inside your store directory, usually `.cortex/config.toml`.
@@ -133,5 +139,8 @@ The important rule is to keep the store local and only hand each agent the names
 
 ## Upgrade and Release
 
+- Beta quickstart: [BETA_QUICKSTART.md](BETA_QUICKSTART.md)
+- Operations guide: [OPERATIONS.md](OPERATIONS.md)
+- Threat model: [THREAT_MODEL.md](THREAT_MODEL.md)
 - Upgrade guide: [UPGRADING.md](UPGRADING.md)
 - Release checklist: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)

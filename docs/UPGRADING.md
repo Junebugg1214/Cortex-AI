@@ -2,6 +2,12 @@
 
 This guide assumes you are running Cortex in the supported local-first, user-owned storage model.
 
+If you are evaluating the first public beta, read these first:
+
+- [BETA_QUICKSTART.md](BETA_QUICKSTART.md)
+- [OPERATIONS.md](OPERATIONS.md)
+- [THREAT_MODEL.md](THREAT_MODEL.md)
+
 ## Upgrade Flow
 
 1. Export a verified backup before changing anything:
@@ -20,6 +26,9 @@ cortex openapi \
 ```
 
 3. Upgrade the Python package or rebuild the container image.
+
+For prerelease tags like `v1.4.1-rc1`, prefer GitHub release assets or the exact Docker tag instead of assuming a
+stable package-manager publish.
 
 4. Run startup diagnostics before serving traffic:
 
