@@ -4,6 +4,7 @@ import json
 from cortex.cli import build_parser
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
+from cortex.release import API_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
@@ -63,7 +64,9 @@ def test_mcp_initialize_and_list_tools(tmp_path):
 
     assert initialize["result"]["protocolVersion"] == "2025-11-25"
     assert initialize["result"]["capabilities"]["tools"]["listChanged"] is False
+    assert initialize["result"]["serverInfo"]["version"] == PROJECT_VERSION
     assert "user-owned" in initialize["result"]["instructions"]
+    assert API_VERSION in initialize["result"]["instructions"]
     assert tool_list is not None
     names = {tool["name"] for tool in tool_list["result"]["tools"]}
     assert {"node_upsert", "query_search", "merge_preview", "index_status"} <= names
@@ -171,4 +174,5 @@ def test_mcp_stdio_server_reads_and_writes_jsonrpc_lines(tmp_path):
     assert exit_code == 0
     assert len(lines) == 2
     assert lines[0]["result"]["serverInfo"]["name"] == "Cortex"
+    assert lines[0]["result"]["serverInfo"]["version"] == PROJECT_VERSION
     assert any(tool["name"] == "node_upsert" for tool in lines[1]["result"]["tools"])

@@ -118,7 +118,9 @@ def test_cortex_api_health_meta_log_and_auth(tmp_path, monkeypatch):
 
     assert health["status"] == "ok"
     assert health["backend"] == "sqlite"
+    assert health["release"]["project_version"] == client.sdk_info()["version"]
     assert meta["current_branch"] == "main"
+    assert meta["release"]["contract"]["hash"] == health["release"]["contract"]["hash"]
     assert log["versions"][0]["message"] == "baseline"
 
     with pytest.raises(RuntimeError, match="Unauthorized"):
@@ -143,6 +145,7 @@ def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatc
     assert health["request_id"]
     assert search["request_id"]
     assert metrics["requests_total"] >= 2
+    assert metrics["release"]["project_version"] == service.release()["project_version"]
     assert "/v1/health" in metrics["routes"]
     assert "/v1/query/search" in metrics["routes"]
     assert metrics["index"]["lag_commits"] == 0

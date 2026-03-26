@@ -22,6 +22,7 @@ from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
 from cortex.query import QueryEngine, parse_nl_query
 from cortex.query_lang import ParseError, execute_query
+from cortex.release import build_release_metadata
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.schemas.memory_v1 import ClaimRecord, MemoryEdgeRecord, MemoryNodeRecord
 from cortex.storage import get_storage_backend
@@ -373,10 +374,14 @@ class MemoryService:
             "current_branch": self.backend.versions.current_branch(),
             "head": self.backend.versions.resolve_ref("HEAD"),
             "index": index_status,
+            "release": self.release(),
         }
 
     def openapi(self, *, server_url: str | None = None) -> dict[str, Any]:
         return build_openapi_spec(server_url=server_url)
+
+    def release(self) -> dict[str, Any]:
+        return build_release_metadata(self.openapi())
 
     def meta(self) -> dict[str, Any]:
         provider = get_embedding_provider()
@@ -391,15 +396,18 @@ class MemoryService:
             "embedding_enabled": provider.enabled,
             "log_path": str(self.observability.log_path),
             "index": self.backend.indexing.status(ref="HEAD"),
+            "release": self.release(),
         }
 
     def metrics(self, *, namespace: str | None = None) -> dict[str, Any]:
         self._enforce_namespace(namespace, ref="HEAD")
-        return self.observability.metrics(
+        metrics = self.observability.metrics(
             index_status=self.backend.indexing.status(ref="HEAD"),
             backend=_backend_name(self.backend),
             current_branch=self.backend.versions.current_branch(),
         )
+        metrics["release"] = self.release()
+        return metrics
 
     def prune_status(self, *, retention_days: int = 7) -> dict[str, Any]:
         return self.backend.maintenance.status(retention_days=retention_days)

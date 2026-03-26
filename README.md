@@ -201,6 +201,23 @@ query, branch, merge, blame, history, indexing, and prune tools.
 For self-hosted config, scoped API keys, backups, Docker, and MCP client setup, see
 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 
+## Release and Packaging
+
+Cortex now ships a stable v1 local contract with:
+
+- a committed OpenAPI artifact and compatibility snapshot
+- version metadata surfaced across REST, Python, TypeScript, and MCP
+- a self-host Docker image and compose flow
+- backup/restore and upgrade docs for user-owned stores
+- reference Python, TypeScript, and MCP examples
+- a lightweight benchmark harness for commit, query, merge preview, and index rebuild
+
+Release operator docs:
+
+- [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- [docs/UPGRADING.md](docs/UPGRADING.md)
+- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+
 ## Memory CI
 
 The repo includes [`.github/workflows/memory-review.yml`](.github/workflows/memory-review.yml), which can:

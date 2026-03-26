@@ -3,6 +3,7 @@ from pathlib import Path
 
 from cortex.cli import main
 from cortex.openapi import build_openapi_spec
+from cortex.release import OPENAPI_VERSION, PROJECT_VERSION, build_contract_compatibility_snapshot
 from cortex.server import dispatch_api_request
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
@@ -13,6 +14,8 @@ def test_build_openapi_spec_includes_current_api_surface():
 
     assert spec["openapi"] == "3.1.0"
     assert spec["info"]["title"] == "Cortex Local API"
+    assert spec["info"]["version"] == OPENAPI_VERSION
+    assert spec["info"]["x-cortex-release"]["project_version"] == PROJECT_VERSION
     assert "/v1/openapi.json" in spec["paths"]
     assert "/v1/metrics" in spec["paths"]
     assert "/v1/nodes" in spec["paths"]
@@ -54,15 +57,29 @@ def test_openapi_endpoint_uses_request_host(tmp_path):
 
 def test_openapi_cli_writes_expected_contract(tmp_path, capsys):
     output_path = tmp_path / "cortex-api.json"
+    compat_path = tmp_path / "cortex-api-compat.json"
 
-    rc = main(["openapi", "--output", str(output_path), "--server-url", "http://127.0.0.1:8766"])
+    rc = main(
+        [
+            "openapi",
+            "--output",
+            str(output_path),
+            "--server-url",
+            "http://127.0.0.1:8766",
+            "--compat-output",
+            str(compat_path),
+        ]
+    )
     out = capsys.readouterr().out
     spec = json.loads(output_path.read_text(encoding="utf-8"))
+    compat = json.loads(compat_path.read_text(encoding="utf-8"))
 
     assert rc == 0
     assert "Wrote OpenAPI spec" in out
+    assert "compatibility snapshot" in out
     assert spec["servers"][0]["url"] == "http://127.0.0.1:8766"
     assert "/v1/conflicts/resolve" in spec["paths"]
+    assert compat["contract_hash"] == build_contract_compatibility_snapshot(build_openapi_spec())["contract_hash"]
 
 
 def test_committed_openapi_artifact_matches_builder():
@@ -70,6 +87,13 @@ def test_committed_openapi_artifact_matches_builder():
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
 
     assert artifact == build_openapi_spec()
+
+
+def test_committed_openapi_compatibility_artifact_matches_builder():
+    artifact_path = Path("openapi/cortex-api-v1-compat.json")
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+    assert artifact == build_contract_compatibility_snapshot(build_openapi_spec())
 
 
 def test_typescript_sdk_package_points_to_committed_dist_files():
@@ -80,6 +104,7 @@ def test_typescript_sdk_package_points_to_committed_dist_files():
     types_path = package_path.parent / package["types"].removeprefix("./")
 
     assert package["name"] == "@cortex-ai/sdk"
+    assert package["version"] == PROJECT_VERSION
     assert main_path.exists()
     assert types_path.exists()
     assert (package_path.parent / "README.md").exists()

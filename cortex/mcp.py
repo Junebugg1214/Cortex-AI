@@ -4,11 +4,11 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from cortex.config import format_startup_diagnostics, load_selfhost_config
+from cortex.release import API_VERSION, MCP_SERVER_NAME, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 
 JSONRPC_VERSION = "2.0"
@@ -62,13 +62,6 @@ def _object_schema(
     if required:
         schema["required"] = list(required)
     return schema
-
-
-def _project_version() -> str:
-    try:
-        return version("cortex-identity")
-    except PackageNotFoundError:
-        return "dev"
 
 
 class JsonRpcError(Exception):
@@ -129,6 +122,7 @@ class CortexMCPServer:
             "Cortex exposes local-first, user-owned AI memory over MCP. "
             "Use node, edge, claim, query, branch, merge, blame, history, index, and prune tools "
             "to work with versioned memory without shelling out. "
+            f"Release {PROJECT_VERSION} speaks API {API_VERSION} / OpenAPI {OPENAPI_VERSION}. "
             f"{namespace_message}"
         )
 
@@ -882,7 +876,7 @@ class CortexMCPServer:
         result = {
             "protocolVersion": self.protocol_version,
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "Cortex", "version": _project_version()},
+            "serverInfo": {"name": MCP_SERVER_NAME, "version": PROJECT_VERSION},
             "instructions": self._instructions(),
         }
         return self._success_response(request_id, result)

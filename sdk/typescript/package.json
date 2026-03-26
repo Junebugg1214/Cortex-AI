@@ -1,21 +1,33 @@
 {
   "name": "@cortex-ai/sdk",
-  "version": "0.1.0",
+  "version": "1.4.1",
   "description": "TypeScript-friendly SDK for the local Cortex API",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Junebugg1214/Cortex-AI.git"
+  },
+  "homepage": "https://github.com/Junebugg1214/Cortex-AI#readme",
+  "bugs": {
+    "url": "https://github.com/Junebugg1214/Cortex-AI/issues"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -28,6 +40,8 @@
     "cortex",
     "sdk",
     "typescript",
-    "openapi"
-  ]
+    "openapi",
+    "self-hosted"
+  ],
+  "author": "Junebugg1214"
 }

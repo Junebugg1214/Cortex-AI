@@ -4,6 +4,13 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
+export interface ReleaseInfo {
+  name: string;
+  version: string;
+  apiVersion: string;
+  openapiVersion: string;
+}
+
 export interface CortexClientOptions {
   apiKey?: string | null;
   namespace?: string | null;
@@ -275,9 +282,15 @@ export interface QueryDslParams {
   ref?: string;
 }
 
+export declare const SDK_NAME = "@cortex-ai/sdk";
+export declare const SDK_VERSION = "1.4.1";
+export declare const API_VERSION = "v1";
+export declare const OPENAPI_VERSION = "1.0.0";
+
 export class CortexClient {
   constructor(baseUrl: string, options?: CortexClientOptions);
   health(): Promise<JsonObject>;
+  sdkInfo(): ReleaseInfo;
   meta(): Promise<JsonObject>;
   metrics(): Promise<JsonObject>;
   openapi(): Promise<JsonObject>;

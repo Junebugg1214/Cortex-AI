@@ -65,6 +65,7 @@ namespaces = ["team"]
 
     assert rc == 0
     assert "Cortex server diagnostics:" in output
+    assert "Release:" in output
     assert "Auth:" in output
     assert "writer" in output
 
@@ -115,3 +116,4 @@ def test_format_startup_diagnostics_mentions_local_trust_mode(tmp_path):
     diagnostics = format_startup_diagnostics(config, mode="server")
 
     assert "local trust mode" in diagnostics
+    assert "API v1" in diagnostics

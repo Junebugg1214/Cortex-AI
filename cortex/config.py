@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
+
 try:  # pragma: no cover - exercised implicitly on Python 3.10
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python <3.11
@@ -344,6 +346,9 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
 
     return {
         "mode": mode,
+        "project_version": PROJECT_VERSION,
+        "api_version": API_VERSION,
+        "openapi_version": OPENAPI_VERSION,
         "config_path": str(config.config_path) if config.config_path else None,
         "store_dir": str(store_dir),
         "store_exists": store_dir.exists(),
@@ -363,6 +368,7 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
     diagnostics = startup_diagnostics(config, mode=mode)
     lines = [
         f"Cortex {mode} diagnostics:",
+        f"  Release:   {diagnostics['project_version']} (API {diagnostics['api_version']}, OpenAPI {diagnostics['openapi_version']})",
         f"  Store dir: {diagnostics['store_dir']}",
         f"  Backend:   {diagnostics['backend']}",
     ]

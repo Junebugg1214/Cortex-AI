@@ -7,6 +7,9 @@ Cortex is designed to stay local-first and user-owned. The self-host path is:
 - keep the `.cortex` store on disk you control
 - scope agents with API keys and namespaces instead of centralizing all memory
 
+Release metadata is exposed consistently across REST, Python, TypeScript, and MCP surfaces so operators can confirm
+the running package version, API generation, and frozen v1 contract hash.
+
 ## Shared `config.toml`
 
 By default, Cortex looks for `config.toml` inside your store directory, usually `.cortex/config.toml`.
@@ -99,16 +102,19 @@ cortex backup restore backups/cortex-store.zip --store-dir .cortex --force
 
 ## Docker
 
-The repo ships with a simple compose file:
+The repo ships with a production-leaning local image and compose file:
 
 ```bash
 docker compose up --build
 ```
 
-That mounts the local `./.cortex` directory into the container and runs:
+That mounts the local `./.cortex` directory into the container, runs `cortexd`, and exposes a container healthcheck
+against `/v1/health`.
+
+The image defaults to:
 
 ```bash
-cortex server --config /data/.cortex/config.toml
+cortexd --config /data/.cortex/config.toml
 ```
 
 ## MCP Client Example
@@ -117,3 +123,14 @@ See [config.toml example](examples/config.toml) and
 [Claude Desktop example](examples/claude_desktop_mcp.json).
 
 The important rule is to keep the store local and only hand each agent the namespace and scopes it needs.
+
+## Reference Examples
+
+- Python client: [examples/python/self_hosted_client.py](../examples/python/self_hosted_client.py)
+- TypeScript client: [examples/typescript/self_hosted_client.mjs](../examples/typescript/self_hosted_client.mjs)
+- MCP JSON-RPC flow: [examples/mcp/README.md](../examples/mcp/README.md)
+
+## Upgrade and Release
+
+- Upgrade guide: [UPGRADING.md](UPGRADING.md)
+- Release checklist: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
