@@ -35,6 +35,14 @@ def _query_bool(values: dict[str, list[str]], key: str, default: bool) -> bool:
     return raw.lower() in {"1", "true", "yes", "on"}
 
 
+def _server_url(headers: dict[str, str]) -> str | None:
+    host = headers.get("Host", "").strip()
+    if not host:
+        return None
+    proto = headers.get("X-Forwarded-Proto", "http").strip() or "http"
+    return f"{proto}://{host}"
+
+
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
     if isinstance(exc, FileNotFoundError):
         return 404, {"status": "error", "error": str(exc)}
@@ -70,6 +78,8 @@ def dispatch_api_request(
                 return 200, service.health()
             if parsed.path == "/v1/meta":
                 return 200, service.meta()
+            if parsed.path == "/v1/openapi.json":
+                return 200, service.openapi(server_url=_server_url(headers))
             if parsed.path == "/v1/branches":
                 return 200, service.list_branches()
             if parsed.path == "/v1/commits":

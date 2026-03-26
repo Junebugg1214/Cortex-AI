@@ -54,6 +54,9 @@ class CortexClient:
     def meta(self) -> dict[str, Any]:
         return self._request("GET", "/v1/meta")
 
+    def openapi(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/openapi.json")
+
     def log(self, *, limit: int = 10, ref: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit}
         if ref is not None:

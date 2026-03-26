@@ -1,0 +1,33 @@
+{
+  "name": "@cortex-ai/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript-friendly SDK for the local Cortex API",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check": "node --check ./dist/index.js"
+  },
+  "keywords": [
+    "ai",
+    "memory",
+    "cortex",
+    "sdk",
+    "typescript",
+    "openapi"
+  ]
+}

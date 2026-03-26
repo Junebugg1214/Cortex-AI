@@ -1,0 +1,1251 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cortex Local API",
+    "version": "1.0.0",
+    "description": "Local-first REST API for Cortex, the Git-for-AI-Memory runtime. This surface covers versioning, review, query, conflicts, and merge workflows."
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Check API health",
+        "tags": [
+          "meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Service health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meta": {
+      "get": {
+        "operationId": "meta",
+        "summary": "Read service metadata",
+        "tags": [
+          "meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Service metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "summary": "Fetch the OpenAPI contract",
+        "tags": [
+          "meta"
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "OpenAPI v1 document"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/branches": {
+      "get": {
+        "operationId": "listBranches",
+        "summary": "List memory branches",
+        "tags": [
+          "branches"
+        ],
+        "responses": {
+          "200": {
+            "description": "Branch list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createBranch",
+        "summary": "Create a branch",
+        "tags": [
+          "branches"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBranchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Branch created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/branches/switch": {
+      "post": {
+        "operationId": "switchBranch",
+        "summary": "Switch the active branch",
+        "tags": [
+          "branches"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBranchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Switched branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/commits": {
+      "get": {
+        "operationId": "listCommits",
+        "summary": "List commits for a branch or ref",
+        "tags": [
+          "versions"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "name": "ref",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/commit": {
+      "post": {
+        "operationId": "commit",
+        "summary": "Commit a graph snapshot",
+        "tags": [
+          "versions"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/checkout": {
+      "post": {
+        "operationId": "checkout",
+        "summary": "Checkout a graph version or ref",
+        "tags": [
+          "versions"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Checked out graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/diff": {
+      "post": {
+        "operationId": "diff",
+        "summary": "Diff two refs or versions",
+        "tags": [
+          "versions"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiffRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Graph diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/review": {
+      "post": {
+        "operationId": "review",
+        "summary": "Review a graph against a baseline ref",
+        "tags": [
+          "review"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Review result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/blame": {
+      "post": {
+        "operationId": "blame",
+        "summary": "Trace why a memory node exists",
+        "tags": [
+          "audit"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Blame result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/history": {
+      "post": {
+        "operationId": "history",
+        "summary": "Read chronological receipts for a memory node",
+        "tags": [
+          "audit"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "History result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conflicts/detect": {
+      "post": {
+        "operationId": "detectConflicts",
+        "summary": "Detect memory conflicts",
+        "tags": [
+          "conflicts"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectConflictsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detected conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conflicts/resolve": {
+      "post": {
+        "operationId": "resolveConflict",
+        "summary": "Resolve a memory conflict",
+        "tags": [
+          "conflicts"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveConflictRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/category": {
+      "post": {
+        "operationId": "queryCategory",
+        "summary": "Query nodes by tag",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryCategoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Category query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/path": {
+      "post": {
+        "operationId": "queryPath",
+        "summary": "Query shortest path between two labels",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Path query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/related": {
+      "post": {
+        "operationId": "queryRelated",
+        "summary": "Query related nodes",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRelatedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Related-node query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/search": {
+      "post": {
+        "operationId": "querySearch",
+        "summary": "Run semantic graph search",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuerySearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/dsl": {
+      "post": {
+        "operationId": "queryDsl",
+        "summary": "Run the Cortex query DSL",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryDslRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DSL query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/query/nl": {
+      "post": {
+        "operationId": "queryNl",
+        "summary": "Run a natural-language query",
+        "tags": [
+          "query"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryNlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Natural-language query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/merge-preview": {
+      "post": {
+        "operationId": "mergePreview",
+        "summary": "Preview a merge between refs",
+        "tags": [
+          "merge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergePreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merge preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/merge/conflicts": {
+      "post": {
+        "operationId": "mergeConflicts",
+        "summary": "Inspect pending merge conflicts",
+        "tags": [
+          "merge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pending merge state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/merge/resolve": {
+      "post": {
+        "operationId": "mergeResolve",
+        "summary": "Resolve a pending merge conflict",
+        "tags": [
+          "merge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved merge conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/merge/commit-resolved": {
+      "post": {
+        "operationId": "mergeCommitResolved",
+        "summary": "Commit a resolved merge",
+        "tags": [
+          "merge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeCommitResolvedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed merge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/merge/abort": {
+      "post": {
+        "operationId": "mergeAbort",
+        "summary": "Abort a pending merge",
+        "tags": [
+          "merge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Aborted merge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Generic JSON response envelope used by the local Cortex API."
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "error"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ],
+        "additionalProperties": true
+      },
+      "GraphPayload": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Cortex graph export payload."
+      },
+      "EmptyRequest": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "CreateBranchRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from_ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "switch": {
+            "type": "boolean",
+            "default": false
+          },
+          "actor": {
+            "type": "string",
+            "default": "manual"
+          },
+          "approve": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "SwitchBranchRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string",
+            "default": "manual"
+          },
+          "approve": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CommitRequest": {
+        "type": "object",
+        "properties": {
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "message": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "default": "manual"
+          },
+          "actor": {
+            "type": "string",
+            "default": "manual"
+          },
+          "approve": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "graph",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "CheckoutRequest": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "verify": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DiffRequest": {
+        "type": "object",
+        "properties": {
+          "version_a": {
+            "type": "string"
+          },
+          "version_b": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_a",
+          "version_b"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "properties": {
+          "against": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "fail_on": {
+            "type": "string",
+            "default": "blocking"
+          }
+        },
+        "required": [
+          "against"
+        ],
+        "additionalProperties": false
+      },
+      "BlameRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "default": ""
+          },
+          "node_id": {
+            "type": "string",
+            "default": ""
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "source": {
+            "type": "string",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoryRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "default": ""
+          },
+          "node_id": {
+            "type": "string",
+            "default": ""
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "source": {
+            "type": "string",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          }
+        },
+        "additionalProperties": false
+      },
+      "DetectConflictsRequest": {
+        "type": "object",
+        "properties": {
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "min_severity": {
+            "type": "number",
+            "default": 0.0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResolveConflictRequest": {
+        "type": "object",
+        "properties": {
+          "conflict_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept-new",
+              "keep-old",
+              "merge",
+              "ignore"
+            ]
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "conflict_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "QueryCategoryRequest": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "additionalProperties": false
+      },
+      "QueryPathRequest": {
+        "type": "object",
+        "properties": {
+          "from_label": {
+            "type": "string"
+          },
+          "to_label": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "from_label",
+          "to_label"
+        ],
+        "additionalProperties": false
+      },
+      "QueryRelatedRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "default": 2
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "QuerySearchRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10
+          },
+          "min_score": {
+            "type": "number",
+            "default": 0.0
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "QueryDslRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "QueryNlRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/GraphPayload"
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "MergePreviewRequest": {
+        "type": "object",
+        "properties": {
+          "other_ref": {
+            "type": "string"
+          },
+          "current_ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "persist": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "other_ref"
+        ],
+        "additionalProperties": false
+      },
+      "MergeResolveRequest": {
+        "type": "object",
+        "properties": {
+          "conflict_id": {
+            "type": "string"
+          },
+          "choose": {
+            "type": "string",
+            "enum": [
+              "current",
+              "incoming"
+            ]
+          }
+        },
+        "required": [
+          "conflict_id",
+          "choose"
+        ],
+        "additionalProperties": false
+      },
+      "MergeCommitResolvedRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string",
+            "default": "manual"
+          },
+          "approve": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

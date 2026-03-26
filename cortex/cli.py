@@ -823,6 +823,11 @@ def build_parser():
     ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
     ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
 
+    # -- openapi (contract export) ----------------------------------------
+    oa = sub.add_parser("openapi", help="Write the Cortex OpenAPI contract")
+    oa.add_argument("--output", "-o", default="openapi/cortex-api-v1.json", help="Output path for the OpenAPI JSON")
+    oa.add_argument("--server-url", help="Optional server URL to include in the contract")
+
     # -- server (local REST API) -----------------------------------------
     srv = sub.add_parser("server", help="Launch the local Cortex REST API server")
     srv.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
@@ -3720,6 +3725,15 @@ def run_server(args):
     return 0
 
 
+def run_openapi(args):
+    """Write the OpenAPI contract to disk."""
+    from cortex.openapi import write_openapi_spec
+
+    output_path = write_openapi_spec(args.output, server_url=args.server_url)
+    print(f"Wrote OpenAPI spec to {output_path}")
+    return 0
+
+
 def run_stats(args):
     """Show statistics for a context file."""
     input_path = Path(args.input_file)
@@ -3864,6 +3878,7 @@ def main(argv=None):
         "context-export",
         "context-write",
         "ui",
+        "openapi",
         "rotate",
         "pull",
         "completion",
@@ -3980,6 +3995,8 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "ui":
         return run_ui(args)
+    elif args.subcommand == "openapi":
+        return run_openapi(args)
     elif args.subcommand == "server":
         return run_server(args)
     elif args.subcommand == "completion":
