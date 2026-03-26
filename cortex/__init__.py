@@ -1,3 +1,7 @@
 """Cortex — local AI identity and memory toolkit."""
 
-__version__ = "1.4.1"
+from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
+
+__version__ = PROJECT_VERSION
+
+__all__ = ["API_VERSION", "OPENAPI_VERSION", "__version__"]

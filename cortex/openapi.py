@@ -4,6 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cortex.release import (
+    OPENAPI_VERSION,
+    build_contract_compatibility_snapshot,
+    build_release_metadata,
+    write_contract_compatibility_snapshot,
+)
+
 
 def _json_object_schema(*, description: str | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {
@@ -31,11 +38,12 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
         "openapi": "3.1.0",
         "info": {
             "title": "Cortex Local API",
-            "version": "1.0.0",
+            "version": OPENAPI_VERSION,
             "description": (
                 "Local-first REST API for Cortex, the Git-for-AI-Memory runtime. "
                 "This surface covers versioning, review, query, conflicts, and merge workflows."
             ),
+            "x-cortex-release": build_release_metadata(),
         },
         "paths": {
             "/v1/health": {
@@ -1046,11 +1054,24 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
     return spec
 
 
-def write_openapi_spec(output_path: str | Path, *, server_url: str | None = None) -> Path:
+def write_openapi_spec(
+    output_path: str | Path,
+    *,
+    server_url: str | None = None,
+    compat_output_path: str | Path | None = None,
+) -> Path:
+    spec = build_openapi_spec(server_url=server_url)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(build_openapi_spec(server_url=server_url), indent=2) + "\n", encoding="utf-8")
+    target.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+    if compat_output_path:
+        write_contract_compatibility_snapshot(compat_output_path, spec)
     return target
 
 
-__all__ = ["build_openapi_spec", "write_openapi_spec"]
+__all__ = [
+    "build_contract_compatibility_snapshot",
+    "build_openapi_spec",
+    "write_contract_compatibility_snapshot",
+    "write_openapi_spec",
+]

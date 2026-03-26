@@ -1,0 +1,289 @@
+{
+  "api_version": "v1",
+  "openapi_version": "1.0.0",
+  "project_version": "1.4.1",
+  "storage_model": "user-owned",
+  "release_channel": "self-hosted",
+  "path_count": 43,
+  "operation_count": 44,
+  "contract_hash": "8bd0f132a14feea05a7f4b1b342aaaab479e805ba0868d9720431f8447cb6563",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/v1/blame",
+      "operation_id": "blame",
+      "summary": "Trace why a memory node exists"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/branches",
+      "operation_id": "listBranches",
+      "summary": "List memory branches"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/branches",
+      "operation_id": "createBranch",
+      "summary": "Create a branch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/branches/switch",
+      "operation_id": "switchBranch",
+      "summary": "Switch the active branch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/checkout",
+      "operation_id": "checkout",
+      "summary": "Checkout a graph version or ref"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/claims",
+      "operation_id": "listClaims",
+      "summary": "List claim events with optional filters"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/claims/assert",
+      "operation_id": "assertClaim",
+      "summary": "Append a claim assertion and optionally materialize it"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/claims/retract",
+      "operation_id": "retractClaim",
+      "summary": "Retract a claim and optionally materialize it"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/commit",
+      "operation_id": "commit",
+      "summary": "Commit a graph snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/commits",
+      "operation_id": "listCommits",
+      "summary": "List commits for a branch or ref"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/conflicts/detect",
+      "operation_id": "detectConflicts",
+      "summary": "Detect memory conflicts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/conflicts/resolve",
+      "operation_id": "resolveConflict",
+      "summary": "Resolve a memory conflict"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/diff",
+      "operation_id": "diff",
+      "summary": "Diff two refs or versions"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/edges",
+      "operation_id": "lookupEdges",
+      "summary": "Lookup memory edges by id or endpoint triple"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/edges/delete",
+      "operation_id": "deleteEdge",
+      "summary": "Delete a memory edge and materialize a commit"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/edges/upsert",
+      "operation_id": "upsertEdge",
+      "summary": "Upsert a memory edge and materialize a commit"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/edges/{edge_id}",
+      "operation_id": "getEdge",
+      "summary": "Read a memory edge by id"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/health",
+      "operation_id": "health",
+      "summary": "Check API health"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/history",
+      "operation_id": "history",
+      "summary": "Read chronological receipts for a memory node"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/index/rebuild",
+      "operation_id": "indexRebuild",
+      "summary": "Rebuild persisted lexical indexes"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/index/status",
+      "operation_id": "indexStatus",
+      "summary": "Read lexical index status for a stored ref"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/batch",
+      "operation_id": "memoryBatch",
+      "summary": "Apply multiple object operations in a single commit-backed batch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/merge-preview",
+      "operation_id": "mergePreview",
+      "summary": "Preview a merge between refs"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/merge/abort",
+      "operation_id": "mergeAbort",
+      "summary": "Abort a pending merge"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/merge/commit-resolved",
+      "operation_id": "mergeCommitResolved",
+      "summary": "Commit a resolved merge"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/merge/conflicts",
+      "operation_id": "mergeConflicts",
+      "summary": "Inspect pending merge conflicts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/merge/resolve",
+      "operation_id": "mergeResolve",
+      "summary": "Resolve a pending merge conflict"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/meta",
+      "operation_id": "meta",
+      "summary": "Read service metadata"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/metrics",
+      "operation_id": "metrics",
+      "summary": "Read self-hosted service metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/nodes",
+      "operation_id": "lookupNodes",
+      "summary": "Lookup memory nodes by id, canonical id, or label"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/nodes/delete",
+      "operation_id": "deleteNode",
+      "summary": "Delete a memory node and materialize a commit"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/nodes/upsert",
+      "operation_id": "upsertNode",
+      "summary": "Upsert a memory node and materialize a commit"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/nodes/{node_id}",
+      "operation_id": "getNode",
+      "summary": "Read a memory node by id"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/openapi.json",
+      "operation_id": "openapi",
+      "summary": "Fetch the OpenAPI contract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/prune",
+      "operation_id": "prune",
+      "summary": "Run safe garbage collection and pruning"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/prune/audit",
+      "operation_id": "pruneAudit",
+      "summary": "Read maintenance audit history"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/prune/status",
+      "operation_id": "pruneStatus",
+      "summary": "Preview maintenance and pruning work"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/category",
+      "operation_id": "queryCategory",
+      "summary": "Query nodes by tag"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/dsl",
+      "operation_id": "queryDsl",
+      "summary": "Run the Cortex query DSL"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/nl",
+      "operation_id": "queryNl",
+      "summary": "Run a natural-language query"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/path",
+      "operation_id": "queryPath",
+      "summary": "Query shortest path between two labels"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/related",
+      "operation_id": "queryRelated",
+      "summary": "Query related nodes"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/query/search",
+      "operation_id": "querySearch",
+      "summary": "Run semantic graph search"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/review",
+      "operation_id": "review",
+      "summary": "Review a graph against a baseline ref"
+    }
+  ],
+  "tags": [
+    "audit",
+    "branches",
+    "conflicts",
+    "index",
+    "maintenance",
+    "merge",
+    "meta",
+    "objects",
+    "query",
+    "review",
+    "versions"
+  ]
+}

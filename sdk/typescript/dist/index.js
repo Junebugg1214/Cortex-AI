@@ -1,3 +1,8 @@
+export const SDK_NAME = "@cortex-ai/sdk";
+export const SDK_VERSION = "1.4.1";
+export const API_VERSION = "v1";
+export const OPENAPI_VERSION = "1.0.0";
+
 function buildQuery(params) {
   const pairs = Object.entries(params ?? {}).filter(([, value]) => value !== undefined && value !== null);
   if (!pairs.length) {
@@ -30,7 +35,8 @@ export class CortexClient {
   headers() {
     const headers = {
       "Content-Type": "application/json",
-      Accept: "application/json"
+      Accept: "application/json",
+      "X-Cortex-Client": `${SDK_NAME}/${SDK_VERSION}`
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
@@ -59,6 +65,15 @@ export class CortexClient {
 
   health() {
     return this.request("GET", "/v1/health");
+  }
+
+  sdkInfo() {
+    return {
+      name: SDK_NAME,
+      version: SDK_VERSION,
+      apiVersion: API_VERSION,
+      openapiVersion: OPENAPI_VERSION
+    };
   }
 
   meta() {

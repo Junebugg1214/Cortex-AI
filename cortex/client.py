@@ -6,6 +6,18 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION, PYTHON_SDK_MODULE, PYTHON_SDK_NAME
+
+
+def _sdk_info_payload() -> dict[str, Any]:
+    return {
+        "name": PYTHON_SDK_NAME,
+        "module": PYTHON_SDK_MODULE,
+        "version": PROJECT_VERSION,
+        "api_version": API_VERSION,
+        "openapi_version": OPENAPI_VERSION,
+    }
+
 
 class CortexClient:
     def __init__(
@@ -22,7 +34,11 @@ class CortexClient:
         self.namespace = namespace
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Cortex-Client": f"{PYTHON_SDK_NAME}/{PROJECT_VERSION}",
+        }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         if self.namespace:
@@ -60,6 +76,9 @@ class CortexClient:
 
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/v1/health")
+
+    def sdk_info(self) -> dict[str, Any]:
+        return _sdk_info_payload()
 
     def meta(self) -> dict[str, Any]:
         return self._request("GET", "/v1/meta")
@@ -652,3 +671,6 @@ class CortexClient:
         if graph is not None:
             payload["graph"] = graph
         return self._request("POST", "/v1/query/nl", payload=payload)
+
+
+__all__ = ["API_VERSION", "CortexClient", "OPENAPI_VERSION", "PROJECT_VERSION"]

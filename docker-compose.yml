@@ -1,9 +1,24 @@
 services:
   cortexd:
+    image: cortex-ai/cortex-selfhost:local
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["server", "--config", "/data/.cortex/config.toml"]
+    command: ["--config", "/data/.cortex/config.toml"]
+    environment:
+      CORTEX_CONFIG: /data/.cortex/config.toml
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.loads(urllib.request.urlopen('http://127.0.0.1:8766/v1/health').read().decode('utf-8')); raise SystemExit(0 if data.get('status') == 'ok' else 1)"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     ports:
       - "8766:8766"
     volumes:

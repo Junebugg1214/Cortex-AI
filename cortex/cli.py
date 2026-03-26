@@ -827,6 +827,16 @@ def build_parser():
     oa = sub.add_parser("openapi", help="Write the Cortex OpenAPI contract")
     oa.add_argument("--output", "-o", default="openapi/cortex-api-v1.json", help="Output path for the OpenAPI JSON")
     oa.add_argument("--server-url", help="Optional server URL to include in the contract")
+    oa.add_argument("--compat-output", help="Optional output path for the API compatibility snapshot JSON")
+
+    # -- benchmark (release soak harness) ---------------------------------
+    bench = sub.add_parser("benchmark", help="Run the lightweight self-host benchmark harness")
+    bench.add_argument(
+        "--store-dir", default=".cortex-bench", help="Benchmark store directory (default: .cortex-bench)"
+    )
+    bench.add_argument("--iterations", type=int, default=3, help="Number of benchmark iterations (default: 3)")
+    bench.add_argument("--nodes", type=int, default=24, help="Nodes per generated graph (default: 24)")
+    bench.add_argument("--output", "-o", help="Optional JSON output path")
 
     # -- server (local REST API) -----------------------------------------
     srv = sub.add_parser("server", help="Launch the local Cortex REST API server")
@@ -3783,9 +3793,28 @@ def run_openapi(args):
     """Write the OpenAPI contract to disk."""
     from cortex.openapi import write_openapi_spec
 
-    output_path = write_openapi_spec(args.output, server_url=args.server_url)
+    output_path = write_openapi_spec(args.output, server_url=args.server_url, compat_output_path=args.compat_output)
     print(f"Wrote OpenAPI spec to {output_path}")
+    if args.compat_output:
+        print(f"Wrote OpenAPI compatibility snapshot to {args.compat_output}")
     return 0
+
+
+def run_benchmark(args):
+    """Run the lightweight self-host benchmark harness."""
+    from cortex.benchmark import main as benchmark_main
+
+    argv = [
+        "--store-dir",
+        args.store_dir,
+        "--iterations",
+        str(args.iterations),
+        "--nodes",
+        str(args.nodes),
+    ]
+    if args.output:
+        argv.extend(["--output", args.output])
+    return benchmark_main(argv)
 
 
 def _default_backup_output() -> str:
@@ -3983,6 +4012,7 @@ def main(argv=None):
         "context-export",
         "context-write",
         "ui",
+        "benchmark",
         "mcp",
         "backup",
         "openapi",
@@ -4102,6 +4132,8 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "ui":
         return run_ui(args)
+    elif args.subcommand == "benchmark":
+        return run_benchmark(args)
     elif args.subcommand == "backup":
         return run_backup(args)
     elif args.subcommand == "openapi":

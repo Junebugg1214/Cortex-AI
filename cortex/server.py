@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from cortex.auth import authorize_api_key
 from cortex.config import ALL_SCOPES, APIKeyConfig, format_startup_diagnostics, load_selfhost_config
+from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 
 
@@ -353,7 +354,7 @@ def make_api_handler(
     auth_keys: tuple[APIKeyConfig, ...] = (),
 ):
     class CortexAPIHandler(BaseHTTPRequestHandler):
-        server_version = "CortexAPI/1.0"
+        server_version = f"CortexAPI/{OPENAPI_VERSION}"
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -363,8 +364,16 @@ def make_api_handler(
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Cortex-Release", PROJECT_VERSION)
+            self.send_header("X-Cortex-API-Version", API_VERSION)
+            self.send_header("X-Cortex-OpenAPI-Version", OPENAPI_VERSION)
             if payload.get("request_id"):
                 self.send_header("X-Request-ID", str(payload["request_id"]))
+            release = payload.get("release")
+            if isinstance(release, dict):
+                contract = release.get("contract")
+                if isinstance(contract, dict) and contract.get("hash"):
+                    self.send_header("X-Cortex-Contract-Hash", str(contract["hash"]))
             self.end_headers()
             self.wfile.write(data)
 
