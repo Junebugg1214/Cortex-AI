@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sqlite3
 import urllib.error
 import urllib.parse
@@ -116,6 +117,31 @@ def test_cortex_api_health_meta_log_and_auth(tmp_path, monkeypatch):
         CortexClient("http://cortex.local").health()
 
 
+def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Project Atlas", aliases=["atlas"])), "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    health = client.health()
+    search = client.query_search(query="atlas", limit=5)
+    metrics = client.metrics()
+
+    lines = [json.loads(line) for line in service.observability.log_path.read_text(encoding="utf-8").splitlines()]
+
+    assert health["request_id"]
+    assert search["request_id"]
+    assert metrics["requests_total"] >= 2
+    assert "/v1/health" in metrics["routes"]
+    assert "/v1/query/search" in metrics["routes"]
+    assert metrics["index"]["lag_commits"] == 0
+    assert lines[-1]["path"] == "/v1/metrics"
+    assert all(line["request_id"] for line in lines)
+
+
 def test_cortex_api_commit_branch_diff_and_checkout_round_trip(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -145,6 +171,35 @@ def test_cortex_api_commit_branch_diff_and_checkout_round_trip(tmp_path, monkeyp
     assert log["versions"][0]["message"] == "feature add atlas"
     assert "n2" in diff["added"]
     assert "n2" in checkout["graph"]["graph"]["nodes"]
+
+
+def test_cortex_api_namespace_isolation_filters_and_blocks_cross_namespace(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    main_graph = _graph_with_node(Node(id="n1", label="Main Atlas", aliases=["atlas-main"], confidence=0.8))
+    backend.versions.commit(main_graph, "main base")
+    backend.versions.create_branch("team/atlas", switch=True)
+
+    team_graph = _graph_with_node(Node(id="n2", label="Team Atlas", aliases=["atlas-team"], confidence=0.9))
+    backend.versions.commit(team_graph, "team base")
+    backend.versions.switch_branch("main")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local", namespace="team")
+    branches = client.list_branches()
+    team_search = client.query_search(query="atlas-team", ref="team/atlas", limit=5)
+
+    assert [branch["name"] for branch in branches["branches"]] == ["team/atlas"]
+    assert team_search["results"][0]["node"]["label"] == "Team Atlas"
+
+    with pytest.raises(RuntimeError, match="outside 'team'"):
+        client.query_search(query="atlas-main", ref="main", limit=5)
+
+    with pytest.raises(RuntimeError, match="outside namespace"):
+        client.create_branch(name="ops/infra")
 
 
 def test_cortex_api_review_blame_and_history_support_payload_graphs(tmp_path, monkeypatch):
@@ -259,6 +314,36 @@ def test_cortex_api_query_endpoints_support_ref_backed_queries(tmp_path, monkeyp
     assert [node["label"] for node in nl["result"]["path"]] == ["Python", "Project Atlas", "SDK"]
 
 
+def test_cortex_api_query_search_uses_optional_embeddings_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("CORTEX_EMBEDDING_PROVIDER", "hashed")
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id="n1",
+            label="Index Core",
+            tags=["infrastructure"],
+            confidence=0.9,
+            brief="retrievel layer for semantic memory",
+        )
+    )
+    backend.versions.commit(graph, "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    search = client.query_search(query="retrieval", limit=5)
+
+    assert search["embedding_enabled"] is True
+    assert search["embedding_provider"] == "hashed"
+    assert search["hybrid"] is True
+    assert search["results"][0]["node"]["label"] == "Index Core"
+    assert "embedding" in search["results"][0]["sources"]
+
+
 def test_cortex_api_query_endpoints_support_payload_graphs(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -341,6 +426,50 @@ def test_cortex_api_index_status_and_rebuild_surface(tmp_path, monkeypatch):
     assert ready["last_indexed_commit"] == commit.version_id
     assert search["search_backend"] == "persistent_index"
     assert search["results"][0]["node"]["label"] == "Project Atlas"
+
+
+def test_cortex_api_prune_supports_dry_run_and_audit(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Project Atlas", aliases=["atlas"])), "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    with sqlite3.connect(sqlite_db_path(store_dir)) as conn:
+        conn.execute(
+            "INSERT INTO lexical_indices(version_id, payload, doc_count, indexed_at) VALUES(?, ?, ?, ?)",
+            ("orphan", "{}", 0, "2026-03-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO embedding_indices(version_id, provider, payload, doc_count, indexed_at) VALUES(?, ?, ?, ?, ?)",
+            ("orphan", "hashed", "{}", 0, "2026-03-01T00:00:00Z"),
+        )
+
+    merge_state = store_dir / "merge_state.json"
+    merge_working = store_dir / "merge_working.json"
+    merge_state.write_text("{}", encoding="utf-8")
+    merge_working.write_text("{}", encoding="utf-8")
+    stale_time = 1_700_000_000
+    os.utime(merge_state, (stale_time, stale_time))
+    os.utime(merge_working, (stale_time, stale_time))
+
+    client = CortexClient("http://cortex.local")
+    status = client.prune_status(retention_days=7)
+    dry_run = client.prune(dry_run=True, retention_days=7)
+    assert merge_state.exists() and merge_working.exists()
+    pruned = client.prune(dry_run=False, retention_days=7)
+    audit = client.prune_audit(limit=5)
+
+    assert status["orphan_lexical_indices"] == 1
+    assert status["orphan_embedding_indices"] == 1
+    assert len(status["stale_merge_artifacts"]) == 2
+    assert dry_run["dry_run"] is True
+    assert pruned["removed_lexical_indices"] == 1
+    assert pruned["removed_embedding_indices"] == 1
+    assert len(pruned["removed_merge_artifacts"]) == 2
+    assert not merge_state.exists() and not merge_working.exists()
+    assert audit["entries"][0]["removed_lexical_indices"] == 1
 
 
 def test_cortex_api_query_dsl_returns_client_error_for_invalid_queries(tmp_path, monkeypatch):

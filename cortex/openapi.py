@@ -64,6 +64,19 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/metrics": {
+                "get": {
+                    "operationId": "metrics",
+                    "summary": "Read self-hosted service metrics",
+                    "tags": ["meta"],
+                    "responses": {
+                        "200": {
+                            "description": "Service metrics",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/index/status": {
                 "get": {
                     "operationId": "indexStatus",
@@ -75,6 +88,38 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     "responses": {
                         "200": {
                             "description": "Index status",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/prune/status": {
+                "get": {
+                    "operationId": "pruneStatus",
+                    "summary": "Preview maintenance and pruning work",
+                    "tags": ["maintenance"],
+                    "parameters": [
+                        {"name": "retention_days", "in": "query", "schema": {"type": "integer", "default": 7}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Prune status",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/prune/audit": {
+                "get": {
+                    "operationId": "pruneAudit",
+                    "summary": "Read maintenance audit history",
+                    "tags": ["maintenance"],
+                    "parameters": [
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Prune audit log",
                             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
                         }
                     },
@@ -277,6 +322,20 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/prune": {
+                "post": {
+                    "operationId": "prune",
+                    "summary": "Run safe garbage collection and pruning",
+                    "tags": ["maintenance"],
+                    "requestBody": _request_body("#/components/schemas/PruneRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Prune result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/query/category": {
                 "post": {
                     "operationId": "queryCategory",
@@ -457,6 +516,14 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     "properties": {
                         "ref": {"type": "string", "default": "HEAD"},
                         "all_refs": {"type": "boolean", "default": False},
+                    },
+                    "additionalProperties": False,
+                },
+                "PruneRequest": {
+                    "type": "object",
+                    "properties": {
+                        "dry_run": {"type": "boolean", "default": True},
+                        "retention_days": {"type": "integer", "default": 7},
                     },
                     "additionalProperties": False,
                 },

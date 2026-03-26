@@ -138,6 +138,12 @@ class IndexBackend(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class MaintenanceBackend(Protocol):
+    def status(self, *, retention_days: int = 7) -> dict[str, Any]: ...
+    def prune(self, *, dry_run: bool = True, retention_days: int = 7) -> dict[str, Any]: ...
+    def audit_log(self, *, limit: int = 50) -> list[dict[str, Any]]: ...
+
+
 class StorageBackend(Protocol):
     store_dir: Path
     tenant_id: str
@@ -146,6 +152,7 @@ class StorageBackend(Protocol):
     governance: GovernanceBackend
     remotes: RemoteBackend
     indexing: IndexBackend
+    maintenance: MaintenanceBackend
 
 
 __all__ = [
@@ -154,6 +161,7 @@ __all__ = [
     "ClaimBackend",
     "GovernanceBackend",
     "IndexBackend",
+    "MaintenanceBackend",
     "RemoteBackend",
     "StorageBackend",
     "VersionBackend",

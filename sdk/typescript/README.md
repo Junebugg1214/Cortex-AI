@@ -5,7 +5,9 @@ TypeScript-friendly client for the local Cortex API.
 ## What It Covers
 
 - health and metadata
+- metrics and structured self-hosted observability
 - index status and rebuild controls
+- maintenance prune status, dry-run execution, and audit history
 - commit, checkout, diff, branches, and log
 - review, blame, and history
 - query and retrieval endpoints

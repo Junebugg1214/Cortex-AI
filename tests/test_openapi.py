@@ -14,13 +14,17 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert spec["openapi"] == "3.1.0"
     assert spec["info"]["title"] == "Cortex Local API"
     assert "/v1/openapi.json" in spec["paths"]
+    assert "/v1/metrics" in spec["paths"]
     assert "/v1/index/status" in spec["paths"]
     assert "/v1/index/rebuild" in spec["paths"]
+    assert "/v1/prune/status" in spec["paths"]
+    assert "/v1/prune" in spec["paths"]
     assert "/v1/query/search" in spec["paths"]
     assert "/v1/conflicts/detect" in spec["paths"]
     assert "/v1/merge-preview" in spec["paths"]
     assert spec["paths"]["/v1/query/search"]["post"]["operationId"] == "querySearch"
     assert spec["paths"]["/v1/index/rebuild"]["post"]["operationId"] == "indexRebuild"
+    assert spec["paths"]["/v1/prune"]["post"]["operationId"] == "prune"
     assert spec["components"]["schemas"]["MergePreviewRequest"]["required"] == ["other_ref"]
 
 

@@ -4,11 +4,12 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from cortex.claims import ClaimEvent
+from cortex.embeddings import build_document_embeddings, get_embedding_provider, hybrid_search_documents
 from cortex.governance import GovernanceRule
 from cortex.graph import CortexGraph, Node, _normalize_label, diff_graphs
 from cortex.remotes import _normalize_store_path
@@ -22,7 +23,7 @@ from cortex.schemas.memory_v1 import (
     GovernanceRuleRecord,
     RemoteRecord,
 )
-from cortex.search import TFIDFIndex, semantic_search_documents
+from cortex.search import TFIDFIndex
 from cortex.semantic_diff import semantic_diff_graphs
 
 DEFAULT_SQLITE_FILENAME = "cortex.db"
@@ -109,6 +110,20 @@ class SQLiteVersionBackend:
                     indexed_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_lexical_indices_indexed_at ON lexical_indices(indexed_at DESC);
+                CREATE TABLE IF NOT EXISTS embedding_indices (
+                    version_id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    doc_count INTEGER NOT NULL,
+                    indexed_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_embedding_indices_indexed_at ON embedding_indices(indexed_at DESC);
+                CREATE TABLE IF NOT EXISTS maintenance_audit (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
                 """
             )
             current = conn.execute("SELECT value FROM meta WHERE key = 'head_ref'").fetchone()
@@ -866,12 +881,12 @@ class SQLiteIndexBackend:
 
     def _node_documents(
         self, *, graph: CortexGraph | None = None, snapshot_payload: dict[str, Any] | None = None
-    ) -> list[Any]:
+    ) -> list[dict[str, Any]]:
         if graph is not None:
-            return list(graph.nodes.values())
+            return [node.to_dict() for node in graph.nodes.values()]
         if snapshot_payload is not None:
             nodes = snapshot_payload.get("graph", {}).get("nodes", {})
-            return list(nodes.values())
+            return [dict(node) for node in nodes.values()]
         raise ValueError("graph or snapshot_payload is required to build an index")
 
     def _latest_row(self) -> sqlite3.Row | None:
@@ -896,6 +911,30 @@ class SQLiteIndexBackend:
                 (version_id,),
             ).fetchone()
 
+    def _embedding_row(self, version_id: str) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT version_id, provider, payload, doc_count, indexed_at
+                FROM embedding_indices
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            ).fetchone()
+
+    def _nearest_index_details(self, ref: str) -> dict[str, Any] | None:
+        for lag, commit in enumerate(self.versions.log(limit=0, ref=ref)):
+            row = self._index_row(commit.version_id)
+            if row is None:
+                continue
+            return {
+                "version_id": row["version_id"],
+                "doc_count": int(row["doc_count"]),
+                "indexed_at": row["indexed_at"],
+                "lag_commits": lag,
+            }
+        return None
+
     def upsert_version_index(
         self,
         version_id: str,
@@ -903,8 +942,11 @@ class SQLiteIndexBackend:
         graph: CortexGraph | None = None,
         snapshot_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        documents = self._node_documents(graph=graph, snapshot_payload=snapshot_payload)
         index = TFIDFIndex()
-        index.build(self._node_documents(graph=graph, snapshot_payload=snapshot_payload))
+        index.build(documents)
+        embedding_provider = get_embedding_provider()
+        embedding_payload = build_document_embeddings(documents, embedding_provider)
         indexed_at = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
@@ -918,10 +960,33 @@ class SQLiteIndexBackend:
                 """,
                 (version_id, json.dumps(index.to_dict(), ensure_ascii=False), index.doc_count, indexed_at),
             )
+            if embedding_provider.enabled:
+                conn.execute(
+                    """
+                    INSERT INTO embedding_indices(version_id, provider, payload, doc_count, indexed_at)
+                    VALUES(?, ?, ?, ?, ?)
+                    ON CONFLICT(version_id) DO UPDATE
+                    SET provider = excluded.provider,
+                        payload = excluded.payload,
+                        doc_count = excluded.doc_count,
+                        indexed_at = excluded.indexed_at
+                    """,
+                    (
+                        version_id,
+                        embedding_provider.name,
+                        json.dumps(embedding_payload, ensure_ascii=False),
+                        len(embedding_payload),
+                        indexed_at,
+                    ),
+                )
+            else:
+                conn.execute("DELETE FROM embedding_indices WHERE version_id = ?", (version_id,))
         return {
             "version_id": version_id,
             "doc_count": index.doc_count,
             "indexed_at": indexed_at,
+            "embedding_enabled": embedding_provider.enabled,
+            "embedding_provider": embedding_provider.name,
         }
 
     def _ensure_index(self, version_id: str) -> tuple[TFIDFIndex, dict[str, Any]]:
@@ -942,8 +1007,10 @@ class SQLiteIndexBackend:
         if resolved_ref is None:
             raise ValueError(f"Unknown ref: {ref}")
         current_row = self._index_row(resolved_ref)
-        latest_row = self._latest_row()
+        nearest = self._nearest_index_details(ref)
         snapshot = self.versions._snapshot_row(resolved_ref)
+        embedding_provider = get_embedding_provider()
+        current_embedding_row = self._embedding_row(resolved_ref)
         snapshot_doc_count = int(snapshot["node_count"]) if snapshot is not None else 0
         return {
             "status": "ok",
@@ -955,9 +1022,19 @@ class SQLiteIndexBackend:
             "indexed": current_row is not None,
             "stale": current_row is None,
             "doc_count": int(current_row["doc_count"]) if current_row is not None else snapshot_doc_count,
-            "updated_at": current_row["indexed_at"] if current_row is not None else None,
-            "last_indexed_commit": latest_row["version_id"] if latest_row is not None else None,
-            "last_indexed_at": latest_row["indexed_at"] if latest_row is not None else None,
+            "updated_at": current_row["indexed_at"]
+            if current_row is not None
+            else nearest["indexed_at"]
+            if nearest
+            else None,
+            "last_indexed_commit": nearest["version_id"] if nearest is not None else None,
+            "last_indexed_at": nearest["indexed_at"] if nearest is not None else None,
+            "lag_commits": int(nearest["lag_commits"])
+            if nearest is not None
+            else len(self.versions.log(limit=0, ref=ref)),
+            "embedding_provider": embedding_provider.name,
+            "embedding_enabled": embedding_provider.enabled,
+            "embedding_indexed": current_embedding_row is not None if embedding_provider.enabled else False,
         }
 
     def rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
@@ -986,6 +1063,8 @@ class SQLiteIndexBackend:
             "doc_count": latest["doc_count"] if latest is not None else 0,
             "updated_at": latest["indexed_at"] if latest is not None else None,
             "last_indexed_commit": latest["version_id"] if latest is not None else None,
+            "embedding_provider": get_embedding_provider().name,
+            "embedding_enabled": get_embedding_provider().enabled,
         }
 
     def search(
@@ -1000,13 +1079,131 @@ class SQLiteIndexBackend:
         if resolved_ref is None:
             raise ValueError(f"Unknown ref: {ref}")
         index, _ = self._ensure_index(resolved_ref)
-        return semantic_search_documents(
-            index.to_dict().get("docs", {}).values(),
+        embedding_provider = get_embedding_provider()
+        embedding_row = self._embedding_row(resolved_ref)
+        embeddings = json.loads(embedding_row["payload"]) if embedding_row is not None else None
+        results, _ = hybrid_search_documents(
+            list(index.to_dict().get("docs", {}).values()),
             query,
             limit=limit,
             min_score=min_score,
-            index=index,
+            lexical_index=index,
+            provider=embedding_provider,
+            document_embeddings=embeddings,
         )
+        return results
+
+
+@dataclass(slots=True)
+class SQLiteMaintenanceBackend:
+    versions: SQLiteVersionBackend
+
+    def _connect(self) -> sqlite3.Connection:
+        return self.versions._connect()
+
+    def _merge_artifacts(self) -> list[Path]:
+        return [self.versions.store_dir / "merge_state.json", self.versions.store_dir / "merge_working.json"]
+
+    def _orphan_count(self, table_name: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM {table_name}
+                WHERE version_id NOT IN (SELECT version_id FROM snapshots)
+                """
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def _stale_merge_artifacts(self, retention_days: int) -> list[str]:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(retention_days, 0))
+        stale: list[str] = []
+        for path in self._merge_artifacts():
+            if not path.exists():
+                continue
+            modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+            if modified <= cutoff:
+                stale.append(str(path))
+        return stale
+
+    def status(self, *, retention_days: int = 7) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "backend": "sqlite",
+            "retention_days": retention_days,
+            "orphan_lexical_indices": self._orphan_count("lexical_indices"),
+            "orphan_embedding_indices": self._orphan_count("embedding_indices"),
+            "stale_merge_artifacts": self._stale_merge_artifacts(retention_days),
+        }
+
+    def prune(self, *, dry_run: bool = True, retention_days: int = 7) -> dict[str, Any]:
+        status = self.status(retention_days=retention_days)
+        removed_lexical = 0
+        removed_embedding = 0
+        removed_merge_artifacts: list[str] = []
+        if not dry_run:
+            with self._connect() as conn:
+                removed_lexical = conn.execute(
+                    """
+                    DELETE FROM lexical_indices
+                    WHERE version_id NOT IN (SELECT version_id FROM snapshots)
+                    """
+                ).rowcount
+                removed_embedding = conn.execute(
+                    """
+                    DELETE FROM embedding_indices
+                    WHERE version_id NOT IN (SELECT version_id FROM snapshots)
+                    """
+                ).rowcount
+                payload = {
+                    "dry_run": False,
+                    "retention_days": retention_days,
+                    "removed_lexical_indices": removed_lexical,
+                    "removed_embedding_indices": removed_embedding,
+                }
+                conn.execute(
+                    "INSERT INTO maintenance_audit(timestamp, action, payload) VALUES(?, ?, ?)",
+                    (
+                        datetime.now(timezone.utc).isoformat(),
+                        "prune",
+                        json.dumps(payload, ensure_ascii=False),
+                    ),
+                )
+            for raw_path in status["stale_merge_artifacts"]:
+                path = Path(raw_path)
+                if path.exists():
+                    path.unlink()
+                    removed_merge_artifacts.append(raw_path)
+        return {
+            "status": "ok",
+            "backend": "sqlite",
+            "dry_run": dry_run,
+            "retention_days": retention_days,
+            "removed_lexical_indices": removed_lexical,
+            "removed_embedding_indices": removed_embedding,
+            "removed_merge_artifacts": removed_merge_artifacts,
+            **status,
+        }
+
+    def audit_log(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT timestamp, action, payload
+                FROM maintenance_audit
+                ORDER BY seq DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "timestamp": row["timestamp"],
+                "action": row["action"],
+                **json.loads(row["payload"]),
+            }
+            for row in rows
+        ]
 
 
 def _governance_rule_model(record: GovernanceRuleRecord) -> GovernanceRule:
@@ -1258,6 +1455,7 @@ class SQLiteStorageBackend:
     governance: SQLiteGovernanceBackend = field(init=False)
     remotes: SQLiteRemoteBackend = field(init=False)
     indexing: SQLiteIndexBackend = field(init=False)
+    maintenance: SQLiteMaintenanceBackend = field(init=False)
 
     def __post_init__(self) -> None:
         self.store_dir = Path(self.store_dir)
@@ -1268,6 +1466,7 @@ class SQLiteStorageBackend:
         self.claims = SQLiteClaimBackend(versions, tenant_id=self.tenant_id)
         self.governance = SQLiteGovernanceBackend(versions, tenant_id=self.tenant_id)
         self.remotes = SQLiteRemoteBackend(versions, tenant_id=self.tenant_id)
+        self.maintenance = SQLiteMaintenanceBackend(versions)
 
 
 def build_sqlite_backend(
@@ -1282,6 +1481,7 @@ __all__ = [
     "DEFAULT_SQLITE_FILENAME",
     "SQLiteClaimBackend",
     "SQLiteGovernanceBackend",
+    "SQLiteMaintenanceBackend",
     "SQLiteRemoteBackend",
     "SQLiteStorageBackend",
     "SQLiteVersionBackend",
