@@ -41,6 +41,7 @@ Cortex is built to answer those questions directly.
 - Adds governance rules for who can read, write, branch, merge, roll back, push, or pull
 - Syncs memory stores explicitly with remote push, pull, and fork semantics
 - Exposes a small local web UI for review, blame, history, governance, and remotes
+- Exposes local REST, SDK, and MCP tool-server surfaces without taking ownership of user storage
 - Exports context for downstream tools and coding workflows
 
 ## Who It's For
@@ -182,6 +183,20 @@ Run it with:
 ```bash
 cortex ui --context-file context.json
 ```
+
+## MCP Server
+
+Cortex can also run as a local MCP server over stdio for agent runtimes that want tool-based memory access while
+keeping storage user-owned.
+
+```bash
+cortex mcp --store-dir .cortex
+# or
+cortex-mcp --store-dir .cortex --namespace team
+```
+
+The MCP surface maps onto the same object/query/version runtime as the REST API, including node, edge, claim,
+query, branch, merge, blame, history, indexing, and prune tools.
 
 ## Memory CI
 
