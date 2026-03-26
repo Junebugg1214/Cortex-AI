@@ -3,6 +3,7 @@
 ## Trigger
 
 - Push a version tag like `v1.4.1` to trigger the GitHub release workflow in [`.github/workflows/publish.yml`](../.github/workflows/publish.yml).
+- For beta or release-candidate tags like `v1.4.1-rc1`, expect a GitHub prerelease and tagged Docker image instead of a full stable registry publish.
 - Confirm the publish environments and secrets are ready:
   - PyPI trusted publishing or environment approval
   - `NPM_TOKEN` for the TypeScript package
@@ -19,6 +20,7 @@ cortex release-notes \
 ```
 
 - Confirm the notes mention the expected Python package, TypeScript package, Docker image, and contract hash.
+- Confirm the release notes correctly call out stable vs prerelease behavior.
 
 ## Contract
 
@@ -61,3 +63,9 @@ cortex openapi \
 - Smoke-check the TypeScript example in [examples/typescript/self_hosted_client.mjs](../examples/typescript/self_hosted_client.mjs).
 - Smoke-check the MCP JSON-RPC flow in [examples/mcp/README.md](../examples/mcp/README.md).
 - Confirm `cortexd --help`, `cortex-mcp --help`, and `cortex-bench --help` work from the built wheel.
+
+## Beta Launch Docs
+
+- Refresh [BETA_QUICKSTART.md](BETA_QUICKSTART.md) if install or launch guidance changes.
+- Refresh [OPERATIONS.md](OPERATIONS.md) if sizing, limits, or troubleshooting guidance changes.
+- Refresh [THREAT_MODEL.md](THREAT_MODEL.md) if the trust boundaries or release posture change.

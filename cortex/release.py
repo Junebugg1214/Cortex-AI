@@ -9,6 +9,7 @@ PROJECT_VERSION = "1.4.1"
 PACKAGE_NAME = "cortex-identity"
 API_VERSION = "v1"
 OPENAPI_VERSION = "1.0.0"
+MATURITY = "beta"
 PYTHON_SDK_NAME = "cortex-python-sdk"
 PYTHON_SDK_MODULE = "cortex.client"
 TYPESCRIPT_SDK_NAME = "@cortex-ai/sdk"
@@ -18,6 +19,8 @@ RELEASE_CHANNEL = "self-hosted"
 DOCKER_IMAGE_NAME = "ghcr.io/junebugg1214/cortex-ai"
 OPENAPI_ARTIFACT_PATH = Path("openapi") / "cortex-api-v1.json"
 OPENAPI_COMPAT_PATH = Path("openapi") / "cortex-api-v1-compat.json"
+
+_PRERELEASE_MARKERS = ("-rc", "-beta", "-alpha")
 
 
 def _canonical_json(payload: dict[str, Any]) -> str:
@@ -72,6 +75,7 @@ def build_contract_compatibility_snapshot(spec: dict[str, Any]) -> dict[str, Any
         "api_version": API_VERSION,
         "openapi_version": OPENAPI_VERSION,
         "project_version": PROJECT_VERSION,
+        "maturity": MATURITY,
         "storage_model": STORAGE_MODEL,
         "release_channel": RELEASE_CHANNEL,
         "path_count": len(spec.get("paths") or {}),
@@ -82,9 +86,32 @@ def build_contract_compatibility_snapshot(spec: dict[str, Any]) -> dict[str, Any
     }
 
 
+def classify_release_tag(tag: str | None) -> dict[str, Any]:
+    normalized_tag = str(tag or f"v{PROJECT_VERSION}").strip() or f"v{PROJECT_VERSION}"
+    lowered = normalized_tag.lower()
+    prerelease = any(marker in lowered for marker in _PRERELEASE_MARKERS)
+    stage = "prerelease" if prerelease else "stable"
+    npm_dist_tag = "beta" if prerelease else "latest"
+    docker_tags = [normalized_tag]
+    if not prerelease:
+        docker_tags.extend([PROJECT_VERSION, "latest"])
+    else:
+        docker_tags.append("beta")
+    return {
+        "tag": normalized_tag,
+        "prerelease": prerelease,
+        "stage": stage,
+        "npm_dist_tag": npm_dist_tag,
+        "publish_registry_packages": not prerelease,
+        "publish_latest_container": not prerelease,
+        "docker_tags": docker_tags,
+    }
+
+
 def build_release_metadata(spec: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = {
         "project_version": PROJECT_VERSION,
+        "maturity": MATURITY,
         "package_name": PACKAGE_NAME,
         "api_version": API_VERSION,
         "openapi_version": OPENAPI_VERSION,
@@ -111,10 +138,15 @@ def build_release_manifest(
     commit_sha: str | None = None,
 ) -> dict[str, Any]:
     compatibility = build_contract_compatibility_snapshot(spec)
+    classification = classify_release_tag(tag)
+    docker_install_tag = PROJECT_VERSION if not classification["prerelease"] else classification["tag"]
     return {
         "project_version": PROJECT_VERSION,
-        "tag": tag or f"v{PROJECT_VERSION}",
+        "maturity": MATURITY,
+        "tag": classification["tag"],
         "commit_sha": commit_sha or "",
+        "stage": classification["stage"],
+        "prerelease": classification["prerelease"],
         "storage_model": STORAGE_MODEL,
         "release_channel": RELEASE_CHANNEL,
         "api_version": API_VERSION,
@@ -129,15 +161,18 @@ def build_release_manifest(
                 "package": PACKAGE_NAME,
                 "install": f"pip install {PACKAGE_NAME}=={PROJECT_VERSION}",
                 "entrypoints": ["cortex", "cortexd", "cortex-mcp", "cortex-bench"],
+                "publish_on_tag": classification["publish_registry_packages"],
             },
             "typescript": {
                 "package": TYPESCRIPT_SDK_NAME,
                 "install": f"npm install {TYPESCRIPT_SDK_NAME}@{PROJECT_VERSION}",
+                "publish_on_tag": classification["publish_registry_packages"],
+                "dist_tag": classification["npm_dist_tag"],
             },
             "docker": {
                 "image": DOCKER_IMAGE_NAME,
-                "pull": f"docker pull {DOCKER_IMAGE_NAME}:{PROJECT_VERSION}",
-                "tags": [PROJECT_VERSION, "latest"],
+                "pull": f"docker pull {DOCKER_IMAGE_NAME}:{docker_install_tag}",
+                "tags": classification["docker_tags"],
             },
             "contract": {
                 "openapi_json": str(OPENAPI_ARTIFACT_PATH),
@@ -164,6 +199,8 @@ def build_release_notes(
         "## Runtime",
         "",
         f"- Tag: `{manifest['tag']}`",
+        f"- Maturity: `{MATURITY}`",
+        f"- Stage: `{manifest['stage']}`",
         f"- Storage model: `{STORAGE_MODEL}`",
         f"- Release channel: `{RELEASE_CHANNEL}`",
         f"- API / OpenAPI: `{API_VERSION}` / `{OPENAPI_VERSION}`",
@@ -186,6 +223,15 @@ def build_release_notes(
             f"- Python: `{python_install}`",
             f"- TypeScript: `{typescript_install}`",
             f"- Docker: `{docker_pull}`",
+            "",
+            "## Release Behavior",
+            "",
+            (
+                "- This tag is a prerelease. GitHub release assets and tagged Docker images are the supported beta "
+                "install surfaces."
+                if manifest["prerelease"]
+                else "- This tag is a stable release. PyPI, npm, Docker, and GitHub release assets should all publish."
+            ),
             "",
             "## Self-Host Entry Points",
             "",
@@ -236,6 +282,7 @@ def write_release_notes(
 __all__ = [
     "API_VERSION",
     "DOCKER_IMAGE_NAME",
+    "MATURITY",
     "MCP_SERVER_NAME",
     "OPENAPI_ARTIFACT_PATH",
     "OPENAPI_COMPAT_PATH",
@@ -248,6 +295,7 @@ __all__ = [
     "STORAGE_MODEL",
     "TYPESCRIPT_SDK_NAME",
     "build_contract_compatibility_snapshot",
+    "classify_release_tag",
     "build_release_manifest",
     "build_release_metadata",
     "build_release_notes",

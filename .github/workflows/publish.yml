@@ -14,7 +14,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.flags.outputs.release_tag }}
+      release_version: ${{ steps.flags.outputs.release_version }}
+      is_tag: ${{ steps.flags.outputs.is_tag }}
+      prerelease: ${{ steps.flags.outputs.prerelease }}
+      publish_registry_packages: ${{ steps.flags.outputs.publish_registry_packages }}
+      publish_latest_container: ${{ steps.flags.outputs.publish_latest_container }}
+    steps:
+      - id: flags
+        shell: bash
+        run: |
+          release_tag="${GITHUB_REF_NAME}"
+          release_version="${release_tag#v}"
+          is_tag=false
+          prerelease=false
+          publish_registry_packages=false
+          publish_latest_container=false
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            is_tag=true
+            if [[ "${release_tag}" == *-rc* || "${release_tag}" == *-beta* || "${release_tag}" == *-alpha* ]]; then
+              prerelease=true
+            else
+              publish_registry_packages=true
+              publish_latest_container=true
+            fi
+          fi
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_version=${release_version}"
+            echo "is_tag=${is_tag}"
+            echo "prerelease=${prerelease}"
+            echo "publish_registry_packages=${publish_registry_packages}"
+            echo "publish_latest_container=${publish_latest_container}"
+          } >> "$GITHUB_OUTPUT"
+
   validate:
+    needs: classify
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,7 +89,7 @@ jobs:
           python -m cortex.cli release-notes \
             --output dist/release-notes.md \
             --manifest-output dist/release-manifest.json \
-            --tag "${GITHUB_REF_NAME}" \
+            --tag "${{ needs.classify.outputs.release_tag }}" \
             --commit-sha "${GITHUB_SHA}"
           cp openapi/cortex-api-v1.json dist/cortex-api-v1.json
           cp openapi/cortex-api-v1-compat.json dist/cortex-api-v1-compat.json
@@ -67,7 +105,7 @@ jobs:
             dist/cortex-api-v1-compat.json
 
   build-python:
-    needs: validate
+    needs: [classify, validate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -115,7 +153,7 @@ jobs:
           cortex-bench --help >/dev/null
 
   pack-typescript:
-    needs: validate
+    needs: [classify, validate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -164,7 +202,7 @@ jobs:
           node --input-type=module -e "import { MemorySession, SDK_VERSION } from '@cortex-ai/sdk'; console.log(typeof MemorySession, SDK_VERSION);"
 
   smoke-docker:
-    needs: validate
+    needs: [classify, validate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,8 +229,8 @@ jobs:
           docker run --rm --entrypoint cortex-mcp cortex-ai:release-smoke --help >/dev/null
 
   publish-pypi:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-python, smoke-python]
+    if: needs.classify.outputs.publish_registry_packages == 'true'
+    needs: [classify, build-python, smoke-python]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -208,8 +246,8 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-npm:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [pack-typescript, smoke-typescript]
+    if: needs.classify.outputs.publish_registry_packages == 'true'
+    needs: [classify, pack-typescript, smoke-typescript]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -229,8 +267,8 @@ jobs:
         run: npm publish --access public --provenance
 
   publish-docker:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: smoke-docker
+    if: needs.classify.outputs.is_tag == 'true'
+    needs: [classify, smoke-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -251,18 +289,31 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/junebugg1214/cortex-ai:${{ github.ref_name }}
+            ghcr.io/junebugg1214/cortex-ai:${{ needs.classify.outputs.release_tag }}
             ghcr.io/junebugg1214/cortex-ai:${{ github.sha }}
-            ghcr.io/junebugg1214/cortex-ai:latest
           build-args: |
-            CORTEX_VERSION=${{ github.ref_name }}
+            CORTEX_VERSION=${{ needs.classify.outputs.release_tag }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: docker/build-push-action@v6
+        if: needs.classify.outputs.publish_latest_container == 'true'
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/junebugg1214/cortex-ai:latest
+            ghcr.io/junebugg1214/cortex-ai:${{ needs.classify.outputs.release_version }}
+          build-args: |
+            CORTEX_VERSION=${{ needs.classify.outputs.release_tag }}
             VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   github-release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [validate, build-python, pack-typescript, publish-docker]
+    if: needs.classify.outputs.is_tag == 'true'
+    needs: [classify, validate, build-python, pack-typescript, publish-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -288,8 +339,9 @@ jobs:
       - name: Publish GitHub release and assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ needs.classify.outputs.release_tag }}
           body_path: dist/release-notes.md
+          prerelease: ${{ needs.classify.outputs.prerelease == 'true' }}
           files: |
             dist/release-manifest.json
             dist/cortex-api-v1.json
