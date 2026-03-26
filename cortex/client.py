@@ -89,6 +89,285 @@ class CortexClient:
     def prune_audit(self, *, limit: int = 50) -> dict[str, Any]:
         return self._request("GET", "/v1/prune/audit", params={"limit": limit})
 
+    def lookup_nodes(
+        self,
+        *,
+        node_id: str = "",
+        canonical_id: str = "",
+        label: str = "",
+        ref: str = "HEAD",
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/nodes",
+            params={
+                "id": node_id,
+                "canonical_id": canonical_id,
+                "label": label,
+                "ref": ref,
+                "limit": limit,
+            },
+        )
+
+    def get_node(self, node_id: str, *, ref: str = "HEAD") -> dict[str, Any]:
+        return self._request("GET", f"/v1/nodes/{urllib.parse.quote(node_id, safe='')}", params={"ref": ref})
+
+    def upsert_node(
+        self,
+        *,
+        node: dict[str, Any],
+        ref: str = "HEAD",
+        message: str = "",
+        source: str = "api.object",
+        actor: str = "manual",
+        approve: bool = False,
+        record_claim: bool = True,
+        claim_source: str = "",
+        claim_method: str = "nodes.upsert",
+        claim_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "node": node,
+            "ref": ref,
+            "message": message,
+            "source": source,
+            "actor": actor,
+            "approve": approve,
+            "record_claim": record_claim,
+            "claim_source": claim_source,
+            "claim_method": claim_method,
+        }
+        if claim_metadata is not None:
+            payload["claim_metadata"] = claim_metadata
+        return self._request("POST", "/v1/nodes/upsert", payload=payload)
+
+    def delete_node(
+        self,
+        *,
+        node_id: str = "",
+        canonical_id: str = "",
+        label: str = "",
+        ref: str = "HEAD",
+        message: str = "",
+        source: str = "api.object",
+        actor: str = "manual",
+        approve: bool = False,
+        record_claim: bool = True,
+        claim_source: str = "",
+        claim_method: str = "nodes.delete",
+        claim_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "node_id": node_id,
+            "canonical_id": canonical_id,
+            "label": label,
+            "ref": ref,
+            "message": message,
+            "source": source,
+            "actor": actor,
+            "approve": approve,
+            "record_claim": record_claim,
+            "claim_source": claim_source,
+            "claim_method": claim_method,
+        }
+        if claim_metadata is not None:
+            payload["claim_metadata"] = claim_metadata
+        return self._request("POST", "/v1/nodes/delete", payload=payload)
+
+    def lookup_edges(
+        self,
+        *,
+        edge_id: str = "",
+        source_id: str = "",
+        target_id: str = "",
+        relation: str = "",
+        ref: str = "HEAD",
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/edges",
+            params={
+                "id": edge_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "relation": relation,
+                "ref": ref,
+                "limit": limit,
+            },
+        )
+
+    def get_edge(self, edge_id: str, *, ref: str = "HEAD") -> dict[str, Any]:
+        return self._request("GET", f"/v1/edges/{urllib.parse.quote(edge_id, safe='')}", params={"ref": ref})
+
+    def upsert_edge(
+        self,
+        *,
+        edge: dict[str, Any],
+        ref: str = "HEAD",
+        message: str = "",
+        source: str = "api.object",
+        actor: str = "manual",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/edges/upsert",
+            payload={
+                "edge": edge,
+                "ref": ref,
+                "message": message,
+                "source": source,
+                "actor": actor,
+                "approve": approve,
+            },
+        )
+
+    def delete_edge(
+        self,
+        *,
+        edge_id: str = "",
+        source_id: str = "",
+        target_id: str = "",
+        relation: str = "",
+        ref: str = "HEAD",
+        message: str = "",
+        source: str = "api.object",
+        actor: str = "manual",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/edges/delete",
+            payload={
+                "edge_id": edge_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "relation": relation,
+                "ref": ref,
+                "message": message,
+                "source": source,
+                "actor": actor,
+                "approve": approve,
+            },
+        )
+
+    def list_claims(
+        self,
+        *,
+        claim_id: str = "",
+        node_id: str = "",
+        canonical_id: str = "",
+        label: str = "",
+        source: str = "",
+        ref: str = "",
+        version_ref: str = "",
+        op: str = "",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/claims",
+            params={
+                "claim_id": claim_id,
+                "node_id": node_id,
+                "canonical_id": canonical_id,
+                "label": label,
+                "source": source,
+                "ref": ref,
+                "version_ref": version_ref,
+                "op": op,
+                "limit": limit,
+            },
+        )
+
+    def assert_claim(
+        self,
+        *,
+        node: dict[str, Any] | None = None,
+        node_id: str = "",
+        canonical_id: str = "",
+        label: str = "",
+        ref: str = "HEAD",
+        materialize: bool = True,
+        message: str = "",
+        source: str = "api.object",
+        method: str = "claims.assert",
+        actor: str = "manual",
+        approve: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "node_id": node_id,
+            "canonical_id": canonical_id,
+            "label": label,
+            "ref": ref,
+            "materialize": materialize,
+            "message": message,
+            "source": source,
+            "method": method,
+            "actor": actor,
+            "approve": approve,
+        }
+        if node is not None:
+            payload["node"] = node
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request("POST", "/v1/claims/assert", payload=payload)
+
+    def retract_claim(
+        self,
+        *,
+        claim_id: str = "",
+        node_id: str = "",
+        canonical_id: str = "",
+        label: str = "",
+        ref: str = "HEAD",
+        materialize: bool = True,
+        message: str = "",
+        actor: str = "manual",
+        approve: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "claim_id": claim_id,
+            "node_id": node_id,
+            "canonical_id": canonical_id,
+            "label": label,
+            "ref": ref,
+            "materialize": materialize,
+            "message": message,
+            "actor": actor,
+            "approve": approve,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request("POST", "/v1/claims/retract", payload=payload)
+
+    def memory_batch(
+        self,
+        *,
+        operations: list[dict[str, Any]],
+        ref: str = "HEAD",
+        message: str = "",
+        source: str = "api.object",
+        actor: str = "manual",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/memory/batch",
+            payload={
+                "operations": operations,
+                "ref": ref,
+                "message": message,
+                "source": source,
+                "actor": actor,
+                "approve": approve,
+            },
+        )
+
     def log(self, *, limit: int = 10, ref: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit}
         if ref is not None:

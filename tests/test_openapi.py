@@ -15,6 +15,11 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert spec["info"]["title"] == "Cortex Local API"
     assert "/v1/openapi.json" in spec["paths"]
     assert "/v1/metrics" in spec["paths"]
+    assert "/v1/nodes" in spec["paths"]
+    assert "/v1/nodes/{node_id}" in spec["paths"]
+    assert "/v1/edges" in spec["paths"]
+    assert "/v1/claims" in spec["paths"]
+    assert "/v1/memory/batch" in spec["paths"]
     assert "/v1/index/status" in spec["paths"]
     assert "/v1/index/rebuild" in spec["paths"]
     assert "/v1/prune/status" in spec["paths"]
@@ -22,6 +27,8 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert "/v1/query/search" in spec["paths"]
     assert "/v1/conflicts/detect" in spec["paths"]
     assert "/v1/merge-preview" in spec["paths"]
+    assert spec["paths"]["/v1/nodes/upsert"]["post"]["operationId"] == "upsertNode"
+    assert spec["paths"]["/v1/memory/batch"]["post"]["operationId"] == "memoryBatch"
     assert spec["paths"]["/v1/query/search"]["post"]["operationId"] == "querySearch"
     assert spec["paths"]["/v1/index/rebuild"]["post"]["operationId"] == "indexRebuild"
     assert spec["paths"]["/v1/prune"]["post"]["operationId"] == "prune"

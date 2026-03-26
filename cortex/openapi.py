@@ -140,6 +140,203 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/nodes": {
+                "get": {
+                    "operationId": "lookupNodes",
+                    "summary": "Lookup memory nodes by id, canonical id, or label",
+                    "tags": ["objects"],
+                    "parameters": [
+                        {"name": "id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "label", "in": "query", "schema": {"type": "string"}},
+                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Node lookup result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/nodes/{node_id}": {
+                "get": {
+                    "operationId": "getNode",
+                    "summary": "Read a memory node by id",
+                    "tags": ["objects"],
+                    "parameters": [
+                        {"name": "node_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Node detail",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/nodes/upsert": {
+                "post": {
+                    "operationId": "upsertNode",
+                    "summary": "Upsert a memory node and materialize a commit",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/UpsertNodeRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Upserted node",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/nodes/delete": {
+                "post": {
+                    "operationId": "deleteNode",
+                    "summary": "Delete a memory node and materialize a commit",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/DeleteNodeRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Deleted node",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/edges": {
+                "get": {
+                    "operationId": "lookupEdges",
+                    "summary": "Lookup memory edges by id or endpoint triple",
+                    "tags": ["objects"],
+                    "parameters": [
+                        {"name": "id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "source_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "target_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "relation", "in": "query", "schema": {"type": "string"}},
+                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Edge lookup result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/edges/{edge_id}": {
+                "get": {
+                    "operationId": "getEdge",
+                    "summary": "Read a memory edge by id",
+                    "tags": ["objects"],
+                    "parameters": [
+                        {"name": "edge_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Edge detail",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/edges/upsert": {
+                "post": {
+                    "operationId": "upsertEdge",
+                    "summary": "Upsert a memory edge and materialize a commit",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/UpsertEdgeRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Upserted edge",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/edges/delete": {
+                "post": {
+                    "operationId": "deleteEdge",
+                    "summary": "Delete a memory edge and materialize a commit",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/DeleteEdgeRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Deleted edge",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/claims": {
+                "get": {
+                    "operationId": "listClaims",
+                    "summary": "List claim events with optional filters",
+                    "tags": ["objects"],
+                    "parameters": [
+                        {"name": "claim_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "node_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
+                        {"name": "label", "in": "query", "schema": {"type": "string"}},
+                        {"name": "source", "in": "query", "schema": {"type": "string"}},
+                        {"name": "ref", "in": "query", "schema": {"type": "string"}},
+                        {"name": "version_ref", "in": "query", "schema": {"type": "string"}},
+                        {"name": "op", "in": "query", "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Claim list",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/claims/assert": {
+                "post": {
+                    "operationId": "assertClaim",
+                    "summary": "Append a claim assertion and optionally materialize it",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/AssertClaimRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Asserted claim",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/claims/retract": {
+                "post": {
+                    "operationId": "retractClaim",
+                    "summary": "Retract a claim and optionally materialize it",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/RetractClaimRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Retracted claim",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/memory/batch": {
+                "post": {
+                    "operationId": "memoryBatch",
+                    "summary": "Apply multiple object operations in a single commit-backed batch",
+                    "tags": ["objects"],
+                    "requestBody": _request_body("#/components/schemas/MemoryBatchRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Applied memory object batch",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/branches": {
                 "get": {
                     "operationId": "listBranches",
@@ -525,6 +722,122 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                         "dry_run": {"type": "boolean", "default": True},
                         "retention_days": {"type": "integer", "default": 7},
                     },
+                    "additionalProperties": False,
+                },
+                "MemoryNodeObject": _json_object_schema(description="Public memory node object payload."),
+                "MemoryEdgeObject": _json_object_schema(description="Public memory edge object payload."),
+                "MemoryOperation": _json_object_schema(description="Single memory object batch operation."),
+                "UpsertNodeRequest": {
+                    "type": "object",
+                    "properties": {
+                        "node": {"$ref": "#/components/schemas/MemoryNodeObject"},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                        "record_claim": {"type": "boolean", "default": True},
+                        "claim_source": {"type": "string", "default": ""},
+                        "claim_method": {"type": "string", "default": "nodes.upsert"},
+                        "claim_metadata": _json_object_schema(),
+                    },
+                    "required": ["node"],
+                    "additionalProperties": False,
+                },
+                "DeleteNodeRequest": {
+                    "type": "object",
+                    "properties": {
+                        "node_id": {"type": "string", "default": ""},
+                        "canonical_id": {"type": "string", "default": ""},
+                        "label": {"type": "string", "default": ""},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                        "record_claim": {"type": "boolean", "default": True},
+                        "claim_source": {"type": "string", "default": ""},
+                        "claim_method": {"type": "string", "default": "nodes.delete"},
+                        "claim_metadata": _json_object_schema(),
+                    },
+                    "additionalProperties": False,
+                },
+                "UpsertEdgeRequest": {
+                    "type": "object",
+                    "properties": {
+                        "edge": {"$ref": "#/components/schemas/MemoryEdgeObject"},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                    },
+                    "required": ["edge"],
+                    "additionalProperties": False,
+                },
+                "DeleteEdgeRequest": {
+                    "type": "object",
+                    "properties": {
+                        "edge_id": {"type": "string", "default": ""},
+                        "source_id": {"type": "string", "default": ""},
+                        "target_id": {"type": "string", "default": ""},
+                        "relation": {"type": "string", "default": ""},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                    },
+                    "additionalProperties": False,
+                },
+                "AssertClaimRequest": {
+                    "type": "object",
+                    "properties": {
+                        "node": {"$ref": "#/components/schemas/MemoryNodeObject"},
+                        "node_id": {"type": "string", "default": ""},
+                        "canonical_id": {"type": "string", "default": ""},
+                        "label": {"type": "string", "default": ""},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "materialize": {"type": "boolean", "default": True},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "method": {"type": "string", "default": "claims.assert"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                        "metadata": _json_object_schema(),
+                    },
+                    "additionalProperties": False,
+                },
+                "RetractClaimRequest": {
+                    "type": "object",
+                    "properties": {
+                        "claim_id": {"type": "string", "default": ""},
+                        "node_id": {"type": "string", "default": ""},
+                        "canonical_id": {"type": "string", "default": ""},
+                        "label": {"type": "string", "default": ""},
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "materialize": {"type": "boolean", "default": True},
+                        "message": {"type": "string", "default": ""},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                        "metadata": _json_object_schema(),
+                    },
+                    "additionalProperties": False,
+                },
+                "MemoryBatchRequest": {
+                    "type": "object",
+                    "properties": {
+                        "operations": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/MemoryOperation"},
+                        },
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "message": {"type": "string", "default": ""},
+                        "source": {"type": "string", "default": "api.object"},
+                        "actor": {"type": "string", "default": "manual"},
+                        "approve": {"type": "boolean", "default": False},
+                    },
+                    "required": ["operations"],
                     "additionalProperties": False,
                 },
                 "CreateBranchRequest": {

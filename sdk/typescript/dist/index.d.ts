@@ -38,6 +38,131 @@ export interface IndexRebuildParams {
   allRefs?: boolean;
 }
 
+export interface LookupNodesParams {
+  nodeId?: string;
+  canonicalId?: string;
+  label?: string;
+  ref?: string;
+  limit?: number;
+}
+
+export interface GetNodeParams {
+  nodeId: string;
+  ref?: string;
+}
+
+export interface UpsertNodeParams {
+  node: JsonObject;
+  ref?: string;
+  message?: string;
+  source?: string;
+  actor?: string;
+  approve?: boolean;
+  recordClaim?: boolean;
+  claimSource?: string;
+  claimMethod?: string;
+  claimMetadata?: JsonObject;
+}
+
+export interface DeleteNodeParams {
+  nodeId?: string;
+  canonicalId?: string;
+  label?: string;
+  ref?: string;
+  message?: string;
+  source?: string;
+  actor?: string;
+  approve?: boolean;
+  recordClaim?: boolean;
+  claimSource?: string;
+  claimMethod?: string;
+  claimMetadata?: JsonObject;
+}
+
+export interface LookupEdgesParams {
+  edgeId?: string;
+  sourceId?: string;
+  targetId?: string;
+  relation?: string;
+  ref?: string;
+  limit?: number;
+}
+
+export interface GetEdgeParams {
+  edgeId: string;
+  ref?: string;
+}
+
+export interface UpsertEdgeParams {
+  edge: JsonObject;
+  ref?: string;
+  message?: string;
+  source?: string;
+  actor?: string;
+  approve?: boolean;
+}
+
+export interface DeleteEdgeParams {
+  edgeId?: string;
+  sourceId?: string;
+  targetId?: string;
+  relation?: string;
+  ref?: string;
+  message?: string;
+  source?: string;
+  actor?: string;
+  approve?: boolean;
+}
+
+export interface ListClaimsParams {
+  claimId?: string;
+  nodeId?: string;
+  canonicalId?: string;
+  label?: string;
+  source?: string;
+  ref?: string;
+  versionRef?: string;
+  op?: string;
+  limit?: number;
+}
+
+export interface AssertClaimParams {
+  node?: JsonObject;
+  nodeId?: string;
+  canonicalId?: string;
+  label?: string;
+  ref?: string;
+  materialize?: boolean;
+  message?: string;
+  source?: string;
+  method?: string;
+  actor?: string;
+  approve?: boolean;
+  metadata?: JsonObject;
+}
+
+export interface RetractClaimParams {
+  claimId?: string;
+  nodeId?: string;
+  canonicalId?: string;
+  label?: string;
+  ref?: string;
+  materialize?: boolean;
+  message?: string;
+  actor?: string;
+  approve?: boolean;
+  metadata?: JsonObject;
+}
+
+export interface MemoryBatchParams {
+  operations: JsonObject[];
+  ref?: string;
+  message?: string;
+  source?: string;
+  actor?: string;
+  approve?: boolean;
+}
+
 export interface CreateBranchParams {
   name: string;
   fromRef?: string;
@@ -161,6 +286,18 @@ export class CortexClient {
   pruneStatus(params?: PruneStatusParams): Promise<JsonObject>;
   prune(params?: PruneParams): Promise<JsonObject>;
   pruneAudit(params?: PruneAuditParams): Promise<JsonObject>;
+  lookupNodes(params?: LookupNodesParams): Promise<JsonObject>;
+  getNode(params: GetNodeParams): Promise<JsonObject>;
+  upsertNode(params: UpsertNodeParams): Promise<JsonObject>;
+  deleteNode(params?: DeleteNodeParams): Promise<JsonObject>;
+  lookupEdges(params?: LookupEdgesParams): Promise<JsonObject>;
+  getEdge(params: GetEdgeParams): Promise<JsonObject>;
+  upsertEdge(params: UpsertEdgeParams): Promise<JsonObject>;
+  deleteEdge(params?: DeleteEdgeParams): Promise<JsonObject>;
+  listClaims(params?: ListClaimsParams): Promise<JsonObject>;
+  assertClaim(params?: AssertClaimParams): Promise<JsonObject>;
+  retractClaim(params?: RetractClaimParams): Promise<JsonObject>;
+  memoryBatch(params: MemoryBatchParams): Promise<JsonObject>;
   log(params?: LogParams): Promise<JsonObject>;
   listBranches(): Promise<JsonObject>;
   createBranch(params: CreateBranchParams): Promise<JsonObject>;

@@ -101,6 +101,214 @@ export class CortexClient {
     });
   }
 
+  lookupNodes({ nodeId = "", canonicalId = "", label = "", ref = "HEAD", limit = 10 } = {}) {
+    return this.request("GET", "/v1/nodes", {
+      params: { id: nodeId, canonical_id: canonicalId, label, ref, limit }
+    });
+  }
+
+  getNode({ nodeId, ref = "HEAD" }) {
+    return this.request("GET", `/v1/nodes/${encodeURIComponent(nodeId)}`, {
+      params: { ref }
+    });
+  }
+
+  upsertNode({
+    node,
+    ref = "HEAD",
+    message = "",
+    source = "api.object",
+    actor = "manual",
+    approve = false,
+    recordClaim = true,
+    claimSource = "",
+    claimMethod = "nodes.upsert",
+    claimMetadata
+  }) {
+    return this.request("POST", "/v1/nodes/upsert", {
+      payload: {
+        node,
+        ref,
+        message,
+        source,
+        actor,
+        approve,
+        record_claim: recordClaim,
+        claim_source: claimSource,
+        claim_method: claimMethod,
+        claim_metadata: claimMetadata
+      }
+    });
+  }
+
+  deleteNode({
+    nodeId = "",
+    canonicalId = "",
+    label = "",
+    ref = "HEAD",
+    message = "",
+    source = "api.object",
+    actor = "manual",
+    approve = false,
+    recordClaim = true,
+    claimSource = "",
+    claimMethod = "nodes.delete",
+    claimMetadata
+  } = {}) {
+    return this.request("POST", "/v1/nodes/delete", {
+      payload: {
+        node_id: nodeId,
+        canonical_id: canonicalId,
+        label,
+        ref,
+        message,
+        source,
+        actor,
+        approve,
+        record_claim: recordClaim,
+        claim_source: claimSource,
+        claim_method: claimMethod,
+        claim_metadata: claimMetadata
+      }
+    });
+  }
+
+  lookupEdges({ edgeId = "", sourceId = "", targetId = "", relation = "", ref = "HEAD", limit = 10 } = {}) {
+    return this.request("GET", "/v1/edges", {
+      params: { id: edgeId, source_id: sourceId, target_id: targetId, relation, ref, limit }
+    });
+  }
+
+  getEdge({ edgeId, ref = "HEAD" }) {
+    return this.request("GET", `/v1/edges/${encodeURIComponent(edgeId)}`, {
+      params: { ref }
+    });
+  }
+
+  upsertEdge({ edge, ref = "HEAD", message = "", source = "api.object", actor = "manual", approve = false }) {
+    return this.request("POST", "/v1/edges/upsert", {
+      payload: { edge, ref, message, source, actor, approve }
+    });
+  }
+
+  deleteEdge({
+    edgeId = "",
+    sourceId = "",
+    targetId = "",
+    relation = "",
+    ref = "HEAD",
+    message = "",
+    source = "api.object",
+    actor = "manual",
+    approve = false
+  } = {}) {
+    return this.request("POST", "/v1/edges/delete", {
+      payload: {
+        edge_id: edgeId,
+        source_id: sourceId,
+        target_id: targetId,
+        relation,
+        ref,
+        message,
+        source,
+        actor,
+        approve
+      }
+    });
+  }
+
+  listClaims({
+    claimId = "",
+    nodeId = "",
+    canonicalId = "",
+    label = "",
+    source = "",
+    ref = "",
+    versionRef = "",
+    op = "",
+    limit = 50
+  } = {}) {
+    return this.request("GET", "/v1/claims", {
+      params: {
+        claim_id: claimId,
+        node_id: nodeId,
+        canonical_id: canonicalId,
+        label,
+        source,
+        ref,
+        version_ref: versionRef,
+        op,
+        limit
+      }
+    });
+  }
+
+  assertClaim({
+    node,
+    nodeId = "",
+    canonicalId = "",
+    label = "",
+    ref = "HEAD",
+    materialize = true,
+    message = "",
+    source = "api.object",
+    method = "claims.assert",
+    actor = "manual",
+    approve = false,
+    metadata
+  } = {}) {
+    return this.request("POST", "/v1/claims/assert", {
+      payload: {
+        node,
+        node_id: nodeId,
+        canonical_id: canonicalId,
+        label,
+        ref,
+        materialize,
+        message,
+        source,
+        method,
+        actor,
+        approve,
+        metadata
+      }
+    });
+  }
+
+  retractClaim({
+    claimId = "",
+    nodeId = "",
+    canonicalId = "",
+    label = "",
+    ref = "HEAD",
+    materialize = true,
+    message = "",
+    actor = "manual",
+    approve = false,
+    metadata
+  } = {}) {
+    return this.request("POST", "/v1/claims/retract", {
+      payload: {
+        claim_id: claimId,
+        node_id: nodeId,
+        canonical_id: canonicalId,
+        label,
+        ref,
+        materialize,
+        message,
+        actor,
+        approve,
+        metadata
+      }
+    });
+  }
+
+  memoryBatch({ operations, ref = "HEAD", message = "", source = "api.object", actor = "manual", approve = false }) {
+    return this.request("POST", "/v1/memory/batch", {
+      payload: { operations, ref, message, source, actor, approve }
+    });
+  }
+
   log({ limit = 10, ref } = {}) {
     return this.request("GET", "/v1/commits", { params: { limit, ref } });
   }

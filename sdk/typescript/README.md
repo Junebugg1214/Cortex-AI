@@ -8,6 +8,7 @@ TypeScript-friendly client for the local Cortex API.
 - metrics and structured self-hosted observability
 - index status and rebuild controls
 - maintenance prune status, dry-run execution, and audit history
+- memory object lookup, upsert, delete, batch materialization, and claim flows
 - commit, checkout, diff, branches, and log
 - review, blame, and history
 - query and retrieval endpoints
