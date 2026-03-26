@@ -1,0 +1,21 @@
+[runtime]
+store_dir = ".cortex"
+
+[server]
+host = "127.0.0.1"
+port = 8766
+
+[mcp]
+namespace = "team"
+
+[[auth.keys]]
+name = "reader"
+token = "replace-me-reader"
+scopes = ["read"]
+namespaces = ["team"]
+
+[[auth.keys]]
+name = "writer"
+token = "replace-me-writer"
+scopes = ["write", "branch", "merge", "index"]
+namespaces = ["team"]

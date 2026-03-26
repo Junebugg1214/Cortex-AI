@@ -10,6 +10,7 @@ import pytest
 
 from cortex.claims import ClaimEvent
 from cortex.client import CortexClient
+from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.server import dispatch_api_request
 from cortex.service import MemoryService
@@ -71,7 +72,13 @@ class _FakeResponse:
         return False
 
 
-def _install_dispatching_urlopen(monkeypatch, service: MemoryService, *, api_key: str | None = None) -> None:
+def _install_dispatching_urlopen(
+    monkeypatch,
+    service: MemoryService,
+    *,
+    api_key: str | None = None,
+    auth_keys: tuple[APIKeyConfig, ...] = (),
+) -> None:
     def fake_urlopen(request, timeout=30.0):  # noqa: ARG001
         parsed = urllib.parse.urlparse(request.full_url)
         payload = json.loads(request.data.decode("utf-8")) if request.data else None
@@ -83,6 +90,7 @@ def _install_dispatching_urlopen(monkeypatch, service: MemoryService, *, api_key
             payload=payload,
             headers=headers,
             api_key=api_key,
+            auth_keys=auth_keys,
         )
         body = json.dumps(response).encode("utf-8")
         if status >= 400:
@@ -260,6 +268,38 @@ def test_cortex_api_namespace_isolation_filters_and_blocks_cross_namespace(tmp_p
 
     with pytest.raises(RuntimeError, match="outside namespace"):
         client.upsert_node(node={"label": "Leaked Node"})
+
+
+def test_cortex_api_scoped_keys_enforce_scope_and_namespace(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Main Atlas", aliases=["atlas-main"])), "main base")
+    backend.versions.create_branch("team/atlas", switch=True)
+    backend.versions.commit(_graph_with_node(Node(id="n2", label="Team Atlas", aliases=["atlas-team"])), "team base")
+    backend.versions.switch_branch("main")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(
+        monkeypatch,
+        service,
+        auth_keys=(
+            APIKeyConfig(name="reader", token="reader-token", scopes=("read",), namespaces=("team",)),
+            APIKeyConfig(name="writer", token="writer-token", scopes=("write",), namespaces=("team",)),
+        ),
+    )
+
+    reader = CortexClient("http://cortex.local", api_key="reader-token")
+    allowed = reader.query_search(query="atlas-team", ref="team/atlas", limit=5)
+
+    assert allowed["results"][0]["node"]["label"] == "Team Atlas"
+
+    with pytest.raises(RuntimeError, match="scope 'write'"):
+        reader.upsert_node(node={"label": "Denied Write"})
+
+    wrong_namespace = CortexClient("http://cortex.local", api_key="reader-token", namespace="main")
+    with pytest.raises(RuntimeError, match="outside API key 'reader' namespace scope"):
+        wrong_namespace.query_search(query="atlas-team", ref="team/atlas", limit=5)
 
 
 def test_cortex_api_claim_assert_retract_and_materialize(tmp_path, monkeypatch):

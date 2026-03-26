@@ -198,6 +198,9 @@ cortex-mcp --store-dir .cortex --namespace team
 The MCP surface maps onto the same object/query/version runtime as the REST API, including node, edge, claim,
 query, branch, merge, blame, history, indexing, and prune tools.
 
+For self-hosted config, scoped API keys, backups, Docker, and MCP client setup, see
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
+
 ## Memory CI
 
 The repo includes [`.github/workflows/memory-review.yml`](.github/workflows/memory-review.yml), which can:

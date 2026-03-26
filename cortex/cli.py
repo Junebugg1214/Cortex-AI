@@ -830,20 +830,48 @@ def build_parser():
 
     # -- server (local REST API) -----------------------------------------
     srv = sub.add_parser("server", help="Launch the local Cortex REST API server")
-    srv.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    srv.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     srv.add_argument("--context-file", help="Optional default context graph file")
-    srv.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    srv.add_argument("--port", type=int, default=8766, help="Bind port (default: 8766, or 0 for any free port)")
+    srv.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
+    srv.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
     srv.add_argument("--api-key", help="Optional API key required for requests")
+    srv.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    srv.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
 
     # -- mcp (local Model Context Protocol server) -----------------------
     mcp = sub.add_parser("mcp", help="Launch the local Cortex MCP server over stdio")
-    mcp.add_argument("--store-dir", default=".cortex", help="Storage directory (default: .cortex)")
+    mcp.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     mcp.add_argument("--context-file", help="Optional default context graph file")
     mcp.add_argument(
         "--namespace",
         help="Optional namespace prefix to pin the MCP session to, such as 'team' or 'team/atlas'",
     )
+    mcp.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    mcp.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+
+    # -- backup (export / verify / restore) ------------------------------
+    bk = sub.add_parser("backup", help="Backup, verify, and restore a Cortex store")
+    bk_sub = bk.add_subparsers(dest="backup_subcommand")
+
+    bk_export = bk_sub.add_parser("export", help="Export the store into a verified backup archive")
+    bk_export.add_argument("--store-dir", default=".cortex", help="Storage directory to archive (default: .cortex)")
+    bk_export.add_argument("--output", "-o", help="Output archive path (default: backups/<timestamp>.zip)")
+    bk_export.add_argument("--no-verify", action="store_true", help="Skip post-write archive verification")
+
+    bk_verify = bk_sub.add_parser("verify", help="Verify a Cortex backup archive")
+    bk_verify.add_argument("archive", help="Path to the backup archive")
+
+    bk_restore = bk_sub.add_parser("restore", help="Restore a backup archive into a store directory")
+    bk_restore.add_argument("archive", help="Path to the backup archive")
+    bk_restore.add_argument("--store-dir", default=".cortex", help="Target storage directory (default: .cortex)")
+    bk_restore.add_argument("--force", action="store_true", help="Overwrite a non-empty target directory")
+    bk_restore.add_argument("--skip-verify", action="store_true", help="Skip archive verification before restore")
+
+    bk_import = bk_sub.add_parser("import", help="Alias of backup restore")
+    bk_import.add_argument("archive", help="Path to the backup archive")
+    bk_import.add_argument("--store-dir", default=".cortex", help="Target storage directory (default: .cortex)")
+    bk_import.add_argument("--force", action="store_true", help="Overwrite a non-empty target directory")
+    bk_import.add_argument("--skip-verify", action="store_true", help="Skip archive verification before restore")
 
     # -- pull (import from platform export) --------------------------------
     pl = sub.add_parser("pull", help="Import a platform export file back into a graph")
@@ -3713,36 +3741,41 @@ def run_ui(args):
 
 def run_server(args):
     """Launch the local Cortex REST API server."""
-    from cortex.server import start_api_server
+    from cortex.server import main as server_main
 
-    server, url = start_api_server(
-        host=args.host,
-        port=args.port,
-        store_dir=args.store_dir,
-        context_file=args.context_file,
-        api_key=args.api_key,
-    )
-    print(f"Cortex API running at {url}")
-    print("Press Ctrl+C to stop.")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        print("\nCortex API stopped.")
-    return 0
+    argv: list[str] = []
+    if args.store_dir:
+        argv.extend(["--store-dir", args.store_dir])
+    if args.context_file:
+        argv.extend(["--context-file", args.context_file])
+    if args.host:
+        argv.extend(["--host", args.host])
+    if args.port is not None:
+        argv.extend(["--port", str(args.port)])
+    if args.api_key:
+        argv.extend(["--api-key", args.api_key])
+    if args.config:
+        argv.extend(["--config", args.config])
+    if args.check:
+        argv.append("--check")
+    return server_main(argv)
 
 
 def run_mcp(args):
     """Launch the local Cortex MCP server over stdio."""
     from cortex.mcp import main as mcp_main
 
-    argv = ["--store-dir", args.store_dir]
+    argv: list[str] = []
+    if args.store_dir:
+        argv.extend(["--store-dir", args.store_dir])
     if args.context_file:
         argv.extend(["--context-file", args.context_file])
     if args.namespace:
         argv.extend(["--namespace", args.namespace])
+    if args.config:
+        argv.extend(["--config", args.config])
+    if args.check:
+        argv.append("--check")
     return mcp_main(argv)
 
 
@@ -3753,6 +3786,57 @@ def run_openapi(args):
     output_path = write_openapi_spec(args.output, server_url=args.server_url)
     print(f"Wrote OpenAPI spec to {output_path}")
     return 0
+
+
+def _default_backup_output() -> str:
+    from datetime import datetime, timezone
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return str(Path("backups") / f"cortex-store-{timestamp}.zip")
+
+
+def run_backup_export(args):
+    from cortex.backup import export_store_backup
+
+    result = export_store_backup(
+        args.store_dir,
+        args.output or _default_backup_output(),
+        verify=not args.no_verify,
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def run_backup_verify(args):
+    from cortex.backup import verify_store_backup
+
+    result = verify_store_backup(args.archive)
+    print(json.dumps(result, indent=2))
+    return 0 if result["valid"] else 1
+
+
+def run_backup_restore(args):
+    from cortex.backup import restore_store_backup
+
+    result = restore_store_backup(
+        args.archive,
+        args.store_dir,
+        verify=not args.skip_verify,
+        force=args.force,
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def run_backup(args):
+    if args.backup_subcommand == "export":
+        return run_backup_export(args)
+    if args.backup_subcommand == "verify":
+        return run_backup_verify(args)
+    if args.backup_subcommand in {"restore", "import"}:
+        return run_backup_restore(args)
+    print("Specify a backup subcommand: export, verify, restore, import")
+    return 1
 
 
 def run_stats(args):
@@ -3900,6 +3984,7 @@ def main(argv=None):
         "context-write",
         "ui",
         "mcp",
+        "backup",
         "openapi",
         "rotate",
         "pull",
@@ -4017,6 +4102,8 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "ui":
         return run_ui(args)
+    elif args.subcommand == "backup":
+        return run_backup(args)
     elif args.subcommand == "openapi":
         return run_openapi(args)
     elif args.subcommand == "server":
