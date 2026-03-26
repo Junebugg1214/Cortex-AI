@@ -4,8 +4,10 @@ import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from cortex.service import MemoryService
 
@@ -36,11 +38,35 @@ def _query_bool(values: dict[str, list[str]], key: str, default: bool) -> bool:
 
 
 def _server_url(headers: dict[str, str]) -> str | None:
-    host = headers.get("Host", "").strip()
+    normalized = {key.lower(): value for key, value in headers.items()}
+    host = normalized.get("host", "").strip()
     if not host:
         return None
-    proto = headers.get("X-Forwarded-Proto", "http").strip() or "http"
+    proto = normalized.get("x-forwarded-proto", "http").strip() or "http"
     return f"{proto}://{host}"
+
+
+def _backend_name(service: MemoryService) -> str:
+    module_name = type(service.backend).__module__
+    if module_name.endswith(".sqlite"):
+        return "sqlite"
+    return "filesystem"
+
+
+def _request_namespace(
+    *,
+    query: dict[str, list[str]],
+    payload: dict[str, Any],
+    headers: dict[str, str],
+) -> str | None:
+    normalized = {key.lower(): value for key, value in headers.items()}
+    header_namespace = normalized.get("x-cortex-namespace", "").strip()
+    if header_namespace:
+        return header_namespace
+    payload_namespace = str(payload.get("namespace", "")).strip()
+    if payload_namespace:
+        return payload_namespace
+    return _query_value(query, "namespace")
 
 
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
@@ -63,77 +89,133 @@ def dispatch_api_request(
     api_key: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
     headers = headers or {}
-    header_key = headers.get("X-API-Key", "")
-    auth_header = headers.get("Authorization", "")
+    normalized_headers = {key.lower(): value for key, value in headers.items()}
+    started = perf_counter()
+    request_id = normalized_headers.get("x-request-id", "").strip() or uuid4().hex[:16]
+    header_key = normalized_headers.get("x-api-key", "")
+    auth_header = normalized_headers.get("authorization", "")
     bearer_key = auth_header[len("Bearer ") :] if auth_header.startswith("Bearer ") else ""
     if api_key and header_key != api_key and bearer_key != api_key:
-        return 401, {"status": "error", "error": "Unauthorized"}
+        response = {"status": "error", "error": "Unauthorized", "request_id": request_id}
+        service.observability.record_request(
+            request_id=request_id,
+            method=method,
+            path=path,
+            status=401,
+            duration_ms=(perf_counter() - started) * 1000,
+            namespace="",
+            backend=_backend_name(service),
+            error="Unauthorized",
+        )
+        return 401, response
 
     parsed = urlparse(path)
     query = parse_qs(parsed.query)
     payload = payload or {}
+    namespace = _request_namespace(query=query, payload=payload, headers=headers)
+    if namespace and "namespace" not in payload:
+        payload = {**payload, "namespace": namespace}
+    status = 404
+    response: dict[str, Any] = {"status": "error", "error": "Not found"}
     try:
         if method == "GET":
             if parsed.path == "/v1/health":
-                return 200, service.health()
-            if parsed.path == "/v1/meta":
-                return 200, service.meta()
-            if parsed.path == "/v1/index/status":
-                return 200, service.index_status(ref=_query_value(query, "ref", "HEAD") or "HEAD")
-            if parsed.path == "/v1/openapi.json":
-                return 200, service.openapi(server_url=_server_url(headers))
-            if parsed.path == "/v1/branches":
-                return 200, service.list_branches()
-            if parsed.path == "/v1/commits":
-                return 200, service.log(limit=_query_int(query, "limit", 10), ref=_query_value(query, "ref"))
+                status, response = 200, service.health()
+            elif parsed.path == "/v1/meta":
+                status, response = 200, service.meta()
+            elif parsed.path == "/v1/metrics":
+                status, response = 200, service.metrics(namespace=namespace)
+            elif parsed.path == "/v1/index/status":
+                status, response = (
+                    200,
+                    service.index_status(
+                        ref=_query_value(query, "ref", "HEAD") or "HEAD",
+                        namespace=namespace,
+                    ),
+                )
+            elif parsed.path == "/v1/prune/status":
+                status, response = 200, service.prune_status(retention_days=_query_int(query, "retention_days", 7))
+            elif parsed.path == "/v1/prune/audit":
+                status, response = 200, service.prune_audit(limit=_query_int(query, "limit", 50))
+            elif parsed.path == "/v1/openapi.json":
+                status, response = 200, service.openapi(server_url=_server_url(headers))
+            elif parsed.path == "/v1/branches":
+                status, response = 200, service.list_branches(namespace=namespace)
+            elif parsed.path == "/v1/commits":
+                status, response = (
+                    200,
+                    service.log(
+                        limit=_query_int(query, "limit", 10),
+                        ref=_query_value(query, "ref"),
+                        namespace=namespace,
+                    ),
+                )
         if method == "POST":
             if parsed.path == "/v1/commit":
-                return 201, service.commit(**payload)
-            if parsed.path == "/v1/checkout":
-                return 200, service.checkout(**payload)
-            if parsed.path == "/v1/diff":
-                return 200, service.diff(**payload)
-            if parsed.path == "/v1/review":
-                return 200, service.review(**payload)
-            if parsed.path == "/v1/blame":
-                return 200, service.blame(**payload)
-            if parsed.path == "/v1/history":
-                return 200, service.history(**payload)
-            if parsed.path == "/v1/conflicts/detect":
-                return 200, service.detect_conflicts(**payload)
-            if parsed.path == "/v1/conflicts/resolve":
-                return 200, service.resolve_conflict(**payload)
-            if parsed.path == "/v1/index/rebuild":
-                return 200, service.index_rebuild(**payload)
-            if parsed.path == "/v1/query/category":
-                return 200, service.query_category(**payload)
-            if parsed.path == "/v1/query/path":
-                return 200, service.query_path(**payload)
-            if parsed.path == "/v1/query/related":
-                return 200, service.query_related(**payload)
-            if parsed.path == "/v1/query/search":
-                return 200, service.query_search(**payload)
-            if parsed.path == "/v1/query/dsl":
-                return 200, service.query_dsl(**payload)
-            if parsed.path == "/v1/query/nl":
-                return 200, service.query_nl(**payload)
-            if parsed.path == "/v1/merge-preview":
-                return 200, service.merge_preview(**payload)
-            if parsed.path == "/v1/merge/conflicts":
-                return 200, service.merge_conflicts()
-            if parsed.path == "/v1/merge/resolve":
-                return 200, service.merge_resolve(**payload)
-            if parsed.path == "/v1/merge/commit-resolved":
-                return 200, service.merge_commit_resolved(**payload)
-            if parsed.path == "/v1/merge/abort":
-                return 200, service.merge_abort()
-            if parsed.path == "/v1/branches":
-                return 201, service.create_branch(**payload)
-            if parsed.path == "/v1/branches/switch":
-                return 200, service.switch_branch(**payload)
+                status, response = 201, service.commit(**payload)
+            elif parsed.path == "/v1/checkout":
+                status, response = 200, service.checkout(**payload)
+            elif parsed.path == "/v1/diff":
+                status, response = 200, service.diff(**payload)
+            elif parsed.path == "/v1/review":
+                status, response = 200, service.review(**payload)
+            elif parsed.path == "/v1/blame":
+                status, response = 200, service.blame(**payload)
+            elif parsed.path == "/v1/history":
+                status, response = 200, service.history(**payload)
+            elif parsed.path == "/v1/conflicts/detect":
+                status, response = 200, service.detect_conflicts(**payload)
+            elif parsed.path == "/v1/conflicts/resolve":
+                status, response = 200, service.resolve_conflict(**payload)
+            elif parsed.path == "/v1/index/rebuild":
+                status, response = 200, service.index_rebuild(**payload)
+            elif parsed.path == "/v1/prune":
+                status, response = 200, service.prune(**payload)
+            elif parsed.path == "/v1/query/category":
+                status, response = 200, service.query_category(**payload)
+            elif parsed.path == "/v1/query/path":
+                status, response = 200, service.query_path(**payload)
+            elif parsed.path == "/v1/query/related":
+                status, response = 200, service.query_related(**payload)
+            elif parsed.path == "/v1/query/search":
+                status, response = 200, service.query_search(**payload)
+            elif parsed.path == "/v1/query/dsl":
+                status, response = 200, service.query_dsl(**payload)
+            elif parsed.path == "/v1/query/nl":
+                status, response = 200, service.query_nl(**payload)
+            elif parsed.path == "/v1/merge-preview":
+                status, response = 200, service.merge_preview(**payload)
+            elif parsed.path == "/v1/merge/conflicts":
+                status, response = 200, service.merge_conflicts(namespace=namespace)
+            elif parsed.path == "/v1/merge/resolve":
+                status, response = 200, service.merge_resolve(**payload)
+            elif parsed.path == "/v1/merge/commit-resolved":
+                status, response = 200, service.merge_commit_resolved(**payload)
+            elif parsed.path == "/v1/merge/abort":
+                status, response = 200, service.merge_abort(namespace=namespace)
+            elif parsed.path == "/v1/branches":
+                status, response = 201, service.create_branch(**payload)
+            elif parsed.path == "/v1/branches/switch":
+                status, response = 200, service.switch_branch(**payload)
     except Exception as exc:  # pragma: no cover - exercised through tests and handler
-        return _error_payload(exc)
-    return 404, {"status": "error", "error": "Not found"}
+        status, response = _error_payload(exc)
+    response = {**response, "request_id": request_id}
+    try:
+        index_lag = service.backend.indexing.status(ref="HEAD").get("lag_commits")
+    except Exception:
+        index_lag = None
+    service.observability.record_request(
+        request_id=request_id,
+        method=method,
+        path=path,
+        status=status,
+        duration_ms=(perf_counter() - started) * 1000,
+        namespace=namespace or "",
+        backend=_backend_name(service),
+        index_lag_commits=index_lag,
+        error=response.get("error", "") if status >= 400 else "",
+    )
+    return status, response
 
 
 def make_api_handler(service: MemoryService, *, api_key: str | None = None):
@@ -148,6 +230,8 @@ def make_api_handler(service: MemoryService, *, api_key: str | None = None):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            if payload.get("request_id"):
+                self.send_header("X-Request-ID", str(payload["request_id"]))
             self.end_headers()
             self.wfile.write(data)
 

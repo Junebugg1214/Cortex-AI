@@ -19,6 +19,7 @@ export class CortexClient {
   constructor(baseUrl, options = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey ?? null;
+    this.namespace = options.namespace ?? null;
     this.timeoutMs = options.timeoutMs ?? 30000;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     if (!this.fetchImpl) {
@@ -33,6 +34,9 @@ export class CortexClient {
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
+    }
+    if (this.namespace) {
+      headers["X-Cortex-Namespace"] = this.namespace;
     }
     return headers;
   }
@@ -61,6 +65,10 @@ export class CortexClient {
     return this.request("GET", "/v1/meta");
   }
 
+  metrics() {
+    return this.request("GET", "/v1/metrics");
+  }
+
   openapi() {
     return this.request("GET", "/v1/openapi.json");
   }
@@ -72,6 +80,24 @@ export class CortexClient {
   indexRebuild({ ref = "HEAD", allRefs = false } = {}) {
     return this.request("POST", "/v1/index/rebuild", {
       payload: { ref, all_refs: allRefs }
+    });
+  }
+
+  pruneStatus({ retentionDays = 7 } = {}) {
+    return this.request("GET", "/v1/prune/status", {
+      params: { retention_days: retentionDays }
+    });
+  }
+
+  prune({ dryRun = true, retentionDays = 7 } = {}) {
+    return this.request("POST", "/v1/prune", {
+      payload: { dry_run: dryRun, retention_days: retentionDays }
+    });
+  }
+
+  pruneAudit({ limit = 50 } = {}) {
+    return this.request("GET", "/v1/prune/audit", {
+      params: { limit }
     });
   }
 

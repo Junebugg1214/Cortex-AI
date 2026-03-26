@@ -8,15 +8,25 @@ from typing import Any
 
 
 class CortexClient:
-    def __init__(self, base_url: str, *, api_key: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        api_key: str | None = None,
+        timeout: float = 30.0,
+        namespace: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.namespace = namespace
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.namespace:
+            headers["X-Cortex-Namespace"] = self.namespace
         return headers
 
     def _request(
@@ -54,6 +64,9 @@ class CortexClient:
     def meta(self) -> dict[str, Any]:
         return self._request("GET", "/v1/meta")
 
+    def metrics(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/metrics")
+
     def openapi(self) -> dict[str, Any]:
         return self._request("GET", "/v1/openapi.json")
 
@@ -62,6 +75,19 @@ class CortexClient:
 
     def index_rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
         return self._request("POST", "/v1/index/rebuild", payload={"ref": ref, "all_refs": all_refs})
+
+    def prune_status(self, *, retention_days: int = 7) -> dict[str, Any]:
+        return self._request("GET", "/v1/prune/status", params={"retention_days": retention_days})
+
+    def prune(self, *, dry_run: bool = True, retention_days: int = 7) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/prune",
+            payload={"dry_run": dry_run, "retention_days": retention_days},
+        )
+
+    def prune_audit(self, *, limit: int = 50) -> dict[str, Any]:
+        return self._request("GET", "/v1/prune/audit", params={"limit": limit})
 
     def log(self, *, limit: int = 10, ref: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit}

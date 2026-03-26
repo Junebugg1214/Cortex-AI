@@ -6,6 +6,7 @@ export interface JsonObject {
 
 export interface CortexClientOptions {
   apiKey?: string | null;
+  namespace?: string | null;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -13,6 +14,19 @@ export interface CortexClientOptions {
 export interface LogParams {
   limit?: number;
   ref?: string;
+}
+
+export interface PruneStatusParams {
+  retentionDays?: number;
+}
+
+export interface PruneParams {
+  dryRun?: boolean;
+  retentionDays?: number;
+}
+
+export interface PruneAuditParams {
+  limit?: number;
 }
 
 export interface IndexStatusParams {
@@ -140,9 +154,13 @@ export class CortexClient {
   constructor(baseUrl: string, options?: CortexClientOptions);
   health(): Promise<JsonObject>;
   meta(): Promise<JsonObject>;
+  metrics(): Promise<JsonObject>;
   openapi(): Promise<JsonObject>;
   indexStatus(params?: IndexStatusParams): Promise<JsonObject>;
   indexRebuild(params?: IndexRebuildParams): Promise<JsonObject>;
+  pruneStatus(params?: PruneStatusParams): Promise<JsonObject>;
+  prune(params?: PruneParams): Promise<JsonObject>;
+  pruneAudit(params?: PruneAuditParams): Promise<JsonObject>;
   log(params?: LogParams): Promise<JsonObject>;
   listBranches(): Promise<JsonObject>;
   createBranch(params: CreateBranchParams): Promise<JsonObject>;
