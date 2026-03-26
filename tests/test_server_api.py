@@ -20,6 +20,40 @@ def _graph_with_node(node: Node) -> CortexGraph:
     return graph
 
 
+def _seed_merge_conflict(client: CortexClient) -> None:
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], status="planned"))
+    client.commit(graph=base_graph.export_v5(), message="base")
+
+    client.create_branch(name="feature/activate")
+    client.switch_branch(name="feature/activate")
+
+    feature_graph = CortexGraph()
+    feature_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="active",
+            valid_from="2026-03-01T00:00:00Z",
+        )
+    )
+    client.commit(graph=feature_graph.export_v5(), message="activate atlas")
+
+    client.switch_branch(name="main")
+    current_graph = CortexGraph()
+    current_graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            tags=["active_priorities"],
+            status="historical",
+            valid_to="2026-02-01T00:00:00Z",
+        )
+    )
+    client.commit(graph=current_graph.export_v5(), message="archive atlas")
+
+
 class _FakeResponse:
     def __init__(self, body: bytes) -> None:
         self._body = body
@@ -275,3 +309,89 @@ def test_cortex_api_query_dsl_returns_client_error_for_invalid_queries(tmp_path,
     client = CortexClient("http://cortex.local")
     with pytest.raises(RuntimeError, match="Unknown statement type"):
         client.query_dsl(query="BOGUS QUERY")
+
+
+def test_cortex_api_detects_and_resolves_memory_conflicts(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    conflict_graph = _graph_with_node(
+        Node(id="n1", label="Rust", tags=["technical_expertise", "negations"], confidence=0.8)
+    )
+    backend.versions.commit(conflict_graph, "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    detected = client.detect_conflicts(ref="HEAD")
+    assert detected["count"] == 1
+    assert detected["conflicts"][0]["type"] == "negation_conflict"
+
+    resolved = client.resolve_conflict(
+        conflict_id=detected["conflicts"][0]["id"],
+        action="keep-old",
+        graph=conflict_graph.export_v5(),
+    )
+    resolved_graph = CortexGraph.from_v5_json(resolved["graph"])
+
+    assert resolved["remaining_conflicts"] == 0
+    assert "negations" not in resolved_graph.nodes["n1"].tags
+
+
+def test_cortex_api_merge_preview_resolve_and_commit_flow(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    _seed_merge_conflict(client)
+
+    preview = client.merge_preview(other_ref="feature/activate", persist=True)
+    assert preview["ok"] is False
+    assert preview["pending_merge"] is True
+    conflict_id = preview["conflicts"][0]["id"]
+
+    conflicts = client.merge_conflicts()
+    assert conflicts["pending"] is True
+    assert conflicts["conflicts"][0]["id"] == conflict_id
+
+    resolved = client.merge_resolve(conflict_id=conflict_id, choose="incoming")
+    resolved_graph = CortexGraph.from_v5_json(resolved["graph"])
+    assert resolved["pending"] is True
+    assert resolved["remaining_conflicts"] == 0
+    assert not resolved["conflicts"]
+    assert resolved_graph.nodes["n1"].status == "active"
+
+    committed = client.merge_commit_resolved()
+    assert committed["commit_id"]
+    head = backend.versions.head("main")
+    assert head is not None
+    assert head.source == "merge"
+    merged_graph = backend.versions.checkout(head.version_id)
+    assert merged_graph.nodes["n1"].status == "active"
+
+    conflicts_after = client.merge_conflicts()
+    assert conflicts_after["pending"] is False
+
+
+def test_cortex_api_merge_abort_clears_pending_state(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    _seed_merge_conflict(client)
+
+    preview = client.merge_preview(other_ref="feature/activate", persist=True)
+    assert preview["pending_merge"] is True
+
+    aborted = client.merge_abort()
+    assert aborted["aborted"] is True
+    assert aborted["pending"] is False
+    assert aborted["other_ref"] == "feature/activate"
+
+    conflicts_after = client.merge_conflicts()
+    assert conflicts_after["pending"] is False

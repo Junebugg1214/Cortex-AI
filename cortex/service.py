@@ -6,7 +6,15 @@ from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph
-from cortex.memory_ops import blame_memory_nodes
+from cortex.memory_ops import blame_memory_nodes, list_memory_conflicts, resolve_memory_conflict
+from cortex.merge import (
+    clear_merge_state,
+    load_merge_state,
+    load_merge_worktree,
+    merge_refs,
+    resolve_merge_conflict,
+    save_merge_state,
+)
 from cortex.query import QueryEngine, parse_nl_query
 from cortex.query_lang import ParseError, execute_query
 from cortex.review import parse_failure_policies, review_graphs
@@ -40,6 +48,28 @@ def _node_payload(node: Any) -> dict[str, Any]:
     if hasattr(node, "to_dict"):
         return node.to_dict()
     return dict(node)
+
+
+def _merge_payload(
+    *,
+    current_ref: str,
+    current_branch: str,
+    other_ref: str,
+    result: Any,
+) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "current_ref": current_ref,
+        "current_branch": current_branch,
+        "merged_ref": other_ref,
+        "base_version": result.base_version,
+        "current_version": result.current_version,
+        "other_version": result.other_version,
+        "summary": result.summary,
+        "conflicts": [conflict.to_dict() for conflict in result.conflicts],
+        "graph": result.merged.export_v5(),
+        "ok": result.ok,
+    }
 
 
 @dataclass(slots=True)
@@ -99,6 +129,32 @@ class MemoryService:
         if decision.require_approval and not approve:
             reasons = "; ".join(decision.reasons) or "approval required"
             raise PermissionError(f"Approval required: {reasons}")
+
+    def _pending_merge_payload(self) -> dict[str, Any]:
+        state = load_merge_state(self.store_dir)
+        if state is None:
+            return {
+                "status": "ok",
+                "pending": False,
+                "conflicts": [],
+            }
+        payload = {
+            "status": "ok",
+            "pending": True,
+            "current_branch": state["current_branch"],
+            "other_ref": state["other_ref"],
+            "base_version": state.get("base_version"),
+            "current_version": state.get("current_version"),
+            "other_version": state.get("other_version"),
+            "summary": state.get("summary", {}),
+            "conflicts": state.get("conflicts", []),
+            "updated_at": state.get("updated_at", ""),
+        }
+        try:
+            payload["graph"] = load_merge_worktree(self.store_dir).export_v5()
+        except FileNotFoundError:
+            pass
+        return payload
 
     def health(self) -> dict[str, Any]:
         return {
@@ -417,4 +473,160 @@ class MemoryService:
             "query": query,
             "recognized": True,
             "result": result,
+        }
+
+    def detect_conflicts(
+        self,
+        *,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+        min_severity: float = 0.0,
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        conflicts = list_memory_conflicts(current_graph, min_severity=min_severity)
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "ref": ref,
+            "min_severity": min_severity,
+            "conflicts": [conflict.to_dict() for conflict in conflicts],
+            "count": len(conflicts),
+        }
+
+    def resolve_conflict(
+        self,
+        *,
+        conflict_id: str,
+        action: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        result = resolve_memory_conflict(current_graph, conflict_id, action)
+        if result.get("status") != "ok":
+            error = result.get("error", "conflict resolution failed")
+            raise ValueError(f"{error}: {conflict_id}")
+        remaining = list_memory_conflicts(current_graph)
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "ref": ref,
+            **result,
+            "remaining_conflicts": len(remaining),
+            "conflicts": [conflict.to_dict() for conflict in remaining],
+            "graph": current_graph.export_v5(),
+        }
+
+    def merge_preview(
+        self,
+        *,
+        other_ref: str,
+        current_ref: str = "HEAD",
+        persist: bool = False,
+    ) -> dict[str, Any]:
+        result = merge_refs(self.backend.versions, current_ref, other_ref)
+        current_branch = self.backend.versions.current_branch() if current_ref == "HEAD" else current_ref
+        payload = _merge_payload(
+            current_ref=current_ref,
+            current_branch=current_branch,
+            other_ref=other_ref,
+            result=result,
+        )
+        if persist:
+            if current_ref != "HEAD":
+                raise ValueError("Persistent merge preview only supports current_ref='HEAD'")
+            if result.conflicts:
+                state = save_merge_state(
+                    self.store_dir,
+                    current_branch=current_branch,
+                    other_ref=other_ref,
+                    result=result,
+                )
+                payload["pending_merge"] = True
+                payload["pending_conflicts"] = len(state["conflicts"])
+            else:
+                clear_merge_state(self.store_dir)
+                payload["pending_merge"] = False
+                payload["pending_conflicts"] = 0
+        return payload
+
+    def merge_conflicts(self) -> dict[str, Any]:
+        return self._pending_merge_payload()
+
+    def merge_resolve(
+        self,
+        *,
+        conflict_id: str,
+        choose: str,
+    ) -> dict[str, Any]:
+        result = resolve_merge_conflict(self.backend.versions, self.store_dir, conflict_id, choose)
+        payload = self._pending_merge_payload()
+        payload.update(result)
+        payload["status"] = "ok"
+        return payload
+
+    def merge_commit_resolved(
+        self,
+        *,
+        message: str | None = None,
+        actor: str = "manual",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        state = load_merge_state(self.store_dir)
+        if state is None:
+            raise ValueError("No pending merge state found")
+        conflicts = state.get("conflicts", [])
+        if conflicts:
+            raise ValueError(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
+
+        graph = load_merge_worktree(self.store_dir)
+        baseline_version = self.backend.versions.resolve_ref("HEAD")
+        baseline_graph = self.backend.versions.checkout(baseline_version) if baseline_version else None
+        self._authorize(
+            actor=actor,
+            action="merge",
+            namespace=state["current_branch"],
+            approve=approve,
+            current_graph=graph,
+            baseline_graph=baseline_graph,
+        )
+
+        merge_message = message or f"Merge branch '{state['other_ref']}' into {state['current_branch']}"
+        merge_parent_ids = (
+            [state["other_version"]]
+            if state.get("other_version") and state.get("other_version") != state.get("current_version")
+            else []
+        )
+        record = self.backend.versions.commit(
+            graph,
+            merge_message,
+            source="merge",
+            identity=_load_identity(self.store_dir),
+            parent_id=state.get("current_version"),
+            branch=state["current_branch"],
+            merge_parent_ids=merge_parent_ids,
+        )
+        clear_merge_state(self.store_dir)
+        return {
+            "status": "ok",
+            "commit_id": record.version_id,
+            "message": merge_message,
+            "commit": record.to_dict(),
+        }
+
+    def merge_abort(self) -> dict[str, Any]:
+        state = load_merge_state(self.store_dir)
+        if state is None:
+            return {
+                "status": "ok",
+                "aborted": False,
+                "pending": False,
+            }
+        clear_merge_state(self.store_dir)
+        return {
+            "status": "ok",
+            "aborted": True,
+            "pending": False,
+            "current_branch": state["current_branch"],
+            "other_ref": state["other_ref"],
         }

@@ -87,6 +87,10 @@ def dispatch_api_request(
                 return 200, service.blame(**payload)
             if parsed.path == "/v1/history":
                 return 200, service.history(**payload)
+            if parsed.path == "/v1/conflicts/detect":
+                return 200, service.detect_conflicts(**payload)
+            if parsed.path == "/v1/conflicts/resolve":
+                return 200, service.resolve_conflict(**payload)
             if parsed.path == "/v1/query/category":
                 return 200, service.query_category(**payload)
             if parsed.path == "/v1/query/path":
@@ -99,6 +103,16 @@ def dispatch_api_request(
                 return 200, service.query_dsl(**payload)
             if parsed.path == "/v1/query/nl":
                 return 200, service.query_nl(**payload)
+            if parsed.path == "/v1/merge-preview":
+                return 200, service.merge_preview(**payload)
+            if parsed.path == "/v1/merge/conflicts":
+                return 200, service.merge_conflicts()
+            if parsed.path == "/v1/merge/resolve":
+                return 200, service.merge_resolve(**payload)
+            if parsed.path == "/v1/merge/commit-resolved":
+                return 200, service.merge_commit_resolved(**payload)
+            if parsed.path == "/v1/merge/abort":
+                return 200, service.merge_abort()
             if parsed.path == "/v1/branches":
                 return 201, service.create_branch(**payload)
             if parsed.path == "/v1/branches/switch":
