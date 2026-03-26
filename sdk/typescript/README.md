@@ -16,6 +16,7 @@ npm install @cortex-ai/sdk
 - index status and rebuild controls
 - maintenance prune status, dry-run execution, and audit history
 - memory object lookup, upsert, delete, batch materialization, and claim flows
+- high-level `MemorySession` helpers for `remember`, `searchContext`, task branches, and review-gated commits
 - commit, checkout, diff, branches, and log
 - review, blame, and history
 - query and retrieval endpoints
@@ -26,18 +27,18 @@ npm install @cortex-ai/sdk
 ## Example
 
 ```ts
-import { CortexClient, SDK_VERSION } from "@cortex-ai/sdk";
+import { MemorySession, SDK_VERSION } from "@cortex-ai/sdk";
 
-const client = new CortexClient("http://127.0.0.1:8766");
+const session = MemorySession.fromBaseUrl("http://127.0.0.1:8766");
 
-console.log("sdk", SDK_VERSION, client.sdkInfo());
+console.log("sdk", SDK_VERSION, session.sdkInfo());
 
-const health = await client.health();
-const search = await client.querySearch({ query: "Project Atlas", limit: 5 });
-const preview = await client.mergePreview({ otherRef: "feature/atlas", persist: true });
+const health = await session.client.health();
+const search = await session.searchContext({ query: "Project Atlas", limit: 5 });
+const branch = await session.branchForTask({ task: "Atlas investigation" });
 
-console.log(health.status, search.count, preview.ok);
+console.log(health.status, search.context, branch.branch_name);
 ```
 
 For the matching OpenAPI contract, Docker flow, backup/restore workflow, and MCP examples, see the root
-[self-hosting guide](../../docs/SELF_HOSTING.md).
+[self-hosting guide](../../docs/SELF_HOSTING.md) and [agent quickstarts](../../docs/AGENT_QUICKSTARTS.md).

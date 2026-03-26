@@ -128,6 +128,7 @@ The important rule is to keep the store local and only hand each agent the names
 
 - Python client: [examples/python/self_hosted_client.py](../examples/python/self_hosted_client.py)
 - TypeScript client: [examples/typescript/self_hosted_client.mjs](../examples/typescript/self_hosted_client.mjs)
+- Agent quickstarts: [AGENT_QUICKSTARTS.md](AGENT_QUICKSTARTS.md)
 - MCP JSON-RPC flow: [examples/mcp/README.md](../examples/mcp/README.md)
 
 ## Upgrade and Release
