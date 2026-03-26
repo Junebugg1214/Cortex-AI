@@ -15,6 +15,7 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
+from cortex.openapi import build_openapi_spec
 from cortex.query import QueryEngine, parse_nl_query
 from cortex.query_lang import ParseError, execute_query
 from cortex.review import parse_failure_policies, review_graphs
@@ -164,6 +165,9 @@ class MemoryService:
             "current_branch": self.backend.versions.current_branch(),
             "head": self.backend.versions.resolve_ref("HEAD"),
         }
+
+    def openapi(self, *, server_url: str | None = None) -> dict[str, Any]:
+        return build_openapi_spec(server_url=server_url)
 
     def meta(self) -> dict[str, Any]:
         return {

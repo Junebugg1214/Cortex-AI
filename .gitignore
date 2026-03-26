@@ -12,6 +12,9 @@ venv/
 dist/
 build/
 *.egg-info/
+!sdk/typescript/dist/
+!sdk/typescript/dist/index.js
+!sdk/typescript/dist/index.d.ts
 
 # Output files (user-specific)
 *_context.json
