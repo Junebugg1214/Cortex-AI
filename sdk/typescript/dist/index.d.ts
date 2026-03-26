@@ -11,6 +11,16 @@ export interface ReleaseInfo {
   openapiVersion: string;
 }
 
+export interface SessionInfo extends ReleaseInfo {
+  session: {
+    actor: string;
+    defaultRef: string;
+    branchPrefix: string;
+    defaultSource: string;
+    defaultFailOn: string;
+  };
+}
+
 export interface CortexClientOptions {
   apiKey?: string | null;
   namespace?: string | null;
@@ -282,10 +292,104 @@ export interface QueryDslParams {
   ref?: string;
 }
 
+export interface BranchNameForTaskOptions {
+  prefix?: string;
+  maxLength?: number;
+}
+
+export interface RenderSearchContextOptions {
+  maxItems?: number;
+  maxChars?: number | null;
+  includeScores?: boolean;
+}
+
+export interface MemorySessionOptions {
+  actor?: string;
+  defaultRef?: string;
+  branchPrefix?: string;
+  defaultSource?: string;
+  defaultFailOn?: string;
+}
+
+export interface MemorySessionRememberParams {
+  label?: string;
+  node?: JsonObject;
+  nodeId?: string;
+  canonicalId?: string;
+  brief?: string;
+  fullDescription?: string;
+  tags?: string[];
+  aliases?: string[];
+  confidence?: number;
+  status?: string;
+  validFrom?: string;
+  validTo?: string;
+  properties?: JsonObject;
+  message?: string;
+  ref?: string;
+  source?: string;
+  approve?: boolean;
+  claimMetadata?: JsonObject;
+}
+
+export interface MemorySessionRememberManyParams {
+  nodes: JsonObject[];
+  message?: string;
+  ref?: string;
+  source?: string;
+  approve?: boolean;
+}
+
+export interface MemorySessionLinkParams {
+  sourceId: string;
+  targetId: string;
+  relation: string;
+  edge?: JsonObject;
+  edgeId?: string;
+  confidence?: number;
+  description?: string;
+  message?: string;
+  ref?: string;
+  source?: string;
+  approve?: boolean;
+}
+
+export interface MemorySessionSearchParams {
+  query: string;
+  ref?: string;
+  limit?: number;
+  minScore?: number;
+}
+
+export interface MemorySessionSearchContextParams extends MemorySessionSearchParams {
+  maxChars?: number | null;
+  includeScores?: boolean;
+}
+
+export interface MemorySessionBranchParams {
+  task: string;
+  prefix?: string;
+  fromRef?: string;
+  switchBranch?: boolean;
+  approve?: boolean;
+}
+
+export interface MemorySessionCommitIfReviewPassesParams {
+  graph: JsonObject;
+  message: string;
+  against: string;
+  ref?: string;
+  failOn?: string;
+  source?: string;
+  approve?: boolean;
+}
+
 export declare const SDK_NAME = "@cortex-ai/sdk";
 export declare const SDK_VERSION = "1.4.1";
 export declare const API_VERSION = "v1";
 export declare const OPENAPI_VERSION = "1.0.0";
+export declare function branchNameForTask(task: string, options?: BranchNameForTaskOptions): string;
+export declare function renderSearchContext(searchPayload: JsonObject, options?: RenderSearchContextOptions): string;
 
 export class CortexClient {
   constructor(baseUrl: string, options?: CortexClientOptions);
@@ -334,4 +438,20 @@ export class CortexClient {
   querySearch(params: QuerySearchParams): Promise<JsonObject>;
   queryDsl(params: QueryDslParams): Promise<JsonObject>;
   queryNl(params: QueryDslParams): Promise<JsonObject>;
+}
+
+export class MemorySession {
+  constructor(client: CortexClient, options?: MemorySessionOptions);
+  static fromBaseUrl(
+    baseUrl: string,
+    options?: { clientOptions?: CortexClientOptions; sessionOptions?: MemorySessionOptions }
+  ): MemorySession;
+  sdkInfo(): SessionInfo;
+  remember(params?: MemorySessionRememberParams): Promise<JsonObject>;
+  rememberMany(params: MemorySessionRememberManyParams): Promise<JsonObject>;
+  link(params: MemorySessionLinkParams): Promise<JsonObject>;
+  search(params: MemorySessionSearchParams): Promise<JsonObject>;
+  searchContext(params: MemorySessionSearchContextParams): Promise<JsonObject>;
+  branchForTask(params: MemorySessionBranchParams): Promise<JsonObject>;
+  commitIfReviewPasses(params: MemorySessionCommitIfReviewPassesParams): Promise<JsonObject>;
 }

@@ -218,6 +218,24 @@ Release operator docs:
 - [docs/UPGRADING.md](docs/UPGRADING.md)
 - [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
 
+## Adoption Layer
+
+Cortex now also ships a higher-level `MemorySession` helper for application code that wants to work at the
+"agent memory workflow" level instead of stitching raw SDK calls together.
+
+It gives app builders a small set of verbs on top of the stable v1 runtime:
+
+- `remember(...)`
+- `search_context(...)`
+- `branch_for_task(...)`
+- `commit_if_review_passes(...)`
+
+See:
+
+- [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
+- [examples/python/self_hosted_client.py](examples/python/self_hosted_client.py)
+- [examples/typescript/self_hosted_client.mjs](examples/typescript/self_hosted_client.mjs)
+
 ## Memory CI
 
 The repo includes [`.github/workflows/memory-review.yml`](.github/workflows/memory-review.yml), which can:
