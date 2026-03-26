@@ -172,3 +172,92 @@ class CortexClient:
         if graph is not None:
             payload["graph"] = graph
         return self._request("POST", "/v1/history", payload=payload)
+
+    def query_category(
+        self,
+        *,
+        tag: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"tag": tag, "ref": ref}
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/category", payload=payload)
+
+    def query_path(
+        self,
+        *,
+        from_label: str,
+        to_label: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "from_label": from_label,
+            "to_label": to_label,
+            "ref": ref,
+        }
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/path", payload=payload)
+
+    def query_related(
+        self,
+        *,
+        label: str,
+        depth: int = 2,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "label": label,
+            "depth": depth,
+            "ref": ref,
+        }
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/related", payload=payload)
+
+    def query_search(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "query": query,
+            "ref": ref,
+            "limit": limit,
+            "min_score": min_score,
+        }
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/search", payload=payload)
+
+    def query_dsl(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"query": query, "ref": ref}
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/dsl", payload=payload)
+
+    def query_nl(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"query": query, "ref": ref}
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/query/nl", payload=payload)

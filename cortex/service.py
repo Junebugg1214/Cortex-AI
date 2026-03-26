@@ -7,6 +7,8 @@ from typing import Any
 from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph
 from cortex.memory_ops import blame_memory_nodes
+from cortex.query import QueryEngine, parse_nl_query
+from cortex.query_lang import ParseError, execute_query
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.storage import get_storage_backend
 from cortex.storage.base import StorageBackend
@@ -32,6 +34,12 @@ def _load_identity(store_dir: Path) -> UPAIIdentity | None:
     if not identity_path.exists():
         return None
     return UPAIIdentity.load(store_dir)
+
+
+def _node_payload(node: Any) -> dict[str, Any]:
+    if hasattr(node, "to_dict"):
+        return node.to_dict()
+    return dict(node)
 
 
 @dataclass(slots=True)
@@ -279,4 +287,134 @@ class MemoryService:
             "ref": ref,
             "source": source,
             "nodes": result["nodes"],
+        }
+
+    def query_category(
+        self,
+        *,
+        tag: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        engine = QueryEngine(current_graph)
+        nodes = engine.query_category(tag)
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "tag": tag,
+            "nodes": [_node_payload(node) for node in nodes],
+            "count": len(nodes),
+        }
+
+    def query_path(
+        self,
+        *,
+        from_label: str,
+        to_label: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        engine = QueryEngine(current_graph)
+        paths = engine.query_path(from_label, to_label)
+        serialized_paths = [[_node_payload(node) for node in path] for path in paths]
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "from_label": from_label,
+            "to_label": to_label,
+            "paths": serialized_paths,
+            "count": len(serialized_paths),
+            "found": bool(serialized_paths),
+        }
+
+    def query_related(
+        self,
+        *,
+        label: str,
+        depth: int = 2,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        engine = QueryEngine(current_graph)
+        nodes = engine.query_related(label, depth=depth)
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "label": label,
+            "depth": depth,
+            "nodes": [_node_payload(node) for node in nodes],
+            "count": len(nodes),
+        }
+
+    def query_search(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        results = current_graph.semantic_search(query, limit=limit, min_score=min_score)
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "query": query,
+            "results": [
+                {
+                    "node": _node_payload(item["node"]),
+                    "score": item["score"],
+                }
+                for item in results
+            ],
+            "count": len(results),
+        }
+
+    def query_dsl(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        try:
+            result = execute_query(current_graph, query)
+        except ParseError as exc:
+            raise ValueError(str(exc)) from exc
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "query": query,
+            **result,
+        }
+
+    def query_nl(
+        self,
+        *,
+        query: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+        engine = QueryEngine(current_graph)
+        result = parse_nl_query(query, engine)
+        if isinstance(result, str):
+            return {
+                "status": "ok",
+                "graph_source": graph_source,
+                "query": query,
+                "recognized": False,
+                "message": result,
+            }
+        return {
+            "status": "ok",
+            "graph_source": graph_source,
+            "query": query,
+            "recognized": True,
+            "result": result,
         }

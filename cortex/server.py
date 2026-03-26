@@ -87,6 +87,18 @@ def dispatch_api_request(
                 return 200, service.blame(**payload)
             if parsed.path == "/v1/history":
                 return 200, service.history(**payload)
+            if parsed.path == "/v1/query/category":
+                return 200, service.query_category(**payload)
+            if parsed.path == "/v1/query/path":
+                return 200, service.query_path(**payload)
+            if parsed.path == "/v1/query/related":
+                return 200, service.query_related(**payload)
+            if parsed.path == "/v1/query/search":
+                return 200, service.query_search(**payload)
+            if parsed.path == "/v1/query/dsl":
+                return 200, service.query_dsl(**payload)
+            if parsed.path == "/v1/query/nl":
+                return 200, service.query_nl(**payload)
             if parsed.path == "/v1/branches":
                 return 201, service.create_branch(**payload)
             if parsed.path == "/v1/branches/switch":
