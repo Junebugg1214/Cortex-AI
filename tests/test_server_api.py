@@ -173,6 +173,63 @@ def test_cortex_api_commit_branch_diff_and_checkout_round_trip(tmp_path, monkeyp
     assert "n2" in checkout["graph"]["graph"]["nodes"]
 
 
+def test_cortex_api_object_node_and_edge_surface(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    atlas = client.upsert_node(
+        node={
+            "label": "Project Atlas",
+            "aliases": ["atlas"],
+            "tags": ["active_priorities"],
+            "confidence": 0.92,
+        },
+        message="add atlas",
+    )
+    sdk = client.upsert_node(
+        node={
+            "id": "sdk",
+            "label": "Python SDK",
+            "tags": ["infrastructure"],
+            "confidence": 0.83,
+        },
+        message="add sdk",
+    )
+    edge = client.upsert_edge(
+        edge={
+            "source_id": atlas["node"]["id"],
+            "target_id": sdk["node"]["id"],
+            "relation": "depends_on",
+            "confidence": 0.75,
+        },
+        message="link atlas sdk",
+    )
+
+    node_detail = client.get_node(atlas["node"]["id"])
+    edge_detail = client.get_edge(edge["edge"]["id"])
+    node_lookup = client.lookup_nodes(label="atlas", limit=5)
+    edge_lookup = client.lookup_edges(
+        source_id=atlas["node"]["id"],
+        target_id=sdk["node"]["id"],
+        relation="depends_on",
+        limit=5,
+    )
+    deleted_edge = client.delete_edge(edge_id=edge["edge"]["id"], message="unlink atlas sdk")
+
+    assert atlas["commit"]["version_id"]
+    assert atlas["claim"]["op"] == "assert"
+    assert node_detail["node"]["label"] == "Project Atlas"
+    assert node_detail["claim_lineage"]["event_count"] >= 1
+    assert edge_detail["source_node"]["label"] == "Project Atlas"
+    assert edge_detail["target_node"]["label"] == "Python SDK"
+    assert node_lookup["count"] == 1
+    assert edge_lookup["count"] == 1
+    assert deleted_edge["edge"]["relation"] == "depends_on"
+
+
 def test_cortex_api_namespace_isolation_filters_and_blocks_cross_namespace(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -200,6 +257,94 @@ def test_cortex_api_namespace_isolation_filters_and_blocks_cross_namespace(tmp_p
 
     with pytest.raises(RuntimeError, match="outside namespace"):
         client.create_branch(name="ops/infra")
+
+    with pytest.raises(RuntimeError, match="outside namespace"):
+        client.upsert_node(node={"label": "Leaked Node"})
+
+
+def test_cortex_api_claim_assert_retract_and_materialize(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    created = client.upsert_node(
+        node={
+            "id": "atlas",
+            "label": "Project Atlas",
+            "aliases": ["atlas"],
+            "tags": ["active_priorities"],
+        },
+        message="seed atlas",
+        record_claim=False,
+    )
+    asserted = client.assert_claim(node_id="atlas", materialize=False, source="manual-source")
+    retracted = client.retract_claim(claim_id=asserted["claim"]["claim_id"], materialize=True, message="retract atlas")
+    remaining = client.lookup_nodes(node_id="atlas")
+    claims = client.list_claims(node_id="atlas", limit=10)
+
+    assert created["node"]["id"] == "atlas"
+    assert asserted["commit"] is None
+    assert asserted["claim"]["op"] == "assert"
+    assert retracted["claim"]["op"] == "retract"
+    assert retracted["removed_node"]["label"] == "Project Atlas"
+    assert remaining["count"] == 0
+    assert claims["claims"][0]["op"] == "retract"
+
+
+def test_cortex_api_memory_batch_materializes_object_operations(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    batch = client.memory_batch(
+        operations=[
+            {
+                "op": "upsert_node",
+                "node": {
+                    "id": "atlas",
+                    "label": "Project Atlas",
+                    "aliases": ["atlas"],
+                    "tags": ["active_priorities"],
+                },
+            },
+            {
+                "op": "upsert_node",
+                "node": {
+                    "id": "sdk",
+                    "label": "Python SDK",
+                    "tags": ["infrastructure"],
+                    "brief": "SDK surface for Cortex",
+                },
+            },
+            {
+                "op": "upsert_edge",
+                "edge": {
+                    "source_id": "atlas",
+                    "target_id": "sdk",
+                    "relation": "requires",
+                },
+            },
+            {
+                "op": "assert_claim",
+                "node_id": "sdk",
+                "materialize": False,
+                "source": "batch-source",
+            },
+        ],
+        message="batch object write",
+    )
+    query = client.query_search(query="python sdk", limit=5)
+    edge_lookup = client.lookup_edges(source_id="atlas", target_id="sdk", relation="requires", limit=5)
+
+    assert batch["commit"]["version_id"]
+    assert batch["operation_count"] == 4
+    assert len(batch["claims"]) == 3
+    assert query["results"][0]["node"]["label"] == "Python SDK"
+    assert edge_lookup["count"] == 1
 
 
 def test_cortex_api_review_blame_and_history_support_payload_graphs(tmp_path, monkeypatch):

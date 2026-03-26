@@ -139,6 +139,65 @@ def dispatch_api_request(
                 status, response = 200, service.prune_audit(limit=_query_int(query, "limit", 50))
             elif parsed.path == "/v1/openapi.json":
                 status, response = 200, service.openapi(server_url=_server_url(headers))
+            elif parsed.path == "/v1/nodes":
+                status, response = (
+                    200,
+                    service.lookup_nodes(
+                        node_id=_query_value(query, "id", "") or "",
+                        canonical_id=_query_value(query, "canonical_id", "") or "",
+                        label=_query_value(query, "label", "") or "",
+                        ref=_query_value(query, "ref", "HEAD") or "HEAD",
+                        limit=_query_int(query, "limit", 10),
+                        namespace=namespace,
+                    ),
+                )
+            elif parsed.path.startswith("/v1/nodes/"):
+                status, response = (
+                    200,
+                    service.get_node(
+                        node_id=parsed.path[len("/v1/nodes/") :],
+                        ref=_query_value(query, "ref", "HEAD") or "HEAD",
+                        namespace=namespace,
+                    ),
+                )
+            elif parsed.path == "/v1/edges":
+                status, response = (
+                    200,
+                    service.lookup_edges(
+                        edge_id=_query_value(query, "id", "") or "",
+                        source_id=_query_value(query, "source_id", "") or "",
+                        target_id=_query_value(query, "target_id", "") or "",
+                        relation=_query_value(query, "relation", "") or "",
+                        ref=_query_value(query, "ref", "HEAD") or "HEAD",
+                        limit=_query_int(query, "limit", 10),
+                        namespace=namespace,
+                    ),
+                )
+            elif parsed.path.startswith("/v1/edges/"):
+                status, response = (
+                    200,
+                    service.get_edge(
+                        edge_id=parsed.path[len("/v1/edges/") :],
+                        ref=_query_value(query, "ref", "HEAD") or "HEAD",
+                        namespace=namespace,
+                    ),
+                )
+            elif parsed.path == "/v1/claims":
+                status, response = (
+                    200,
+                    service.list_claims(
+                        claim_id=_query_value(query, "claim_id", "") or "",
+                        node_id=_query_value(query, "node_id", "") or "",
+                        canonical_id=_query_value(query, "canonical_id", "") or "",
+                        label=_query_value(query, "label", "") or "",
+                        source=_query_value(query, "source", "") or "",
+                        ref=_query_value(query, "ref", "") or "",
+                        version_ref=_query_value(query, "version_ref", "") or "",
+                        op=_query_value(query, "op", "") or "",
+                        limit=_query_int(query, "limit", 50),
+                        namespace=namespace,
+                    ),
+                )
             elif parsed.path == "/v1/branches":
                 status, response = 200, service.list_branches(namespace=namespace)
             elif parsed.path == "/v1/commits":
@@ -153,6 +212,20 @@ def dispatch_api_request(
         if method == "POST":
             if parsed.path == "/v1/commit":
                 status, response = 201, service.commit(**payload)
+            elif parsed.path == "/v1/nodes/upsert":
+                status, response = 200, service.upsert_node(**payload)
+            elif parsed.path == "/v1/nodes/delete":
+                status, response = 200, service.delete_node(**payload)
+            elif parsed.path == "/v1/edges/upsert":
+                status, response = 200, service.upsert_edge(**payload)
+            elif parsed.path == "/v1/edges/delete":
+                status, response = 200, service.delete_edge(**payload)
+            elif parsed.path == "/v1/claims/assert":
+                status, response = 200, service.assert_claim(**payload)
+            elif parsed.path == "/v1/claims/retract":
+                status, response = 200, service.retract_claim(**payload)
+            elif parsed.path == "/v1/memory/batch":
+                status, response = 200, service.memory_batch(**payload)
             elif parsed.path == "/v1/checkout":
                 status, response = 200, service.checkout(**payload)
             elif parsed.path == "/v1/diff":
