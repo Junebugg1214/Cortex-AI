@@ -15,6 +15,15 @@ export interface LogParams {
   ref?: string;
 }
 
+export interface IndexStatusParams {
+  ref?: string;
+}
+
+export interface IndexRebuildParams {
+  ref?: string;
+  allRefs?: boolean;
+}
+
 export interface CreateBranchParams {
   name: string;
   fromRef?: string;
@@ -132,6 +141,8 @@ export class CortexClient {
   health(): Promise<JsonObject>;
   meta(): Promise<JsonObject>;
   openapi(): Promise<JsonObject>;
+  indexStatus(params?: IndexStatusParams): Promise<JsonObject>;
+  indexRebuild(params?: IndexRebuildParams): Promise<JsonObject>;
   log(params?: LogParams): Promise<JsonObject>;
   listBranches(): Promise<JsonObject>;
   createBranch(params: CreateBranchParams): Promise<JsonObject>;

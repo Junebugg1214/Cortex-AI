@@ -418,12 +418,25 @@ class MemoryService:
         limit: int = 10,
         min_score: float = 0.0,
     ) -> dict[str, Any]:
-        current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
-        results = current_graph.semantic_search(query, limit=limit, min_score=min_score)
+        if graph is not None:
+            current_graph, graph_source = self._graph_from_request(graph=graph, ref=ref)
+            results = current_graph.semantic_search(query, limit=limit, min_score=min_score)
+            search_backend = "payload_graph"
+            persistent_index = False
+        else:
+            graph_source = self.backend.versions.resolve_ref(ref)
+            if graph_source is None:
+                raise ValueError(f"Unknown ref: {ref}")
+            results = self.backend.indexing.search(query=query, ref=ref, limit=limit, min_score=min_score)
+            index_status = self.backend.indexing.status(ref=ref)
+            search_backend = "persistent_index" if index_status.get("persistent") else "graph_checkout"
+            persistent_index = bool(index_status.get("persistent", False))
         return {
             "status": "ok",
             "graph_source": graph_source,
             "query": query,
+            "search_backend": search_backend,
+            "persistent_index": persistent_index,
             "results": [
                 {
                     "node": _node_payload(item["node"]),
@@ -433,6 +446,12 @@ class MemoryService:
             ],
             "count": len(results),
         }
+
+    def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
+        return self.backend.indexing.status(ref=ref)
+
+    def index_rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
+        return self.backend.indexing.rebuild(ref=ref, all_refs=all_refs)
 
     def query_dsl(
         self,

@@ -205,6 +205,16 @@ class TestTFIDFIndex:
         idx.build(sample_nodes[:2])
         assert idx.doc_count == 2
 
+    def test_round_trip_serialization(self, sample_nodes):
+        idx = TFIDFIndex()
+        idx.build(sample_nodes)
+
+        restored = TFIDFIndex.from_dict(idx.to_dict())
+
+        assert restored.is_built
+        assert restored.doc_count == idx.doc_count
+        assert restored.search("machine learning") == idx.search("machine learning")
+
 
 # ---------------------------------------------------------------------------
 # CortexGraph integration

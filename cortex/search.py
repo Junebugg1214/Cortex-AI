@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from typing import Iterable
+from typing import Any, Iterable
 
 # ---------------------------------------------------------------------------
 # Stop words — common English words to exclude from indexing
@@ -186,6 +186,10 @@ STOP_WORDS: frozenset[str] = frozenset(
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*")
 _COMPOUND_PART_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|\d|$)|[A-Z]?[a-z]+|\d+")
+
+
+def _normalize_label(label: str) -> str:
+    return " ".join(str(label).lower().strip().split())
 
 
 def tokenize(text: str) -> list[str]:
@@ -376,3 +380,91 @@ class TFIDFIndex:
         tf = 1 + math.log(tf_count) if tf_count > 0 else 0.0
         idf = math.log(self._n / df)
         return tf * idf
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "tf": {doc_id: dict(tf) for doc_id, tf in self._tf.items()},
+            "df": dict(self._df),
+            "norms": dict(self._norms),
+            "n": self._n,
+            "docs": {doc_id: dict(doc) for doc_id, doc in self._docs.items()},
+            "built": self._built,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "TFIDFIndex":
+        index = cls()
+        index._tf = {doc_id: Counter(tf) for doc_id, tf in dict(payload.get("tf", {})).items()}
+        index._df = Counter(dict(payload.get("df", {})))
+        index._norms = {doc_id: float(norm) for doc_id, norm in dict(payload.get("norms", {})).items()}
+        index._n = int(payload.get("n", 0))
+        index._docs = {doc_id: dict(doc) for doc_id, doc in dict(payload.get("docs", {})).items()}
+        index._built = bool(payload.get("built", False))
+        return index
+
+
+def semantic_search_documents(
+    nodes: Iterable[Any],
+    query: str,
+    *,
+    limit: int = 10,
+    min_score: float = 0.0,
+    index: TFIDFIndex | None = None,
+) -> list[dict[str, Any]]:
+    import difflib
+
+    original_nodes: dict[str, Any] = {}
+    docs: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        payload = node.to_dict() if hasattr(node, "to_dict") else dict(node)
+        node_id = str(payload.get("id", "")).strip()
+        if not node_id:
+            continue
+        original_nodes[node_id] = node
+        docs[node_id] = payload
+
+    if not docs or not query:
+        return []
+
+    working_index = index or TFIDFIndex()
+    if not working_index.is_built:
+        working_index.build(docs.values())
+
+    semantic_results = working_index.search(query, limit=max(limit * 3, 10), min_score=min_score)
+    combined_scores: dict[str, float] = {}
+    query_norm = _normalize_label(query)
+
+    for item in semantic_results:
+        node_id = item["node"].get("id", "")
+        if node_id:
+            combined_scores[node_id] = max(combined_scores.get(node_id, 0.0), float(item["score"]))
+
+    for node_id, payload in docs.items():
+        label_norm = _normalize_label(payload.get("label", ""))
+        alias_norms = [_normalize_label(alias) for alias in payload.get("aliases", [])]
+        boost = 0.0
+
+        if query_norm and query_norm == label_norm:
+            boost = max(boost, 1.0)
+        if query_norm and query_norm in alias_norms:
+            boost = max(boost, 0.95)
+        if query_norm and (query_norm in label_norm or any(query_norm in alias for alias in alias_norms)):
+            boost = max(boost, 0.55)
+
+        candidate_terms = [label_norm, *alias_norms]
+        candidate_terms = [term for term in candidate_terms if term]
+        if query_norm and candidate_terms:
+            fuzzy = max(difflib.SequenceMatcher(None, query_norm, term).ratio() for term in candidate_terms)
+            if fuzzy >= 0.75:
+                boost = max(boost, round(fuzzy * 0.45, 4))
+
+        if boost > 0:
+            combined_scores[node_id] = max(combined_scores.get(node_id, 0.0), boost)
+
+    ranked = sorted(combined_scores.items(), key=lambda item: (-item[1], item[0]))
+    results: list[dict[str, Any]] = []
+    for node_id, score in ranked[:limit]:
+        original = original_nodes.get(node_id)
+        if original is not None:
+            results.append({"node": original, "score": round(score, 4)})
+    return results

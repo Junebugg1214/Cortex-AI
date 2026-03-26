@@ -64,6 +64,22 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/index/status": {
+                "get": {
+                    "operationId": "indexStatus",
+                    "summary": "Read lexical index status for a stored ref",
+                    "tags": ["index"],
+                    "parameters": [
+                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Index status",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/openapi.json": {
                 "get": {
                     "operationId": "openapi",
@@ -247,6 +263,20 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/index/rebuild": {
+                "post": {
+                    "operationId": "indexRebuild",
+                    "summary": "Rebuild persisted lexical indexes",
+                    "tags": ["index"],
+                    "requestBody": _request_body("#/components/schemas/IndexRebuildRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Index rebuild result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/query/category": {
                 "post": {
                     "operationId": "queryCategory",
@@ -422,6 +452,14 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                 },
                 "GraphPayload": _json_object_schema(description="Cortex graph export payload."),
                 "EmptyRequest": {"type": "object", "additionalProperties": False},
+                "IndexRebuildRequest": {
+                    "type": "object",
+                    "properties": {
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "all_refs": {"type": "boolean", "default": False},
+                    },
+                    "additionalProperties": False,
+                },
                 "CreateBranchRequest": {
                     "type": "object",
                     "properties": {

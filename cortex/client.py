@@ -57,6 +57,12 @@ class CortexClient:
     def openapi(self) -> dict[str, Any]:
         return self._request("GET", "/v1/openapi.json")
 
+    def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
+        return self._request("GET", "/v1/index/status", params={"ref": ref})
+
+    def index_rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
+        return self._request("POST", "/v1/index/rebuild", payload={"ref": ref, "all_refs": all_refs})
+
     def log(self, *, limit: int = 10, ref: str | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit}
         if ref is not None:

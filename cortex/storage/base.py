@@ -125,6 +125,19 @@ class RemoteBackend(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class IndexBackend(Protocol):
+    def status(self, *, ref: str = "HEAD") -> dict[str, Any]: ...
+    def rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]: ...
+    def search(
+        self,
+        *,
+        query: str,
+        ref: str = "HEAD",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> list[dict[str, Any]]: ...
+
+
 class StorageBackend(Protocol):
     store_dir: Path
     tenant_id: str
@@ -132,6 +145,7 @@ class StorageBackend(Protocol):
     claims: ClaimBackend
     governance: GovernanceBackend
     remotes: RemoteBackend
+    indexing: IndexBackend
 
 
 __all__ = [
@@ -139,6 +153,7 @@ __all__ = [
     "DEFAULT_TENANT_ID",
     "ClaimBackend",
     "GovernanceBackend",
+    "IndexBackend",
     "RemoteBackend",
     "StorageBackend",
     "VersionBackend",

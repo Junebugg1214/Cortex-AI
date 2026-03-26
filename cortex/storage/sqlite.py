@@ -22,6 +22,7 @@ from cortex.schemas.memory_v1 import (
     GovernanceRuleRecord,
     RemoteRecord,
 )
+from cortex.search import TFIDFIndex, semantic_search_documents
 from cortex.semantic_diff import semantic_diff_graphs
 
 DEFAULT_SQLITE_FILENAME = "cortex.db"
@@ -44,6 +45,7 @@ class SQLiteVersionBackend:
     store_dir: Path
     tenant_id: str = DEFAULT_TENANT_ID
     db_path: Path = field(init=False)
+    index_backend: "SQLiteIndexBackend | None" = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.store_dir = Path(self.store_dir)
@@ -100,6 +102,13 @@ class SQLiteVersionBackend:
                     name TEXT PRIMARY KEY,
                     payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS lexical_indices (
+                    version_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    doc_count INTEGER NOT NULL,
+                    indexed_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_lexical_indices_indexed_at ON lexical_indices(indexed_at DESC);
                 """
             )
             current = conn.execute("SELECT value FROM meta WHERE key = 'head_ref'").fetchone()
@@ -352,6 +361,9 @@ class SQLiteVersionBackend:
                 """,
                 (branch, version_id),
             )
+
+        if self.index_backend is not None:
+            self.index_backend.upsert_version_index(version_id, graph=graph)
 
         row = self._latest_history_row(version_id)
         assert row is not None
@@ -632,6 +644,7 @@ class SQLiteVersionBackend:
     def _import_bundle(self, bundle: dict[str, Any]) -> int:
         self._ensure_schema()
         copied = 0
+        snapshots_to_index: list[tuple[str, dict[str, Any]]] = []
         with self._connect() as conn:
             existing_snapshots = {
                 row["version_id"] for row in conn.execute("SELECT version_id FROM snapshots").fetchall()
@@ -659,6 +672,7 @@ class SQLiteVersionBackend:
                     ),
                 )
                 existing_snapshots.add(version_id)
+                snapshots_to_index.append((version_id, payload))
             for record in bundle.get("records", []):
                 version_id = record["version_id"]
                 if version_id in existing_history:
@@ -682,6 +696,9 @@ class SQLiteVersionBackend:
                 )
                 existing_history.add(version_id)
                 copied += 1
+        if self.index_backend is not None:
+            for version_id, payload in snapshots_to_index:
+                self.index_backend.upsert_version_index(version_id, snapshot_payload=payload)
         return copied
 
 
@@ -832,6 +849,164 @@ class SQLiteClaimBackend:
             },
             "events": [event.to_dict() for event in events],
         }
+
+
+@dataclass(slots=True)
+class SQLiteIndexBackend:
+    versions: SQLiteVersionBackend
+
+    def _connect(self) -> sqlite3.Connection:
+        return self.versions._connect()
+
+    def _snapshot_payload(self, version_id: str) -> dict[str, Any]:
+        row = self.versions._snapshot_row(version_id)
+        if row is None:
+            raise FileNotFoundError(f"Version {version_id} not found")
+        return json.loads(row["graph_json"])
+
+    def _node_documents(
+        self, *, graph: CortexGraph | None = None, snapshot_payload: dict[str, Any] | None = None
+    ) -> list[Any]:
+        if graph is not None:
+            return list(graph.nodes.values())
+        if snapshot_payload is not None:
+            nodes = snapshot_payload.get("graph", {}).get("nodes", {})
+            return list(nodes.values())
+        raise ValueError("graph or snapshot_payload is required to build an index")
+
+    def _latest_row(self) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT version_id, doc_count, indexed_at
+                FROM lexical_indices
+                ORDER BY indexed_at DESC, version_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+    def _index_row(self, version_id: str) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT version_id, payload, doc_count, indexed_at
+                FROM lexical_indices
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            ).fetchone()
+
+    def upsert_version_index(
+        self,
+        version_id: str,
+        *,
+        graph: CortexGraph | None = None,
+        snapshot_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        index = TFIDFIndex()
+        index.build(self._node_documents(graph=graph, snapshot_payload=snapshot_payload))
+        indexed_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO lexical_indices(version_id, payload, doc_count, indexed_at)
+                VALUES(?, ?, ?, ?)
+                ON CONFLICT(version_id) DO UPDATE
+                SET payload = excluded.payload,
+                    doc_count = excluded.doc_count,
+                    indexed_at = excluded.indexed_at
+                """,
+                (version_id, json.dumps(index.to_dict(), ensure_ascii=False), index.doc_count, indexed_at),
+            )
+        return {
+            "version_id": version_id,
+            "doc_count": index.doc_count,
+            "indexed_at": indexed_at,
+        }
+
+    def _ensure_index(self, version_id: str) -> tuple[TFIDFIndex, dict[str, Any]]:
+        row = self._index_row(version_id)
+        if row is None:
+            details = self.upsert_version_index(version_id, snapshot_payload=self._snapshot_payload(version_id))
+            row = self._index_row(version_id)
+            assert row is not None
+            return TFIDFIndex.from_dict(json.loads(row["payload"])), details
+        return TFIDFIndex.from_dict(json.loads(row["payload"])), {
+            "version_id": row["version_id"],
+            "doc_count": int(row["doc_count"]),
+            "indexed_at": row["indexed_at"],
+        }
+
+    def status(self, *, ref: str = "HEAD") -> dict[str, Any]:
+        resolved_ref = self.versions.resolve_ref(ref)
+        if resolved_ref is None:
+            raise ValueError(f"Unknown ref: {ref}")
+        current_row = self._index_row(resolved_ref)
+        latest_row = self._latest_row()
+        snapshot = self.versions._snapshot_row(resolved_ref)
+        snapshot_doc_count = int(snapshot["node_count"]) if snapshot is not None else 0
+        return {
+            "status": "ok",
+            "backend": "sqlite",
+            "persistent": True,
+            "supported": True,
+            "ref": ref,
+            "resolved_ref": resolved_ref,
+            "indexed": current_row is not None,
+            "stale": current_row is None,
+            "doc_count": int(current_row["doc_count"]) if current_row is not None else snapshot_doc_count,
+            "updated_at": current_row["indexed_at"] if current_row is not None else None,
+            "last_indexed_commit": latest_row["version_id"] if latest_row is not None else None,
+            "last_indexed_at": latest_row["indexed_at"] if latest_row is not None else None,
+        }
+
+    def rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
+        if all_refs:
+            version_ids = list(dict.fromkeys(item["version_id"] for item in self.versions._all_history_records()))
+        else:
+            resolved_ref = self.versions.resolve_ref(ref)
+            if resolved_ref is None:
+                raise ValueError(f"Unknown ref: {ref}")
+            version_ids = [resolved_ref]
+
+        rebuilt: list[dict[str, Any]] = []
+        for version_id in version_ids:
+            rebuilt.append(self.upsert_version_index(version_id, snapshot_payload=self._snapshot_payload(version_id)))
+
+        latest = rebuilt[-1] if rebuilt else None
+        return {
+            "status": "ok",
+            "backend": "sqlite",
+            "persistent": True,
+            "supported": True,
+            "ref": ref,
+            "all_refs": all_refs,
+            "rebuilt": len(rebuilt),
+            "indexed_versions": [item["version_id"] for item in rebuilt],
+            "doc_count": latest["doc_count"] if latest is not None else 0,
+            "updated_at": latest["indexed_at"] if latest is not None else None,
+            "last_indexed_commit": latest["version_id"] if latest is not None else None,
+        }
+
+    def search(
+        self,
+        *,
+        query: str,
+        ref: str = "HEAD",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        resolved_ref = self.versions.resolve_ref(ref)
+        if resolved_ref is None:
+            raise ValueError(f"Unknown ref: {ref}")
+        index, _ = self._ensure_index(resolved_ref)
+        return semantic_search_documents(
+            index.to_dict().get("docs", {}).values(),
+            query,
+            limit=limit,
+            min_score=min_score,
+            index=index,
+        )
 
 
 def _governance_rule_model(record: GovernanceRuleRecord) -> GovernanceRule:
@@ -1082,11 +1257,14 @@ class SQLiteStorageBackend:
     claims: SQLiteClaimBackend = field(init=False)
     governance: SQLiteGovernanceBackend = field(init=False)
     remotes: SQLiteRemoteBackend = field(init=False)
+    indexing: SQLiteIndexBackend = field(init=False)
 
     def __post_init__(self) -> None:
         self.store_dir = Path(self.store_dir)
         versions = SQLiteVersionBackend(self.store_dir, tenant_id=self.tenant_id)
         self.versions = versions
+        self.indexing = SQLiteIndexBackend(versions)
+        versions.index_backend = self.indexing
         self.claims = SQLiteClaimBackend(versions, tenant_id=self.tenant_id)
         self.governance = SQLiteGovernanceBackend(versions, tenant_id=self.tenant_id)
         self.remotes = SQLiteRemoteBackend(versions, tenant_id=self.tenant_id)

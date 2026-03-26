@@ -65,6 +65,16 @@ export class CortexClient {
     return this.request("GET", "/v1/openapi.json");
   }
 
+  indexStatus({ ref = "HEAD" } = {}) {
+    return this.request("GET", "/v1/index/status", { params: { ref } });
+  }
+
+  indexRebuild({ ref = "HEAD", allRefs = false } = {}) {
+    return this.request("POST", "/v1/index/rebuild", {
+      payload: { ref, all_refs: allRefs }
+    });
+  }
+
   log({ limit = 10, ref } = {}) {
     return this.request("GET", "/v1/commits", { params: { limit, ref } });
   }

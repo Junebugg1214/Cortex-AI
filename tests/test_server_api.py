@@ -1,5 +1,6 @@
 import io
 import json
+import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,6 +13,7 @@ from cortex.graph import CortexGraph, Edge, Node
 from cortex.server import dispatch_api_request
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
+from cortex.storage.sqlite import sqlite_db_path
 
 
 def _graph_with_node(node: Node) -> CortexGraph:
@@ -249,6 +251,8 @@ def test_cortex_api_query_endpoints_support_ref_backed_queries(tmp_path, monkeyp
     assert [node["label"] for node in related["nodes"]] == ["Python", "SDK"]
     assert search["results"][0]["node"]["label"] == "Project Atlas"
     assert search["count"] >= 1
+    assert search["search_backend"] == "persistent_index"
+    assert search["persistent_index"] is True
     assert dsl["type"] == "find"
     assert dsl["count"] == 1
     assert nl["recognized"] is True
@@ -291,11 +295,52 @@ def test_cortex_api_query_endpoints_support_payload_graphs(tmp_path, monkeypatch
 
     assert payload_search["graph_source"] == "payload"
     assert payload_search["results"][0]["node"]["label"] == "Embedding Index"
+    assert payload_search["search_backend"] == "payload_graph"
+    assert payload_search["persistent_index"] is False
     assert payload_path["graph_source"] == "payload"
     assert payload_path["found"] is True
     assert [node["label"] for node in payload_path["paths"][0]] == ["Project Atlas", "Embedding Index"]
     assert unknown_nl["recognized"] is False
     assert "Query not recognized" in unknown_nl["message"]
+
+
+def test_cortex_api_index_status_and_rebuild_surface(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            aliases=["atlas"],
+            tags=["active_priorities"],
+            confidence=0.91,
+            brief="Local memory infrastructure",
+        )
+    )
+    commit = backend.versions.commit(graph, "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    with sqlite3.connect(sqlite_db_path(store_dir)) as conn:
+        conn.execute("DELETE FROM lexical_indices WHERE version_id = ?", (commit.version_id,))
+
+    client = CortexClient("http://cortex.local")
+    stale = client.index_status()
+    rebuilt = client.index_rebuild(ref="HEAD")
+    ready = client.index_status()
+    search = client.query_search(query="atlas", limit=5)
+
+    assert stale["persistent"] is True
+    assert stale["stale"] is True
+    assert rebuilt["rebuilt"] == 1
+    assert rebuilt["last_indexed_commit"] == commit.version_id
+    assert ready["stale"] is False
+    assert ready["last_indexed_commit"] == commit.version_id
+    assert search["search_backend"] == "persistent_index"
+    assert search["results"][0]["node"]["label"] == "Project Atlas"
 
 
 def test_cortex_api_query_dsl_returns_client_error_for_invalid_queries(tmp_path, monkeypatch):
