@@ -308,6 +308,64 @@ class FilesystemRemoteBackend:
 
 
 @dataclass(slots=True)
+class FilesystemIndexBackend:
+    versions: FilesystemVersionBackend
+
+    def status(self, *, ref: str = "HEAD") -> dict[str, Any]:
+        resolved_ref = self.versions.resolve_ref(ref)
+        if resolved_ref is None:
+            raise ValueError(f"Unknown ref: {ref}")
+        graph = self.versions.checkout(resolved_ref)
+        return {
+            "status": "ok",
+            "backend": "filesystem",
+            "persistent": False,
+            "supported": False,
+            "ref": ref,
+            "resolved_ref": resolved_ref,
+            "last_indexed_commit": None,
+            "doc_count": len(graph.nodes),
+            "stale": False,
+            "updated_at": None,
+        }
+
+    def rebuild(self, *, ref: str = "HEAD", all_refs: bool = False) -> dict[str, Any]:
+        if all_refs:
+            indexed_versions = sorted({branch.head for branch in self.versions.list_branches() if branch.head})
+        else:
+            resolved_ref = self.versions.resolve_ref(ref)
+            if resolved_ref is None:
+                raise ValueError(f"Unknown ref: {ref}")
+            indexed_versions = [resolved_ref]
+        return {
+            "status": "ok",
+            "backend": "filesystem",
+            "persistent": False,
+            "supported": False,
+            "ref": ref,
+            "all_refs": all_refs,
+            "rebuilt": 0,
+            "indexed_versions": indexed_versions,
+            "last_indexed_commit": None,
+            "message": "Persistent lexical indexing is only available for sqlite-backed stores.",
+        }
+
+    def search(
+        self,
+        *,
+        query: str,
+        ref: str = "HEAD",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        resolved_ref = self.versions.resolve_ref(ref)
+        if resolved_ref is None:
+            raise ValueError(f"Unknown ref: {ref}")
+        graph = self.versions.checkout(resolved_ref)
+        return graph.semantic_search(query, limit=limit, min_score=min_score)
+
+
+@dataclass(slots=True)
 class FilesystemStorageBackend:
     store_dir: Path
     tenant_id: str = DEFAULT_TENANT_ID
@@ -315,6 +373,7 @@ class FilesystemStorageBackend:
     claims: FilesystemClaimBackend = field(init=False)
     governance: FilesystemGovernanceBackend = field(init=False)
     remotes: FilesystemRemoteBackend = field(init=False)
+    indexing: FilesystemIndexBackend = field(init=False)
 
     def __post_init__(self) -> None:
         self.store_dir = Path(self.store_dir)
@@ -323,6 +382,7 @@ class FilesystemStorageBackend:
         self.claims = FilesystemClaimBackend(ClaimLedger(self.store_dir), versions, tenant_id=self.tenant_id)
         self.governance = FilesystemGovernanceBackend(GovernanceStore(self.store_dir), tenant_id=self.tenant_id)
         self.remotes = FilesystemRemoteBackend(RemoteRegistry(self.store_dir), versions, tenant_id=self.tenant_id)
+        self.indexing = FilesystemIndexBackend(versions)
 
 
 def build_filesystem_backend(
@@ -336,6 +396,7 @@ def build_filesystem_backend(
 __all__ = [
     "FilesystemClaimBackend",
     "FilesystemGovernanceBackend",
+    "FilesystemIndexBackend",
     "FilesystemRemoteBackend",
     "FilesystemStorageBackend",
     "FilesystemVersionBackend",

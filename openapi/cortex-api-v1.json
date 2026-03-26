@@ -48,6 +48,37 @@
         }
       }
     },
+    "/v1/index/status": {
+      "get": {
+        "operationId": "indexStatus",
+        "summary": "Read lexical index status for a stored ref",
+        "tags": [
+          "index"
+        ],
+        "parameters": [
+          {
+            "name": "ref",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "HEAD"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/openapi.json": {
       "get": {
         "operationId": "openapi",
@@ -427,6 +458,37 @@
         "responses": {
           "200": {
             "description": "Resolved conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/index/rebuild": {
+      "post": {
+        "operationId": "indexRebuild",
+        "summary": "Rebuild persisted lexical indexes",
+        "tags": [
+          "index"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexRebuildRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Index rebuild result",
             "content": {
               "application/json": {
                 "schema": {
@@ -824,6 +886,20 @@
       },
       "EmptyRequest": {
         "type": "object",
+        "additionalProperties": false
+      },
+      "IndexRebuildRequest": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "all_refs": {
+            "type": "boolean",
+            "default": false
+          }
+        },
         "additionalProperties": false
       },
       "CreateBranchRequest": {

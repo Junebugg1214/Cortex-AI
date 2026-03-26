@@ -78,6 +78,8 @@ def dispatch_api_request(
                 return 200, service.health()
             if parsed.path == "/v1/meta":
                 return 200, service.meta()
+            if parsed.path == "/v1/index/status":
+                return 200, service.index_status(ref=_query_value(query, "ref", "HEAD") or "HEAD")
             if parsed.path == "/v1/openapi.json":
                 return 200, service.openapi(server_url=_server_url(headers))
             if parsed.path == "/v1/branches":
@@ -101,6 +103,8 @@ def dispatch_api_request(
                 return 200, service.detect_conflicts(**payload)
             if parsed.path == "/v1/conflicts/resolve":
                 return 200, service.resolve_conflict(**payload)
+            if parsed.path == "/v1/index/rebuild":
+                return 200, service.index_rebuild(**payload)
             if parsed.path == "/v1/query/category":
                 return 200, service.query_category(**payload)
             if parsed.path == "/v1/query/path":

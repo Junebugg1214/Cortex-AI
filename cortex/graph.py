@@ -686,51 +686,18 @@ class CortexGraph:
         descending relevance.  The index is built lazily on first call and
         cached until a mutation invalidates it.
         """
-        import difflib
-
-        from cortex.search import TFIDFIndex
+        from cortex.search import TFIDFIndex, semantic_search_documents
 
         if not hasattr(self, "_search_index") or not self._search_index.is_built:
             self._search_index = TFIDFIndex()
             self._search_index.build(self.nodes.values())
-
-        semantic_results = self._search_index.search(query, limit=max(limit * 3, 10), min_score=min_score)
-        combined_scores: dict[str, float] = {}
-        query_norm = _normalize_label(query)
-
-        for item in semantic_results:
-            node_id = item["node"].get("id", "")
-            if node_id:
-                combined_scores[node_id] = max(combined_scores.get(node_id, 0.0), float(item["score"]))
-
-        for node in self.nodes.values():
-            label_norm = _normalize_label(node.label)
-            alias_norms = [_normalize_label(alias) for alias in node.aliases]
-            boost = 0.0
-
-            if query_norm and query_norm == label_norm:
-                boost = max(boost, 1.0)
-            if query_norm and query_norm in alias_norms:
-                boost = max(boost, 0.95)
-            if query_norm and (query_norm in label_norm or any(query_norm in alias for alias in alias_norms)):
-                boost = max(boost, 0.55)
-
-            candidate_terms = [label_norm, *alias_norms]
-            candidate_terms = [term for term in candidate_terms if term]
-            if query_norm and candidate_terms:
-                fuzzy = max(difflib.SequenceMatcher(None, query_norm, term).ratio() for term in candidate_terms)
-                if fuzzy >= 0.75:
-                    boost = max(boost, round(fuzzy * 0.45, 4))
-
-            if boost > 0:
-                combined_scores[node.id] = max(combined_scores.get(node.id, 0.0), boost)
-
-        ranked = sorted(combined_scores.items(), key=lambda item: (-item[1], item[0]))
-        results: list[dict] = []
-        for node_id, score in ranked[:limit]:
-            if node_id in self.nodes:
-                results.append({"node": self.nodes[node_id], "score": round(score, 4)})
-        return results
+        return semantic_search_documents(
+            self.nodes.values(),
+            query,
+            limit=limit,
+            min_score=min_score,
+            index=self._search_index,
+        )
 
     def _invalidate_search_index(self) -> None:
         """Clear the cached search index after graph mutations."""

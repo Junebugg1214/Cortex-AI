@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from cortex.claims import ClaimEvent
 from cortex.graph import CortexGraph, Node
@@ -84,3 +85,88 @@ def test_sqlite_backend_remotes_and_webapp_history_claims(tmp_path):
     assert blame["nodes"][0]["history"]["versions_seen"] == 1
     assert blame["nodes"][0]["claim_lineage"]["event_count"] == 1
     assert history["nodes"][0]["history"]["introduced_in"]["message"] == "baseline"
+
+
+def test_sqlite_persistent_index_survives_backend_restart(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            aliases=["atlas"],
+            tags=["active_priorities"],
+            confidence=0.91,
+            brief="Local memory infrastructure",
+        )
+    )
+    commit = backend.versions.commit(graph, "baseline")
+
+    status = backend.indexing.status(ref="HEAD")
+    first_results = backend.indexing.search(query="atlas", ref="HEAD", limit=5)
+    restarted = build_sqlite_backend(store_dir)
+    restarted_status = restarted.indexing.status(ref="HEAD")
+    restarted_results = restarted.indexing.search(query="atlas", ref="HEAD", limit=5)
+
+    with sqlite3.connect(sqlite_db_path(store_dir)) as conn:
+        row = conn.execute("SELECT COUNT(*) FROM lexical_indices WHERE version_id = ?", (commit.version_id,)).fetchone()
+
+    assert status["persistent"] is True
+    assert status["stale"] is False
+    assert status["last_indexed_commit"] == commit.version_id
+    assert restarted_status["stale"] is False
+    assert restarted_status["last_indexed_commit"] == commit.version_id
+    assert first_results[0]["node"]["label"] == "Project Atlas"
+    assert restarted_results[0]["node"]["label"] == "Project Atlas"
+    assert row is not None and row[0] == 1
+
+
+def test_sqlite_index_rebuilds_all_refs_and_matches_graph_search(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+
+    baseline = CortexGraph()
+    baseline.add_node(Node(id="n1", label="Python", tags=["technical_expertise"], confidence=0.82))
+    baseline.add_node(
+        Node(
+            id="n2",
+            label="Project Atlas",
+            aliases=["atlas"],
+            tags=["active_priorities"],
+            confidence=0.93,
+            brief="Local memory infrastructure",
+        )
+    )
+    first_commit = backend.versions.commit(baseline, "baseline")
+    backend.versions.create_branch("feature/sdk", switch=True)
+
+    feature = CortexGraph.from_v5_json(baseline.export_v5())
+    feature.add_node(
+        Node(
+            id="n3",
+            label="SDK",
+            aliases=["python sdk"],
+            tags=["infrastructure"],
+            confidence=0.75,
+            brief="Python SDK for Cortex",
+        )
+    )
+    second_commit = backend.versions.commit(feature, "add sdk")
+    backend.versions.switch_branch("main")
+
+    with sqlite3.connect(sqlite_db_path(store_dir)) as conn:
+        conn.execute("DELETE FROM lexical_indices")
+
+    stale = backend.indexing.status(ref="HEAD")
+    rebuild = backend.indexing.rebuild(all_refs=True)
+    rebuilt_head = backend.indexing.status(ref="HEAD")
+    indexed_results = backend.indexing.search(query="atlas", ref="HEAD", limit=5)
+    graph_results = baseline.semantic_search("atlas", limit=5)
+
+    assert stale["stale"] is True
+    assert rebuild["rebuilt"] == 2
+    assert set(rebuild["indexed_versions"]) == {first_commit.version_id, second_commit.version_id}
+    assert rebuilt_head["stale"] is False
+    assert [item["node"]["label"] for item in indexed_results] == [item["node"].label for item in graph_results]
