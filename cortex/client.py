@@ -173,6 +173,83 @@ class CortexClient:
             payload["graph"] = graph
         return self._request("POST", "/v1/history", payload=payload)
 
+    def detect_conflicts(
+        self,
+        *,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+        min_severity: float = 0.0,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "ref": ref,
+            "min_severity": min_severity,
+        }
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/conflicts/detect", payload=payload)
+
+    def resolve_conflict(
+        self,
+        *,
+        conflict_id: str,
+        action: str,
+        graph: dict[str, Any] | None = None,
+        ref: str = "HEAD",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "conflict_id": conflict_id,
+            "action": action,
+            "ref": ref,
+        }
+        if graph is not None:
+            payload["graph"] = graph
+        return self._request("POST", "/v1/conflicts/resolve", payload=payload)
+
+    def merge_preview(
+        self,
+        *,
+        other_ref: str,
+        current_ref: str = "HEAD",
+        persist: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/merge-preview",
+            payload={
+                "other_ref": other_ref,
+                "current_ref": current_ref,
+                "persist": persist,
+            },
+        )
+
+    def merge_conflicts(self) -> dict[str, Any]:
+        return self._request("POST", "/v1/merge/conflicts", payload={})
+
+    def merge_resolve(self, *, conflict_id: str, choose: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/merge/resolve",
+            payload={"conflict_id": conflict_id, "choose": choose},
+        )
+
+    def merge_commit_resolved(
+        self,
+        *,
+        message: str | None = None,
+        actor: str = "manual",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "actor": actor,
+            "approve": approve,
+        }
+        if message is not None:
+            payload["message"] = message
+        return self._request("POST", "/v1/merge/commit-resolved", payload=payload)
+
+    def merge_abort(self) -> dict[str, Any]:
+        return self._request("POST", "/v1/merge/abort", payload={})
+
     def query_category(
         self,
         *,
