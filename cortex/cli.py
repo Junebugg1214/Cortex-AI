@@ -829,6 +829,17 @@ def build_parser():
     oa.add_argument("--server-url", help="Optional server URL to include in the contract")
     oa.add_argument("--compat-output", help="Optional output path for the API compatibility snapshot JSON")
 
+    # -- release-notes (release metadata export) --------------------------
+    rn = sub.add_parser("release-notes", help="Write release notes and a release manifest")
+    rn.add_argument("--output", "-o", default="dist/release-notes.md", help="Output path for the Markdown notes")
+    rn.add_argument(
+        "--manifest-output",
+        default="dist/release-manifest.json",
+        help="Output path for the JSON release manifest",
+    )
+    rn.add_argument("--tag", help="Optional git tag or release label to include in the notes")
+    rn.add_argument("--commit-sha", help="Optional commit SHA to include in the notes")
+
     # -- benchmark (release soak harness) ---------------------------------
     bench = sub.add_parser("benchmark", help="Run the lightweight self-host benchmark harness")
     bench.add_argument(
@@ -3800,6 +3811,19 @@ def run_openapi(args):
     return 0
 
 
+def run_release_notes(args):
+    """Write Markdown release notes and a JSON release manifest."""
+    from cortex.openapi import build_openapi_spec
+    from cortex.release import write_release_manifest, write_release_notes
+
+    spec = build_openapi_spec()
+    notes_path = write_release_notes(args.output, spec, tag=args.tag, commit_sha=args.commit_sha)
+    manifest_path = write_release_manifest(args.manifest_output, spec, tag=args.tag, commit_sha=args.commit_sha)
+    print(f"Wrote release notes to {notes_path}")
+    print(f"Wrote release manifest to {manifest_path}")
+    return 0
+
+
 def run_benchmark(args):
     """Run the lightweight self-host benchmark harness."""
     from cortex.benchmark import main as benchmark_main
@@ -4016,6 +4040,7 @@ def main(argv=None):
         "mcp",
         "backup",
         "openapi",
+        "release-notes",
         "rotate",
         "pull",
         "completion",
@@ -4138,6 +4163,8 @@ def main(argv=None):
         return run_backup(args)
     elif args.subcommand == "openapi":
         return run_openapi(args)
+    elif args.subcommand == "release-notes":
+        return run_release_notes(args)
     elif args.subcommand == "server":
         return run_server(args)
     elif args.subcommand == "mcp":

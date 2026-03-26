@@ -8,11 +8,16 @@ RUN pip install --no-cache-dir --prefix=/install ".[full]"
 # ---------- runtime stage ----------
 FROM python:3.12-slim
 
+ARG CORTEX_VERSION=dev
+ARG VCS_REF=unknown
+
 LABEL org.opencontainers.image.title="Cortex"
 LABEL org.opencontainers.image.description="Self-hosted, user-owned Git for AI Memory runtime."
 LABEL org.opencontainers.image.url="https://github.com/Junebugg1214/Cortex-AI"
 LABEL org.opencontainers.image.source="https://github.com/Junebugg1214/Cortex-AI"
 LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.version="${CORTEX_VERSION}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
 
 # Non-root user
 RUN groupadd -r cortex && useradd -r -g cortex -u 1000 cortex
