@@ -258,7 +258,7 @@ def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypa
     audit = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert any(
-        issue["left_label"] in {"PostgreSQL", "CockroachDB"} and issue["right_label"] in {"PostgreSQL", "CockroachDB"}
+        issue["type"] == "missing_context" and issue["target"] == "chatgpt" and "CockroachDB" in issue["missing_labels"]
         for issue in audit["issues"]
     )
 

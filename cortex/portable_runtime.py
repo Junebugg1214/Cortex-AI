@@ -881,6 +881,7 @@ def sync_targets(
     dry_run: bool = False,
     state: PortabilityState | None = None,
     identity: Any | None = None,
+    persist_state: bool = True,
 ) -> dict[str, Any]:
     state = state or load_portability_state(store_dir)
     results: list[dict[str, Any]] = []
@@ -937,7 +938,7 @@ def sync_targets(
             }
         )
 
-        if dry_run:
+        if dry_run or not persist_state:
             continue
 
         _write_graph(snapshot_path, filtered)
@@ -955,7 +956,7 @@ def sync_targets(
             note=note,
         )
 
-    if not dry_run:
+    if not dry_run and persist_state:
         state.graph_path = str(graph_path)
         state.project_dir = project_dir or state.project_dir or str(Path.cwd())
         state.output_dir = str(output_dir)
@@ -1015,15 +1016,47 @@ def _load_snapshot_graph(state: PortabilityState, target: str) -> CortexGraph | 
     return _load_graph(Path(target_state.snapshot_path))
 
 
+def _target_paths(
+    state: PortabilityState,
+    target: str,
+    *,
+    project_dir: Path,
+    output_dir: Path,
+) -> list[Path]:
+    target_state = state.targets.get(target)
+    if target_state and target_state.paths:
+        return [Path(path) for path in target_state.paths]
+    return expected_tool_paths(target, project_dir=str(project_dir), output_dir=output_dir)
+
+
+def _stored_labels(target_state: TargetState | None) -> list[str]:
+    if target_state is None:
+        return []
+    return [str(item.get("label", "")) for item in target_state.facts if str(item.get("label", "")).strip()]
+
+
+def _stored_fingerprints_match(target_state: TargetState | None, paths: list[Path]) -> bool:
+    if target_state is None or not target_state.facts or not paths:
+        return False
+    for path in paths:
+        if not path.exists():
+            return False
+        stored = target_state.fingerprints.get(str(path), "")
+        if not stored or stored != file_fingerprint(path):
+            return False
+    return True
+
+
 def _tool_labels(state: PortabilityState, target: str, paths: list[Path], export_path: Path | None = None) -> list[str]:
     target_state = state.targets.get(target)
-    if target_state and target_state.facts:
-        return [str(item.get("label", "")) for item in target_state.facts if str(item.get("label", "")).strip()]
+    existing_paths = [path for path in paths if path.exists()]
+    if _stored_fingerprints_match(target_state, paths):
+        return _stored_labels(target_state)
 
     labels: list[str] = []
-    for path in paths:
+    for path in existing_paths:
         labels.extend(extract_fact_labels_from_file(path))
-    if export_path is not None:
+    if not existing_paths and export_path is not None:
         if export_path.suffix.lower() == ".zip":
             try:
                 data, fmt = load_file(export_path)
@@ -1043,6 +1076,33 @@ def _tool_labels(state: PortabilityState, target: str, paths: list[Path], export
         seen.add(key)
         deduped.append(label)
     return deduped
+
+
+def _policy_from_target_state(target_state: TargetState) -> DisclosurePolicy:
+    builtin = BUILTIN_POLICIES.get(target_state.policy, BUILTIN_POLICIES["technical"])
+    if target_state.mode == "smart":
+        return DisclosurePolicy(
+            name=f"smart-{target_state.target}",
+            include_tags=list(target_state.route_tags),
+            exclude_tags=["negations"],
+            min_confidence=0.45,
+            redact_properties=[],
+        )
+    if target_state.route_tags and target_state.route_tags != builtin.include_tags:
+        return DisclosurePolicy(
+            name=f"portable-{target_state.target}",
+            include_tags=list(target_state.route_tags),
+            exclude_tags=list(builtin.exclude_tags),
+            min_confidence=builtin.min_confidence,
+            redact_properties=list(builtin.redact_properties),
+            max_nodes=builtin.max_nodes,
+        )
+    return builtin
+
+
+def _expected_labels(graph: CortexGraph, target_state: TargetState) -> set[str]:
+    filtered = apply_disclosure(graph, _policy_from_target_state(target_state))
+    return {node.label for node in filtered.nodes.values()}
 
 
 def _run_extraction_data(extractor: AggressiveExtractor, data: Any, fmt: str) -> dict[str, Any]:
@@ -1088,9 +1148,10 @@ def scan_portability(
     tools: list[dict[str, Any]] = []
 
     for target in ALL_PORTABLE_TARGETS:
-        paths = expected_tool_paths(target, project_dir=str(project_dir), output_dir=output_dir)
+        target_state = state.targets.get(target)
+        paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
         export_path = None
-        if not any(path.exists() for path in paths):
+        if not any(path.exists() for path in paths) and target_state is None:
             export_path = _find_export_file(target, roots)
         labels = _tool_labels(state, target, paths, export_path)
         known_union.update(label.lower() for label in labels)
@@ -1113,8 +1174,11 @@ def scan_portability(
                 note = f"{existing_paths[0].name}: {age_days} days stale"
             else:
                 note = existing_paths[0].name
+        elif target_state is not None:
+            note = "configured, files missing"
 
         coverage = (len(labels) / total_facts) if total_facts else 0.0
+        visible_paths = existing_paths if existing_paths else (paths if target_state is not None else [])
         tools.append(
             {
                 "target": target,
@@ -1122,10 +1186,10 @@ def scan_portability(
                 "fact_count": len(labels),
                 "labels": labels,
                 "coverage": coverage,
-                "paths": [str(path) for path in existing_paths] + ([str(export_path)] if export_path else []),
+                "paths": [str(path) for path in visible_paths] + ([str(export_path)] if export_path else []),
                 "stale_days": age_days,
                 "note": note,
-                "configured": bool(existing_paths or export_path or target in state.targets),
+                "configured": bool(existing_paths or export_path or target_state is not None),
             }
         )
 
@@ -1144,26 +1208,26 @@ def scan_portability(
 def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
     state = load_portability_state(store_dir)
     graph, graph_path = load_canonical_graph(store_dir, state)
-    current_labels = {node.label: node for node in graph.nodes.values()}
+    output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
     issues: list[dict[str, Any]] = []
 
     for target, target_state in state.targets.items():
-        snapshot_graph = _load_snapshot_graph(state, target)
-        snapshot_labels = (
-            {node.label for node in snapshot_graph.nodes.values()}
-            if snapshot_graph
-            else {fact["label"] for fact in target_state.facts}
-        )
-        missing_labels = sorted(label for label in current_labels if label not in snapshot_labels)
+        expected = _expected_labels(graph, target_state)
+        paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
+        actual = set(_tool_labels(state, target, paths))
+        missing_labels = sorted(label for label in expected if label not in actual)
+        unexpected_labels = sorted(label for label in actual if label not in expected)
+        missing_paths = [str(path) for path in paths if not path.exists()]
         age_days = None
-        if target_state.paths:
-            existing = [Path(path) for path in target_state.paths if Path(path).exists()]
-            if existing:
-                age_days = min(
-                    (_human_age(path)[0] for path in existing if _human_age(path)[0] is not None),
-                    default=None,
-                )
-        stale = bool(missing_labels or (age_days is not None and age_days >= DEFAULT_STALE_DAYS))
+        existing = [path for path in paths if path.exists()]
+        if existing:
+            age_days = min((_human_age(path)[0] for path in existing if _human_age(path)[0] is not None), default=None)
+        stale = bool(
+            missing_labels
+            or unexpected_labels
+            or missing_paths
+            or (age_days is not None and age_days >= DEFAULT_STALE_DAYS)
+        )
         issues.append(
             {
                 "target": target,
@@ -1171,9 +1235,12 @@ def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
                 "stale": stale,
                 "stale_days": age_days,
                 "missing_labels": missing_labels[:8],
-                "fact_count": len(target_state.facts),
+                "unexpected_labels": unexpected_labels[:8],
+                "missing_paths": missing_paths,
+                "fact_count": len(actual),
+                "expected_fact_count": len(expected),
                 "updated_at": target_state.updated_at,
-                "paths": list(target_state.paths),
+                "paths": [str(path) for path in paths],
             }
         )
 
@@ -1185,53 +1252,84 @@ def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
 
 def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
     state = load_portability_state(store_dir)
+    graph, _ = load_canonical_graph(store_dir, state)
+    output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
     issues: list[dict[str, Any]] = []
-    snapshots: dict[str, CortexGraph] = {}
+    actual_by_target: dict[str, set[str]] = {}
+    route_group_members: dict[tuple[str, ...], list[str]] = {}
 
-    for target in state.targets:
-        snapshot = _load_snapshot_graph(state, target)
-        if snapshot and snapshot.nodes:
-            snapshots[target] = snapshot
+    for target, target_state in state.targets.items():
+        paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
+        actual = set(_tool_labels(state, target, paths))
+        expected = _expected_labels(graph, target_state)
+        actual_by_target[target] = actual
+        route_key = tuple(target_state.route_tags)
+        route_group_members.setdefault(route_key, []).append(target)
 
-    live_project_graph = detect_live_project_graph(project_dir)
-    if live_project_graph.nodes:
-        snapshots["project"] = live_project_graph
+        missing_paths = [str(path) for path in paths if not path.exists()]
+        if missing_paths:
+            issues.append(
+                {
+                    "type": "missing_files",
+                    "tag": "portable",
+                    "target": target,
+                    "paths": missing_paths,
+                    "message": f"{display_name(target)} is configured but missing {len(missing_paths)} expected file(s).",
+                }
+            )
 
-    compared_pairs: set[tuple[str, str, str]] = set()
-    key_tags = ["technical_expertise", "active_priorities", "domain_knowledge", "professional_context"]
+        missing_labels = sorted(label for label in expected if label not in actual)
+        if missing_labels:
+            issues.append(
+                {
+                    "type": "missing_context",
+                    "tag": "portable",
+                    "target": target,
+                    "missing_labels": missing_labels[:8],
+                    "message": f"{display_name(target)} is missing expected context such as '{missing_labels[0]}'.",
+                }
+            )
 
-    for left_name, left_graph in snapshots.items():
-        left_tag_map = {tag: {node.label for node in left_graph.nodes.values() if tag in node.tags} for tag in key_tags}
-        for right_name, right_graph in snapshots.items():
-            if left_name >= right_name:
-                continue
-            right_tag_map = {
-                tag: {node.label for node in right_graph.nodes.values() if tag in node.tags} for tag in key_tags
-            }
-            for tag in key_tags:
-                key = (left_name, right_name, tag)
-                if key in compared_pairs:
-                    continue
-                compared_pairs.add(key)
-                left_only = sorted(left_tag_map[tag] - right_tag_map[tag])
-                right_only = sorted(right_tag_map[tag] - left_tag_map[tag])
+        unexpected_labels = sorted(label for label in actual if label not in expected)
+        if unexpected_labels:
+            issues.append(
+                {
+                    "type": "unexpected_context",
+                    "tag": "portable",
+                    "target": target,
+                    "unexpected_labels": unexpected_labels[:8],
+                    "message": f"{display_name(target)} contains drifted context such as '{unexpected_labels[0]}'.",
+                }
+            )
+
+    for route_key, members in route_group_members.items():
+        if len(members) < 2:
+            continue
+        for idx, left in enumerate(sorted(members)):
+            left_labels = actual_by_target.get(left, set())
+            for right in sorted(members)[idx + 1 :]:
+                right_labels = actual_by_target.get(right, set())
+                left_only = sorted(left_labels - right_labels)
+                right_only = sorted(right_labels - left_labels)
                 if not left_only or not right_only:
                     continue
                 issues.append(
                     {
                         "type": "context_divergence",
-                        "tag": tag,
-                        "left": left_name,
-                        "right": right_name,
+                        "tag": "portable",
+                        "left": left,
+                        "right": right,
                         "left_label": left_only[0],
                         "right_label": right_only[0],
-                        "message": f"{display_name(left_name)} says '{left_only[0]}' while {display_name(right_name)} says '{right_only[0]}'.",
+                        "message": (
+                            f"{display_name(left)} and {display_name(right)} diverged even though they share the same routed context."
+                        ),
                     }
                 )
 
     return {
         "issues": issues,
-        "targets": sorted(snapshots),
+        "targets": sorted(state.targets),
     }
 
 
@@ -1322,9 +1420,12 @@ def build_digital_footprint(
     }
     if sync_after:
         output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+        sync_targets_list = list(targets or DEFAULT_DIRECT_TARGETS)
+        if smart and sync_targets_list == DEFAULT_DIRECT_TARGETS:
+            sync_targets_list = list(ALL_PORTABLE_TARGETS)
         payload["targets"] = sync_targets(
             merged,
-            targets=[canonical_target_name(target) for target in (targets or DEFAULT_DIRECT_TARGETS)],
+            targets=[canonical_target_name(target) for target in sync_targets_list],
             store_dir=store_dir,
             project_dir=str(project_dir),
             output_dir=output_dir,
@@ -1360,9 +1461,9 @@ def switch_portability(
         detected_kind = fmt
 
     state = load_portability_state(store_dir)
-    graph_path = Path(state.graph_path) if state.graph_path else default_graph_path(store_dir)
+    graph_path = output_dir / "context.json"
     if not dry_run:
-        state, graph_path = save_canonical_graph(store_dir, graph, state=state, graph_path=graph_path)
+        _write_graph(graph_path, graph)
 
     sync_result = sync_targets(
         graph,
@@ -1376,6 +1477,7 @@ def switch_portability(
         max_chars=max_chars,
         dry_run=dry_run,
         state=state,
+        persist_state=False,
     )
     return {
         "source": detected_kind,
