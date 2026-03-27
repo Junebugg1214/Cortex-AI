@@ -1,0 +1,1425 @@
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import re
+import subprocess
+import tempfile
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from cortex.coding import enrich_project
+from cortex.compat import upgrade_v4_to_v5
+from cortex.context import CONTEXT_TARGETS, _resolve_path, write_context
+from cortex.extract_memory import AggressiveExtractor, load_file
+from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.hooks import _load_graph as load_graph_optional
+from cortex.import_memory import NormalizedContext
+from cortex.portability import (
+    PORTABLE_DIRECT_TARGETS,
+    PORTABLE_TARGET_ALIASES,
+    PORTABLE_TARGET_ORDER,
+    export_artifact_targets,
+)
+from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
+
+STATE_VERSION = "1.0"
+DEFAULT_STALE_DAYS = 30
+DEFAULT_DIRECT_TARGETS = ["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"]
+ALL_PORTABLE_TARGETS = list(PORTABLE_TARGET_ORDER)
+
+TOOL_DISPLAY_NAMES = {
+    "chatgpt": "ChatGPT",
+    "claude": "Claude",
+    "claude-code": "Claude Code",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "copilot": "Copilot",
+    "gemini": "Gemini",
+    "grok": "Grok",
+    "windsurf": "Windsurf",
+}
+
+ARTIFACT_TARGET_PATHS = {
+    "claude": ("claude/claude_preferences.txt", "claude/claude_memories.json"),
+    "chatgpt": ("chatgpt/custom_instructions.md", "chatgpt/custom_instructions.json"),
+    "grok": ("grok/context_prompt.md", "grok/context_prompt.json"),
+}
+
+SMART_ROUTE_TAGS = {
+    "claude": [
+        "identity",
+        "professional_context",
+        "technical_expertise",
+        "domain_knowledge",
+        "active_priorities",
+        "communication_preferences",
+        "user_preferences",
+    ],
+    "claude-code": [
+        "technical_expertise",
+        "domain_knowledge",
+        "active_priorities",
+        "professional_context",
+        "communication_preferences",
+        "user_preferences",
+    ],
+    "chatgpt": [
+        "identity",
+        "professional_context",
+        "business_context",
+        "active_priorities",
+        "technical_expertise",
+        "domain_knowledge",
+        "relationships",
+        "values",
+        "constraints",
+        "user_preferences",
+        "communication_preferences",
+    ],
+    "codex": [
+        "technical_expertise",
+        "domain_knowledge",
+        "active_priorities",
+        "communication_preferences",
+        "user_preferences",
+        "constraints",
+    ],
+    "cursor": [
+        "technical_expertise",
+        "active_priorities",
+        "communication_preferences",
+        "user_preferences",
+        "domain_knowledge",
+    ],
+    "copilot": [
+        "technical_expertise",
+        "communication_preferences",
+        "user_preferences",
+        "constraints",
+    ],
+    "gemini": [
+        "domain_knowledge",
+        "professional_context",
+        "business_context",
+        "active_priorities",
+        "technical_expertise",
+        "communication_preferences",
+    ],
+    "grok": [
+        "identity",
+        "professional_context",
+        "business_context",
+        "active_priorities",
+        "domain_knowledge",
+        "values",
+        "communication_preferences",
+    ],
+    "windsurf": [
+        "technical_expertise",
+        "active_priorities",
+        "communication_preferences",
+        "user_preferences",
+        "domain_knowledge",
+    ],
+}
+
+FRAMEWORK_LABELS = {
+    "next": "Next.js",
+    "react": "React",
+    "tailwindcss": "Tailwind CSS",
+    "prisma": "Prisma",
+    "@trpc/server": "tRPC",
+    "@trpc/client": "tRPC",
+    "vitest": "Vitest",
+    "jest": "Jest",
+    "vite": "Vite",
+    "fastapi": "FastAPI",
+    "uvicorn": "Uvicorn",
+    "django": "Django",
+    "flask": "Flask",
+    "sqlalchemy": "SQLAlchemy",
+    "pydantic": "Pydantic",
+    "tokio": "Tokio",
+    "axum": "Axum",
+    "serde": "Serde",
+    "sqlx": "SQLx",
+    "docker": "Docker",
+}
+
+
+@dataclass(slots=True)
+class TargetState:
+    target: str
+    mode: str = "full"
+    policy: str = "technical"
+    route_tags: list[str] = field(default_factory=list)
+    paths: list[str] = field(default_factory=list)
+    fingerprints: dict[str, str] = field(default_factory=dict)
+    fact_ids: list[str] = field(default_factory=list)
+    facts: list[dict[str, Any]] = field(default_factory=list)
+    updated_at: str = ""
+    snapshot_path: str = ""
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TargetState:
+        return cls(
+            target=str(data.get("target", "")),
+            mode=str(data.get("mode", "full")),
+            policy=str(data.get("policy", "technical")),
+            route_tags=[str(tag) for tag in data.get("route_tags", [])],
+            paths=[str(path) for path in data.get("paths", [])],
+            fingerprints={str(key): str(value) for key, value in data.get("fingerprints", {}).items()},
+            fact_ids=[str(value) for value in data.get("fact_ids", [])],
+            facts=[dict(item) for item in data.get("facts", [])],
+            updated_at=str(data.get("updated_at", "")),
+            snapshot_path=str(data.get("snapshot_path", "")),
+            note=str(data.get("note", "")),
+        )
+
+
+@dataclass(slots=True)
+class PortabilityState:
+    graph_path: str = ""
+    output_dir: str = ""
+    project_dir: str = ""
+    updated_at: str = ""
+    targets: dict[str, TargetState] = field(default_factory=dict)
+    schema_version: str = STATE_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "graph_path": self.graph_path,
+            "output_dir": self.output_dir,
+            "project_dir": self.project_dir,
+            "updated_at": self.updated_at,
+            "targets": {name: target.to_dict() for name, target in self.targets.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PortabilityState:
+        return cls(
+            schema_version=str(data.get("schema_version", STATE_VERSION)),
+            graph_path=str(data.get("graph_path", "")),
+            output_dir=str(data.get("output_dir", "")),
+            project_dir=str(data.get("project_dir", "")),
+            updated_at=str(data.get("updated_at", "")),
+            targets={
+                str(name): TargetState.from_dict(payload)
+                for name, payload in dict(data.get("targets", {})).items()
+                if isinstance(payload, dict)
+            },
+        )
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def canonical_target_name(target: str) -> str:
+    if target in PORTABLE_TARGET_ORDER:
+        return target
+    return PORTABLE_TARGET_ALIASES.get(target, target)
+
+
+def display_name(target: str) -> str:
+    return TOOL_DISPLAY_NAMES.get(target, target.replace("-", " ").title())
+
+
+def portability_dir(store_dir: Path) -> Path:
+    return store_dir / "portable"
+
+
+def portability_state_path(store_dir: Path) -> Path:
+    return portability_dir(store_dir) / "state.json"
+
+
+def portability_snapshot_dir(store_dir: Path) -> Path:
+    return portability_dir(store_dir) / "snapshots"
+
+
+def default_graph_path(store_dir: Path) -> Path:
+    return portability_dir(store_dir) / "context.json"
+
+
+def default_output_dir(store_dir: Path) -> Path:
+    return portability_dir(store_dir) / "artifacts"
+
+
+def ensure_state_dirs(store_dir: Path) -> None:
+    portability_dir(store_dir).mkdir(parents=True, exist_ok=True)
+    portability_snapshot_dir(store_dir).mkdir(parents=True, exist_ok=True)
+
+
+def load_portability_state(store_dir: Path) -> PortabilityState:
+    path = portability_state_path(store_dir)
+    if not path.exists():
+        return PortabilityState()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return PortabilityState()
+    if not isinstance(data, dict):
+        return PortabilityState()
+    return PortabilityState.from_dict(data)
+
+
+def save_portability_state(store_dir: Path, state: PortabilityState) -> Path:
+    ensure_state_dirs(store_dir)
+    path = portability_state_path(store_dir)
+    path.write_text(json.dumps(state.to_dict(), indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def graph_fingerprint(graph: CortexGraph) -> str:
+    payload = json.dumps(graph.export_v5(), sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return _sha256_bytes(payload)
+
+
+def file_fingerprint(path: Path) -> str:
+    try:
+        return _sha256_bytes(path.read_bytes())
+    except OSError:
+        return ""
+
+
+def _graph_fact_rows(graph: CortexGraph) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for node in sorted(graph.nodes.values(), key=lambda item: (item.label.lower(), item.id)):
+        rows.append(
+            {
+                "id": node.id,
+                "label": node.label,
+                "brief": node.brief,
+                "tags": list(node.tags),
+                "confidence": round(node.confidence, 2),
+            }
+        )
+    return rows
+
+
+def _write_graph(path: Path, graph: CortexGraph) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+
+def _load_graph(path: Path) -> CortexGraph | None:
+    if not path.exists():
+        return None
+    return load_graph_optional(str(path))
+
+
+def _direct_target_paths(target: str, project_dir: str | None = None) -> list[Path]:
+    paths: list[Path] = []
+    for platform_name in PORTABLE_DIRECT_TARGETS.get(target, ()):
+        target_config = CONTEXT_TARGETS.get(platform_name)
+        if target_config is None:
+            continue
+        try:
+            paths.append(_resolve_path(target_config.file_path, project_dir))
+        except ValueError:
+            continue
+    return paths
+
+
+def _artifact_target_paths(target: str, output_dir: Path) -> list[Path]:
+    rel_paths = ARTIFACT_TARGET_PATHS.get(target, ())
+    return [output_dir / rel_path for rel_path in rel_paths]
+
+
+def expected_tool_paths(target: str, *, project_dir: str | None, output_dir: Path) -> list[Path]:
+    if target in PORTABLE_DIRECT_TARGETS:
+        return _direct_target_paths(target, project_dir)
+    return _artifact_target_paths(target, output_dir)
+
+
+def _human_age(path: Path, *, now: datetime | None = None) -> tuple[int | None, str]:
+    if not path.exists():
+        return None, ""
+    now = now or datetime.now(timezone.utc)
+    modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    age_days = max((now - modified).days, 0)
+    return age_days, modified.date().isoformat()
+
+
+def _strip_markdown(text: str) -> str:
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    return text
+
+
+def extract_fact_labels_from_text(text: str) -> list[str]:
+    normalized = _strip_markdown(text)
+    labels: list[str] = []
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if ":" in line:
+            line = line.split(":", 1)[1]
+        chunks = re.split(r"[;,]\s*", line)
+        for chunk in chunks:
+            cleaned = re.sub(r"\([^)]*\)", "", chunk).strip(" .-*")
+            if not cleaned:
+                continue
+            if len(cleaned) > 120:
+                cleaned = cleaned[:120].rsplit(" ", 1)[0]
+            labels.append(cleaned)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for label in labels:
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(label)
+    return deduped
+
+
+def extract_fact_labels_from_file(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        if path.suffix.lower() == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                text = "\n".join(str(value) for value in payload.values() if isinstance(value, str))
+            elif isinstance(payload, list):
+                text = "\n".join(str(item) for item in payload if isinstance(item, (str, dict)))
+            else:
+                text = str(payload)
+            return extract_fact_labels_from_text(text)
+        return extract_fact_labels_from_text(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+
+
+def _clone_graph(graph: CortexGraph) -> CortexGraph:
+    return CortexGraph.from_v5_json(graph.export_v5())
+
+
+def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(item))
+    return deduped
+
+
+def merge_graphs(base: CortexGraph, incoming: CortexGraph) -> CortexGraph:
+    merged = _clone_graph(base)
+    existing_by_label = {node.label.lower(): node for node in merged.nodes.values()}
+    id_map: dict[str, str] = {}
+
+    for new_node in incoming.nodes.values():
+        existing = existing_by_label.get(new_node.label.lower())
+        if existing is None:
+            merged.add_node(copy.deepcopy(new_node))
+            existing_by_label[new_node.label.lower()] = merged.nodes[new_node.id]
+            id_map[new_node.id] = new_node.id
+            continue
+
+        id_map[new_node.id] = existing.id
+        existing.confidence = max(existing.confidence, new_node.confidence)
+        existing.mention_count += max(new_node.mention_count, 1)
+        existing.tags = list(dict.fromkeys(existing.tags + new_node.tags))
+        existing.aliases = list(dict.fromkeys(existing.aliases + new_node.aliases))
+        existing.metrics = list(dict.fromkeys(existing.metrics + new_node.metrics))
+        existing.timeline = list(dict.fromkeys(existing.timeline + new_node.timeline))
+        existing.source_quotes = list(dict.fromkeys(existing.source_quotes + new_node.source_quotes))
+        existing.provenance = _dedupe_dicts(existing.provenance + new_node.provenance)
+        existing.properties = {**existing.properties, **new_node.properties}
+        if len(new_node.brief) > len(existing.brief):
+            existing.brief = new_node.brief
+        if len(new_node.full_description) > len(existing.full_description):
+            existing.full_description = new_node.full_description
+        if new_node.status:
+            existing.status = new_node.status
+        if new_node.valid_from and (not existing.valid_from or new_node.valid_from < existing.valid_from):
+            existing.valid_from = new_node.valid_from
+        if new_node.valid_to and (not existing.valid_to or new_node.valid_to > existing.valid_to):
+            existing.valid_to = new_node.valid_to
+        if new_node.first_seen and (not existing.first_seen or new_node.first_seen < existing.first_seen):
+            existing.first_seen = new_node.first_seen
+        if new_node.last_seen and (not existing.last_seen or new_node.last_seen > existing.last_seen):
+            existing.last_seen = new_node.last_seen
+
+    for edge in incoming.edges.values():
+        src = id_map.get(edge.source_id, edge.source_id)
+        tgt = id_map.get(edge.target_id, edge.target_id)
+        if src not in merged.nodes or tgt not in merged.nodes:
+            continue
+        edge_copy = copy.deepcopy(edge)
+        edge_copy.source_id = src
+        edge_copy.target_id = tgt
+        merged.add_edge(edge_copy)
+
+    return merged
+
+
+def create_fallback_graph(statement: str, *, tags: list[str] | None = None, confidence: float = 0.85) -> CortexGraph:
+    graph = CortexGraph()
+    cleaned = " ".join(statement.split()).strip()
+    label = cleaned[:72].rstrip(".")
+    node_tags = tags or ["active_priorities"]
+    graph.add_node(
+        Node(
+            id=make_node_id_with_tag(label, node_tags[0]),
+            label=label,
+            tags=node_tags,
+            confidence=confidence,
+            brief=cleaned,
+            full_description=cleaned,
+            provenance=[{"source": "portable.remember", "method": "manual"}],
+        )
+    )
+    return graph
+
+
+def extract_graph_from_statement(statement: str, *, confidence: float = 0.85) -> CortexGraph:
+    extractor = AggressiveExtractor()
+    extractor.extract_from_text(statement)
+    extractor.post_process()
+    payload = extractor.context.export()
+    graph = upgrade_v4_to_v5(payload)
+    if graph.nodes:
+        return graph
+    return create_fallback_graph(statement, confidence=confidence)
+
+
+def _package_dependencies(data: dict[str, Any]) -> dict[str, str]:
+    dependencies: dict[str, str] = {}
+    for key in ("dependencies", "devDependencies", "peerDependencies"):
+        block = data.get(key, {})
+        if not isinstance(block, dict):
+            continue
+        for name, version in block.items():
+            dependencies[str(name)] = str(version)
+    return dependencies
+
+
+def _manifest_signals(project_dir: Path) -> tuple[list[str], dict[str, str], list[str]]:
+    labels: list[str] = []
+    versions: dict[str, str] = {}
+    notes: list[str] = []
+
+    package_json = project_dir / "package.json"
+    if package_json.exists():
+        try:
+            data = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        if isinstance(data, dict):
+            dependencies = _package_dependencies(data)
+            for dep, version in dependencies.items():
+                label = FRAMEWORK_LABELS.get(dep)
+                if label is None:
+                    continue
+                labels.append(label)
+                versions[label] = version
+            if dependencies:
+                notes.append("package.json")
+
+    pyproject = project_dir / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        for dep, label in FRAMEWORK_LABELS.items():
+            if dep.lower() in text.lower():
+                labels.append(label)
+                versions.setdefault(label, "")
+        if text:
+            notes.append("pyproject.toml")
+
+    cargo = project_dir / "Cargo.toml"
+    if cargo.exists():
+        try:
+            text = cargo.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        for dep, label in FRAMEWORK_LABELS.items():
+            if dep.lower() in text.lower():
+                labels.append(label)
+                versions.setdefault(label, "")
+        if text:
+            notes.append("Cargo.toml")
+
+    if (project_dir / ".github" / "workflows").is_dir():
+        labels.append("GitHub Actions")
+    if (project_dir / "Dockerfile").exists() or (project_dir / "docker-compose.yml").exists():
+        labels.append("Docker")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(label)
+    return deduped, versions, notes
+
+
+def build_project_graph(project_dir: Path) -> tuple[CortexGraph, dict[str, Any]]:
+    graph = CortexGraph()
+    metadata = enrich_project(str(project_dir))
+    repo_name = metadata.name or project_dir.name
+    detected_labels, versions, notes = _manifest_signals(project_dir)
+
+    summary: dict[str, Any] = {
+        "project": repo_name,
+        "languages": list(metadata.languages),
+        "frameworks": list(detected_labels),
+        "notes": list(notes),
+    }
+
+    graph.add_node(
+        Node(
+            id=make_node_id_with_tag(repo_name, "active_priorities"),
+            label=repo_name,
+            tags=["active_priorities"],
+            confidence=0.9,
+            brief=f"Active project: {repo_name}" + (f" - {metadata.description}" if metadata.description else ""),
+            full_description=metadata.readme_summary or metadata.description,
+            provenance=[{"source": str(project_dir), "method": "project_metadata"}],
+        )
+    )
+
+    for language in metadata.languages:
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag(language, "technical_expertise"),
+                label=language,
+                tags=["technical_expertise"],
+                confidence=0.86,
+                brief=f"Uses {language}",
+                provenance=[{"source": str(project_dir), "method": "project_manifest"}],
+            )
+        )
+
+    for label in detected_labels:
+        version = versions.get(label, "")
+        brief = f"{label} {version}".strip()
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag(label, "technical_expertise"),
+                label=label,
+                tags=["technical_expertise"],
+                confidence=0.88,
+                brief=brief,
+                provenance=[{"source": str(project_dir), "method": "project_manifest"}],
+            )
+        )
+
+    if metadata.description:
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag(f"{repo_name} purpose", "domain_knowledge"),
+                label=f"{repo_name} purpose",
+                tags=["domain_knowledge"],
+                confidence=0.8,
+                brief=metadata.description[:220],
+                full_description=metadata.readme_summary or metadata.description,
+                provenance=[{"source": str(project_dir), "method": "readme"}],
+            )
+        )
+
+    return graph, summary
+
+
+def _extract_resume_text(path: Path) -> str:
+    if path.suffix.lower() in {".txt", ".md", ".markdown", ".rst"}:
+        return path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix.lower() == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return json.dumps(payload, indent=2)
+        return str(payload)
+    if path.suffix.lower() == ".pdf":
+        try:
+            from pypdf import PdfReader  # type: ignore
+
+            reader = PdfReader(str(path))
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            return path.read_bytes().decode("utf-8", errors="ignore")
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def build_resume_graph(path: Path) -> tuple[CortexGraph, dict[str, Any]]:
+    text = _extract_resume_text(path)
+    graph = extract_graph_from_statement(text, confidence=0.82)
+    summary = {"source": str(path), "chars": len(text)}
+    return graph, summary
+
+
+def _git(args: list[str], *, cwd: Path) -> str:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
+
+
+def _find_git_repos(search_roots: list[Path]) -> list[Path]:
+    repos: list[Path] = []
+    seen: set[str] = set()
+    for root in search_roots:
+        root = root.resolve()
+        if (root / ".git").exists():
+            key = str(root)
+            if key not in seen:
+                seen.add(key)
+                repos.append(root)
+        for git_dir in root.glob("*/.git"):
+            repo = git_dir.parent.resolve()
+            key = str(repo)
+            if key not in seen:
+                seen.add(key)
+                repos.append(repo)
+    return repos
+
+
+def build_github_graph(search_roots: list[Path]) -> tuple[CortexGraph, dict[str, Any]]:
+    graph = CortexGraph()
+    repos = _find_git_repos(search_roots)
+    repo_summaries: list[dict[str, Any]] = []
+
+    for repo in repos:
+        remote = _git(["remote", "get-url", "origin"], cwd=repo)
+        if remote and "github.com" not in remote:
+            continue
+        repo_graph, summary = build_project_graph(repo)
+        graph = merge_graphs(graph, repo_graph)
+        repo_summaries.append(summary)
+
+    all_languages = sorted({lang for summary in repo_summaries for lang in summary.get("languages", [])})
+    all_frameworks = sorted({label for summary in repo_summaries for label in summary.get("frameworks", [])})
+    summary = {
+        "repo_count": len(repo_summaries),
+        "languages": all_languages,
+        "frameworks": all_frameworks,
+        "repos": [summary.get("project", "") for summary in repo_summaries],
+    }
+    return graph, summary
+
+
+def build_git_history_graph(project_dir: Path) -> tuple[CortexGraph, dict[str, Any]]:
+    graph = CortexGraph()
+    log_output = _git(["log", "--pretty=format:%H%x1f%s%x1f%ad", "--date=iso", "-n", "200"], cwd=project_dir)
+    summary = {
+        "commit_count": 0,
+        "active_hours": [],
+        "patterns": [],
+    }
+    if not log_output:
+        return graph, summary
+
+    lines = [line for line in log_output.splitlines() if line.strip()]
+    summary["commit_count"] = len(lines)
+    hour_counts: dict[int, int] = {}
+    conventional = 0
+    test_commits = 0
+    descriptive = 0
+
+    for line in lines:
+        parts = line.split("\x1f")
+        if len(parts) != 3:
+            continue
+        _, subject, timestamp = parts
+        if re.match(r"^(feat|fix|docs|refactor|test|chore|ci|build)(\(.+\))?:", subject.strip().lower()):
+            conventional += 1
+        if re.search(r"\b(test|pytest|vitest|jest)\b", subject, re.IGNORECASE):
+            test_commits += 1
+        if len(subject.split()) >= 5:
+            descriptive += 1
+        try:
+            parsed = datetime.fromisoformat(timestamp.strip())
+            hour_counts[parsed.hour] = hour_counts.get(parsed.hour, 0) + 1
+        except ValueError:
+            continue
+
+    active_hours = [hour for hour, _ in sorted(hour_counts.items(), key=lambda item: (-item[1], item[0]))[:3]]
+    summary["active_hours"] = active_hours
+
+    if conventional >= max(5, len(lines) // 4):
+        summary["patterns"].append("Conventional commits")
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag("Conventional commits", "user_preferences"),
+                label="Conventional commits",
+                tags=["user_preferences"],
+                confidence=0.76,
+                brief="Commit messages usually follow conventional commit prefixes",
+                provenance=[{"source": str(project_dir), "method": "git_history"}],
+            )
+        )
+    if test_commits >= max(3, len(lines) // 8):
+        summary["patterns"].append("Testing-focused workflow")
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag("Testing-focused workflow", "user_preferences"),
+                label="Testing-focused workflow",
+                tags=["user_preferences"],
+                confidence=0.72,
+                brief="Git history frequently references tests and verification",
+                provenance=[{"source": str(project_dir), "method": "git_history"}],
+            )
+        )
+    if descriptive >= max(5, len(lines) // 3):
+        summary["patterns"].append("Descriptive commit style")
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag("Descriptive commit style", "communication_preferences"),
+                label="Descriptive commit style",
+                tags=["communication_preferences"],
+                confidence=0.68,
+                brief="Commit messages are usually sentence-like and descriptive",
+                provenance=[{"source": str(project_dir), "method": "git_history"}],
+            )
+        )
+
+    if active_hours:
+        hours_label = ", ".join(f"{hour:02d}:00" for hour in active_hours)
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag("Peak coding hours", "user_preferences"),
+                label="Peak coding hours",
+                tags=["user_preferences"],
+                confidence=0.65,
+                brief=f"Most active commit hours: {hours_label}",
+                provenance=[{"source": str(project_dir), "method": "git_history"}],
+            )
+        )
+
+    return graph, summary
+
+
+def detect_live_project_graph(project_dir: Path) -> CortexGraph:
+    graph, _ = build_project_graph(project_dir)
+    history_graph, _ = build_git_history_graph(project_dir)
+    return merge_graphs(graph, history_graph)
+
+
+def load_canonical_graph(store_dir: Path, state: PortabilityState | None = None) -> tuple[CortexGraph, Path]:
+    state = state or load_portability_state(store_dir)
+    graph_path = Path(state.graph_path) if state.graph_path else default_graph_path(store_dir)
+    graph = _load_graph(graph_path)
+    if graph is None:
+        graph = CortexGraph()
+    return graph, graph_path
+
+
+def save_canonical_graph(
+    store_dir: Path, graph: CortexGraph, *, state: PortabilityState | None = None, graph_path: Path | None = None
+) -> tuple[PortabilityState, Path]:
+    state = state or load_portability_state(store_dir)
+    ensure_state_dirs(store_dir)
+    target_path = graph_path or (Path(state.graph_path) if state.graph_path else default_graph_path(store_dir))
+    _write_graph(target_path, graph)
+    state.graph_path = str(target_path)
+    state.updated_at = iso_now()
+    if not state.output_dir:
+        state.output_dir = str(default_output_dir(store_dir))
+    save_portability_state(store_dir, state)
+    return state, target_path
+
+
+def _policy_for_target(target: str, *, smart: bool, policy_name: str) -> tuple[DisclosurePolicy, list[str]]:
+    if smart:
+        route_tags = list(SMART_ROUTE_TAGS.get(target, BUILTIN_POLICIES["technical"].include_tags))
+        return (
+            DisclosurePolicy(
+                name=f"smart-{target}",
+                include_tags=route_tags,
+                exclude_tags=["negations"],
+                min_confidence=0.45,
+                redact_properties=[],
+            ),
+            route_tags,
+        )
+    builtin = BUILTIN_POLICIES.get(policy_name, BUILTIN_POLICIES["technical"])
+    return builtin, list(builtin.include_tags)
+
+
+def sync_targets(
+    graph: CortexGraph,
+    *,
+    targets: list[str],
+    store_dir: Path,
+    project_dir: str | None,
+    output_dir: Path,
+    graph_path: Path,
+    policy_name: str = "technical",
+    smart: bool = False,
+    max_chars: int = 1500,
+    dry_run: bool = False,
+    state: PortabilityState | None = None,
+    identity: Any | None = None,
+) -> dict[str, Any]:
+    state = state or load_portability_state(store_dir)
+    results: list[dict[str, Any]] = []
+    ensure_state_dirs(store_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for raw_target in targets:
+        target = canonical_target_name(raw_target)
+        policy, route_tags = _policy_for_target(target, smart=smart, policy_name=policy_name)
+        filtered = apply_disclosure(graph, policy)
+        if target in PORTABLE_DIRECT_TARGETS:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                filtered_path = Path(tmp_dir) / f"{target}.json"
+                _write_graph(filtered_path, filtered)
+                write_results = write_context(
+                    graph_path=str(filtered_path),
+                    platforms=list(PORTABLE_DIRECT_TARGETS[target]),
+                    project_dir=project_dir,
+                    policy="full",
+                    max_chars=max_chars,
+                    dry_run=dry_run,
+                )
+            paths = [str(path) for _, path, status in write_results if status != "skipped" and str(path)]
+            status = "ok" if write_results else "skipped"
+            note = f"Updated {len(paths)} file(s)"
+        else:
+            artifact_results = export_artifact_targets(
+                filtered,
+                NormalizedContext.from_v5(filtered.export_v5()),
+                [target],
+                output_dir,
+                policy_name="full",
+                min_confidence=policy.min_confidence,
+                identity=identity,
+                dry_run=dry_run,
+            )
+            artifact = artifact_results[0] if artifact_results else None
+            paths = [str(path) for path in (artifact.paths if artifact else ())]
+            status = artifact.status if artifact else "skipped"
+            note = artifact.note if artifact else ""
+
+        snapshot_path = portability_snapshot_dir(store_dir) / f"{target}.json"
+        fingerprints = {path: file_fingerprint(Path(path)) for path in paths if Path(path).exists()}
+        facts = _graph_fact_rows(filtered)
+        results.append(
+            {
+                "target": target,
+                "paths": paths,
+                "status": status,
+                "note": note,
+                "fact_count": len(facts),
+                "route_tags": route_tags,
+                "mode": "smart" if smart else "full",
+            }
+        )
+
+        if dry_run:
+            continue
+
+        _write_graph(snapshot_path, filtered)
+        state.targets[target] = TargetState(
+            target=target,
+            mode="smart" if smart else "full",
+            policy=policy_name,
+            route_tags=route_tags,
+            paths=paths,
+            fingerprints=fingerprints,
+            fact_ids=[row["id"] for row in facts],
+            facts=facts,
+            updated_at=iso_now(),
+            snapshot_path=str(snapshot_path),
+            note=note,
+        )
+
+    if not dry_run:
+        state.graph_path = str(graph_path)
+        state.project_dir = project_dir or state.project_dir or str(Path.cwd())
+        state.output_dir = str(output_dir)
+        state.updated_at = iso_now()
+        save_portability_state(store_dir, state)
+
+    return {
+        "graph_path": str(graph_path),
+        "output_dir": str(output_dir),
+        "targets": results,
+        "smart": smart,
+    }
+
+
+def _search_roots(project_dir: Path | None, extra_roots: list[Path] | None) -> list[Path]:
+    roots: list[Path] = []
+    for candidate in [
+        project_dir,
+        Path.home() / "Downloads",
+        Path.home() / "Documents",
+        *(extra_roots or []),
+    ]:
+        if candidate is None:
+            continue
+        path = Path(candidate)
+        if path.exists():
+            roots.append(path)
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(root.resolve())
+    return deduped
+
+
+def _find_export_file(target: str, roots: list[Path]) -> Path | None:
+    patterns = {
+        "chatgpt": ["*chatgpt*.zip", "*conversations*.json", "*chat.html"],
+        "claude": ["*claude*memories*.json", "*claude*preferences*.txt"],
+        "grok": ["*grok*context*.json", "*grok*context*.md"],
+    }
+    for root in roots:
+        for pattern in patterns.get(target, []):
+            for match in root.glob(pattern):
+                if match.is_file():
+                    return match
+    return None
+
+
+def _load_snapshot_graph(state: PortabilityState, target: str) -> CortexGraph | None:
+    target_state = state.targets.get(target)
+    if target_state is None or not target_state.snapshot_path:
+        return None
+    return _load_graph(Path(target_state.snapshot_path))
+
+
+def _tool_labels(state: PortabilityState, target: str, paths: list[Path], export_path: Path | None = None) -> list[str]:
+    target_state = state.targets.get(target)
+    if target_state and target_state.facts:
+        return [str(item.get("label", "")) for item in target_state.facts if str(item.get("label", "")).strip()]
+
+    labels: list[str] = []
+    for path in paths:
+        labels.extend(extract_fact_labels_from_file(path))
+    if export_path is not None:
+        if export_path.suffix.lower() == ".zip":
+            try:
+                data, fmt = load_file(export_path)
+                extractor = AggressiveExtractor()
+                extracted = upgrade_v4_to_v5(_run_extraction_data(extractor, data, fmt))
+                labels.extend([node.label for node in extracted.nodes.values()])
+            except Exception:
+                pass
+        else:
+            labels.extend(extract_fact_labels_from_file(export_path))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(label)
+    return deduped
+
+
+def _run_extraction_data(extractor: AggressiveExtractor, data: Any, fmt: str) -> dict[str, Any]:
+    if fmt == "openai":
+        extractor.process_openai_export(data)
+    elif fmt == "gemini":
+        extractor.process_gemini_export(data)
+    elif fmt == "perplexity":
+        extractor.process_perplexity_export(data)
+    elif fmt == "jsonl":
+        extractor.process_jsonl_messages(data)
+    elif fmt == "api_logs":
+        extractor.process_api_logs(data)
+    elif fmt == "messages":
+        extractor.process_messages_list(data)
+    elif fmt == "text":
+        extractor.process_plain_text(data)
+    else:
+        if isinstance(data, list):
+            extractor.process_messages_list(data)
+        elif isinstance(data, dict) and "messages" in data:
+            extractor.process_messages_list(data["messages"])
+        else:
+            extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
+    extractor.post_process()
+    return extractor.context.export()
+
+
+def scan_portability(
+    *,
+    store_dir: Path,
+    project_dir: Path,
+    extra_roots: list[Path] | None = None,
+) -> dict[str, Any]:
+    state = load_portability_state(store_dir)
+    graph, graph_path = load_canonical_graph(store_dir, state)
+    output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+    roots = _search_roots(project_dir, extra_roots)
+    now = datetime.now(timezone.utc)
+
+    total_facts = len(graph.nodes)
+    known_union: set[str] = set()
+    tools: list[dict[str, Any]] = []
+
+    for target in ALL_PORTABLE_TARGETS:
+        paths = expected_tool_paths(target, project_dir=str(project_dir), output_dir=output_dir)
+        export_path = None
+        if not any(path.exists() for path in paths):
+            export_path = _find_export_file(target, roots)
+        labels = _tool_labels(state, target, paths, export_path)
+        known_union.update(label.lower() for label in labels)
+
+        existing_paths = [path for path in paths if path.exists()]
+        age_days = None
+        if existing_paths:
+            age_days = min(
+                (_human_age(path, now=now)[0] for path in existing_paths if _human_age(path, now=now)[0] is not None),
+                default=None,
+            )
+        elif export_path is not None:
+            age_days = _human_age(export_path, now=now)[0]
+
+        note = "not configured"
+        if export_path is not None and not existing_paths:
+            note = f"export: {age_days or 0} days old"
+        elif existing_paths:
+            if age_days is not None and age_days >= DEFAULT_STALE_DAYS:
+                note = f"{existing_paths[0].name}: {age_days} days stale"
+            else:
+                note = existing_paths[0].name
+
+        coverage = (len(labels) / total_facts) if total_facts else 0.0
+        tools.append(
+            {
+                "target": target,
+                "name": display_name(target),
+                "fact_count": len(labels),
+                "labels": labels,
+                "coverage": coverage,
+                "paths": [str(path) for path in existing_paths] + ([str(export_path)] if export_path else []),
+                "stale_days": age_days,
+                "note": note,
+                "configured": bool(existing_paths or export_path or target in state.targets),
+            }
+        )
+
+    known_facts = len(known_union) if total_facts else sum(tool["fact_count"] for tool in tools)
+    overall_coverage = (known_facts / total_facts) if total_facts else 0.0
+
+    return {
+        "graph_path": str(graph_path),
+        "total_facts": total_facts,
+        "known_facts": known_facts,
+        "coverage": overall_coverage,
+        "tools": tools,
+    }
+
+
+def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
+    state = load_portability_state(store_dir)
+    graph, graph_path = load_canonical_graph(store_dir, state)
+    current_labels = {node.label: node for node in graph.nodes.values()}
+    issues: list[dict[str, Any]] = []
+
+    for target, target_state in state.targets.items():
+        snapshot_graph = _load_snapshot_graph(state, target)
+        snapshot_labels = (
+            {node.label for node in snapshot_graph.nodes.values()}
+            if snapshot_graph
+            else {fact["label"] for fact in target_state.facts}
+        )
+        missing_labels = sorted(label for label in current_labels if label not in snapshot_labels)
+        age_days = None
+        if target_state.paths:
+            existing = [Path(path) for path in target_state.paths if Path(path).exists()]
+            if existing:
+                age_days = min(
+                    (_human_age(path)[0] for path in existing if _human_age(path)[0] is not None),
+                    default=None,
+                )
+        stale = bool(missing_labels or (age_days is not None and age_days >= DEFAULT_STALE_DAYS))
+        issues.append(
+            {
+                "target": target,
+                "name": display_name(target),
+                "stale": stale,
+                "stale_days": age_days,
+                "missing_labels": missing_labels[:8],
+                "fact_count": len(target_state.facts),
+                "updated_at": target_state.updated_at,
+                "paths": list(target_state.paths),
+            }
+        )
+
+    return {
+        "graph_path": str(graph_path),
+        "issues": issues,
+    }
+
+
+def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
+    state = load_portability_state(store_dir)
+    issues: list[dict[str, Any]] = []
+    snapshots: dict[str, CortexGraph] = {}
+
+    for target in state.targets:
+        snapshot = _load_snapshot_graph(state, target)
+        if snapshot and snapshot.nodes:
+            snapshots[target] = snapshot
+
+    live_project_graph = detect_live_project_graph(project_dir)
+    if live_project_graph.nodes:
+        snapshots["project"] = live_project_graph
+
+    compared_pairs: set[tuple[str, str, str]] = set()
+    key_tags = ["technical_expertise", "active_priorities", "domain_knowledge", "professional_context"]
+
+    for left_name, left_graph in snapshots.items():
+        left_tag_map = {tag: {node.label for node in left_graph.nodes.values() if tag in node.tags} for tag in key_tags}
+        for right_name, right_graph in snapshots.items():
+            if left_name >= right_name:
+                continue
+            right_tag_map = {
+                tag: {node.label for node in right_graph.nodes.values() if tag in node.tags} for tag in key_tags
+            }
+            for tag in key_tags:
+                key = (left_name, right_name, tag)
+                if key in compared_pairs:
+                    continue
+                compared_pairs.add(key)
+                left_only = sorted(left_tag_map[tag] - right_tag_map[tag])
+                right_only = sorted(right_tag_map[tag] - left_tag_map[tag])
+                if not left_only or not right_only:
+                    continue
+                issues.append(
+                    {
+                        "type": "context_divergence",
+                        "tag": tag,
+                        "left": left_name,
+                        "right": right_name,
+                        "left_label": left_only[0],
+                        "right_label": right_only[0],
+                        "message": f"{display_name(left_name)} says '{left_only[0]}' while {display_name(right_name)} says '{right_only[0]}'.",
+                    }
+                )
+
+    return {
+        "issues": issues,
+        "targets": sorted(snapshots),
+    }
+
+
+def remember_and_sync(
+    statement: str,
+    *,
+    store_dir: Path,
+    project_dir: Path,
+    targets: list[str] | None = None,
+    smart: bool = False,
+    policy_name: str = "full",
+    max_chars: int = 1500,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    state = load_portability_state(store_dir)
+    canonical_graph, graph_path = load_canonical_graph(store_dir, state)
+    extracted_graph = extract_graph_from_statement(statement)
+    merged = merge_graphs(canonical_graph, extracted_graph)
+    if not dry_run:
+        state, graph_path = save_canonical_graph(store_dir, merged, state=state, graph_path=graph_path)
+    output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+    return {
+        "statement": statement,
+        "graph_path": str(graph_path),
+        "targets": sync_targets(
+            merged,
+            targets=[canonical_target_name(target) for target in (targets or DEFAULT_DIRECT_TARGETS)],
+            store_dir=store_dir,
+            project_dir=str(project_dir),
+            output_dir=output_dir,
+            graph_path=graph_path,
+            policy_name=policy_name,
+            smart=smart,
+            max_chars=max_chars,
+            dry_run=dry_run,
+            state=state,
+        )["targets"],
+        "fact_count": len(merged.nodes),
+    }
+
+
+def build_digital_footprint(
+    *,
+    sources: list[str],
+    inputs: list[str],
+    store_dir: Path,
+    project_dir: Path,
+    search_roots: list[Path] | None = None,
+    sync_after: bool = False,
+    targets: list[str] | None = None,
+    smart: bool = False,
+    policy_name: str = "technical",
+    max_chars: int = 1500,
+) -> dict[str, Any]:
+    source_iter = iter(inputs)
+    built_graph = CortexGraph()
+    summaries: list[dict[str, Any]] = []
+
+    roots = _search_roots(project_dir, search_roots)
+
+    for source in sources:
+        if source == "github":
+            graph, summary = build_github_graph(roots or [project_dir])
+        elif source == "resume":
+            try:
+                resume_input = Path(next(source_iter))
+            except StopIteration as exc:
+                raise ValueError("build --from resume requires a file path") from exc
+            graph, summary = build_resume_graph(resume_input)
+        elif source in {"package.json", "project", "manifest"}:
+            graph, summary = build_project_graph(project_dir)
+        elif source == "git-history":
+            graph, summary = build_git_history_graph(project_dir)
+        else:
+            raise ValueError(f"Unknown build source: {source}")
+        built_graph = merge_graphs(built_graph, graph)
+        summaries.append({"source": source, **summary})
+
+    state = load_portability_state(store_dir)
+    canonical_graph, graph_path = load_canonical_graph(store_dir, state)
+    merged = merge_graphs(canonical_graph, built_graph)
+    state, graph_path = save_canonical_graph(store_dir, merged, state=state, graph_path=graph_path)
+
+    payload: dict[str, Any] = {
+        "graph_path": str(graph_path),
+        "sources": summaries,
+        "fact_count": len(merged.nodes),
+    }
+    if sync_after:
+        output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+        payload["targets"] = sync_targets(
+            merged,
+            targets=[canonical_target_name(target) for target in (targets or DEFAULT_DIRECT_TARGETS)],
+            store_dir=store_dir,
+            project_dir=str(project_dir),
+            output_dir=output_dir,
+            graph_path=graph_path,
+            policy_name=policy_name,
+            smart=smart,
+            max_chars=max_chars,
+            state=state,
+        )["targets"]
+    return payload
+
+
+def switch_portability(
+    input_path: Path,
+    *,
+    to_target: str,
+    store_dir: Path,
+    project_dir: Path,
+    output_dir: Path,
+    input_format: str = "auto",
+    policy_name: str = "technical",
+    max_chars: int = 1500,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    graph = load_graph_optional(str(input_path))
+    detected_kind = "graph"
+    if graph is None:
+        data, detected_format = load_file(input_path)
+        extractor = AggressiveExtractor()
+        fmt = input_format if input_format != "auto" else detected_format
+        payload = _run_extraction_data(extractor, data, fmt)
+        graph = upgrade_v4_to_v5(payload)
+        detected_kind = fmt
+
+    state = load_portability_state(store_dir)
+    graph_path = Path(state.graph_path) if state.graph_path else default_graph_path(store_dir)
+    if not dry_run:
+        state, graph_path = save_canonical_graph(store_dir, graph, state=state, graph_path=graph_path)
+
+    sync_result = sync_targets(
+        graph,
+        targets=[canonical_target_name(to_target)],
+        store_dir=store_dir,
+        project_dir=str(project_dir),
+        output_dir=output_dir,
+        graph_path=graph_path,
+        policy_name=policy_name,
+        smart=False,
+        max_chars=max_chars,
+        dry_run=dry_run,
+        state=state,
+    )
+    return {
+        "source": detected_kind,
+        "input_path": str(input_path),
+        "target": canonical_target_name(to_target),
+        "graph_path": str(graph_path),
+        "targets": sync_result["targets"],
+    }
+
+
+def bar(coverage: float, width: int = 20) -> str:
+    coverage = max(0.0, min(1.0, coverage))
+    filled = int(round(coverage * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+def stale_summary(target_state: TargetState, current_labels: set[str]) -> tuple[bool, list[str]]:
+    snapshot_labels = {str(item.get("label", "")) for item in target_state.facts}
+    missing = sorted(label for label in current_labels if label and label not in snapshot_labels)
+    return bool(missing), missing[:6]
+
+
+__all__ = [
+    "ALL_PORTABLE_TARGETS",
+    "DEFAULT_DIRECT_TARGETS",
+    "PortabilityState",
+    "STATE_VERSION",
+    "TargetState",
+    "audit_portability",
+    "bar",
+    "build_digital_footprint",
+    "canonical_target_name",
+    "default_output_dir",
+    "display_name",
+    "expected_tool_paths",
+    "load_canonical_graph",
+    "load_portability_state",
+    "portability_state_path",
+    "remember_and_sync",
+    "save_canonical_graph",
+    "save_portability_state",
+    "scan_portability",
+    "stale_summary",
+    "status_portability",
+    "switch_portability",
+    "sync_targets",
+]

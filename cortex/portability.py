@@ -28,6 +28,7 @@ PORTABLE_TARGET_ORDER = [
     "claude-code",
     "chatgpt",
     "codex",
+    "copilot",
     "gemini",
     "grok",
     "windsurf",
@@ -41,6 +42,7 @@ PORTABLE_TARGET_ALIASES: dict[str, str] = {
 PORTABLE_DIRECT_TARGETS: dict[str, tuple[str, ...]] = {
     "claude-code": ("claude-code", "claude-code-project"),
     "codex": ("codex",),
+    "copilot": ("copilot",),
     "cursor": ("cursor",),
     "gemini": ("gemini-cli",),
     "windsurf": ("windsurf",),
