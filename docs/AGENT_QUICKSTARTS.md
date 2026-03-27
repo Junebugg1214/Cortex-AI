@@ -111,3 +111,12 @@ MCP:
 
 - [examples/mcp/README.md](../examples/mcp/README.md)
 - [docs/examples/claude_desktop_mcp.json](examples/claude_desktop_mcp.json)
+
+For portability-first use, the human still curates context with CLI commands like `cortex portable`,
+`cortex remember`, `cortex scan`, and `cortex sync --smart`. The AI tool then reads live context over MCP with:
+
+- `portability_context` to fetch the current routed slice for `claude-code`, `codex`, `cursor`, `copilot`, `gemini`,
+  `windsurf`, `claude`, `chatgpt`, or `grok`
+- `portability_scan` to inspect what each tool currently knows
+- `portability_status` to surface stale or missing context
+- `portability_audit` to detect cross-tool drift

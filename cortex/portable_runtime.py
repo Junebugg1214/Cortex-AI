@@ -16,12 +16,14 @@ from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
 from cortex.extract_memory import AggressiveExtractor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.hooks import HookConfig, generate_compact_context
 from cortex.hooks import _load_graph as load_graph_optional
-from cortex.import_memory import NormalizedContext
+from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
 from cortex.portability import (
     PORTABLE_DIRECT_TARGETS,
     PORTABLE_TARGET_ALIASES,
     PORTABLE_TARGET_ORDER,
+    build_instruction_pack,
     export_artifact_targets,
 )
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
@@ -1263,6 +1265,100 @@ def _policy_from_target_state(target_state: TargetState) -> DisclosurePolicy:
     return builtin
 
 
+def render_portability_context(
+    *,
+    store_dir: Path,
+    target: str,
+    project_dir: Path | None = None,
+    smart: bool | None = None,
+    policy_name: str = "technical",
+    max_chars: int = 1500,
+) -> dict[str, Any]:
+    state = load_portability_state(store_dir)
+    graph, graph_path = load_canonical_graph(store_dir, state)
+    canonical_target = canonical_target_name(target)
+    if canonical_target not in ALL_PORTABLE_TARGETS:
+        raise ValueError(f"Unknown portability target: {target}")
+
+    target_state = state.targets.get(canonical_target)
+    effective_smart = (
+        smart if smart is not None else (target_state.mode == "smart" if target_state is not None else True)
+    )
+    effective_policy = target_state.policy if target_state is not None else policy_name
+    policy, route_tags = _policy_for_target(canonical_target, smart=effective_smart, policy_name=effective_policy)
+    filtered = apply_disclosure(graph, policy)
+    ctx = NormalizedContext.from_v5(filtered.export_v5())
+    facts = _graph_fact_rows(filtered)
+    labels = [row["label"] for row in facts]
+
+    resolved_project_dir = project_dir
+    if resolved_project_dir is None and state.project_dir:
+        resolved_project_dir = Path(state.project_dir)
+
+    context_markdown = ""
+    consume_as = "instruction_markdown"
+    target_payload: dict[str, Any] = {}
+
+    if filtered.nodes:
+        if canonical_target in PORTABLE_DIRECT_TARGETS:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                filtered_path = Path(tmp_dir) / f"{canonical_target}.json"
+                _write_graph(filtered_path, filtered)
+                context_markdown = generate_compact_context(
+                    HookConfig(
+                        graph_path=str(filtered_path),
+                        policy="full",
+                        max_chars=max_chars,
+                        include_project=False,
+                    ),
+                    cwd=str(resolved_project_dir) if resolved_project_dir is not None else None,
+                )
+        elif canonical_target == "claude":
+            preferences_text = export_claude_preferences(ctx, min_confidence=policy.min_confidence)
+            memories = export_claude_memories(ctx, min_confidence=policy.min_confidence)
+            context_markdown = preferences_text
+            consume_as = "claude_profile"
+            target_payload = {
+                "preferences_text": preferences_text,
+                "memories": memories,
+            }
+        elif canonical_target in {"chatgpt", "grok"}:
+            pack = build_instruction_pack(ctx, min_confidence=policy.min_confidence)
+            context_markdown = pack.combined
+            consume_as = "custom_instructions"
+            target_payload = {
+                "about": pack.about,
+                "respond": pack.respond,
+                "combined": pack.combined,
+            }
+
+    return {
+        "status": "ok",
+        "configured": target_state is not None,
+        "target": canonical_target,
+        "name": display_name(canonical_target),
+        "mode": "smart" if effective_smart else "full",
+        "policy": effective_policy,
+        "route_tags": route_tags,
+        "fact_count": len(facts),
+        "labels": labels,
+        "facts": facts,
+        "graph_path": str(graph_path),
+        "project_dir": str(resolved_project_dir) if resolved_project_dir is not None else "",
+        "updated_at": target_state.updated_at if target_state is not None else state.updated_at,
+        "paths": list(target_state.paths) if target_state is not None else [],
+        "context_markdown": context_markdown,
+        "consume_as": consume_as,
+        "target_payload": target_payload,
+        "graph": filtered.export_v5(),
+        "message": (
+            ""
+            if facts
+            else "No canonical portability context found. Run `cortex portable`, `cortex build`, or `cortex remember` first."
+        ),
+    }
+
+
 def _expected_labels(graph: CortexGraph, target_state: TargetState) -> set[str]:
     filtered = apply_disclosure(graph, _policy_from_target_state(target_state))
     return {node.label for node in filtered.nodes.values()}
@@ -1691,6 +1787,7 @@ __all__ = [
     "load_portability_state",
     "portability_state_path",
     "remember_and_sync",
+    "render_portability_context",
     "save_canonical_graph",
     "save_portability_state",
     "scan_portability",

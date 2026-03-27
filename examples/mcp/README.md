@@ -19,3 +19,14 @@ The simplest smoke test is to send newline-delimited JSON-RPC messages over stdi
 ```
 
 That MCP surface maps onto the same object, query, merge, index, and prune runtime used by the REST API.
+
+For portability-first agent flows, fetch the live routed slice for the current tool instead of relying on
+stale instruction files:
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"portability_context","arguments":{"target":"claude-code","project_dir":"/path/to/repo","smart":true}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"portability_status","arguments":{"project_dir":"/path/to/repo"}}}
+```
+
+That gives the agent the current Cortex-owned context for its tool plus a quick stale/drift check against the
+local portability surface.
