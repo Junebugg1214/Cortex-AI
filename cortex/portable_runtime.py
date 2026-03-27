@@ -13,7 +13,7 @@ from typing import Any
 
 from cortex.coding import enrich_project
 from cortex.compat import upgrade_v4_to_v5
-from cortex.context import CONTEXT_TARGETS, _resolve_path, write_context
+from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
 from cortex.extract_memory import AggressiveExtractor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.hooks import _load_graph as load_graph_optional
@@ -362,32 +362,192 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
-def extract_fact_labels_from_text(text: str) -> list[str]:
-    normalized = _strip_markdown(text)
-    labels: list[str] = []
-    for raw_line in normalized.splitlines():
+def _label_key(label: str) -> str:
+    lowered = label.casefold()
+    lowered = lowered.replace("js", " js")
+    lowered = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return " ".join(lowered.split())
+
+
+def _normalize_fact_label(label: str) -> str:
+    cleaned = _strip_markdown(label).strip(" .-*")
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\((?:\d+(?:\.\d+)?)\)$", "", cleaned).strip(" .-*")
+    cleaned = re.sub(
+        r"^(?:Current priorities|Tech stack|Communication preferences|Working preferences|Constraints to respect|Values to honor|Avoid|Identity|Role|Business|Domain context|Relationships|Technical|Domain expertise|Currently focused on|Preferences|Communication|Constraints|How ChatGPT should respond|What ChatGPT should know about you|Context Grok should know|How Grok should respond):\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^(?:User focus|User tech|User domain|User role|User relationship|User prefers|User preference|User is|User's business|Constraint|User avoids|User values|User clarified|Market context|Key metric):\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"^Active project:\s*", "", cleaned, flags=re.IGNORECASE)
+    if re.match(r"^(?:Most active commit hours|Peak coding hours):", cleaned, flags=re.IGNORECASE):
+        return "Peak coding hours"
+    if cleaned.casefold() in {
+        "shared ai context",
+        "chatgpt custom instructions",
+        "grok context prompt",
+        "paste these into chatgpt's custom instructions fields",
+        "use this as a pinned workspace prompt or paste it into a fresh grok chat",
+        "description",
+        "globs",
+        "alwaysapply",
+    }:
+        return ""
+    return cleaned.strip(" .-*")
+
+
+def _dedupe_labels(labels: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for label in labels:
+        cleaned = _normalize_fact_label(label)
+        if not cleaned:
+            continue
+        key = _label_key(cleaned)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped
+
+
+def _label_map(labels: list[str] | set[str]) -> dict[str, str]:
+    mapped: dict[str, str] = {}
+    for label in labels:
+        cleaned = _normalize_fact_label(label)
+        if not cleaned:
+            continue
+        key = _label_key(cleaned)
+        if key and key not in mapped:
+            mapped[key] = cleaned
+    return mapped
+
+
+def _split_fact_chunks(text: str) -> list[str]:
+    chunks: list[str] = []
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         if ":" in line:
             line = line.split(":", 1)[1]
-        chunks = re.split(r"[;,]\s*", line)
-        for chunk in chunks:
-            cleaned = re.sub(r"\([^)]*\)", "", chunk).strip(" .-*")
-            if not cleaned:
-                continue
-            if len(cleaned) > 120:
-                cleaned = cleaned[:120].rsplit(" ", 1)[0]
-            labels.append(cleaned)
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for label in labels:
-        key = label.lower()
-        if key in seen:
+        chunks.extend(re.split(r"[;,]\s*", line))
+    return chunks
+
+
+def _strip_cursor_frontmatter(text: str) -> str:
+    if text.startswith("---\n"):
+        _, _, remainder = text[4:].partition("\n---\n")
+        if remainder:
+            return remainder
+    return text
+
+
+def _extract_cortex_section(text: str) -> tuple[str, str]:
+    if CORTEX_START not in text or CORTEX_END not in text:
+        return "", text
+    start = text.index(CORTEX_START)
+    section_start = start + len(CORTEX_START)
+    end = text.index(CORTEX_END, section_start)
+    inside = text[section_start:end].strip()
+    outside = (text[:start] + text[end + len(CORTEX_END) :]).strip()
+    return inside, outside
+
+
+def _parse_section_value_text(text: str) -> list[str]:
+    return _dedupe_labels(_split_fact_chunks(text))
+
+
+def _parse_shared_context_markdown(text: str) -> list[str]:
+    labels: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or not line.startswith("**") or ":**" not in line:
             continue
-        seen.add(key)
-        deduped.append(label)
-    return deduped
+        _, _, value = line.partition(":**")
+        labels.extend(_parse_section_value_text(value))
+    return _dedupe_labels(labels)
+
+
+def _parse_claude_preferences_text(text: str) -> list[str]:
+    labels: list[str] = []
+    for line in text.splitlines():
+        labels.extend(_parse_section_value_text(line))
+    return _dedupe_labels(labels)
+
+
+def _labels_from_normalized_context(ctx: NormalizedContext) -> list[str]:
+    labels: list[str] = []
+    for topics in ctx.categories.values():
+        for topic in topics:
+            labels.append(topic.topic or topic.brief)
+    return _dedupe_labels(labels)
+
+
+def _parse_chat_style_json(payload: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for value in payload.values():
+        if isinstance(value, str):
+            labels.extend(_parse_section_value_text(value))
+    return _dedupe_labels(labels)
+
+
+def _parse_claude_json_payload(payload: Any) -> list[str]:
+    if isinstance(payload, dict) and "data" in payload:
+        payload = payload["data"]
+    if not isinstance(payload, list):
+        return []
+    return _labels_from_normalized_context(NormalizedContext.from_claude_memories(payload))
+
+
+def _parse_target_file(target: str, path: Path) -> list[str]:
+    try:
+        if path.suffix.lower() == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if target == "claude":
+                return _parse_claude_json_payload(payload)
+            if target in {"chatgpt", "grok"} and isinstance(payload, dict):
+                return _parse_chat_style_json(payload)
+            if isinstance(payload, dict):
+                return _parse_chat_style_json(payload)
+            if isinstance(payload, list):
+                return _dedupe_labels([str(item) for item in payload if isinstance(item, str | int | float)])
+
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+    if target in PORTABLE_DIRECT_TARGETS:
+        text = _strip_cursor_frontmatter(text)
+        cortex_section, outside = _extract_cortex_section(text)
+        labels = _parse_shared_context_markdown(cortex_section)
+        labels.extend(extract_fact_labels_from_text(outside))
+        return _dedupe_labels(labels)
+    if target in {"chatgpt", "grok"}:
+        return _parse_shared_context_markdown(text)
+    if target == "claude":
+        return _parse_claude_preferences_text(text)
+    return extract_fact_labels_from_text(text)
+
+
+def extract_fact_labels_from_text(text: str) -> list[str]:
+    normalized = _strip_markdown(text)
+    labels: list[str] = []
+    for chunk in _split_fact_chunks(normalized):
+        cleaned = re.sub(r"\([^)]*\)", "", chunk).strip(" .-*")
+        if not cleaned:
+            continue
+        if len(cleaned) > 120:
+            cleaned = cleaned[:120].rsplit(" ", 1)[0]
+        labels.append(cleaned)
+    return _dedupe_labels(labels)
 
 
 def extract_fact_labels_from_file(path: Path) -> list[str]:
@@ -397,14 +557,12 @@ def extract_fact_labels_from_file(path: Path) -> list[str]:
         if path.suffix.lower() == ".json":
             payload = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(payload, dict):
-                text = "\n".join(str(value) for value in payload.values() if isinstance(value, str))
-            elif isinstance(payload, list):
-                text = "\n".join(str(item) for item in payload if isinstance(item, (str, dict)))
-            else:
-                text = str(payload)
-            return extract_fact_labels_from_text(text)
+                return _parse_chat_style_json(payload)
+            if isinstance(payload, list):
+                return _dedupe_labels([str(item) for item in payload if isinstance(item, str | int | float)])
+            return extract_fact_labels_from_text(str(payload))
         return extract_fact_labels_from_text(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, json.JSONDecodeError, TypeError):
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return []
 
 
@@ -1055,7 +1213,7 @@ def _tool_labels(state: PortabilityState, target: str, paths: list[Path], export
 
     labels: list[str] = []
     for path in existing_paths:
-        labels.extend(extract_fact_labels_from_file(path))
+        labels.extend(_parse_target_file(target, path))
     if not existing_paths and export_path is not None:
         if export_path.suffix.lower() == ".zip":
             try:
@@ -1066,16 +1224,8 @@ def _tool_labels(state: PortabilityState, target: str, paths: list[Path], export
             except Exception:
                 pass
         else:
-            labels.extend(extract_fact_labels_from_file(export_path))
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for label in labels:
-        key = label.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(label)
-    return deduped
+            labels.extend(_parse_target_file(target, export_path))
+    return _dedupe_labels(labels)
 
 
 def _policy_from_target_state(target_state: TargetState) -> DisclosurePolicy:
@@ -1154,7 +1304,7 @@ def scan_portability(
         if not any(path.exists() for path in paths) and target_state is None:
             export_path = _find_export_file(target, roots)
         labels = _tool_labels(state, target, paths, export_path)
-        known_union.update(label.lower() for label in labels)
+        known_union.update(_label_map(labels))
 
         existing_paths = [path for path in paths if path.exists()]
         age_days = None
@@ -1215,8 +1365,10 @@ def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
         expected = _expected_labels(graph, target_state)
         paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
         actual = set(_tool_labels(state, target, paths))
-        missing_labels = sorted(label for label in expected if label not in actual)
-        unexpected_labels = sorted(label for label in actual if label not in expected)
+        expected_map = _label_map(list(expected))
+        actual_map = _label_map(list(actual))
+        missing_labels = sorted(expected_map[key] for key in expected_map.keys() - actual_map.keys())
+        unexpected_labels = sorted(actual_map[key] for key in actual_map.keys() - expected_map.keys())
         missing_paths = [str(path) for path in paths if not path.exists()]
         age_days = None
         existing = [path for path in paths if path.exists()]
@@ -1237,8 +1389,8 @@ def status_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
                 "missing_labels": missing_labels[:8],
                 "unexpected_labels": unexpected_labels[:8],
                 "missing_paths": missing_paths,
-                "fact_count": len(actual),
-                "expected_fact_count": len(expected),
+                "fact_count": len(actual_map),
+                "expected_fact_count": len(expected_map),
                 "updated_at": target_state.updated_at,
                 "paths": [str(path) for path in paths],
             }
@@ -1255,14 +1407,14 @@ def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
     graph, _ = load_canonical_graph(store_dir, state)
     output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
     issues: list[dict[str, Any]] = []
-    actual_by_target: dict[str, set[str]] = {}
+    actual_by_target: dict[str, dict[str, str]] = {}
     route_group_members: dict[tuple[str, ...], list[str]] = {}
 
     for target, target_state in state.targets.items():
         paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
         actual = set(_tool_labels(state, target, paths))
         expected = _expected_labels(graph, target_state)
-        actual_by_target[target] = actual
+        actual_by_target[target] = _label_map(list(actual))
         route_key = tuple(target_state.route_tags)
         route_group_members.setdefault(route_key, []).append(target)
 
@@ -1278,7 +1430,9 @@ def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
                 }
             )
 
-        missing_labels = sorted(label for label in expected if label not in actual)
+        expected_map = _label_map(list(expected))
+        actual_map = _label_map(list(actual))
+        missing_labels = sorted(expected_map[key] for key in expected_map.keys() - actual_map.keys())
         if missing_labels:
             issues.append(
                 {
@@ -1290,7 +1444,7 @@ def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
                 }
             )
 
-        unexpected_labels = sorted(label for label in actual if label not in expected)
+        unexpected_labels = sorted(actual_map[key] for key in actual_map.keys() - expected_map.keys())
         if unexpected_labels:
             issues.append(
                 {
@@ -1306,11 +1460,11 @@ def audit_portability(*, store_dir: Path, project_dir: Path) -> dict[str, Any]:
         if len(members) < 2:
             continue
         for idx, left in enumerate(sorted(members)):
-            left_labels = actual_by_target.get(left, set())
+            left_labels = actual_by_target.get(left, {})
             for right in sorted(members)[idx + 1 :]:
-                right_labels = actual_by_target.get(right, set())
-                left_only = sorted(left_labels - right_labels)
-                right_only = sorted(right_labels - left_labels)
+                right_labels = actual_by_target.get(right, {})
+                left_only = sorted(left_labels[key] for key in left_labels.keys() - right_labels.keys())
+                right_only = sorted(right_labels[key] for key in right_labels.keys() - left_labels.keys())
                 if not left_only or not right_only:
                     continue
                 issues.append(
@@ -1495,8 +1649,9 @@ def bar(coverage: float, width: int = 20) -> str:
 
 
 def stale_summary(target_state: TargetState, current_labels: set[str]) -> tuple[bool, list[str]]:
-    snapshot_labels = {str(item.get("label", "")) for item in target_state.facts}
-    missing = sorted(label for label in current_labels if label and label not in snapshot_labels)
+    snapshot_labels = _label_map([str(item.get("label", "")) for item in target_state.facts])
+    current = _label_map(list(current_labels))
+    missing = sorted(current[key] for key in current.keys() - snapshot_labels.keys())
     return bool(missing), missing[:6]
 
 

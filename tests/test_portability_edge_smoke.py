@@ -263,6 +263,10 @@ def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, ca
     assert drift_map["gemini"]["missing_paths"]
     assert drift_map["copilot"]["stale"] is True
     assert any(label.lower() == "mongodb" for label in drift_map["copilot"]["unexpected_labels"])
+    assert all(
+        label not in {"Shared AI Context", "Prefers: Direct answers", "Most active commit hours: 18:00"}
+        for label in drift_map["copilot"]["unexpected_labels"]
+    )
     assert not any(issue["stale"] for target, issue in drift_map.items() if target not in {"copilot", "gemini"})
 
     rc = main(
