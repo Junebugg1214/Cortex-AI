@@ -10,6 +10,10 @@ Cortex makes your AI context portable across Claude, Claude Code, ChatGPT, Codex
 - user-owned storage
 - stable local `v1` API contract
 
+CLI is how humans curate Cortex. MCP is how AI tools consume Cortex live.
+
+Set it up once, and every AI tool you use can know you automatically, stay up to date, and stop treating you like a stranger.
+
 ## The Problem
 
 If you use more than one AI tool, you are probably repeating yourself constantly.
@@ -28,6 +32,7 @@ With Cortex, you can:
 - import context from exports, project files, resumes, and git history
 - write that context into the tools you use locally
 - generate import-ready artifacts for tools that do not expose a stable local file path
+- serve live, routed context to MCP-capable AI tools during conversations
 - audit what each tool knows, what is missing, and what is stale
 - teach Cortex something once and propagate it everywhere
 - route different context slices to different tools instead of dumping the same blob everywhere
@@ -46,6 +51,47 @@ That single command can:
 - write local context files for Claude Code, Codex, Cursor, Copilot, Gemini, and Windsurf
 - generate import-ready artifacts for Claude, ChatGPT, and Grok
 - leave everything on your machine
+
+## The Loop
+
+The portability story is not just file generation.
+
+The full loop looks like this:
+
+- humans use the CLI to import, inspect, teach, route, and sync context
+- AI tools use MCP to fetch the current routed slice live while they are helping you
+
+That means you do not have to choose between:
+
+- local files for coding tools
+- import-ready artifacts for chat tools
+- live context for MCP-capable agents
+
+Cortex can serve all three from the same portable source of truth.
+
+### Humans curate with the CLI
+
+```bash
+cortex portable chatgpt-export.zip --to all --project .
+cortex scan
+cortex remember "We use Vitest now"
+cortex sync --smart
+```
+
+### AI tools consume live context over MCP
+
+```bash
+cortex-mcp --config .cortex/config.toml
+```
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"portability_context","arguments":{"target":"claude-code","project_dir":"/path/to/repo","smart":true}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"portability_status","arguments":{"project_dir":"/path/to/repo"}}}
+```
+
+That is the real portability pitch:
+
+**set up Cortex once, and every AI tool you use can know you automatically, always with the latest context**
 
 ## The Holy-Shit Workflow
 
@@ -99,6 +145,8 @@ Instead of sending the same blob everywhere, Cortex can route:
 - broader personal and professional context to ChatGPT, Claude, and Grok
 - tighter conventions and preferences to coding assistants that benefit from short, high-signal instructions
 
+MCP-capable tools do not have to wait for a stale file refresh. They can ask Cortex for their current routed slice live with `portability_context`.
+
 ### 5. Catch stale or conflicting context
 
 ```bash
@@ -146,6 +194,17 @@ These tools get written directly when a local file surface exists:
 - Gemini
 - Windsurf
 
+### Live context via MCP
+
+Any MCP-capable client can ask Cortex for its current routed slice live instead of relying only on files that may drift.
+
+The portability MCP surface includes:
+
+- `portability_context`
+- `portability_scan`
+- `portability_status`
+- `portability_audit`
+
 ### Import-ready artifacts
 
 These tools get honest, import-ready or paste-ready outputs:
@@ -170,6 +229,7 @@ With Cortex, you get:
 - one source of truth for your portable context
 - side-by-side visibility into what each tool knows
 - smarter per-tool routing instead of one giant generic prompt
+- live MCP context for agents that can query Cortex directly
 - freshness checks instead of stale rule files
 - cross-tool conflict detection instead of silent drift
 - user-owned local storage instead of another hosted memory silo
@@ -228,6 +288,9 @@ cortex remember "We use Vitest now"
 
 # route the right context to the right tools
 cortex sync --smart
+
+# expose live portability context to MCP clients
+cortex-mcp --config .cortex/config.toml
 
 # show stale tools and missing facts
 cortex status
