@@ -111,6 +111,24 @@ scopes = ["unknown-scope"]
     assert "Unknown auth scope" in error
 
 
+def test_invalid_server_port_reports_clear_error(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[server]
+port = 70000
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = server_main(["--config", str(config_path), "--check"])
+    error = capsys.readouterr().err
+
+    assert rc == 1
+    assert "Config error:" in error
+    assert "Server port must be between 0 and 65535" in error
+
+
 def test_format_startup_diagnostics_mentions_local_trust_mode(tmp_path):
     config = load_selfhost_config(store_dir=tmp_path / ".cortex", env={})
     diagnostics = format_startup_diagnostics(config, mode="server")

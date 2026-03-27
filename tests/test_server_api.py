@@ -127,6 +127,24 @@ def test_cortex_api_health_meta_log_and_auth(tmp_path, monkeypatch):
         CortexClient("http://cortex.local").health()
 
 
+def test_cortex_api_accepts_case_insensitive_bearer_auth(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Project Atlas")), "baseline")
+
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    status, response = dispatch_api_request(
+        service,
+        method="GET",
+        path="/v1/health",
+        headers={"Authorization": "bearer scoped-token"},
+        auth_keys=(APIKeyConfig(name="reader", token="scoped-token", scopes=("read",), namespaces=("*",)),),
+    )
+
+    assert status == 200
+    assert response["status"] == "ok"
+
+
 def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -151,6 +169,21 @@ def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatc
     assert metrics["index"]["lag_commits"] == 0
     assert lines[-1]["path"] == "/v1/metrics"
     assert all(line["request_id"] for line in lines)
+
+
+def test_cortex_client_reports_network_errors_cleanly():
+    client = CortexClient("http://cortex.local")
+
+    def fail_urlopen(request, timeout=30.0):  # noqa: ARG001
+        raise urllib.error.URLError("connection refused")
+
+    original = urllib.request.urlopen
+    urllib.request.urlopen = fail_urlopen
+    try:
+        with pytest.raises(RuntimeError, match="Network error while calling Cortex: connection refused"):
+            client.health()
+    finally:
+        urllib.request.urlopen = original
 
 
 def test_cortex_api_commit_branch_diff_and_checkout_round_trip(tmp_path, monkeypatch):

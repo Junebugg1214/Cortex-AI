@@ -5,7 +5,7 @@ import json
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from cortex.storage import get_storage_backend
@@ -63,6 +63,85 @@ def _manifest_for_store(store_dir: Path) -> dict:
     }
 
 
+def _read_backup_manifest(archive_path: str | Path) -> dict:
+    path = Path(archive_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Backup archive not found: {path}")
+    with ZipFile(path, "r") as archive:
+        try:
+            return json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
+        except KeyError as exc:
+            raise ValueError(f"Backup archive is missing {MANIFEST_NAME}: {path}") from exc
+
+
+def _safe_archive_members(archive: ZipFile) -> list[tuple[str, PurePosixPath]]:
+    members: list[tuple[str, PurePosixPath]] = []
+    for info in archive.infolist():
+        name = info.filename
+        if name == MANIFEST_NAME:
+            continue
+        if not name.startswith(STORE_PREFIX):
+            raise ValueError(f"Backup archive contains unexpected entry outside '{STORE_PREFIX}': {name}")
+        if info.is_dir():
+            continue
+        relative = PurePosixPath(name[len(STORE_PREFIX) :])
+        parts = [part for part in relative.parts if part not in ("", ".")]
+        if not parts:
+            continue
+        if any(part == ".." for part in parts):
+            raise ValueError(f"Backup archive contains unsafe path traversal entry: {name}")
+        members.append((name, PurePosixPath(*parts)))
+    return members
+
+
+def _verify_restored_store(store_dir: Path, manifest: dict) -> dict:
+    expected = {
+        str(item["path"]): {
+            "sha256": str(item["sha256"]),
+            "size": int(item["size"]),
+        }
+        for item in manifest.get("files", [])
+    }
+    actual = {str(path.relative_to(store_dir)): path for path in _iter_store_files(store_dir)}
+    mismatches: list[dict] = []
+
+    for missing in sorted(set(expected) - set(actual)):
+        mismatches.append({"path": missing, "reason": "missing_after_restore"})
+    for extra in sorted(set(actual) - set(expected)):
+        mismatches.append({"path": extra, "reason": "unexpected_after_restore"})
+    for relative in sorted(set(expected) & set(actual)):
+        path = actual[relative]
+        expected_entry = expected[relative]
+        actual_hash = _sha256_file(path)
+        actual_size = path.stat().st_size
+        if actual_hash != expected_entry["sha256"]:
+            mismatches.append(
+                {
+                    "path": relative,
+                    "reason": "sha256_mismatch_after_restore",
+                    "expected": expected_entry["sha256"],
+                    "actual": actual_hash,
+                }
+            )
+        if actual_size != expected_entry["size"]:
+            mismatches.append(
+                {
+                    "path": relative,
+                    "reason": "size_mismatch_after_restore",
+                    "expected": expected_entry["size"],
+                    "actual": actual_size,
+                }
+            )
+
+    return {
+        "status": "ok",
+        "store_dir": str(store_dir),
+        "valid": not mismatches,
+        "file_count": len(expected),
+        "mismatches": mismatches,
+    }
+
+
 def export_store_backup(
     store_dir: str | Path,
     output_path: str | Path,
@@ -72,6 +151,8 @@ def export_store_backup(
     source = Path(store_dir)
     if not source.exists():
         raise FileNotFoundError(f"Store directory not found: {source}")
+    if not source.is_dir():
+        raise ValueError(f"Store path is not a directory: {source}")
     manifest = _manifest_for_store(source)
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -93,13 +174,9 @@ def export_store_backup(
 
 def verify_store_backup(archive_path: str | Path) -> dict:
     path = Path(archive_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Backup archive not found: {path}")
+    manifest = _read_backup_manifest(path)
     with ZipFile(path, "r") as archive:
-        try:
-            manifest = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
-        except KeyError as exc:
-            raise ValueError(f"Backup archive is missing {MANIFEST_NAME}: {path}") from exc
+        _safe_archive_members(archive)
         mismatches: list[dict] = []
         for item in manifest.get("files", []):
             archive_name = f"{STORE_PREFIX}{item['path']}"
@@ -158,6 +235,9 @@ def restore_store_backup(
 ) -> dict:
     archive = Path(archive_path)
     destination = Path(store_dir)
+    if destination.exists() and not destination.is_dir():
+        raise ValueError(f"Target store path is not a directory: {destination}")
+    manifest = _read_backup_manifest(archive)
     verification = verify_store_backup(archive) if verify else None
     if verification is not None and not verification["valid"]:
         raise ValueError(f"Backup verification failed for {archive}")
@@ -170,8 +250,12 @@ def restore_store_backup(
     with tempfile.TemporaryDirectory(prefix="cortex_restore_") as tmp_dir:
         tmp_path = Path(tmp_dir)
         with ZipFile(archive, "r") as zip_archive:
-            zip_archive.extractall(tmp_path)
-        restored_root = tmp_path / "store"
+            members = _safe_archive_members(zip_archive)
+            for archive_name, relative_path in members:
+                target = tmp_path / Path(relative_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zip_archive.read(archive_name))
+        restored_root = tmp_path
         if not restored_root.exists():
             raise ValueError(f"Backup archive is missing '{STORE_PREFIX}' content: {archive}")
         for source in sorted(restored_root.rglob("*")):
@@ -183,13 +267,16 @@ def restore_store_backup(
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
-    post_verify = verify_store_backup(archive)
+    restored_verification = _verify_restored_store(destination, manifest)
+    if verify and not restored_verification["valid"]:
+        raise ValueError(f"Restored store verification failed for {destination}")
     backend = get_storage_backend(destination)
     return {
         "status": "ok",
         "archive": str(archive),
         "store_dir": str(destination),
-        "verified": post_verify["valid"],
+        "verified": restored_verification["valid"],
+        "verification": restored_verification,
         "backend": type(backend).__module__.split(".")[-1],
         "current_branch": backend.versions.current_branch(),
         "head": backend.versions.resolve_ref("HEAD"),
