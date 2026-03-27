@@ -10,7 +10,7 @@ from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.embeddings import get_embedding_provider, hybrid_search_documents
 from cortex.governance import GovernanceRule, GovernanceStore
 from cortex.graph import CortexGraph, Node
-from cortex.remotes import MemoryRemote, RemoteRegistry, fork_remote, pull_remote, push_remote
+from cortex.remotes import MemoryRemote, RemoteRegistry
 from cortex.schemas.memory_v1 import (
     DEFAULT_TENANT_ID,
     BranchRecord,
@@ -239,6 +239,12 @@ class FilesystemRemoteBackend:
     versions: FilesystemVersionBackend
     tenant_id: str = DEFAULT_TENANT_ID
 
+    def _require_remote(self, name: str) -> RemoteRecord:
+        for remote in self.list_remotes():
+            if remote.name == name:
+                return remote
+        raise ValueError(f"Unknown remote: {name}")
+
     def list_remotes(self) -> list[RemoteRecord]:
         return [
             RemoteRecord.from_memory_remote(remote, tenant_id=self.tenant_id) for remote in self.registry.list_remotes()
@@ -258,16 +264,9 @@ class FilesystemRemoteBackend:
         target_branch: str | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
-        remote = self.registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return push_remote(
-            self.versions.store,
-            remote,
-            branch=branch,
-            target_branch=target_branch,
-            force=force,
-        )
+        from cortex.storage.remote_sync import push_remote_backend
+
+        return push_remote_backend(self.storage_backend, self._require_remote(name), branch, target_branch, force)
 
     def pull_remote(
         self,
@@ -278,17 +277,9 @@ class FilesystemRemoteBackend:
         force: bool = False,
         switch: bool = False,
     ) -> dict[str, Any]:
-        remote = self.registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return pull_remote(
-            self.versions.store,
-            remote,
-            branch=branch,
-            into_branch=into_branch,
-            force=force,
-            switch=switch,
-        )
+        from cortex.storage.remote_sync import pull_remote_backend
+
+        return pull_remote_backend(self.storage_backend, self._require_remote(name), branch, into_branch, force, switch)
 
     def fork_remote(
         self,
@@ -298,16 +289,15 @@ class FilesystemRemoteBackend:
         local_branch: str,
         switch: bool = False,
     ) -> dict[str, Any]:
-        remote = self.registry.get(name)
-        if remote is None:
-            raise ValueError(f"Unknown remote: {name}")
-        return fork_remote(
-            self.versions.store,
-            remote,
-            remote_branch=remote_branch,
-            local_branch=local_branch,
-            switch=switch,
+        from cortex.storage.remote_sync import fork_remote_backend
+
+        return fork_remote_backend(
+            self.storage_backend, self._require_remote(name), remote_branch, local_branch, switch
         )
+
+    @property
+    def storage_backend(self) -> "FilesystemStorageBackend":
+        return FilesystemStorageBackend(self.versions.store.store_dir, tenant_id=self.tenant_id)
 
 
 @dataclass(slots=True)

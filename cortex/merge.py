@@ -218,8 +218,11 @@ def _merge_edges(current: CortexGraph, other: CortexGraph) -> dict[str, Edge]:
             continue
         merged = edges[eid]
         merged.provenance = _dedupe_dict_items(list(merged.provenance) + list(edge.provenance))
-        if not merged.description and edge.description:
-            merged.description = edge.description
+        merged_description = getattr(merged, "description", "") or str(merged.properties.get("description", ""))
+        edge_description = getattr(edge, "description", "") or str(edge.properties.get("description", ""))
+        if not merged_description and edge_description:
+            merged.properties = dict(merged.properties)
+            merged.properties["description"] = edge_description
         if edge.confidence > merged.confidence:
             merged.confidence = edge.confidence
     return edges
