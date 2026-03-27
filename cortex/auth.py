@@ -20,8 +20,10 @@ def extract_api_token(headers: dict[str, str]) -> str:
     if header_key:
         return header_key
     auth_header = normalized.get("authorization", "").strip()
-    if auth_header.startswith("Bearer "):
-        return auth_header[len("Bearer ") :].strip()
+    if auth_header:
+        scheme, _, token = auth_header.partition(" ")
+        if scheme.lower() == "bearer":
+            return token.strip()
     return ""
 
 

@@ -68,6 +68,23 @@ def _normalize_scopes(values: list[str] | tuple[str, ...] | None) -> tuple[str, 
     return normalized or ALL_SCOPES
 
 
+def _normalize_server_host(value: str | None) -> str:
+    host = str(value or "").strip()
+    if not host:
+        raise ValueError("Server host must be a non-empty string.")
+    return host
+
+
+def _normalize_server_port(value: Any) -> int:
+    try:
+        port = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Server port must be an integer between 0 and 65535: {value}") from exc
+    if port < 0 or port > 65535:
+        raise ValueError(f"Server port must be between 0 and 65535: {port}")
+    return port
+
+
 @dataclass(slots=True)
 class APIKeyConfig:
     name: str
@@ -299,7 +316,7 @@ def load_selfhost_config(
     configured_port = (
         server_port
         if server_port is not None
-        else int(env_map.get("CORTEX_SERVER_PORT", "") or server_table.get("port") or 8766)
+        else env_map.get("CORTEX_SERVER_PORT", "") or server_table.get("port") or 8766
     )
     configured_mcp_namespace = (
         str(mcp_namespace).strip()
@@ -317,8 +334,8 @@ def load_selfhost_config(
         store_dir=Path(configured_store_dir),
         context_file=configured_context_file.resolve() if configured_context_file else None,
         config_path=resolved_config_path.resolve() if resolved_config_path and resolved_config_path.exists() else None,
-        server_host=configured_host,
-        server_port=int(configured_port),
+        server_host=_normalize_server_host(configured_host),
+        server_port=_normalize_server_port(configured_port),
         mcp_namespace=_normalize_namespace(configured_mcp_namespace) if configured_mcp_namespace else None,
         api_keys=configured_keys,
     )

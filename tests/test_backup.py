@@ -1,3 +1,11 @@
+import json
+import shutil
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
+
+import pytest
+
+import cortex.backup as backup_mod
 from cortex.backup import export_store_backup, restore_store_backup, verify_store_backup
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
@@ -60,3 +68,35 @@ def test_backup_cli_export_verify_and_restore_round_trip(tmp_path, capsys):
     assert restore_rc == 0
     assert archive.exists()
     assert "cli-restored" in output
+
+
+def test_restore_detects_corrupted_copy_during_restore(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="atlas", label="Project Atlas")), "baseline")
+    archive = tmp_path / "atlas-backup.zip"
+    export_store_backup(store_dir, archive)
+
+    original_copy2 = shutil.copy2
+
+    def corrupt_copy(source, target, *args, **kwargs):
+        result = original_copy2(source, target, *args, **kwargs)
+        target_path = Path(target)
+        if target_path.name == "cortex.db":
+            target_path.write_bytes(b"corrupted")
+        return result
+
+    monkeypatch.setattr(backup_mod.shutil, "copy2", corrupt_copy)
+
+    with pytest.raises(ValueError, match="Restored store verification failed"):
+        restore_store_backup(archive, tmp_path / "restored")
+
+
+def test_restore_rejects_path_traversal_archive_entries(tmp_path):
+    archive = tmp_path / "unsafe-backup.zip"
+    with ZipFile(archive, "w", compression=ZIP_DEFLATED) as handle:
+        handle.writestr("manifest.json", json.dumps({"format_version": "1", "files": []}))
+        handle.writestr("store/../../outside.txt", "nope")
+
+    with pytest.raises(ValueError, match="unsafe path traversal"):
+        restore_store_backup(archive, tmp_path / "restored")

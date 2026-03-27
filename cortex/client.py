@@ -63,7 +63,13 @@ class CortexClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+                body = response.read().decode("utf-8")
+                if not body:
+                    return {}
+                try:
+                    return json.loads(body)
+                except json.JSONDecodeError as error:
+                    raise RuntimeError("Invalid JSON response from Cortex server.") from error
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8")
             if body:
@@ -73,6 +79,9 @@ class CortexClient:
                     raise RuntimeError(body) from error
                 raise RuntimeError(payload.get("error", body))
             raise RuntimeError(str(exc)) from exc
+        except urllib.error.URLError as exc:
+            reason = exc.reason if getattr(exc, "reason", None) else str(exc)
+            raise RuntimeError(f"Network error while calling Cortex: {reason}") from exc
 
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/v1/health")
