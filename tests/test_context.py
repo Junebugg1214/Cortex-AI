@@ -7,6 +7,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 
 from cortex.context import (  # noqa: E402
+    CONTEXT_TARGET_ALIASES,
     CONTEXT_TARGETS,
     CORTEX_END,
     CORTEX_START,
@@ -14,6 +15,7 @@ from cortex.context import (  # noqa: E402
     _format_plain,
     _resolve_path,
     _write_non_destructive,
+    resolve_context_targets,
     watch_and_refresh,
     write_context,
 )
@@ -194,14 +196,17 @@ class TestPlatformFormatting:
         result = _format_cursor_mdc("Hello World")
         assert result.startswith("---\n")
         assert "alwaysApply: true" in result
-        assert "description: Cortex identity context" in result
+        assert "description: Cortex shared AI context" in result
         assert CORTEX_START in result
         assert "Hello World" in result
 
     def test_all_targets_in_registry(self):
         """All expected platforms are in the registry."""
-        expected = {"claude-code", "claude-code-project", "cursor", "copilot", "windsurf", "gemini-cli"}
+        expected = {"claude-code", "claude-code-project", "codex", "cursor", "copilot", "windsurf", "gemini-cli"}
         assert set(CONTEXT_TARGETS.keys()) == expected
+
+    def test_alias_registry(self):
+        assert CONTEXT_TARGET_ALIASES["gemini"] == "gemini-cli"
 
     def test_target_fields(self):
         """Each target has all required fields populated."""
@@ -234,9 +239,9 @@ class TestResolvePath:
 
     def test_resolve_home(self):
         """Expands {home} to actual home directory."""
-        result = _resolve_path("{home}/.claude/MEMORY.md")
+        result = _resolve_path("{home}/.claude/CLAUDE.md")
         assert str(Path.home()) in str(result)
-        assert ".claude/MEMORY.md" in str(result)
+        assert ".claude/CLAUDE.md" in str(result)
 
     def test_resolve_project(self):
         """Expands {project} to provided project directory."""
@@ -258,6 +263,9 @@ class TestResolvePath:
 
 class TestWriteContext:
     """Tests for write_context() main function."""
+
+    def test_resolve_context_targets_alias(self):
+        assert resolve_context_targets(["gemini"]) == ["gemini-cli"]
 
     def test_single_platform(self, tmp_path):
         """Writes context to a single platform."""

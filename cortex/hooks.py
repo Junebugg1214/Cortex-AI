@@ -128,7 +128,7 @@ def _format_compact_markdown(graph: CortexGraph, max_chars: int, focus_terms: se
         if not placed:
             uncategorized.append(node)
 
-    lines = ["## Your Cortex Context", ""]
+    lines = ["## Shared AI Context", ""]
 
     for section_label, _ in _TAG_SECTIONS:
         nodes = section_nodes[section_label]

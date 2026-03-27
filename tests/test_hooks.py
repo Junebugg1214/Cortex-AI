@@ -221,7 +221,7 @@ class TestFormatCompactMarkdown:
             ]
         )
         result = _format_compact_markdown(g, 1500)
-        assert "## Your Cortex Context" in result
+        assert "## Shared AI Context" in result
         assert "**Tech Stack:**" in result
         assert "Python (0.9)" in result
         assert "Git (0.8)" in result
@@ -316,7 +316,7 @@ class TestFormatCompactMarkdown:
     def test_empty_graph(self):
         g = CortexGraph()
         result = _format_compact_markdown(g, 1500)
-        assert result == "## Your Cortex Context"
+        assert result == "## Shared AI Context"
 
 
 # ---------------------------------------------------------------------------
