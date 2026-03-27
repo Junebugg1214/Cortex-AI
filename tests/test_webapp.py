@@ -1,9 +1,11 @@
+import io
 import json
 
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.graph import CortexGraph, Node
+from cortex.storage import build_sqlite_backend
 from cortex.upai.versioning import VersionStore
-from cortex.webapp import UI_HTML, MemoryUIBackend
+from cortex.webapp import UI_HTML, MemoryUIBackend, make_handler
 
 
 def _write_graph(path, graph: CortexGraph) -> None:
@@ -11,12 +13,46 @@ def _write_graph(path, graph: CortexGraph) -> None:
     path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
 
 
+def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dict | None = None):
+    handler = handler_cls.__new__(handler_cls)
+    handler.path = path
+    handler.command = method
+    handler.request_version = "HTTP/1.1"
+    handler.rfile = io.BytesIO(json.dumps(payload).encode("utf-8") if payload is not None else b"")
+    handler.wfile = io.BytesIO()
+    handler.headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes)}
+    handler._status = 200
+    handler._headers = {}
+
+    def send_response(code, message=None):  # noqa: ARG001
+        handler._status = code
+
+    def send_header(key, value):
+        handler._headers[key] = value
+
+    def end_headers():
+        return None
+
+    handler.send_response = send_response
+    handler.send_header = send_header
+    handler.end_headers = end_headers
+
+    if method == "GET":
+        handler.do_GET()
+    else:
+        handler.do_POST()
+    body = handler.wfile.getvalue().decode("utf-8")
+    return handler._status, handler._headers, body
+
+
 def test_webapp_html_mentions_all_major_surfaces():
+    assert "Overview" in UI_HTML
     assert "Review" in UI_HTML
     assert "Blame" in UI_HTML
     assert "History" in UI_HTML
     assert "Governance" in UI_HTML
     assert "Remote" in UI_HTML
+    assert "Operations" in UI_HTML
 
 
 def test_webapp_backend_meta_review_and_blame(tmp_path):
@@ -122,3 +158,129 @@ def test_webapp_backend_governance_and_remotes(tmp_path):
     assert push["head"] == local_commit
     assert pull["branch"] == "imported/main"
     assert fork["forked"] is True
+
+
+def test_webapp_backend_supports_stored_ref_ops_without_context_file(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    graph = CortexGraph()
+    node = Node(
+        id="n1",
+        canonical_id="n1",
+        label="Project Atlas",
+        aliases=["atlas"],
+        tags=["active_priorities"],
+        confidence=0.92,
+        provenance=[{"source": "manual-a", "method": "manual"}],
+        status="active",
+    )
+    graph.add_node(node)
+    commit = backend.versions.commit(graph, "baseline")
+    backend.claims.append(
+        ClaimEvent.from_node(
+            node,
+            op="assert",
+            source="manual-a",
+            method="manual_set",
+            version_id=commit.version_id,
+            timestamp="2026-03-23T00:00:00Z",
+        )
+    )
+
+    ui = MemoryUIBackend(store_dir=store_dir, backend=backend)
+
+    meta = ui.meta()
+    health = ui.health()
+    index = ui.index_status(ref="HEAD")
+    rebuild = ui.index_rebuild(ref="HEAD")
+    prune_status = ui.prune_status(retention_days=7)
+    prune = ui.prune(dry_run=True, retention_days=7)
+    audit = ui.prune_audit(limit=10)
+    blame = ui.blame(input_file=None, label="atlas", ref="HEAD", limit=10)
+    history = ui.history(input_file=None, label="atlas", ref="HEAD", limit=10)
+
+    assert meta["backend"] == "sqlite"
+    assert meta["index"]["persistent"] is True
+    assert health["release"]["project_version"] == meta["release"]["project_version"]
+    assert index["last_indexed_commit"] == commit.version_id
+    assert rebuild["rebuilt"] == 1
+    assert prune_status["backend"] == "sqlite"
+    assert prune["dry_run"] is True
+    assert audit["entries"] == []
+    assert blame["nodes"][0]["node"]["label"] == "Project Atlas"
+    assert history["nodes"][0]["history"]["introduced_in"]["message"] == "baseline"
+
+
+def test_webapp_backend_meta_handles_empty_store(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    ui = MemoryUIBackend(store_dir=store_dir, backend=backend)
+
+    meta = ui.meta()
+    health = ui.health()
+    index = ui.index_status(ref="HEAD")
+    rebuild = ui.index_rebuild(ref="HEAD")
+
+    assert meta["head"] is None
+    assert health["index"]["resolved_ref"] is None
+    assert index["doc_count"] == 0
+    assert rebuild["rebuilt"] == 0
+
+
+def test_webapp_handler_exposes_operations_endpoints(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id="n1",
+            label="Project Atlas",
+            aliases=["atlas"],
+            tags=["active_priorities"],
+            confidence=0.91,
+        )
+    )
+    backend.versions.commit(graph, "baseline")
+
+    ui_backend = MemoryUIBackend(store_dir=store_dir, backend=backend)
+    handler_cls = make_handler(ui_backend)
+
+    html_status, html_headers, html = _invoke_handler(handler_cls, path="/", method="GET")
+    meta_status, meta_headers, meta_body = _invoke_handler(handler_cls, path="/api/meta", method="GET")
+    index_status, _, index_body = _invoke_handler(handler_cls, path="/api/index/status?ref=HEAD", method="GET")
+    rebuild_status, rebuild_headers, rebuild_body = _invoke_handler(
+        handler_cls,
+        path="/api/index/rebuild",
+        method="POST",
+        payload={"ref": "HEAD", "all_refs": False},
+    )
+    prune_status_code, _, prune_body = _invoke_handler(
+        handler_cls, path="/api/prune/status?retention_days=7", method="GET"
+    )
+    audit_status, _, audit_body = _invoke_handler(handler_cls, path="/api/prune/audit?limit=10", method="GET")
+    metrics_status, _, metrics_body = _invoke_handler(handler_cls, path="/api/metrics", method="GET")
+
+    meta = json.loads(meta_body)
+    index = json.loads(index_body)
+    rebuild = json.loads(rebuild_body)
+    prune_status = json.loads(prune_body)
+    audit = json.loads(audit_body)
+    metrics = json.loads(metrics_body)
+
+    assert html_status == 200
+    assert meta_status == 200
+    assert index_status == 200
+    assert rebuild_status == 200
+    assert prune_status_code == 200
+    assert audit_status == 200
+    assert metrics_status == 200
+    assert html_headers["X-Request-ID"]
+    assert meta_headers["X-Request-ID"]
+    assert rebuild_headers["X-Request-ID"]
+    assert "Overview" in html
+    assert meta["backend"] == "sqlite"
+    assert index["persistent"] is True
+    assert rebuild["rebuilt"] == 1
+    assert prune_status["status"] == "ok"
+    assert audit["entries"] == []
+    assert metrics["requests_total"] >= 5
