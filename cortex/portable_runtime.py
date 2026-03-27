@@ -230,6 +230,20 @@ def canonical_target_name(target: str) -> str:
     return PORTABLE_TARGET_ALIASES.get(target, target)
 
 
+def resolve_requested_targets(targets: list[str]) -> list[str]:
+    resolved: list[str] = []
+    for raw_target in targets:
+        canonical = canonical_target_name(raw_target)
+        if canonical == "all":
+            for target in ALL_PORTABLE_TARGETS:
+                if target not in resolved:
+                    resolved.append(target)
+            continue
+        if canonical not in resolved:
+            resolved.append(canonical)
+    return resolved
+
+
 def display_name(target: str) -> str:
     return TOOL_DISPLAY_NAMES.get(target, target.replace("-", " ").title())
 
@@ -438,7 +452,7 @@ def _split_fact_chunks(text: str) -> list[str]:
             continue
         if ":" in line:
             line = line.split(":", 1)[1]
-        chunks.extend(re.split(r"[;,]\s*", line))
+        chunks.extend(re.split(r"[;,]\s*|\.\s+(?=[A-Z])", line))
     return chunks
 
 
@@ -1046,8 +1060,7 @@ def sync_targets(
     ensure_state_dirs(store_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for raw_target in targets:
-        target = canonical_target_name(raw_target)
+    for target in resolve_requested_targets(targets):
         policy, route_tags = _policy_for_target(target, smart=smart, policy_name=policy_name)
         filtered = apply_disclosure(graph, policy)
         if target in PORTABLE_DIRECT_TARGETS:
@@ -1294,6 +1307,8 @@ def scan_portability(
     now = datetime.now(timezone.utc)
 
     total_facts = len(graph.nodes)
+    expected_map = _label_map([node.label for node in graph.nodes.values()])
+    expected_keys = set(expected_map)
     known_union: set[str] = set()
     tools: list[dict[str, Any]] = []
 
@@ -1304,7 +1319,9 @@ def scan_portability(
         if not any(path.exists() for path in paths) and target_state is None:
             export_path = _find_export_file(target, roots)
         labels = _tool_labels(state, target, paths, export_path)
-        known_union.update(_label_map(labels))
+        actual_map = _label_map(labels)
+        matched_keys = expected_keys & set(actual_map)
+        known_union.update(matched_keys)
 
         existing_paths = [path for path in paths if path.exists()]
         age_days = None
@@ -1327,13 +1344,15 @@ def scan_portability(
         elif target_state is not None:
             note = "configured, files missing"
 
-        coverage = (len(labels) / total_facts) if total_facts else 0.0
+        coverage = (len(matched_keys) / total_facts) if total_facts else 0.0
         visible_paths = existing_paths if existing_paths else (paths if target_state is not None else [])
         tools.append(
             {
                 "target": target,
                 "name": display_name(target),
                 "fact_count": len(labels),
+                "matched_fact_count": len(matched_keys),
+                "unexpected_fact_count": max(len(actual_map) - len(matched_keys), 0),
                 "labels": labels,
                 "coverage": coverage,
                 "paths": [str(path) for path in visible_paths] + ([str(export_path)] if export_path else []),
