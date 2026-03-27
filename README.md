@@ -1,330 +1,275 @@
 # Cortex
 
-**Own your AI context. Take it everywhere.**
+**One command. All your AI context. Every tool.**
 
-Status:
+Cortex makes your AI context portable across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Windsurf, Cursor, and Copilot without giving up control of your data.
+
+**Status**
 
 - self-hosted public beta
 - user-owned storage
 - stable local `v1` API contract
 
-One command. All your AI context. Every tool.
+## The Problem
 
-Cortex lets you extract memory from chat exports, notes, docs, and coding sessions, then carry that context across:
+If you use more than one AI tool, you are probably repeating yourself constantly.
 
-- Claude
-- Claude Code
-- ChatGPT
-- Codex
-- Gemini
-- Grok
-- Windsurf
-- Cursor
+- ChatGPT knows your stack, but Claude does not.
+- Claude Code knows your repo today, but Cursor still has stale rules from a month ago.
+- Copilot has no idea you migrated from PostgreSQL to CockroachDB.
+- Switching platforms means losing context and starting over.
 
-Some of those tools support direct local instruction files. Some only support copy-paste or import-style surfaces. Cortex handles both honestly: it writes directly where it can, and generates import-ready artifacts where it cannot.
+Cortex fixes that by turning your AI context into something you can carry, inspect, sync, route, and audit.
 
-Cortex is still the same local-first memory runtime underneath. The difference is that portability is now the front door instead of buried behind infrastructure vocabulary.
+## The Pitch
 
-## 30-Second Portability
+With Cortex, you can:
+
+- import context from exports, project files, resumes, and git history
+- write that context into the tools you use locally
+- generate import-ready artifacts for tools that do not expose a stable local file path
+- audit what each tool knows, what is missing, and what is stale
+- teach Cortex something once and propagate it everywhere
+- route different context slices to different tools instead of dumping the same blob everywhere
+
+This is the front door:
 
 ```bash
 pip install "cortex-identity[full]"
 
-# Import once from an export or an existing Cortex graph
 cortex portable chatgpt-export.zip --to all --project .
 ```
 
-That one command will:
+That single command can:
 
 - extract a portable `context.json`
-- install direct context into local tool files like `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.windsurfrules`, and Cursor rules
-- generate import-ready artifacts for chat apps like Claude, ChatGPT, and Grok
+- write local context files for Claude Code, Codex, Cursor, Copilot, Gemini, and Windsurf
+- generate import-ready artifacts for Claude, ChatGPT, and Grok
+- leave everything on your machine
 
-Generated targets currently map like this:
+## The Holy-Shit Workflow
 
-- **Direct installs**: Claude Code, Codex, Gemini, Windsurf, Cursor
-- **Import-ready artifacts**: Claude, ChatGPT, Grok
+### 1. Import once
 
-See [docs/PORTABILITY.md](docs/PORTABILITY.md) for the exact file paths and outputs.
+```bash
+cortex portable chatgpt-export.zip --to all --project .
+```
 
-## Why This Exists
+### 2. See what every tool knows
 
-Most AI memory systems make you do the same work over and over again.
+```bash
+cortex scan
+```
 
-You tell ChatGPT your stack. Then Claude forgets it. Then Cursor does not know your current project. Then Codex treats your repository like it has never seen it before.
+Example shape:
 
-Cortex exists to stop that repetition while still giving you a serious memory control plane underneath.
+```text
+Found 8 AI tools:
 
-When memory matters, you still need answers to questions like:
+ChatGPT      ████████████░░░░░░░░  67 facts  (export: 3 days old)
+Claude Code  ████████░░░░░░░░░░░░  42 facts  (CLAUDE.md: fresh)
+Cursor       ████░░░░░░░░░░░░░░░░  18 facts  (.cursor rules: stale)
+Copilot      ░░░░░░░░░░░░░░░░░░░░   0 facts  (not configured)
+```
 
-- Where did that claim come from?
-- When was it true?
-- What changed between versions?
-- Which source introduced the bad memory?
-- Can I roll it back without destroying history?
-- Who is allowed to write or merge this memory?
+### 3. Teach once
 
-Cortex is built to answer those questions directly.
+```bash
+cortex remember "We migrated from PostgreSQL to CockroachDB in January"
+```
+
+By default that updates the direct-write coding tools in one pass:
+
+- Claude Code
+- Codex
+- Cursor
+- Copilot
+- Gemini
+- Windsurf
+
+### 4. Route the right slice to each tool
+
+```bash
+cortex sync --smart
+```
+
+Instead of sending the same blob everywhere, Cortex can route:
+
+- code and architecture context to Claude Code, Codex, Cursor, Copilot, Gemini, and Windsurf
+- broader personal and professional context to ChatGPT, Claude, and Grok
+- tighter conventions and preferences to coding assistants that benefit from short, high-signal instructions
+
+### 5. Catch stale or conflicting context
+
+```bash
+cortex status
+cortex audit
+```
+
+That lets you see:
+
+- which tool has stale context
+- which important facts have not been propagated yet
+- where one tool still believes something that another tool has already outgrown
+
+### 6. Build context from your digital footprint
+
+```bash
+cortex build --from package.json --from git-history --from github --sync --smart
+```
+
+You do not need to start with a chat export. Cortex can build useful AI context from things you already have:
+
+- project manifests like `package.json`, `pyproject.toml`, or `Cargo.toml`
+- git history
+- local GitHub-style repositories
+- resumes and profile docs
+
+### 7. Switch platforms fast
+
+```bash
+cortex switch --from chatgpt-export.zip --to claude
+```
+
+Cortex extracts the identity graph from the source material, filters it, and generates a target-specific output instead of just dumping raw chat logs somewhere else.
+
+## Supported Tools
+
+### Direct local installs
+
+These tools get written directly when a local file surface exists:
+
+- Claude Code
+- Codex
+- Cursor
+- Copilot
+- Gemini
+- Windsurf
+
+### Import-ready artifacts
+
+These tools get honest, import-ready or paste-ready outputs:
+
+- Claude
+- ChatGPT
+- Grok
+
+The exact target model and file paths live in [docs/PORTABILITY.md](docs/PORTABILITY.md).
+
+## Why This Is Better Than Manual Instructions
+
+Without Cortex, the usual workflow is ugly:
+
+1. copy the same project description into multiple tools
+2. hand-edit `CLAUDE.md`, Cursor rules, Copilot instructions, and whatever else you use
+3. forget to update one of them
+4. get outdated or inconsistent AI advice later
+
+With Cortex, you get:
+
+- one source of truth for your portable context
+- side-by-side visibility into what each tool knows
+- smarter per-tool routing instead of one giant generic prompt
+- freshness checks instead of stale rule files
+- cross-tool conflict detection instead of silent drift
+- user-owned local storage instead of another hosted memory silo
+
+## Real Use Cases
+
+### Switch from one AI platform to another
+
+Import a ChatGPT export, generate Claude-ready artifacts, and keep your coding tools in sync without starting from scratch.
+
+### Keep your coding assistants aligned
+
+Teach Claude Code, Codex, Cursor, Copilot, Gemini, and Windsurf about your stack, architecture, and conventions from one command.
+
+### Bootstrap context with no export at all
+
+Build context from your repos, manifests, and git history so your tools learn your real stack instead of waiting for you to type it again.
+
+### Find stale or contradictory AI context
+
+See which tools still believe old framework versions, old project names, or outdated database choices before they give you bad advice.
+
+## Why Cortex Is Defensible
+
+Portability is the front door, but Cortex is not just a thin export script.
+
+Underneath the portability layer, Cortex still gives you:
+
+- a local graph as the canonical source of truth
+- immutable versioned commits
+- branching, merge, rollback, and review flows
+- blame and provenance
+- governance and access control
+- REST, SDK, MCP, and local UI surfaces
+
+That matters because portability without control becomes another brittle sync layer. Cortex is trying to make portable AI context operable, not just copyable.
+
+## Who It Is For
+
+- developers who use multiple AI tools and hate re-explaining themselves
+- teams that want portable, user-owned context instead of another hosted memory silo
+- builders who want a local control plane for AI context
+- power users who care about freshness, auditability, rollback, and source attribution once portability is in place
+
+## Quick Command Map
+
+```bash
+# import from an export or existing graph
+cortex portable chatgpt-export.zip --to all --project .
+
+# audit what each tool knows
+cortex scan
+
+# teach Cortex once and propagate it
+cortex remember "We use Vitest now"
+
+# route the right context to the right tools
+cortex sync --smart
+
+# show stale tools and missing facts
+cortex status
+
+# detect cross-tool drift
+cortex audit
+
+# build from repos, manifests, and git history
+cortex build --from package.json --from git-history --from github --sync --smart
+
+# switch from one platform to another
+cortex switch --from chatgpt-export.zip --to claude
+```
 
 ## Beta Status
 
-Cortex is ready for self-hosted beta use by technical teams, not mass-market rollout yet.
+Cortex is ready for self-hosted beta use by technical teams. It is not positioned as a hosted SaaS, and it is not pretending to be mass-market consumer software yet.
 
-The right posture for this release is:
+The intended posture is:
 
-- run it on user-owned storage
+- keep storage user-owned
+- run it locally or self-host it
 - keep verified backups
-- prefer scoped API keys and namespace boundaries
-- treat prerelease tags as evaluation builds
+- use scoped keys and namespace boundaries when you expose the API or MCP server
 
-Beta launch docs:
+Relevant docs:
 
-- [docs/BETA_QUICKSTART.md](docs/BETA_QUICKSTART.md)
-- [docs/OPERATIONS.md](docs/OPERATIONS.md)
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
-- [beta feedback template](.github/ISSUE_TEMPLATE/beta_feedback.md)
-
-## What Cortex Does
-
-- Extracts memory from chat exports, notes, plain text, coding sessions, and normalized GitHub, Slack, and docs inputs
-- Carries that context across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Windsurf, and Cursor
-- Stores memory as a local graph you can query, diff, branch, merge, and roll back
-- Tracks provenance so you can blame a claim to its source and inspect its receipt trail
-- Detects contradictions, semantic drift, timeline changes, and temporal gaps
-- Lets you retract memory by source instead of manually cleaning a graph
-- Adds governance rules for who can read, write, branch, merge, roll back, push, or pull
-- Syncs memory stores explicitly with remote push, pull, and fork semantics
-- Exposes a small local web UI for review, blame, history, governance, and remotes
-- Exposes local REST, SDK, and MCP tool-server surfaces without taking ownership of user storage
-
-## Who It's For
-
-- Developers who use multiple AI tools and are tired of re-explaining themselves
-- Teams that want portable, user-owned context instead of another hosted memory silo
-- Builders who need a local memory control plane, not another hosted SaaS
-- Power users who want rollback, blame, review, and governance once portability is in place
-
-## Example Use Cases
-
-- **Agent debugging**: explain why an agent believed `Project Atlas` was active, who introduced that claim, and what changed afterward
-- **Memory CI**: compare `context.json` on a PR against `main` and fail only on contradictions or temporal gaps
-- **Safe experimentation**: branch memory for a new persona, project mode, or imported source before merging it back
-- **Bad import recovery**: retract everything that came from one bad export or roll back to a known-good memory state
-- **Multi-agent collaboration**: push and pull memory branches between local stores with explicit governance and approval rules
-- **Coding assistants with receipts**: export stable project context, inspect history, and keep assistant memory tied to real sources
-
-## Mental Model
-
-```mermaid
-flowchart LR
-    A["Sources<br/>chat exports, notes, GitHub, Slack, docs, coding sessions"] --> B["cortex extract / ingest"]
-    B --> C["Local memory graph<br/>context.json + version store"]
-    C --> D["Commit / Branch / Merge / Rollback"]
-    C --> E["Blame / History / Timeline / Contradictions"]
-    D --> F["Review / Governance / Memory CI"]
-    C --> G["Context export / Hooks / Local UI / Remote sync"]
-```
-
-## 60-Second Demo
-
-```bash
-# One command for the portability pass
-cortex portable chatgpt-export.zip --to all --project .
-
-# Inspect the generated portable graph
-cortex log
-cortex blame portable/context.json --label "Cortex-AI"
-
-# Review or branch memory if you want stricter control
-cortex branch import/chatgpt-history
-cortex review portable/context.json --against main --fail-on contradictions,temporal_gaps --format md
-
-# Open the local infrastructure console
-cortex ui --context-file portable/context.json
-```
-
-## Core Workflows
-
-### 1. Build Memory from Real Inputs
-
-```bash
-cortex extract notes.json -o context.json
-cortex ingest github issue.json -o context.json
-cortex ingest slack ./slack-export -o context.json
-cortex ingest docs ./docs -o context.json
-```
-
-### 2. Version AI Memory Like Code
-
-```bash
-cortex commit context.json -m "Import March planning notes"
-cortex log
-cortex diff <version-a> <version-b>
-cortex checkout <version> -o restored.json
-cortex rollback context.json --to <version>
-```
-
-### 3. Create Safe Branches for Experiments
-
-```bash
-cortex branch feature/project-atlas
-cortex switch feature/project-atlas
-cortex review context.json --against main
-cortex merge main
-```
-
-### 4. Explain, Audit, and Retract
-
-```bash
-cortex blame context.json --label "PostgreSQL"
-cortex history context.json --label "PostgreSQL"
-cortex claim log --label "PostgreSQL"
-cortex memory retract context.json --source planning-doc-v1
-```
-
-### 5. Govern and Sync Memory
-
-```bash
-cortex governance allow protect-main \
-  --actor "agent/*" \
-  --action write \
-  --namespace main \
-  --approval-below-confidence 0.75
-
-cortex remote add origin /path/to/other/store
-cortex remote push origin --branch main
-cortex remote pull origin --branch main --into-branch remotes/origin/main
-```
-
-## Why Cortex Feels Different
-
-Most memory tooling focuses on storage and retrieval.
-
-Cortex focuses on **operability**:
-
-- not just storing memory, but versioning it
-- not just retrieving claims, but explaining them
-- not just importing data, but retracting bad evidence
-- not just sharing context, but governing who can change it
-- not just diffing JSON, but surfacing semantic drift and contradiction risk
-
-If Git gives developers confidence in code changes, Cortex is trying to do the same for AI memory changes.
-
-## Local Infrastructure UI
-
-Cortex ships with a small local web app for the operational side of memory:
-
-- review results
-- blame receipts
-- claim history
-- governance policies
-- remote sync flows
-
-Run it with:
-
-```bash
-cortex ui --context-file context.json
-```
-
-## MCP Server
-
-Cortex can also run as a local MCP server over stdio for agent runtimes that want tool-based memory access while
-keeping storage user-owned.
-
-```bash
-cortex mcp --store-dir .cortex
-# or
-cortex-mcp --store-dir .cortex --namespace team
-```
-
-The MCP surface maps onto the same object/query/version runtime as the REST API, including node, edge, claim,
-query, branch, merge, blame, history, indexing, and prune tools.
-
-For self-hosted config, scoped API keys, backups, Docker, and MCP client setup, see
-[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
-
-## Release and Packaging
-
-Cortex now ships a stable v1 local contract with:
-
-- a committed OpenAPI artifact and compatibility snapshot
-- version metadata surfaced across REST, Python, TypeScript, and MCP
-- a self-host Docker image and compose flow
-- backup/restore and upgrade docs for user-owned stores
-- reference Python, TypeScript, and MCP examples
-- a lightweight benchmark harness for commit, query, merge preview, and index rebuild
-
-Release operator docs:
-
+- [docs/PORTABILITY.md](docs/PORTABILITY.md)
 - [docs/BETA_QUICKSTART.md](docs/BETA_QUICKSTART.md)
 - [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
 - [docs/OPERATIONS.md](docs/OPERATIONS.md)
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
-- [docs/UPGRADING.md](docs/UPGRADING.md)
-- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+- [beta feedback template](.github/ISSUE_TEMPLATE/beta_feedback.md)
 
-## Adoption Layer
+## Design Partners
 
-Cortex now also ships a higher-level `MemorySession` helper for application code that wants to work at the
-"agent memory workflow" level instead of stitching raw SDK calls together.
+If you are building with multiple AI tools today and you want a serious, user-owned portability layer, I would love feedback.
 
-It gives app builders a small set of verbs on top of the stable v1 runtime:
+The best fit right now is:
 
-- `remember(...)`
-- `search_context(...)`
-- `branch_for_task(...)`
-- `commit_if_review_passes(...)`
+- people using Claude Code, Cursor, Copilot, Codex, Gemini, ChatGPT, or Grok in real workflows
+- teams that want one source of truth for AI context
+- builders who care about portability first, and operability right after
 
-See:
-
-- [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
-- [examples/python/self_hosted_client.py](examples/python/self_hosted_client.py)
-- [examples/typescript/self_hosted_client.mjs](examples/typescript/self_hosted_client.mjs)
-
-## Memory CI
-
-The repo includes [`.github/workflows/memory-review.yml`](.github/workflows/memory-review.yml), which can:
-
-- compare a checked-in memory file against the base branch
-- emit a Markdown review summary in GitHub Actions
-- upload JSON and Markdown review artifacts
-- fail only on gates you choose, such as `contradictions` and `temporal_gaps`
-
-Local equivalent:
-
-```bash
-cortex review context.json --against main --fail-on contradictions,temporal_gaps --format md
-cortex review context.json --against main --fail-on none --format json
-```
-
-## More Detailed Product Walkthrough
-
-For the full Git-for-AI-Memory feature walkthrough, see [GIT_FOR_AI_MEMORY.md](GIT_FOR_AI_MEMORY.md).
-
-## Install
-
-```bash
-pip install cortex-identity
-```
-
-Recommended extras:
-
-```bash
-pip install "cortex-identity[full]"
-```
-
-Other extras:
-
-```bash
-pip install "cortex-identity[crypto]"
-pip install "cortex-identity[fast]"
-```
-
-## Repository Layout
-
-- `cortex/`: CLI, graph model, extraction, review, governance, remotes, UI, identity, and versioning
-- `tests/`: CLI and core-library regression suite
-
-## License
-
-MIT
+Repo: [https://github.com/Junebugg1214/Cortex-AI](https://github.com/Junebugg1214/Cortex-AI)
