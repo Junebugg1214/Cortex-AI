@@ -874,6 +874,7 @@ def build_parser():
     pt.add_argument("--verbose", "-v", action="store_true")
     pt.add_argument("--redact", action="store_true", help="Enable PII redaction when extracting raw exports")
     pt.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+    pt.add_argument("--format", choices=["json", "text"], default="text")
 
     scn = sub.add_parser("scan", help="Audit what each supported AI tool knows about you")
     scn.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
@@ -3955,7 +3956,6 @@ def run_portable(args):
     from cortex.hooks import _load_graph as load_graph_optional
     from cortex.portability import resolve_portable_targets
     from cortex.portable_runtime import (
-        default_output_dir,
         save_canonical_graph,
         switch_portability,
         sync_targets,
@@ -4020,7 +4020,7 @@ def run_portable(args):
             targets=targets,
             store_dir=store_dir,
             project_dir=str(project_dir),
-            output_dir=output_dir if args.output else default_output_dir(store_dir),
+            output_dir=output_dir,
             graph_path=graph_path_for_installs,
             policy_name=args.policy,
             smart=False,
@@ -4059,6 +4059,18 @@ def run_portable(args):
                     identity=identity,
                 )["targets"],
             }
+
+    payload = {
+        **payload,
+        "source": detected_kind,
+        "graph_path": str(graph_path_for_installs),
+        "context_path": str(graph_path_for_installs),
+        "target_count": len(payload.get("targets", [])),
+    }
+    if extracted_stats is not None:
+        payload["extracted"] = extracted_stats
+    if _emit_result(payload, args.format) == 0:
+        return 0
 
     print("Portable context ready:")
     print(f"  context: {graph_path_for_installs}" + (" (dry-run)" if args.dry_run else ""))
@@ -4139,6 +4151,10 @@ def run_status(args):
         print(line)
         if issue["missing_labels"]:
             print("  Missing:", "; ".join(issue["missing_labels"]))
+        if issue.get("unexpected_labels"):
+            print("  Drifted:", "; ".join(issue["unexpected_labels"]))
+        if issue.get("missing_paths"):
+            print("  Missing files:", "; ".join(issue["missing_paths"]))
     return 0
 
 
@@ -4183,7 +4199,8 @@ def run_audit(args):
         return 0
     print("Detected context conflicts:\n")
     for issue in payload["issues"]:
-        print(f"  [{issue['tag']}] {issue['message']}")
+        tag = issue.get("tag", "portable")
+        print(f"  [{tag}] {issue['message']}")
     return 0
 
 
