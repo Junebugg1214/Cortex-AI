@@ -1271,7 +1271,7 @@ def render_portability_context(
     target: str,
     project_dir: Path | None = None,
     smart: bool | None = None,
-    policy_name: str = "technical",
+    policy_name: str | None = None,
     max_chars: int = 1500,
 ) -> dict[str, Any]:
     state = load_portability_state(store_dir)
@@ -1284,7 +1284,10 @@ def render_portability_context(
     effective_smart = (
         smart if smart is not None else (target_state.mode == "smart" if target_state is not None else True)
     )
-    effective_policy = target_state.policy if target_state is not None else policy_name
+    if effective_smart:
+        effective_policy = target_state.policy if target_state is not None else (policy_name or "technical")
+    else:
+        effective_policy = policy_name or (target_state.policy if target_state is not None else "technical")
     policy, route_tags = _policy_for_target(canonical_target, smart=effective_smart, policy_name=effective_policy)
     filtered = apply_disclosure(graph, policy)
     ctx = NormalizedContext.from_v5(filtered.export_v5())
@@ -1345,7 +1348,7 @@ def render_portability_context(
         "facts": facts,
         "graph_path": str(graph_path),
         "project_dir": str(resolved_project_dir) if resolved_project_dir is not None else "",
-        "updated_at": target_state.updated_at if target_state is not None else state.updated_at,
+        "updated_at": state.updated_at or (target_state.updated_at if target_state is not None else ""),
         "paths": list(target_state.paths) if target_state is not None else [],
         "context_markdown": context_markdown,
         "consume_as": consume_as,

@@ -411,7 +411,7 @@ class MemoryService:
         target: str,
         project_dir: str = "",
         smart: bool | None = None,
-        policy: str = "technical",
+        policy: str | None = None,
         max_chars: int = 1500,
     ) -> dict[str, Any]:
         project_path = Path(project_dir).resolve() if project_dir else None

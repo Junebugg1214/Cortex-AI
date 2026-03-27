@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from cortex.cli import main
 from cortex.graph import CortexGraph, Edge, Node
+from cortex.portable_runtime import load_portability_state, save_portability_state
 from cortex.storage import build_sqlite_backend
 
 
@@ -50,6 +52,55 @@ def _seed_store(store_dir: Path) -> None:
     graph.add_edge(Edge(id="e1", source_id="sdk", target_id="atlas", relation="supports", confidence=0.78))
     graph.add_edge(Edge(id="e2", source_id="atlas", target_id="mcp", relation="exposed_via", confidence=0.81))
     backend.versions.commit(graph, "seed runtime smoke")
+
+
+def _seed_portability_store(base: Path, monkeypatch) -> tuple[Path, Path]:
+    home_dir = base / "home"
+    project_dir = base / "project"
+    store_dir = base / ".cortex"
+    output_dir = base / "portable"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    (project_dir / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "runtime-portability",
+                "dependencies": {"next": "14.1.0", "react": "18.2.0"},
+                "devDependencies": {"vitest": "1.5.0"},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    export_path = base / "chatgpt-export.txt"
+    export_path.write_text(
+        (
+            "My name is Marc. "
+            "I use Python, FastAPI, and Next.js. "
+            "I prefer direct answers. "
+            "I am building runtime-portability."
+        ),
+        encoding="utf-8",
+    )
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "all",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_dir),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc == 0
+    return project_dir, store_dir
 
 
 def _free_port() -> int:
@@ -271,3 +322,128 @@ def test_cortex_mcp_process_serves_real_stdio_requests(tmp_path):
     assert any(tool["name"] == "query_search" for tool in tools["result"]["tools"])
     assert search["result"]["structuredContent"]["results"][0]["node"]["label"] == "Project Atlas"
     assert node_get["result"]["structuredContent"]["node"]["label"] == "Project Atlas"
+
+
+def test_cortex_mcp_process_serves_live_portability_after_cli_changes(tmp_path, monkeypatch):
+    project_dir, store_dir = _seed_portability_store(tmp_path, monkeypatch)
+    state = load_portability_state(store_dir)
+    stale_time = "2000-01-01T00:00:00Z"
+    state.updated_at = stale_time
+    state.targets["chatgpt"].updated_at = stale_time
+    save_portability_state(store_dir, state)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    process = subprocess.Popen(  # noqa: S603
+        [sys.executable, "-m", "cortex.mcp", "--store-dir", str(store_dir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env,
+    )
+    try:
+        _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "clientInfo": {"name": "pytest", "version": "1.0"},
+                },
+            },
+        )
+        assert process.stdin is not None
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        process.stdin.flush()
+
+        before = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "portability_context",
+                    "arguments": {"target": "chatgpt", "project_dir": str(project_dir), "smart": True},
+                },
+            },
+        )
+        full = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "portability_context",
+                    "arguments": {
+                        "target": "chatgpt",
+                        "project_dir": str(project_dir),
+                        "smart": False,
+                        "policy": "full",
+                    },
+                },
+            },
+        )
+        technical = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "portability_context",
+                    "arguments": {
+                        "target": "chatgpt",
+                        "project_dir": str(project_dir),
+                        "smart": False,
+                        "policy": "technical",
+                    },
+                },
+            },
+        )
+
+        remember_rc = main(
+            [
+                "remember",
+                "We use CockroachDB now.",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        assert remember_rc == 0
+
+        after = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {
+                    "name": "portability_context",
+                    "arguments": {"target": "chatgpt", "project_dir": str(project_dir), "smart": True},
+                },
+            },
+        )
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        _stop_process(process)
+
+    before_payload = before["result"]["structuredContent"]
+    after_payload = after["result"]["structuredContent"]
+    full_payload = full["result"]["structuredContent"]
+    technical_payload = technical["result"]["structuredContent"]
+
+    assert full_payload["policy"] == "full"
+    assert technical_payload["policy"] == "technical"
+    assert set(full_payload["labels"]) > set(technical_payload["labels"])
+    assert before_payload["updated_at"] == stale_time
+    assert after_payload["updated_at"] != stale_time
