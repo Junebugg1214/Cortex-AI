@@ -20,6 +20,12 @@ from cortex.merge import (
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
+from cortex.portable_runtime import (
+    audit_portability,
+    render_portability_context,
+    scan_portability,
+    status_portability,
+)
 from cortex.query import QueryEngine, parse_nl_query
 from cortex.query_lang import ParseError, execute_query
 from cortex.release import build_release_metadata
@@ -398,6 +404,68 @@ class MemoryService:
             "index": self.backend.indexing.status(ref="HEAD"),
             "release": self.release(),
         }
+
+    def portability_context(
+        self,
+        *,
+        target: str,
+        project_dir: str = "",
+        smart: bool | None = None,
+        policy: str = "technical",
+        max_chars: int = 1500,
+    ) -> dict[str, Any]:
+        project_path = Path(project_dir).resolve() if project_dir else None
+        payload = render_portability_context(
+            store_dir=self.store_dir,
+            target=target,
+            project_dir=project_path,
+            smart=smart,
+            policy_name=policy,
+            max_chars=max_chars,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_scan(
+        self,
+        *,
+        project_dir: str = "",
+        search_roots: list[str] | None = None,
+    ) -> dict[str, Any]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = scan_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+            extra_roots=[Path(root).resolve() for root in (search_roots or [])],
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_status(
+        self,
+        *,
+        project_dir: str = "",
+    ) -> dict[str, Any]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = status_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_audit(
+        self,
+        *,
+        project_dir: str = "",
+    ) -> dict[str, Any]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = audit_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+        )
+        payload["release"] = self.release()
+        return payload
 
     def metrics(self, *, namespace: str | None = None) -> dict[str, Any]:
         self._enforce_namespace(namespace, ref="HEAD")

@@ -120,7 +120,7 @@ class CortexMCPServer:
         )
         return (
             "Cortex exposes local-first, user-owned AI memory over MCP. "
-            "Use node, edge, claim, query, branch, merge, blame, history, index, and prune tools "
+            "Use portability, node, edge, claim, query, branch, merge, blame, history, index, and prune tools "
             "to work with versioned memory without shelling out. "
             f"Release {PROJECT_VERSION} speaks API {API_VERSION} / OpenAPI {OPENAPI_VERSION}. "
             f"{namespace_message}"
@@ -196,6 +196,88 @@ class CortexMCPServer:
                 description="Read server metadata such as current branch, embedding provider, and log path.",
                 method_name="meta",
                 input_schema=_object_schema({}, include_namespace=False),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="portability_context",
+                title="Live Portability Context",
+                description=(
+                    "Return the current routed context slice for a target AI tool so agents can consume Cortex "
+                    "live instead of relying on stale instruction files."
+                ),
+                method_name="portability_context",
+                input_schema=_object_schema(
+                    {
+                        "target": _string_property(
+                            "Portability target such as claude-code, codex, cursor, copilot, gemini, windsurf, claude, chatgpt, or grok."
+                        ),
+                        "project_dir": _string_property(
+                            "Optional working directory used to focus project-relevant context."
+                        ),
+                        "smart": _boolean_property(
+                            "When true, return the target-specific routed slice. Defaults to the stored sync mode or smart routing."
+                        ),
+                        "policy": _string_property(
+                            "Disclosure policy to use when smart is false or no stored mode exists."
+                        ),
+                        "max_chars": _integer_property("Maximum size of the rendered context markdown."),
+                    },
+                    required=("target",),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="portability_scan",
+                title="Portability Scan",
+                description="Audit what each supported AI tool knows, how much context it has, and whether it is configured.",
+                method_name="portability_scan",
+                input_schema=_object_schema(
+                    {
+                        "project_dir": _string_property(
+                            "Project directory to inspect. Defaults to the current working directory."
+                        ),
+                        "search_roots": _array_property(
+                            "Extra directories to search for exports or portability artifacts.",
+                            items={"type": "string"},
+                        ),
+                    },
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="portability_status",
+                title="Portability Status",
+                description="Inspect which configured tools are stale, missing facts, or missing files.",
+                method_name="portability_status",
+                input_schema=_object_schema(
+                    {
+                        "project_dir": _string_property(
+                            "Project directory to inspect. Defaults to the current working directory."
+                        ),
+                    },
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="portability_audit",
+                title="Portability Audit",
+                description="Detect cross-tool drift, missing files, and context divergence across the portability surface.",
+                method_name="portability_audit",
+                input_schema=_object_schema(
+                    {
+                        "project_dir": _string_property(
+                            "Project directory to inspect. Defaults to the current working directory."
+                        ),
+                    },
+                    include_namespace=False,
+                ),
                 read_only=True,
                 namespace_param=False,
             ),

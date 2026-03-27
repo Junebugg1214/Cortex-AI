@@ -1,7 +1,8 @@
 import io
 import json
+from pathlib import Path
 
-from cortex.cli import build_parser
+from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
 from cortex.release import API_VERSION, PROJECT_VERSION
@@ -69,7 +70,59 @@ def test_mcp_initialize_and_list_tools(tmp_path):
     assert API_VERSION in initialize["result"]["instructions"]
     assert tool_list is not None
     names = {tool["name"] for tool in tool_list["result"]["tools"]}
-    assert {"node_upsert", "query_search", "merge_preview", "index_status"} <= names
+    assert {
+        "node_upsert",
+        "query_search",
+        "merge_preview",
+        "index_status",
+        "portability_context",
+        "portability_scan",
+        "portability_status",
+        "portability_audit",
+    } <= names
+
+
+def _portable_export_path(base: Path) -> Path:
+    export_path = base / "chatgpt-export.txt"
+    export_path.write_text(
+        (
+            "I am Marc. "
+            "I use Python, FastAPI, Next.js, and CockroachDB. "
+            "I prefer direct answers. "
+            "I am building Cortex-AI."
+        ),
+        encoding="utf-8",
+    )
+    return export_path
+
+
+def _seed_portability(base: Path, monkeypatch) -> tuple[Path, Path, Path]:
+    home_dir = base / "home"
+    project_dir = base / "project"
+    store_dir = base / ".cortex"
+    output_dir = base / "portable"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    export_path = _portable_export_path(base)
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "all",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_dir),
+            "--format",
+            "json",
+        ]
+    )
+    assert rc == 0
+    return project_dir, store_dir, output_dir
 
 
 def test_mcp_node_round_trip_and_query_search(tmp_path):
@@ -102,6 +155,121 @@ def test_mcp_node_round_trip_and_query_search(tmp_path):
     assert payload["commit"]["message"] == "add atlas via mcp"
     assert node_get["result"]["structuredContent"]["node"]["label"] == "Project Atlas"
     assert search["result"]["structuredContent"]["results"][0]["node"]["label"] == "Project Atlas"
+
+
+def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    baseline = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "claude-code", "project_dir": str(project_dir), "smart": False},
+        request_id=4,
+    )
+    baseline_payload = baseline["result"]["structuredContent"]
+
+    remember_rc = main(
+        [
+            "remember",
+            "We use CockroachDB now.",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    assert remember_rc == 0
+
+    claude_code = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "claude-code", "project_dir": str(project_dir), "smart": False},
+        request_id=5,
+    )
+    chatgpt = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "chatgpt", "project_dir": str(project_dir), "smart": True},
+        request_id=6,
+    )
+    claude_code_smart = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "claude-code", "project_dir": str(project_dir), "smart": True},
+        request_id=7,
+    )
+
+    claude_payload = claude_code["result"]["structuredContent"]
+    chatgpt_payload = chatgpt["result"]["structuredContent"]
+    claude_smart_payload = claude_code_smart["result"]["structuredContent"]
+    assert claude_code["result"]["isError"] is False
+    assert claude_payload["target"] == "claude-code"
+    assert claude_payload["mode"] == "full"
+    assert claude_payload["fact_count"] > baseline_payload["fact_count"]
+    assert claude_payload["labels"] != baseline_payload["labels"]
+    assert "Shared AI Context" in claude_payload["context_markdown"]
+    assert claude_code_smart["result"]["isError"] is False
+    assert claude_smart_payload["mode"] == "smart"
+    assert "Shared AI Context" in claude_smart_payload["context_markdown"]
+    assert chatgpt["result"]["isError"] is False
+    assert chatgpt_payload["target"] == "chatgpt"
+    assert chatgpt_payload["consume_as"] == "custom_instructions"
+    assert chatgpt_payload["target_payload"]["combined"]
+    assert chatgpt_payload["target_payload"]["respond"]
+
+
+def test_mcp_portability_scan_status_and_audit_report_drift(tmp_path, monkeypatch):
+    project_dir, store_dir, output_dir = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    copilot_path = project_dir / ".github" / "copilot-instructions.md"
+    copilot_path.write_text(copilot_path.read_text(encoding="utf-8") + "\nMongoDB\n", encoding="utf-8")
+    (output_dir / "claude" / "claude_memories.json").unlink()
+
+    scan = _tool_call(
+        server,
+        tool="portability_scan",
+        arguments={"project_dir": str(project_dir)},
+        request_id=7,
+    )
+    status = _tool_call(
+        server,
+        tool="portability_status",
+        arguments={"project_dir": str(project_dir)},
+        request_id=8,
+    )
+    audit = _tool_call(
+        server,
+        tool="portability_audit",
+        arguments={"project_dir": str(project_dir)},
+        request_id=9,
+    )
+
+    scan_payload = scan["result"]["structuredContent"]
+    scan_tools = {tool["target"]: tool for tool in scan_payload["tools"]}
+    status_payload = status["result"]["structuredContent"]
+    status_map = {item["target"]: item for item in status_payload["issues"]}
+    audit_payload = audit["result"]["structuredContent"]
+
+    assert scan["result"]["isError"] is False
+    assert scan_tools["copilot"]["unexpected_fact_count"] > 0
+    assert any(label == "MongoDB" for label in scan_tools["copilot"]["labels"])
+    assert status["result"]["isError"] is False
+    assert status_map["copilot"]["stale"] is True
+    assert status_map["claude"]["stale"] is True
+    assert any(
+        issue["type"] == "unexpected_context" and issue["target"] == "copilot" for issue in audit_payload["issues"]
+    )
+    assert any(issue["type"] == "missing_files" and issue["target"] == "claude" for issue in audit_payload["issues"])
 
 
 def test_mcp_namespace_scoped_session_blocks_cross_namespace_access(tmp_path):
