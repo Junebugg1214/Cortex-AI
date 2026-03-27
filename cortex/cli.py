@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Cortex CLI — unified migration tool: extract + import in a single command.
+Cortex CLI — own your AI context and take it everywhere.
 
 Usage:
-    cortex chatgpt-export.zip --to claude
+    cortex portable chatgpt-export.zip --to all
     cortex extract chatgpt-export.zip -o context.json
     cortex import context.json --to notion -o ./output
 """
@@ -206,7 +206,7 @@ def _finalize_extraction_output(
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="cortex",
-        description="Cortex — local AI identity and memory CLI.",
+        description="Cortex — portable AI context and memory CLI.",
     )
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -800,8 +800,8 @@ def build_parser():
         "-p",
         nargs="+",
         default=["claude-code"],
-        help="Target platforms: claude-code, claude-code-project, cursor, "
-        "copilot, windsurf, gemini-cli, or 'all' (default: claude-code)",
+        help="Target platforms: claude-code, claude-code-project, codex, cursor, "
+        "copilot, windsurf, gemini or gemini-cli, or 'all' (default: claude-code)",
     )
     cw.add_argument("--project", "-d", help="Project directory for per-project files (default: cwd)")
     cw.add_argument(
@@ -814,6 +814,39 @@ def build_parser():
     cw.add_argument("--dry-run", action="store_true", help="Preview without writing files")
     cw.add_argument("--watch", action="store_true", help="Watch graph file and auto-refresh on change")
     cw.add_argument("--interval", type=int, default=30, help="Watch poll interval in seconds (default: 30)")
+
+    # -- portable (one-command cross-tool context) -------------------------
+    pt = sub.add_parser("portable", help="One command to carry AI context across supported tools")
+    pt.add_argument("input_file", help="Path to a chat export or existing Cortex context graph")
+    pt.add_argument(
+        "--to",
+        "-t",
+        nargs="+",
+        default=["all"],
+        help="Targets: claude, claude-code, chatgpt, codex, gemini, grok, windsurf, cursor, or all",
+    )
+    pt.add_argument("--output", "-o", default="./portable", help="Output directory for context and generated artifacts")
+    pt.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    pt.add_argument(
+        "--input-format",
+        "-F",
+        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        default="auto",
+        help="Override input format auto-detection for export inputs",
+    )
+    pt.add_argument(
+        "--policy",
+        default="technical",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy for installed context and Claude artifacts",
+    )
+    pt.add_argument("--confidence", "-c", choices=["high", "medium", "low", "all"], default="medium")
+    pt.add_argument("--max-chars", type=int, default=1500, help="Max characters per installed context file")
+    pt.add_argument("--store-dir", default=".cortex", help="Identity store directory (default: .cortex)")
+    pt.add_argument("--dry-run", action="store_true", help="Preview without writing files")
+    pt.add_argument("--verbose", "-v", action="store_true")
+    pt.add_argument("--redact", action="store_true", help="Enable PII redaction when extracting raw exports")
+    pt.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
 
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
@@ -3688,21 +3721,19 @@ def run_context_export(args):
 
 def run_context_write(args):
     """Write identity context to AI coding tool config files."""
-    from cortex.context import CONTEXT_TARGETS, watch_and_refresh, write_context
+    from cortex.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh, write_context
 
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
         return 1
 
-    # Validate platform names
-    platforms = args.platforms
-    if "all" not in platforms:
-        for p in platforms:
-            if p not in CONTEXT_TARGETS:
-                print(f"Unknown platform: {p}")
-                print(f"Available: {', '.join(CONTEXT_TARGETS.keys())}, all")
-                return 1
+    try:
+        platforms = resolve_context_targets(args.platforms)
+    except ValueError as exc:
+        print(str(exc))
+        print(f"Available: {', '.join(CONTEXT_TARGETS.keys())}, all")
+        return 1
 
     if args.watch:
         watch_and_refresh(
@@ -3733,6 +3764,151 @@ def run_context_write(args):
             print(f"  {name}: {fpath} (dry-run)")
         else:
             print(f"  {name}: {status} {fpath}")
+
+    return 0
+
+
+def run_portable(args):
+    """One-command portability flow: load or extract context, then install it across tools."""
+    import tempfile
+
+    from cortex.context import write_context
+    from cortex.hooks import _load_graph
+    from cortex.import_memory import NormalizedContext
+    from cortex.portability import (
+        PORTABLE_DIRECT_TARGETS,
+        export_artifact_targets,
+        resolve_portable_targets,
+    )
+
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"File not found: {input_path}")
+        return 1
+
+    try:
+        targets = resolve_portable_targets(args.to)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    graph = _load_graph(str(input_path))
+    detected_kind = "graph"
+    extracted_stats = None
+
+    if graph is None:
+        try:
+            data, detected_format = load_file(input_path)
+        except Exception as exc:  # pragma: no cover - same behavior as extract
+            print(f"Error: {exc}")
+            return 1
+
+        fmt = args.input_format if args.input_format != "auto" else detected_format
+        redactor = None
+        if args.redact:
+            custom_patterns = None
+            if args.redact_patterns:
+                patterns_path = Path(args.redact_patterns)
+                if not patterns_path.exists():
+                    print(f"Redaction patterns file not found: {patterns_path}")
+                    return 1
+                with patterns_path.open("r", encoding="utf-8") as handle:
+                    custom_patterns = json.load(handle)
+            redactor = PIIRedactor(custom_patterns)
+
+        extractor = AggressiveExtractor(redactor=redactor)
+        v4_data = _run_extraction(extractor, data, fmt)
+        graph = upgrade_v4_to_v5(v4_data)
+        detected_kind = fmt
+        extracted_stats = extractor.context.stats()
+
+    graph_payload = graph.export_v5()
+    output_dir = Path(args.output)
+    context_path = output_dir / "context.json"
+
+    if args.dry_run:
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_context_path = Path(temp_dir.name) / "context.json"
+        temp_context_path.write_text(json.dumps(graph_payload, indent=2), encoding="utf-8")
+        graph_path_for_installs = temp_context_path
+    else:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        context_path.write_text(json.dumps(graph_payload, indent=2), encoding="utf-8")
+        graph_path_for_installs = context_path
+        temp_dir = None
+
+    ctx = NormalizedContext.from_v5(graph_payload)
+    min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
+
+    identity = None
+    store_dir = Path(args.store_dir)
+    identity_path = store_dir / "identity.json"
+    if identity_path.exists():
+        identity = UPAIIdentity.load(store_dir)
+
+    direct_platforms: list[str] = []
+    artifact_targets: list[str] = []
+    for target in targets:
+        if target in PORTABLE_DIRECT_TARGETS:
+            direct_platforms.extend(PORTABLE_DIRECT_TARGETS[target])
+        else:
+            artifact_targets.append(target)
+
+    direct_results = []
+    if direct_platforms:
+        direct_results = write_context(
+            graph_path=str(graph_path_for_installs),
+            platforms=direct_platforms,
+            project_dir=args.project,
+            policy=args.policy,
+            max_chars=args.max_chars,
+            dry_run=args.dry_run,
+        )
+
+    artifact_results = export_artifact_targets(
+        graph,
+        ctx,
+        artifact_targets,
+        output_dir,
+        policy_name=args.policy,
+        min_confidence=min_conf,
+        identity=identity,
+        dry_run=args.dry_run,
+    )
+
+    print("Portable context ready:")
+    if args.dry_run:
+        print(f"  context: {context_path} (dry-run)")
+    else:
+        print(f"  context: {context_path}")
+
+    print(f"  source: {detected_kind}")
+    if extracted_stats is not None and (args.verbose or True):
+        print(f"  extracted: {extracted_stats['total']} topics across {len(extracted_stats['by_category'])} categories")
+
+    if direct_results:
+        print("\nDirect installs:")
+        for name, fpath, status in direct_results:
+            display_name = "gemini" if name == "gemini-cli" else name
+            if status == "skipped":
+                print(f"  {display_name}: skipped")
+            elif status == "error":
+                print(f"  {display_name}: error writing {fpath}")
+            elif status == "dry-run":
+                print(f"  {display_name}: {fpath} (dry-run)")
+            else:
+                print(f"  {display_name}: {status} {fpath}")
+
+    if artifact_results:
+        print("\nImport-ready artifacts:")
+        for result in artifact_results:
+            joined = ", ".join(str(path) for path in result.paths)
+            print(f"  {result.target}: {joined} ({result.status})")
+            if result.note:
+                print(f"    {result.note}")
+
+    if temp_dir is not None:
+        temp_dir.cleanup()
 
     return 0
 
@@ -4035,8 +4211,10 @@ def main(argv=None):
         "context-hook",
         "context-export",
         "context-write",
+        "portable",
         "ui",
         "benchmark",
+        "server",
         "mcp",
         "backup",
         "openapi",
@@ -4155,6 +4333,8 @@ def main(argv=None):
         return run_rotate(args)
     elif args.subcommand == "context-write":
         return run_context_write(args)
+    elif args.subcommand == "portable":
+        return run_portable(args)
     elif args.subcommand == "ui":
         return run_ui(args)
     elif args.subcommand == "benchmark":

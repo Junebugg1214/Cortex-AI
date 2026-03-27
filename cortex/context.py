@@ -1,8 +1,8 @@
 """
-Cross-Platform Context Writer — Write Cortex identity to AI tool config files.
+Cross-platform AI context writer for coding tools.
 
-Supports: Claude Code, Cursor, GitHub Copilot, Windsurf, Gemini CLI.
-Uses non-destructive section markers to coexist with user content.
+Writes compact shared context into the instruction files these tools already
+understand, while preserving user-owned content outside Cortex markers.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def _format_cursor_mdc(content: str) -> str:
     """Format as Cursor .mdc file with YAML frontmatter + markers."""
     return (
         "---\n"
-        "description: Cortex identity context (auto-generated)\n"
+        "description: Cortex shared AI context (auto-generated)\n"
         "globs:\n"
         "alwaysApply: true\n"
         "---\n\n"
@@ -63,19 +63,27 @@ class PlatformTarget:
 CONTEXT_TARGETS: dict[str, PlatformTarget] = {
     "claude-code": PlatformTarget(
         name="claude-code",
-        file_path="{home}/.claude/MEMORY.md",
+        file_path="{home}/.claude/CLAUDE.md",
         scope="global",
         default_policy="technical",
         format_fn=_format_plain,
-        description="Claude Code global memory",
+        description="Claude Code global instructions",
     ),
     "claude-code-project": PlatformTarget(
         name="claude-code-project",
-        file_path="{project}/.claude/MEMORY.md",
+        file_path="{project}/CLAUDE.md",
         scope="project",
         default_policy="technical",
         format_fn=_format_plain,
-        description="Claude Code per-project memory",
+        description="Claude Code project instructions",
+    ),
+    "codex": PlatformTarget(
+        name="codex",
+        file_path="{project}/AGENTS.md",
+        scope="project",
+        default_policy="technical",
+        format_fn=_format_plain,
+        description="Codex project instructions",
     ),
     "cursor": PlatformTarget(
         name="cursor",
@@ -109,6 +117,10 @@ CONTEXT_TARGETS: dict[str, PlatformTarget] = {
         format_fn=_format_plain,
         description="Gemini CLI context",
     ),
+}
+
+CONTEXT_TARGET_ALIASES: dict[str, str] = {
+    "gemini": "gemini-cli",
 }
 
 
@@ -185,6 +197,24 @@ def _resolve_path(template: str, project_dir: str | None = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def resolve_context_targets(platforms: list[str]) -> list[str]:
+    """Resolve aliases and validate context target names.
+
+    The special token ``all`` expands to canonical target names only.
+    """
+    if "all" in platforms:
+        return list(CONTEXT_TARGETS.keys())
+
+    resolved: list[str] = []
+    for platform_name in platforms:
+        canonical = CONTEXT_TARGET_ALIASES.get(platform_name, platform_name)
+        if canonical not in CONTEXT_TARGETS:
+            raise ValueError(f"Unknown platform: {platform_name}")
+        if canonical not in resolved:
+            resolved.append(canonical)
+    return resolved
+
+
 def write_context(
     graph_path: str,
     platforms: list[str],
@@ -207,14 +237,13 @@ def write_context(
         List of (platform_name, file_path, status) tuples.
         Status: "created", "updated", "skipped", "dry-run", "error".
     """
-    # Resolve "all"
+    results: list[tuple[str, Path, str]] = []
     if "all" in platforms:
         platforms = list(CONTEXT_TARGETS.keys())
 
-    results: list[tuple[str, Path, str]] = []
-
     for platform_name in platforms:
-        target = CONTEXT_TARGETS.get(platform_name)
+        canonical_name = CONTEXT_TARGET_ALIASES.get(platform_name, platform_name)
+        target = CONTEXT_TARGETS.get(canonical_name)
         if target is None:
             results.append((platform_name, Path(""), "skipped"))
             continue
@@ -243,9 +272,9 @@ def write_context(
         # Write
         try:
             status = _write_non_destructive(file_path, formatted, dry_run=dry_run)
-            results.append((platform_name, file_path, status))
+            results.append((canonical_name, file_path, status))
         except (OSError, PermissionError):
-            results.append((platform_name, file_path, "error"))
+            results.append((canonical_name, file_path, "error"))
 
     return results
 
