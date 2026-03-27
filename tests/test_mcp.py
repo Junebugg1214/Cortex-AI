@@ -5,6 +5,7 @@ from pathlib import Path
 from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
+from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
@@ -125,6 +126,60 @@ def _seed_portability(base: Path, monkeypatch) -> tuple[Path, Path, Path]:
     return project_dir, store_dir, output_dir
 
 
+def _seed_portability_graph(base: Path, monkeypatch) -> tuple[Path, Path, Path]:
+    home_dir = base / "home"
+    project_dir = base / "project"
+    store_dir = base / ".cortex"
+    output_dir = base / "portable"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    graph = CortexGraph()
+    graph.add_node(
+        Node(
+            id="n-tech",
+            label="Python",
+            tags=["technical_expertise"],
+            confidence=0.92,
+            brief="Primary language: Python",
+        )
+    )
+    graph.add_node(
+        Node(
+            id="n-name",
+            label="Marc",
+            tags=["identity"],
+            confidence=0.97,
+            brief="Name: Marc",
+        )
+    )
+    graph.add_node(
+        Node(
+            id="n-pref",
+            label="Direct answers",
+            tags=["communication_preferences"],
+            confidence=0.91,
+            brief="Prefers direct answers",
+        )
+    )
+
+    state = load_portability_state(store_dir)
+    state, graph_path = save_canonical_graph(store_dir, graph, state=state, graph_path=output_dir / "context.json")
+    sync_targets(
+        graph,
+        targets=["chatgpt", "claude-code"],
+        store_dir=store_dir,
+        project_dir=str(project_dir),
+        output_dir=output_dir,
+        graph_path=graph_path,
+        policy_name="technical",
+        smart=False,
+        state=state,
+    )
+    return project_dir, store_dir, output_dir
+
+
 def test_mcp_node_round_trip_and_query_search(tmp_path):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -222,6 +277,76 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
     assert chatgpt_payload["consume_as"] == "custom_instructions"
     assert chatgpt_payload["target_payload"]["combined"]
     assert chatgpt_payload["target_payload"]["respond"]
+
+
+def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability_graph(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    technical = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "chatgpt", "project_dir": str(project_dir), "smart": False, "policy": "technical"},
+        request_id=10,
+    )
+    full = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "chatgpt", "project_dir": str(project_dir), "smart": False, "policy": "full"},
+        request_id=11,
+    )
+
+    technical_payload = technical["result"]["structuredContent"]
+    full_payload = full["result"]["structuredContent"]
+
+    assert technical["result"]["isError"] is False
+    assert full["result"]["isError"] is False
+    assert technical_payload["policy"] == "technical"
+    assert full_payload["policy"] == "full"
+    assert technical_payload["labels"] == ["Python"]
+    assert {"Marc", "Python", "Direct answers"} <= set(full_payload["labels"])
+
+
+def test_mcp_portability_context_uses_canonical_updated_at_after_cli_changes(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    state = load_portability_state(store_dir)
+    stale_time = "2000-01-01T00:00:00Z"
+    state.updated_at = stale_time
+    state.targets["chatgpt"].updated_at = stale_time
+    save_portability_state(store_dir, state)
+
+    remember_rc = main(
+        [
+            "remember",
+            "We use CockroachDB now.",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    assert remember_rc == 0
+
+    payload = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "chatgpt", "project_dir": str(project_dir), "smart": True},
+        request_id=12,
+    )["result"]["structuredContent"]
+    refreshed_state = load_portability_state(store_dir)
+
+    assert payload["updated_at"] != stale_time
+    assert payload["updated_at"] == refreshed_state.updated_at
 
 
 def test_mcp_portability_scan_status_and_audit_report_drift(tmp_path, monkeypatch):
