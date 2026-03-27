@@ -75,6 +75,7 @@ class TestPortabilityHelpers:
             "claude-code",
             "chatgpt",
             "codex",
+            "copilot",
             "gemini",
             "grok",
             "windsurf",

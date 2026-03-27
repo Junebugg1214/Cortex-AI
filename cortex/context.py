@@ -181,13 +181,16 @@ def _resolve_path(template: str, project_dir: str | None = None) -> Path:
 
     Validates that the resolved path is under home or project directory (#30).
     """
-    home = str(Path.home())
+    home_path = Path.home()
+    home = str(home_path)
     resolved = template.replace("{home}", home)
     project = project_dir or os.getcwd()
     resolved = resolved.replace("{project}", project)
     result = Path(resolved).resolve()
+    resolved_home = home_path.resolve()
+    resolved_project = Path(project).resolve()
     # Validate the resolved path is under home or project (#30)
-    if not (str(result).startswith(home) or str(result).startswith(str(Path(project).resolve()))):
+    if not (str(result).startswith(str(resolved_home)) or str(result).startswith(str(resolved_project))):
         raise ValueError(f"Resolved path {result} is outside allowed directories")
     return Path(resolved)
 

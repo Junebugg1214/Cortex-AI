@@ -543,13 +543,36 @@ def build_parser():
     br.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- switch (Git-for-AI-Memory) ---------------------------------------
-    sw = sub.add_parser("switch", help="Switch the active memory branch")
-    sw.add_argument("branch_name", help="Branch name to switch to")
+    sw = sub.add_parser("switch", help="Switch the active memory branch or migrate context to another AI tool")
+    sw.add_argument("branch_name", nargs="?", help="Branch name to switch to")
     sw.add_argument("-c", "--create", action="store_true", help="Create the branch if it does not exist")
     sw.add_argument(
         "--from", dest="from_ref", default="HEAD", help="Start point when creating a branch (default: HEAD)"
     )
     sw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    sw.add_argument(
+        "--to",
+        dest="to_platform",
+        choices=["claude", "claude-code", "chatgpt", "codex", "copilot", "gemini", "grok", "windsurf", "cursor"],
+        help="Portable platform switch target. When set, --from is treated as the source export/context path.",
+    )
+    sw.add_argument("--output", "-o", help="Output directory for generated switch artifacts")
+    sw.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    sw.add_argument(
+        "--input-format",
+        "-F",
+        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        default="auto",
+        help="Override input format detection when using portable switch mode",
+    )
+    sw.add_argument(
+        "--policy",
+        default="technical",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy for portable switch mode",
+    )
+    sw.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
+    sw.add_argument("--dry-run", action="store_true", help="Preview portable switch without writing files")
 
     # -- merge (Git-for-AI-Memory) ----------------------------------------
     mg = sub.add_parser("merge", help="Merge another memory branch/ref into the current branch")
@@ -683,9 +706,9 @@ def build_parser():
     rem_fork.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
 
     # -- sync (Phase 3) ----------------------------------------------------
-    sy = sub.add_parser("sync", help="Disclosure-filtered export via platform adapters")
-    sy.add_argument("input_file", help="Path to context JSON (v4 or v5)")
-    sy.add_argument("--to", "-t", required=True, choices=list(ADAPTERS.keys()), help="Target platform adapter")
+    sy = sub.add_parser("sync", help="Disclosure-filtered export or smart context propagation")
+    sy.add_argument("input_file", nargs="?", help="Path to context JSON (v4 or v5)")
+    sy.add_argument("--to", "-t", help="Target platform adapter (legacy mode)")
     sy.add_argument(
         "--policy",
         "-p",
@@ -695,6 +718,10 @@ def build_parser():
     )
     sy.add_argument("--output", "-o", default="./output", help="Output directory")
     sy.add_argument("--store-dir", default=".cortex", help="Identity store directory (default: .cortex)")
+    sy.add_argument("--smart", action="store_true", help="Route the right context slice to each supported AI tool")
+    sy.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    sy.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
+    sy.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- verify (Phase 3) --------------------------------------------------
     vr = sub.add_parser("verify", help="Verify a signed export")
@@ -823,7 +850,7 @@ def build_parser():
         "-t",
         nargs="+",
         default=["all"],
-        help="Targets: claude, claude-code, chatgpt, codex, gemini, grok, windsurf, cursor, or all",
+        help="Targets: claude, claude-code, chatgpt, codex, copilot, gemini, grok, windsurf, cursor, or all",
     )
     pt.add_argument("--output", "-o", default="./portable", help="Output directory for context and generated artifacts")
     pt.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
@@ -847,6 +874,84 @@ def build_parser():
     pt.add_argument("--verbose", "-v", action="store_true")
     pt.add_argument("--redact", action="store_true", help="Enable PII redaction when extracting raw exports")
     pt.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+
+    scn = sub.add_parser("scan", help="Audit what each supported AI tool knows about you")
+    scn.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    scn.add_argument("--project", "-d", help="Project directory to inspect (default: cwd)")
+    scn.add_argument(
+        "--search-root",
+        action="append",
+        default=[],
+        help="Extra directory to search for chat exports or tool artifacts (repeatable)",
+    )
+    scn.add_argument("--format", choices=["json", "text"], default="text")
+
+    rem = sub.add_parser("remember", help="Teach Cortex something once and propagate it everywhere")
+    rem.add_argument("statement", help="Plain-language fact or preference to remember")
+    rem.add_argument(
+        "--to",
+        "-t",
+        nargs="+",
+        default=["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"],
+        help="Direct-write targets to update after remembering",
+    )
+    rem.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    rem.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    rem.add_argument("--smart", action="store_true", help="Use smart per-tool routing when propagating")
+    rem.add_argument(
+        "--policy",
+        default="full",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy when propagating remembered context",
+    )
+    rem.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
+    rem.add_argument("--dry-run", action="store_true", help="Preview without writing files")
+    rem.add_argument("--format", choices=["json", "text"], default="text")
+
+    sts = sub.add_parser("status", help="Show stale or missing AI context across configured tools")
+    sts.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    sts.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    sts.add_argument("--format", choices=["json", "text"], default="text")
+
+    bld = sub.add_parser("build", help="Build portable AI context from your existing digital footprint")
+    bld.add_argument(
+        "--from",
+        dest="sources",
+        action="append",
+        required=True,
+        help="Source to build from: github, resume, package.json, git-history",
+    )
+    bld.add_argument("inputs", nargs="*", help="Optional input paths consumed by sources like resume")
+    bld.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    bld.add_argument("--project", "-d", help="Project directory for manifests and git history (default: cwd)")
+    bld.add_argument(
+        "--search-root",
+        action="append",
+        default=[],
+        help="Extra root to search for GitHub repos when using --from github",
+    )
+    bld.add_argument("--sync", action="store_true", help="Propagate the built context immediately after import")
+    bld.add_argument(
+        "--to",
+        "-t",
+        nargs="+",
+        default=["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"],
+        help="Targets to update when --sync is enabled",
+    )
+    bld.add_argument("--smart", action="store_true", help="Use smart per-tool routing when syncing")
+    bld.add_argument(
+        "--policy",
+        default="technical",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy when syncing after build",
+    )
+    bld.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
+    bld.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud = sub.add_parser("audit", help="Detect conflicts and drift across AI tools and live project context")
+    aud.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    aud.add_argument("--project", "-d", help="Project directory for live manifest comparison (default: cwd)")
+    aud.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
@@ -2589,7 +2694,36 @@ def run_branch(args):
 
 
 def run_switch(args):
-    """Switch the active memory branch."""
+    """Switch the active memory branch or run a platform portability migration."""
+    if getattr(args, "to_platform", None):
+        from cortex.portable_runtime import default_output_dir, switch_portability
+
+        input_path = Path(args.from_ref)
+        if not input_path.exists():
+            print(f"File not found: {input_path}")
+            return 1
+        project_dir = Path(args.project) if args.project else Path.cwd()
+        output_dir = Path(args.output) if args.output else default_output_dir(Path(args.store_dir))
+        payload = switch_portability(
+            input_path,
+            to_target=args.to_platform,
+            store_dir=Path(args.store_dir),
+            project_dir=project_dir,
+            output_dir=output_dir,
+            input_format=args.input_format,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+            dry_run=args.dry_run,
+        )
+        print(f"Portable switch ready: {payload['source']} -> {args.to_platform}")
+        for result in payload["targets"]:
+            joined = ", ".join(result["paths"]) if result["paths"] else "(no files)"
+            print(f"  {result['target']}: {joined} [{result['status']}]")
+        return 0
+
+    if not args.branch_name:
+        print("Specify a branch name, or use --to for platform switch mode.")
+        return 1
     store = get_storage_backend(Path(args.store_dir)).versions
     try:
         if args.create:
@@ -3187,10 +3321,58 @@ def run_remote(args):
 
 
 def run_sync(args):
-    """Disclosure-filtered export via platform adapters."""
+    """Disclosure-filtered export via platform adapters or smart portability sync."""
+    if getattr(args, "smart", False):
+        from cortex.portable_runtime import (
+            ALL_PORTABLE_TARGETS,
+            default_output_dir,
+            load_canonical_graph,
+            load_portability_state,
+            sync_targets,
+        )
+
+        store_dir = Path(args.store_dir)
+        state = load_portability_state(store_dir)
+        graph, graph_path = load_canonical_graph(store_dir, state)
+        if not graph.nodes:
+            print(
+                "No canonical portability context found. Run `cortex portable`, `cortex build`, or `cortex remember` first."
+            )
+            return 1
+        project_dir = (
+            Path(args.project) if args.project else Path(state.project_dir) if state.project_dir else Path.cwd()
+        )
+        output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+        payload = sync_targets(
+            graph,
+            targets=ALL_PORTABLE_TARGETS,
+            store_dir=store_dir,
+            project_dir=str(project_dir),
+            output_dir=output_dir,
+            graph_path=graph_path,
+            policy_name=args.policy,
+            smart=True,
+            max_chars=args.max_chars,
+            state=state,
+        )
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        print("Smart context sync complete:")
+        for target in payload["targets"]:
+            label = target["target"]
+            print(f"  {label:<12} → {', '.join(target['route_tags']) or 'default route'}")
+        return 0
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
+        return 1
+
+    if not args.to:
+        print("Specify --to for adapter export mode, or use --smart.")
+        return 1
+    if args.to not in ADAPTERS:
+        print(f"Unknown adapter target: {args.to}")
         return 1
 
     graph = _load_graph(input_path)
@@ -3770,15 +3952,13 @@ def run_context_write(args):
 
 def run_portable(args):
     """One-command portability flow: load or extract context, then install it across tools."""
-    import tempfile
-
-    from cortex.context import write_context
-    from cortex.hooks import _load_graph
-    from cortex.import_memory import NormalizedContext
-    from cortex.portability import (
-        PORTABLE_DIRECT_TARGETS,
-        export_artifact_targets,
-        resolve_portable_targets,
+    from cortex.hooks import _load_graph as load_graph_optional
+    from cortex.portability import resolve_portable_targets
+    from cortex.portable_runtime import (
+        default_output_dir,
+        save_canonical_graph,
+        switch_portability,
+        sync_targets,
     )
 
     input_path = Path(args.input_file)
@@ -3792,7 +3972,7 @@ def run_portable(args):
         print(str(exc))
         return 1
 
-    graph = _load_graph(str(input_path))
+    graph = load_graph_optional(str(input_path))
     detected_kind = "graph"
     extracted_stats = None
 
@@ -3822,94 +4002,188 @@ def run_portable(args):
         detected_kind = fmt
         extracted_stats = extractor.context.stats()
 
-    graph_payload = graph.export_v5()
     output_dir = Path(args.output)
-    context_path = output_dir / "context.json"
-
-    if args.dry_run:
-        temp_dir = tempfile.TemporaryDirectory()
-        temp_context_path = Path(temp_dir.name) / "context.json"
-        temp_context_path.write_text(json.dumps(graph_payload, indent=2), encoding="utf-8")
-        graph_path_for_installs = temp_context_path
-    else:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        context_path.write_text(json.dumps(graph_payload, indent=2), encoding="utf-8")
-        graph_path_for_installs = context_path
-        temp_dir = None
-
-    ctx = NormalizedContext.from_v5(graph_payload)
-    min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
+    store_dir = Path(args.store_dir)
+    project_dir = Path(args.project) if args.project else Path.cwd()
 
     identity = None
-    store_dir = Path(args.store_dir)
     identity_path = store_dir / "identity.json"
     if identity_path.exists():
         identity = UPAIIdentity.load(store_dir)
 
-    direct_platforms: list[str] = []
-    artifact_targets: list[str] = []
-    for target in targets:
-        if target in PORTABLE_DIRECT_TARGETS:
-            direct_platforms.extend(PORTABLE_DIRECT_TARGETS[target])
-        else:
-            artifact_targets.append(target)
-
-    direct_results = []
-    if direct_platforms:
-        direct_results = write_context(
-            graph_path=str(graph_path_for_installs),
-            platforms=direct_platforms,
-            project_dir=args.project,
-            policy=args.policy,
+    if args.dry_run:
+        graph_path_for_installs = output_dir / "context.json"
+    else:
+        state, graph_path_for_installs = save_canonical_graph(store_dir, graph, graph_path=output_dir / "context.json")
+        payload = sync_targets(
+            graph,
+            targets=targets,
+            store_dir=store_dir,
+            project_dir=str(project_dir),
+            output_dir=output_dir if args.output else default_output_dir(store_dir),
+            graph_path=graph_path_for_installs,
+            policy_name=args.policy,
+            smart=False,
             max_chars=args.max_chars,
-            dry_run=args.dry_run,
+            dry_run=False,
+            state=state,
+            identity=identity,
         )
-
-    artifact_results = export_artifact_targets(
-        graph,
-        ctx,
-        artifact_targets,
-        output_dir,
-        policy_name=args.policy,
-        min_confidence=min_conf,
-        identity=identity,
-        dry_run=args.dry_run,
-    )
+    if args.dry_run:
+        payload = switch_portability(
+            input_path,
+            to_target=targets[0] if len(targets) == 1 else targets[0],
+            store_dir=store_dir,
+            project_dir=project_dir,
+            output_dir=output_dir,
+            input_format=args.input_format,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+            dry_run=True,
+        )
+        if len(targets) > 1:
+            payload = {
+                "source": detected_kind,
+                "graph_path": str(output_dir / "context.json"),
+                "targets": sync_targets(
+                    graph,
+                    targets=targets,
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=output_dir / "context.json",
+                    policy_name=args.policy,
+                    smart=False,
+                    max_chars=args.max_chars,
+                    dry_run=True,
+                    identity=identity,
+                )["targets"],
+            }
 
     print("Portable context ready:")
-    if args.dry_run:
-        print(f"  context: {context_path} (dry-run)")
-    else:
-        print(f"  context: {context_path}")
-
+    print(f"  context: {graph_path_for_installs}" + (" (dry-run)" if args.dry_run else ""))
     print(f"  source: {detected_kind}")
     if extracted_stats is not None and (args.verbose or True):
         print(f"  extracted: {extracted_stats['total']} topics across {len(extracted_stats['by_category'])} categories")
 
-    if direct_results:
-        print("\nDirect installs:")
-        for name, fpath, status in direct_results:
-            display_name = "gemini" if name == "gemini-cli" else name
-            if status == "skipped":
-                print(f"  {display_name}: skipped")
-            elif status == "error":
-                print(f"  {display_name}: error writing {fpath}")
-            elif status == "dry-run":
-                print(f"  {display_name}: {fpath} (dry-run)")
-            else:
-                print(f"  {display_name}: {status} {fpath}")
+    if payload["targets"]:
+        print("\nTargets:")
+        for result in payload["targets"]:
+            joined = ", ".join(result["paths"]) if result["paths"] else "(no files)"
+            print(f"  {result['target']}: {joined} [{result['status']}]")
+            if result.get("note"):
+                print(f"    {result['note']}")
 
-    if artifact_results:
-        print("\nImport-ready artifacts:")
-        for result in artifact_results:
-            joined = ", ".join(str(path) for path in result.paths)
-            print(f"  {result.target}: {joined} ({result.status})")
-            if result.note:
-                print(f"    {result.note}")
+    return 0
 
-    if temp_dir is not None:
-        temp_dir.cleanup()
 
+def run_scan(args):
+    from cortex.portable_runtime import bar, scan_portability
+
+    payload = scan_portability(
+        store_dir=Path(args.store_dir),
+        project_dir=Path(args.project) if args.project else Path.cwd(),
+        extra_roots=[Path(root) for root in args.search_root],
+    )
+    if _emit_result(payload, args.format) == 0:
+        return 0
+
+    print(f"Found {len(payload['tools'])} AI tools:\n")
+    for tool in payload["tools"]:
+        line = f"  {tool['name']:<12} {bar(tool['coverage'])}  {tool['fact_count']:>3} facts"
+        if tool["note"]:
+            line += f"  ({tool['note']})"
+        print(line)
+    percent = round(payload["coverage"] * 100)
+    print(f"\nYour AI tools know {percent}% of your full context.")
+    print("Run `cortex sync --smart` or `cortex remember` to fix this.")
+    return 0
+
+
+def run_remember(args):
+    from cortex.portable_runtime import remember_and_sync
+
+    payload = remember_and_sync(
+        args.statement,
+        store_dir=Path(args.store_dir),
+        project_dir=Path(args.project) if args.project else Path.cwd(),
+        targets=args.to,
+        smart=args.smart,
+        policy_name=args.policy,
+        max_chars=args.max_chars,
+        dry_run=args.dry_run,
+    )
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    print("Remembered once. Updated:")
+    for target in payload["targets"]:
+        joined = ", ".join(target["paths"]) if target["paths"] else "(no files)"
+        print(f"  {target['target']:<12} → {joined}")
+    return 0
+
+
+def run_status(args):
+    from cortex.portable_runtime import status_portability
+
+    payload = status_portability(
+        store_dir=Path(args.store_dir),
+        project_dir=Path(args.project) if args.project else Path.cwd(),
+    )
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    for issue in payload["issues"]:
+        prefix = "WARN" if issue["stale"] else "OK"
+        line = f"{prefix} {issue['name']}"
+        if issue["stale_days"] is not None:
+            line += f" - {issue['stale_days']} days since last update"
+        print(line)
+        if issue["missing_labels"]:
+            print("  Missing:", "; ".join(issue["missing_labels"]))
+    return 0
+
+
+def run_build(args):
+    from cortex.portable_runtime import build_digital_footprint
+
+    try:
+        payload = build_digital_footprint(
+            sources=args.sources,
+            inputs=args.inputs,
+            store_dir=Path(args.store_dir),
+            project_dir=Path(args.project) if args.project else Path.cwd(),
+            search_roots=[Path(root) for root in args.search_root],
+            sync_after=args.sync,
+            targets=args.to,
+            smart=args.smart,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    for source in payload["sources"]:
+        print(f"{source['source']}: {json.dumps(source, ensure_ascii=False)}")
+    print(f"Built context graph with {payload['fact_count']} facts")
+    return 0
+
+
+def run_audit(args):
+    from cortex.portable_runtime import audit_portability
+
+    payload = audit_portability(
+        store_dir=Path(args.store_dir),
+        project_dir=Path(args.project) if args.project else Path.cwd(),
+    )
+    if _emit_result(payload, args.format) == 0:
+        return 0
+    if not payload["issues"]:
+        print("No cross-platform conflicts detected.")
+        return 0
+    print("Detected context conflicts:\n")
+    for issue in payload["issues"]:
+        print(f"  [{issue['tag']}] {issue['message']}")
     return 0
 
 
@@ -4212,6 +4486,11 @@ def main(argv=None):
         "context-export",
         "context-write",
         "portable",
+        "scan",
+        "remember",
+        "status",
+        "build",
+        "audit",
         "ui",
         "benchmark",
         "server",
@@ -4335,6 +4614,16 @@ def main(argv=None):
         return run_context_write(args)
     elif args.subcommand == "portable":
         return run_portable(args)
+    elif args.subcommand == "scan":
+        return run_scan(args)
+    elif args.subcommand == "remember":
+        return run_remember(args)
+    elif args.subcommand == "status":
+        return run_status(args)
+    elif args.subcommand == "build":
+        return run_build(args)
+    elif args.subcommand == "audit":
+        return run_audit(args)
     elif args.subcommand == "ui":
         return run_ui(args)
     elif args.subcommand == "benchmark":
