@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 
 from cortex.cli import main
+from cortex.mcp import CortexMCPServer
+from cortex.service import MemoryService
+from cortex.storage import build_sqlite_backend
 
 
 def _init_git_repo(project: Path) -> None:
@@ -20,6 +24,36 @@ def _init_git_repo(project: Path) -> None:
     subprocess.run(
         ["git", "commit", "-m", "feat: bootstrap portability smoke"], cwd=project, check=True, capture_output=True
     )
+
+
+def _initialize_mcp(server: CortexMCPServer) -> None:
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "clientInfo": {"name": "pytest", "version": "1.0"},
+            },
+        }
+    )
+    assert response is not None
+    server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+
+def _mcp_tool_call(server: CortexMCPServer, tool: str, arguments: dict, request_id: int) -> dict:
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": arguments},
+        }
+    )
+    assert response is not None
+    assert response["result"]["isError"] is False
+    return response["result"]["structuredContent"]
 
 
 def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, capsys, monkeypatch):
@@ -525,3 +559,173 @@ def test_portability_edge_smoke_handles_all_targets_and_clamps_scan_coverage(tmp
     assert rc == 0
     assert (switch_dir / "grok" / "context_prompt.md").exists()
     assert (switch_dir / "grok" / "context_prompt.json").exists()
+
+
+def test_portability_edge_smoke_handles_multi_source_exports_with_live_mcp(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    sources_dir = tmp_path / "sources"
+    sources_dir.mkdir()
+
+    chatgpt_zip = sources_dir / "chatgpt-export.zip"
+    with zipfile.ZipFile(chatgpt_zip, "w") as zf:
+        zf.writestr(
+            "conversations.json",
+            json.dumps(
+                [
+                    {
+                        "mapping": {
+                            "msg-1": {
+                                "message": {
+                                    "author": {"role": "user"},
+                                    "content": {"parts": ["I am Marc. I use Python and FastAPI."]},
+                                    "create_time": "2025-01-01T00:00:00Z",
+                                }
+                            }
+                        }
+                    }
+                ]
+            ),
+        )
+
+    gemini_zip = sources_dir / "gemini-export.zip"
+    with zipfile.ZipFile(gemini_zip, "w") as zf:
+        zf.writestr(
+            "exports/gemini.json",
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "turns": [
+                                {
+                                    "role": "user",
+                                    "text": "I am Nadia. I use TypeScript and React. Please be concise.",
+                                    "timestamp": "2025-01-02T00:00:00Z",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ),
+        )
+
+    claude_code_jsonl = sources_dir / "claude-code.jsonl"
+    claude_code_jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "user",
+                        "sessionId": "session-1",
+                        "cwd": "/tmp/project",
+                        "message": {"content": [{"text": "I am Jules. We use FastAPI and pytest."}]},
+                        "timestamp": "2025-01-03T00:00:00Z",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "sessionId": "session-1",
+                        "cwd": "/tmp/project",
+                        "message": {"content": [{"text": "Understood."}]},
+                        "timestamp": "2025-01-03T00:00:01Z",
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    api_logs_json = sources_dir / "codex-api-logs.json"
+    api_logs_json.write_text(
+        json.dumps(
+            {
+                "requests": [
+                    {
+                        "timestamp": "2025-01-04T00:00:00Z",
+                        "messages": [
+                            {"role": "system", "content": "You are helpful."},
+                            {
+                                "role": "user",
+                                "content": [{"type": "text", "text": "I am River. We use Redis and CockroachDB."}],
+                            },
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = [
+        (chatgpt_zip, {"Marc", "Python", "Fastapi"}),
+        (gemini_zip, {"Nadia", "Typescript", "React"}),
+        (claude_code_jsonl, {"Jules", "Fastapi", "Pytest"}),
+        (api_logs_json, {"River", "Redis", "CockroachDB"}),
+    ]
+
+    request_id = 10
+    for index, (source_path, expected_labels) in enumerate(cases):
+        project_dir = tmp_path / f"project-{index}"
+        store_dir = tmp_path / f".cortex-{index}"
+        output_dir = tmp_path / f"portable-{index}"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text("# Portability Source\n\nStress test project.\n", encoding="utf-8")
+
+        rc = main(
+            [
+                "portable",
+                str(source_path),
+                "--to",
+                "all",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--output",
+                str(output_dir),
+                "--format",
+                "json",
+            ]
+        )
+        portable = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert portable["target_count"] == 9
+        assert portable["extracted"]["total"] > 0
+
+        rc = main(
+            [
+                "scan",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        scan = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert all(tool["configured"] for tool in scan["tools"])
+
+        backend = build_sqlite_backend(store_dir)
+        server = CortexMCPServer(service=MemoryService(store_dir=store_dir, backend=backend))
+        _initialize_mcp(server)
+        payload = _mcp_tool_call(
+            server,
+            "portability_context",
+            {
+                "target": "chatgpt",
+                "project_dir": str(project_dir),
+                "smart": False,
+                "policy": "full",
+            },
+            request_id,
+        )
+        request_id += 1
+
+        assert payload["target"] == "chatgpt"
+        assert payload["fact_count"] > 0
+        assert expected_labels <= set(payload["labels"])

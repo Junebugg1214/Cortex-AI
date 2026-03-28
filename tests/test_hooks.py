@@ -209,6 +209,27 @@ class TestLoadGraph:
         assert result.graph is None
         assert result.status == "invalid_json"
 
+    def test_load_graph_result_rejects_non_graph_json_payloads(self, tmp_path):
+        path = tmp_path / "api-logs.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "requests": [
+                        {
+                            "messages": [
+                                {"role": "system", "content": "You are helpful."},
+                                {"role": "user", "content": "I use Redis."},
+                            ]
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = _load_graph_result(str(path))
+        assert result.graph is None
+        assert result.status == "invalid_graph"
+
 
 # ---------------------------------------------------------------------------
 # TestFormatCompactMarkdown
