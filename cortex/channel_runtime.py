@@ -64,6 +64,7 @@ class ResolvedChannelIdentity:
     workspace_key: str
     subject_key: str
     conversation_key: str
+    subject_root_namespace: str
     subject_namespace: str
     conversation_namespace: str
     actor: str
@@ -79,6 +80,7 @@ class ChannelTurnEnvelope:
     target: str
     context: dict[str, Any]
     portability_tool_request: dict[str, Any]
+    write_plan: list["ChannelWriteBatch"]
     suggested_memory_operations: list[dict[str, Any]]
 
 
@@ -149,10 +151,11 @@ class BaseChannelAdapter:
 
         conversation_key = _stable_key(platform, workspace_key, message.conversation_id, prefix="thread")
         if shared_identity:
-            subject_namespace = f"people/{identity_type}/{subject_key}"
+            subject_root_namespace = f"people/{identity_type}/{subject_key}"
         else:
-            subject_namespace = f"channels/{platform}/{workspace_key}/subjects/{subject_key}"
-        conversation_namespace = f"{subject_namespace}/threads/{platform}/{workspace_key}/{conversation_key}"
+            subject_root_namespace = f"channels/{platform}/{workspace_key}/subjects/{subject_key}"
+        subject_namespace = f"{subject_root_namespace}/profile"
+        conversation_namespace = f"{subject_root_namespace}/threads/{platform}/{workspace_key}/{conversation_key}"
         actor = f"runtime/{platform}/{workspace_key}"
 
         aliases: list[str] = []
@@ -169,6 +172,7 @@ class BaseChannelAdapter:
             workspace_key=workspace_key,
             subject_key=subject_key,
             conversation_key=conversation_key,
+            subject_root_namespace=subject_root_namespace,
             subject_namespace=subject_namespace,
             conversation_namespace=conversation_namespace,
             actor=actor,
@@ -187,6 +191,11 @@ class WhatsAppAdapter(BaseChannelAdapter):
     name = "whatsapp"
 
 
+class GenericChannelAdapter(BaseChannelAdapter):
+    def __init__(self, platform: str) -> None:
+        self.name = _slug_fragment(platform, fallback="channel")
+
+
 CHANNEL_ADAPTERS: dict[str, ChannelAdapter] = {
     "telegram": TelegramAdapter(),
     "whatsapp": WhatsAppAdapter(),
@@ -194,13 +203,24 @@ CHANNEL_ADAPTERS: dict[str, ChannelAdapter] = {
 
 
 def adapter_for_platform(platform: str) -> ChannelAdapter:
-    adapter = CHANNEL_ADAPTERS.get(platform.strip().lower())
-    if adapter is None:
-        raise ValueError(f"Unsupported channel platform: {platform}")
-    return adapter
+    normalized = platform.strip().lower()
+    adapter = CHANNEL_ADAPTERS.get(normalized)
+    if adapter is not None:
+        return adapter
+    if not normalized:
+        raise ValueError("Unsupported channel platform: empty value")
+    return GenericChannelAdapter(normalized)
 
 
-def suggested_memory_operations(message: ChannelMessage, identity: ResolvedChannelIdentity) -> list[dict[str, Any]]:
+@dataclass(slots=True)
+class ChannelWriteBatch:
+    namespace: str
+    operations: list[dict[str, Any]]
+    purpose: str = ""
+    message: str = ""
+
+
+def channel_write_plan(message: ChannelMessage, identity: ResolvedChannelIdentity) -> list[ChannelWriteBatch]:
     subject_label = message.display_name.strip() or message.username.strip() or f"{message.platform.title()} contact"
     subject_node_id = f"contact/{identity.subject_key}"
     thread_node_id = f"thread/{identity.conversation_key}"
@@ -216,6 +236,17 @@ def suggested_memory_operations(message: ChannelMessage, identity: ResolvedChann
         "brief": f"{message.platform.title()} contact in workspace {identity.workspace_key}",
         "tags": subject_tags,
         "aliases": identity.aliases,
+    }
+    conversation_subject_node = {
+        **subject_node,
+        "brief": f"{subject_label} as a participant in the {message.platform.title()} thread.",
+        "tags": sorted({*subject_tags, "channel_participant"}),
+        "properties": {
+            "subject_namespace": identity.subject_namespace,
+            "subject_root_namespace": identity.subject_root_namespace,
+            "conversation_namespace": identity.conversation_namespace,
+            "identity_type": identity.identity_type,
+        },
     }
     thread_node = {
         "id": thread_node_id,
@@ -236,10 +267,37 @@ def suggested_memory_operations(message: ChannelMessage, identity: ResolvedChann
         "description": f"{subject_label} participates in the {message.platform.title()} thread.",
     }
     return [
-        {"op": "upsert_node", "namespace": identity.subject_namespace, "node": subject_node},
-        {"op": "upsert_node", "namespace": identity.conversation_namespace, "node": thread_node},
-        {"op": "upsert_edge", "namespace": identity.conversation_namespace, "edge": edge},
+        ChannelWriteBatch(
+            namespace=identity.subject_namespace,
+            purpose="seed_subject_identity",
+            message=f"Seed channel subject for {subject_label}",
+            operations=[{"op": "upsert_node", "node": subject_node}],
+        ),
+        ChannelWriteBatch(
+            namespace=identity.conversation_namespace,
+            purpose="seed_thread_context",
+            message=f"Seed {message.platform.title()} thread scaffold for {subject_label}",
+            operations=[
+                {"op": "upsert_node", "node": conversation_subject_node},
+                {"op": "upsert_node", "node": thread_node},
+                {"op": "upsert_edge", "edge": edge},
+            ],
+        ),
     ]
+
+
+def suggested_memory_operations(message: ChannelMessage, identity: ResolvedChannelIdentity) -> list[dict[str, Any]]:
+    preview: list[dict[str, Any]] = []
+    for batch in channel_write_plan(message, identity):
+        for operation in batch.operations:
+            preview.append(
+                {
+                    "namespace": batch.namespace,
+                    "purpose": batch.purpose,
+                    **operation,
+                }
+            )
+    return preview
 
 
 class ChannelContextBridge:
@@ -265,6 +323,7 @@ class ChannelContextBridge:
             smart=smart,
             max_chars=max_chars,
         )
+        write_plan = channel_write_plan(message, identity)
         return ChannelTurnEnvelope(
             identity=identity,
             target=effective_target,
@@ -278,6 +337,7 @@ class ChannelContextBridge:
                     "max_chars": max_chars,
                 },
             },
+            write_plan=write_plan,
             suggested_memory_operations=suggested_memory_operations(message, identity),
         )
 
@@ -303,3 +363,82 @@ class ChannelContextBridge:
             max_chars=max_chars,
             dry_run=dry_run,
         )
+
+    def _activate_namespace_branch(
+        self,
+        *,
+        namespace: str,
+        actor: str,
+        approve: bool,
+        base_ref: str,
+    ) -> None:
+        current_branch = self.service.backend.versions.current_branch()
+        if self.service._branch_in_namespace(current_branch, namespace):
+            return
+        branches = {branch.name for branch in self.service.backend.versions.list_branches()}
+        if namespace in branches:
+            self.service.switch_branch(
+                name=namespace,
+                actor=actor,
+                approve=approve,
+                namespace=namespace,
+            )
+            return
+        self.service.create_branch(
+            name=namespace,
+            from_ref=base_ref,
+            switch=True,
+            actor=actor,
+            approve=approve,
+        )
+
+    def seed_turn_memory(
+        self,
+        turn: ChannelTurnEnvelope,
+        *,
+        ref: str = "HEAD",
+        source: str = "channel.runtime",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        if ref != "HEAD":
+            raise ValueError("seed_turn_memory only supports ref='HEAD' while materializing namespace branches.")
+        base_branch = self.service.backend.versions.current_branch()
+        batch_results: list[dict[str, Any]] = []
+        try:
+            for batch in turn.write_plan:
+                self._activate_namespace_branch(
+                    namespace=batch.namespace,
+                    actor=turn.identity.actor,
+                    approve=approve,
+                    base_ref=base_branch,
+                )
+                result = self.service.memory_batch(
+                    operations=batch.operations,
+                    ref=ref,
+                    message=batch.message,
+                    source=source,
+                    actor=turn.identity.actor,
+                    approve=approve,
+                    namespace=batch.namespace,
+                )
+                batch_results.append(
+                    {
+                        "namespace": batch.namespace,
+                        "purpose": batch.purpose,
+                        "result": result,
+                    }
+                )
+        finally:
+            current_branch = self.service.backend.versions.current_branch()
+            if current_branch != base_branch:
+                self.service.switch_branch(
+                    name=base_branch,
+                    actor=turn.identity.actor,
+                    approve=approve,
+                )
+        return {
+            "status": "ok",
+            "subject_namespace": turn.identity.subject_namespace,
+            "conversation_namespace": turn.identity.conversation_namespace,
+            "batches": batch_results,
+        }

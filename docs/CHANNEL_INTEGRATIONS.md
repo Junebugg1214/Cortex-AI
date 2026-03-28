@@ -56,6 +56,17 @@ conversation_namespace = turn.identity.conversation_namespace
 OpenClaw can then use `subject_namespace` and `conversation_namespace` when it calls the object API, claim API, or
 future channel-specific write paths.
 
+To seed the identity and thread scaffold safely, use the built-in write helper:
+
+```python
+bridge.seed_turn_memory(turn)
+```
+
+That applies a real namespaced write plan for the current object API:
+
+- subject identity goes into `subject_namespace`
+- conversation context gets a thread-local participant node plus the thread node and edge in `conversation_namespace`
+
 ## Hermes + Cortex
 
 Hermes is a good fit when you want a lighter agent runtime that still shares the same user-owned context layer.
@@ -109,13 +120,17 @@ That means:
 Namespace shape:
 
 - shared identity:
-  - `people/phone_number/<stable-key>`
-  - `people/email/<stable-key>`
-  - `people/canonical_subject_id/<slug>`
+  - root: `people/phone_number/<stable-key>`
+  - profile: `people/phone_number/<stable-key>/profile`
+  - root: `people/email/<stable-key>`
+  - profile: `people/email/<stable-key>/profile`
+  - root: `people/canonical_subject_id/<slug>`
+  - profile: `people/canonical_subject_id/<slug>/profile`
 - platform-only fallback:
-  - `channels/<platform>/<workspace>/subjects/<stable-key>`
+  - root: `channels/<platform>/<workspace>/subjects/<stable-key>`
+  - profile: `channels/<platform>/<workspace>/subjects/<stable-key>/profile`
 - per-thread:
-  - `<subject-namespace>/threads/<platform>/<workspace>/<stable-thread-key>`
+  - `<subject-root-namespace>/threads/<platform>/<workspace>/<stable-thread-key>`
 
 This gives you:
 
@@ -138,6 +153,7 @@ Built-in adapters:
 
 - `TelegramAdapter`
 - `WhatsAppAdapter`
+- `GenericChannelAdapter` fallback for channels such as Discord, Slack, SMS, and web chat
 
 Minimum runtime contract:
 
@@ -145,7 +161,8 @@ Minimum runtime contract:
 2. Call `ChannelContextBridge.prepare_turn(...)`.
 3. Use `turn.context` in the model prompt.
 4. Use `turn.identity.subject_namespace` and `turn.identity.conversation_namespace` for durable writes.
-5. Optionally use `turn.suggested_memory_operations` to seed the subject and thread nodes in Cortex.
+5. Use `bridge.seed_turn_memory(turn)` for the default subject-and-thread scaffold, or apply `turn.write_plan`
+   batch-by-batch with the object API.
 
 That is enough to make shared context work end to end without inventing a second memory system.
 
@@ -164,8 +181,10 @@ bridge.remember_global_fact(
 Per-user or per-thread memory:
 
 - use `turn.identity.subject_namespace` for durable user facts
+- use `turn.identity.subject_root_namespace` if you want the shared root for all branches tied to that person
 - use `turn.identity.conversation_namespace` for thread-scoped memory
 - write through existing object, claim, or batch APIs
+- if you need the default subject/thread scaffold first, call `bridge.seed_turn_memory(turn)`
 
 ## Why This Shape
 
