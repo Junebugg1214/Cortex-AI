@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parent.parent
 
 from cortex.context import (  # noqa: E402
@@ -175,6 +177,28 @@ class TestWriteNonDestructive:
         result = target.read_text()
         assert result.startswith("Content\n\n")
 
+    def test_reject_multiple_marker_pairs(self, tmp_path):
+        """Refuses ambiguous files with more than one Cortex block."""
+        target = tmp_path / "ambiguous.md"
+        original = f"{CORTEX_START}\nOld one\n{CORTEX_END}\n\nUser content\n\n{CORTEX_START}\nOld two\n{CORTEX_END}\n"
+        target.write_text(original, encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Ambiguous Cortex marker layout"):
+            _write_non_destructive(target, f"{CORTEX_START}\nNew\n{CORTEX_END}\n")
+
+        assert target.read_text(encoding="utf-8") == original
+
+    def test_reject_unbalanced_markers(self, tmp_path):
+        """Refuses files with unmatched Cortex markers instead of appending blindly."""
+        target = tmp_path / "broken.md"
+        original = f"# Rules\n\n{CORTEX_START}\nUnclosed section\n"
+        target.write_text(original, encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Ambiguous Cortex marker layout"):
+            _write_non_destructive(target, f"{CORTEX_START}\nNew\n{CORTEX_END}\n")
+
+        assert target.read_text(encoding="utf-8") == original
+
 
 # ===========================================================================
 # TestPlatformFormatting
@@ -246,7 +270,7 @@ class TestResolvePath:
     def test_resolve_project(self):
         """Expands {project} to provided project directory."""
         result = _resolve_path("{project}/.cursor/rules/cortex.mdc", project_dir="/tmp/myproject")
-        assert str(result) == "/tmp/myproject/.cursor/rules/cortex.mdc"
+        assert result == Path("/tmp/myproject/.cursor/rules/cortex.mdc").resolve()
 
     def test_resolve_project_default_cwd(self):
         """Uses cwd when no project_dir provided."""
@@ -254,6 +278,11 @@ class TestResolvePath:
 
         result = _resolve_path("{project}/GEMINI.md")
         assert str(result).startswith(os.getcwd())
+
+    def test_reject_prefix_escape_path(self):
+        """Rejects sibling paths that only share a string prefix with the project dir."""
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            _resolve_path("{project}-evil/.cursor/rules/cortex.mdc", project_dir="/tmp/myproject")
 
 
 # ===========================================================================
@@ -412,6 +441,24 @@ class TestWriteContext:
         content = cursor_path.read_text()
         assert content.startswith("---\n")
         assert "alwaysApply: true" in content
+
+    def test_write_context_returns_error_for_malformed_existing_markers(self, tmp_path):
+        """Malformed existing Cortex blocks fail closed instead of corrupting the file."""
+        graph_path = _make_sample_graph_file(tmp_path)
+        project_dir = Path(tmp_path / "project")
+        project_dir.mkdir()
+        gemini_path = project_dir / "GEMINI.md"
+        original = f"# Existing rules\n\n{CORTEX_START}\nfirst\n{CORTEX_END}\n\n{CORTEX_START}\nsecond\n{CORTEX_END}\n"
+        gemini_path.write_text(original, encoding="utf-8")
+
+        results = write_context(
+            graph_path=str(graph_path),
+            platforms=["gemini-cli"],
+            project_dir=str(project_dir),
+        )
+
+        assert results == [("gemini-cli", gemini_path.resolve(), "error")]
+        assert gemini_path.read_text(encoding="utf-8") == original
 
 
 # ===========================================================================
