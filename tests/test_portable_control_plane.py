@@ -71,13 +71,20 @@ def test_remember_propagates_and_scan_audits(tmp_path, capsys, monkeypatch):
 
     assert rc == 0
     assert {item["target"] for item in payload["targets"]} == {
+        "claude",
         "claude-code",
+        "chatgpt",
         "codex",
         "cursor",
         "copilot",
+        "grok",
         "windsurf",
         "gemini",
     }
+    assert (store_dir / "portable" / "artifacts" / "claude" / "claude_preferences.txt").exists()
+    assert (store_dir / "portable" / "artifacts" / "claude" / "claude_memories.json").exists()
+    assert (store_dir / "portable" / "artifacts" / "chatgpt" / "custom_instructions.json").exists()
+    assert (store_dir / "portable" / "artifacts" / "grok" / "context_prompt.json").exists()
     assert (home_dir / ".claude" / "CLAUDE.md").exists()
     assert (project_dir / "CLAUDE.md").exists()
     assert (project_dir / "AGENTS.md").exists()
@@ -105,6 +112,8 @@ def test_remember_propagates_and_scan_audits(tmp_path, capsys, monkeypatch):
     assert tool_map["claude-code"]["fact_count"] > 0
     assert tool_map["copilot"]["fact_count"] > 0
     assert tool_map["cursor"]["fact_count"] > 0
+    assert tool_map["chatgpt"]["fact_count"] > 0
+    assert tool_map["grok"]["fact_count"] > 0
 
 
 def test_build_and_smart_sync_cover_github_manifest_and_git_history(tmp_path, capsys, monkeypatch):

@@ -2230,9 +2230,31 @@ class AggressiveExtractor:
                 continue
 
             messages = message_collection(interaction, "messages", "entries", "items")
+            normalized_messages: list[dict[str, Any]] = []
+            for message in messages:
+                if not isinstance(message, dict):
+                    continue
+                if "request" in message or "prompt" in message:
+                    normalized_messages.append(
+                        {
+                            "role": "user",
+                            "content": first_text_from_paths(
+                                message,
+                                ("request", "message"),
+                                ("request", "content"),
+                                ("request", "prompt"),
+                                ("prompt",),
+                                ("message",),
+                                ("content",),
+                            ),
+                            "created_at": message.get("createdAt", message.get("timestamp", message.get("created_at"))),
+                        }
+                    )
+                    continue
+                normalized_messages.append(message)
             extract_message_stream(
                 self,
-                messages,
+                normalized_messages,
                 role_keys=("role", "author", "speaker", "type"),
                 user_values=("user", "human", "prompt"),
                 content_paths=(
@@ -2326,6 +2348,53 @@ def merge_contexts(existing_path: Path, extractor: "AggressiveExtractor") -> "Ag
 
 
 def load_file(file_path: Path) -> tuple[Any, str]:
+    def detect_platform_record(record: Any) -> str | None:
+        if not isinstance(record, dict):
+            return None
+        if "composerId" in record or "bubbleId" in record:
+            return "cursor"
+        if "cascadeId" in record or "workspaceId" in record or "timelineId" in record:
+            return "windsurf"
+        if "copilotSessionId" in record or "request" in record:
+            return "copilot"
+        if "conversationId" in record and any(key in record for key in ("sender", "content", "text", "prompt")):
+            return "grok"
+        return None
+
+    def detect_platform_shape(value: Any, *, depth: int = 0) -> str | None:
+        if depth > 2:
+            return None
+        detected = detect_platform_record(value)
+        if detected is not None:
+            return detected
+        if isinstance(value, dict):
+            for key in (
+                "messages",
+                "items",
+                "entries",
+                "timeline",
+                "bubbles",
+                "history",
+                "interactions",
+                "sessions",
+                "conversations",
+                "chats",
+                "chat",
+                "conversation",
+            ):
+                if key not in value:
+                    continue
+                detected = detect_platform_shape(value[key], depth=depth + 1)
+                if detected is not None:
+                    return detected
+            return None
+        if isinstance(value, list):
+            for item in value[:5]:
+                detected = detect_platform_shape(item, depth=depth + 1)
+                if detected is not None:
+                    return detected
+        return None
+
     def detect_json_format(data: Any, source_name: str = "") -> tuple[Any, str]:
         source_name_lower = source_name.lower()
 
@@ -2393,6 +2462,10 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                     if msgs and isinstance(msgs[0], dict) and msgs[0].get("author") in ["user", "model"]:
                         return data, "gemini"
 
+        detected_platform = detect_platform_shape(data)
+        if detected_platform is not None:
+            return data, detected_platform
+
         # 4. API logs (has "requests" with messages arrays)
         if isinstance(data, dict) and "requests" in data:
             return data, "api_logs"
@@ -2436,6 +2509,9 @@ def load_file(file_path: Path) -> tuple[Any, str]:
             )
             if first_real is not None and "sessionId" in first_real and "cwd" in first_real:
                 return messages, "claude_code"
+            detected_platform = detect_platform_shape(messages)
+            if detected_platform is not None:
+                return messages, detected_platform
             if first_real is not None:
                 if hinted("cursor") and any(
                     key in first_real for key in ("composerId", "bubbleId", "markdown", "prompt")

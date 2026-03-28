@@ -729,3 +729,134 @@ def test_portability_edge_smoke_handles_multi_source_exports_with_live_mcp(tmp_p
         assert payload["target"] == "chatgpt"
         assert payload["fact_count"] > 0
         assert expected_labels <= set(payload["labels"])
+
+
+def test_portability_edge_smoke_handles_generic_named_vendor_exports_with_live_mcp(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    sources = [
+        (
+            "export.json",
+            json.dumps(
+                {
+                    "messages": [
+                        {
+                            "composerId": "cmp-1",
+                            "type": "user",
+                            "text": "I am Lee. We use TypeScript and Prisma.",
+                        }
+                    ]
+                }
+            ),
+            {"Lee", "Typescript"},
+        ),
+        (
+            "export.jsonl",
+            json.dumps(
+                {
+                    "cascadeId": "cas-1",
+                    "role": "user",
+                    "content": "I am Dana. We use Python and Postgres.",
+                }
+            )
+            + "\n",
+            {"Dana", "Python", "Postgres"},
+        ),
+        (
+            "export.json",
+            json.dumps(
+                {
+                    "messages": [
+                        {
+                            "copilotSessionId": "cp-1",
+                            "request": {"message": "I am Avery. We use Python and Django."},
+                        }
+                    ]
+                }
+            ),
+            {"Avery", "Python", "Django"},
+        ),
+        (
+            "export.jsonl",
+            json.dumps(
+                {
+                    "conversationId": "g-1",
+                    "sender": "user",
+                    "content": "I am Riley. I use Rust and React.",
+                }
+            )
+            + "\n",
+            {"Riley", "Rust", "React"},
+        ),
+    ]
+
+    request_id = 40
+    for index, (filename, content, expected_labels) in enumerate(sources):
+        source_dir = tmp_path / f"generic-source-{index}"
+        source_dir.mkdir()
+        source_path = source_dir / filename
+        source_path.write_text(content, encoding="utf-8")
+
+        project_dir = tmp_path / f"generic-project-{index}"
+        store_dir = tmp_path / f"generic-store-{index}"
+        output_dir = tmp_path / f"generic-output-{index}"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text("# Portability Source\n\nGeneric vendor export.\n", encoding="utf-8")
+
+        rc = main(
+            [
+                "portable",
+                str(source_path),
+                "--to",
+                "all",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--output",
+                str(output_dir),
+                "--format",
+                "json",
+            ]
+        )
+        portable = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert portable["target_count"] == 9
+        assert portable["extracted"]["total"] > 0
+
+        rc = main(
+            [
+                "scan",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        scan = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert scan["coverage"] > 0
+
+        backend = build_sqlite_backend(store_dir)
+        server = CortexMCPServer(service=MemoryService(store_dir=store_dir, backend=backend))
+        _initialize_mcp(server)
+        payload = _mcp_tool_call(
+            server,
+            "portability_context",
+            {
+                "target": "chatgpt",
+                "project_dir": str(project_dir),
+                "smart": False,
+                "policy": "full",
+            },
+            request_id,
+        )
+        request_id += 1
+
+        assert payload["target"] == "chatgpt"
+        assert payload["fact_count"] > 0
+        assert expected_labels <= set(payload["labels"])
