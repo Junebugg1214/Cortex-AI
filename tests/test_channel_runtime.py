@@ -87,6 +87,80 @@ def test_platform_only_identity_stays_channel_scoped():
     assert tg_identity.subject_namespace != wa_identity.subject_namespace
 
 
+def test_conversation_fallback_prevents_blank_user_collapse():
+    first = ChannelMessage(
+        platform="telegram",
+        workspace_id="bot-main",
+        conversation_id="chat-1",
+        user_id="",
+        text="hello",
+    )
+    second = ChannelMessage(
+        platform="telegram",
+        workspace_id="bot-main",
+        conversation_id="chat-2",
+        user_id="",
+        text="hello",
+    )
+
+    first_identity = TelegramAdapter().resolve_identity(first)
+    second_identity = TelegramAdapter().resolve_identity(second)
+
+    assert first_identity.identity_type == "conversation_fallback"
+    assert second_identity.identity_type == "conversation_fallback"
+    assert first_identity.subject_namespace != second_identity.subject_namespace
+
+
+def test_event_fallback_uses_message_metadata_when_ids_are_missing():
+    first = ChannelMessage(
+        platform="discord",
+        workspace_id="support-bot",
+        conversation_id="",
+        user_id="",
+        text="Need help",
+        metadata={"message_id": "m-1"},
+    )
+    second = ChannelMessage(
+        platform="discord",
+        workspace_id="support-bot",
+        conversation_id="",
+        user_id="",
+        text="Need help",
+        metadata={"message_id": "m-2"},
+    )
+
+    first_identity = channel_runtime.adapter_for_platform(first.platform).resolve_identity(first)
+    second_identity = channel_runtime.adapter_for_platform(second.platform).resolve_identity(second)
+
+    assert first_identity.identity_type == "event_fallback"
+    assert second_identity.identity_type == "event_fallback"
+    assert first_identity.subject_namespace != second_identity.subject_namespace
+    assert first_identity.conversation_namespace != second_identity.conversation_namespace
+
+
+def test_missing_conversation_id_falls_back_to_same_user_thread():
+    first = ChannelMessage(
+        platform="whatsapp",
+        workspace_id="support-bot",
+        conversation_id="",
+        user_id="wa-123",
+        text="hello",
+    )
+    second = ChannelMessage(
+        platform="whatsapp",
+        workspace_id="support-bot",
+        conversation_id="",
+        user_id="wa-123",
+        text="follow up",
+    )
+
+    first_identity = WhatsAppAdapter().resolve_identity(first)
+    second_identity = WhatsAppAdapter().resolve_identity(second)
+
+    assert first_identity.subject_namespace == second_identity.subject_namespace
+    assert first_identity.conversation_namespace == second_identity.conversation_namespace
+
+
 def test_prepare_turn_returns_context_request_and_memory_operations(tmp_path):
     service = _StubService(tmp_path / ".cortex")
     bridge = ChannelContextBridge(service, default_project_dir=tmp_path)

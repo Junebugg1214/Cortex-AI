@@ -26,6 +26,7 @@ Phase 1 should intentionally leave `kind` unset so it can coexist with OpenClaw'
 
 ```text
 @cortex/openclaw/
+  package.json
   openclaw.plugin.json
   config.schema.json
   README.md
@@ -38,6 +39,7 @@ Phase 1 should intentionally leave `kind` unset so it can coexist with OpenClaw'
 
 Reference starter files in this repo:
 
+- [package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
 - [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
 - [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
 - [README.md](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/README.md)
@@ -81,6 +83,9 @@ The plugin config should validate these fields:
 - `projectDirStrategy`: one of `agent-workspace`, `gateway-cwd`, `explicit`
 - `projectDir`: explicit project dir when strategy is `explicit`
 - `requestTimeoutMs`: timeout for Cortex calls
+- `healthCheckTimeoutMs`: timeout for managed `cortex-mcp --check`
+- `maxContextChars`: max routed context characters injected per turn
+- `failOpen`: if Cortex is temporarily unavailable, let OpenClaw continue without injected context
 - `identityFields`: precedence toggles for `canonicalSubjectId`, `phoneNumber`, `email`, and `username`
 - `externalBaseUrl`: only used when `transport = external-mcp`
 
@@ -107,7 +112,10 @@ Recommended OpenClaw config snippet:
           smartRouting: true,
           autoSeedThreads: true,
           projectDirStrategy: "agent-workspace",
+          maxContextChars: 1500,
+          failOpen: true,
           requestTimeoutMs: 15000,
+          healthCheckTimeoutMs: 5000,
         },
       },
     },
@@ -124,6 +132,7 @@ Use the current OpenClaw plugin APIs documented for `registerService` and `api.o
 On plugin registration:
 
 - read and validate `plugins.entries.cortex.config`
+- normalize `~` and relative paths before starting any child process
 - register a background service named `cortex-mcp`
 - register typed runtime hooks
 
@@ -135,6 +144,7 @@ On `gateway_start`:
 - ensure `configPath` exists, copying a starter config when needed
 - if `transport = managed-child`, start `cortex-mcp --config <configPath>`
 - run a lightweight health check before marking the service ready
+- if `failOpen = true`, mark the plugin degraded instead of blocking the whole gateway
 
 ### 3. `message_received`
 
@@ -152,6 +162,7 @@ On `before_prompt_build`:
 - call Cortex through the Python bridge or MCP:
   - `ChannelContextBridge.prepare_turn(...)` for in-process mode
   - `portability_context` for MCP mode
+- cap injected content with `maxContextChars`
 - inject the returned routed slice using `prependContext`
 
 Why `prependContext`:
@@ -168,6 +179,7 @@ On `agent_end`:
 - if `autoSeedThreads` is enabled, call `bridge.seed_turn_memory(turn)` or the MCP-backed equivalent
 - write durable user or thread facts only when extraction confidence is high
 - keep writes idempotent by reusing the Cortex subject/thread namespace model
+- if one namespace write fails, log it with namespace and purpose and keep the gateway process alive
 
 ### 6. `gateway_stop`
 
@@ -189,6 +201,7 @@ OpenClaw owns the lifecycle:
 - probe with `cortex-mcp --config <configPath> --check`
 - restart on crash with bounded exponential backoff
 - stop on `gateway_stop`
+- always expand `~` and relative paths before spawning the child
 
 This is the best one-click UX because the user does not manage Cortex separately.
 
@@ -245,6 +258,7 @@ Recommended config guidance after install:
 ```text
 Set `plugins.entries.cortex.config.storeDir` if you want a non-default Cortex store.
 Set `plugins.entries.cortex.hooks.allowPromptInjection = false` if operators want Cortex memory writes without prompt mutation.
+Set `plugins.entries.cortex.config.failOpen = false` only if you want Cortex outages to block prompt execution.
 ```
 
 ## Why This Is Worth Shipping

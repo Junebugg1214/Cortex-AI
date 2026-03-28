@@ -1,0 +1,12 @@
+{
+  "name": "@cortex/openclaw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw native plugin starter scaffold for Cortex portable context and channel memory.",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}
