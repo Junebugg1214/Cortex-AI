@@ -282,6 +282,58 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="channel_prepare_turn",
+                title="Prepare Channel Turn",
+                description=(
+                    "Resolve a messaging-platform event into shared Cortex identity, routed live context, "
+                    "and a durable write plan for per-user and per-thread memory."
+                ),
+                method_name="channel_prepare_turn",
+                input_schema=_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "Normalized channel message payload.",
+                            "additionalProperties": True,
+                        },
+                        "target": _string_property(
+                            "Optional portability target such as chatgpt, claude, codex, cursor, copilot, gemini, grok, or windsurf."
+                        ),
+                        "smart": _boolean_property("Whether to use smart routing for the live context slice."),
+                        "max_chars": _integer_property("Maximum rendered context markdown length."),
+                        "project_dir": _string_property("Optional project directory used to focus project context."),
+                    },
+                    required=("message",),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="channel_seed_turn_memory",
+                title="Seed Channel Memory",
+                description=(
+                    "Materialize the prepared Cortex per-user and per-thread memory scaffolds for a messaging turn."
+                ),
+                method_name="channel_seed_turn_memory",
+                input_schema=_object_schema(
+                    {
+                        "turn": {
+                            "type": "object",
+                            "description": "Prepared channel turn envelope previously returned by channel_prepare_turn.",
+                            "additionalProperties": True,
+                        },
+                        "ref": _string_property("Target ref or branch. Defaults to HEAD."),
+                        "source": _string_property("Source label for the durable memory writes."),
+                        "approve": _boolean_property("Whether to mark the write batch as approved."),
+                    },
+                    required=("turn",),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="index_status",
                 title="Index Status",
                 description="Inspect lexical index status and lag for a ref.",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -315,6 +315,93 @@ class ChannelWriteBatch:
     operations: list[dict[str, Any]]
     purpose: str = ""
     message: str = ""
+
+
+def channel_message_from_dict(payload: dict[str, Any]) -> ChannelMessage:
+    if not isinstance(payload, dict):
+        raise ValueError("Channel message payload must be an object.")
+    metadata = payload.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise ValueError("Channel message metadata must be an object.")
+    return ChannelMessage(
+        platform=str(payload.get("platform", "")).strip(),
+        workspace_id=str(payload.get("workspace_id", "")).strip(),
+        conversation_id=str(payload.get("conversation_id", "")).strip(),
+        user_id=str(payload.get("user_id", "")).strip(),
+        text=str(payload.get("text", "")).strip(),
+        display_name=str(payload.get("display_name", "")).strip(),
+        username=str(payload.get("username", "")).strip(),
+        phone_number=str(payload.get("phone_number", "")).strip(),
+        email=str(payload.get("email", "")).strip(),
+        canonical_subject_id=str(payload.get("canonical_subject_id", "")).strip(),
+        timestamp=str(payload.get("timestamp", "")).strip(),
+        project_dir=str(payload.get("project_dir", "")).strip(),
+        metadata=dict(metadata),
+    )
+
+
+def channel_turn_to_dict(turn: ChannelTurnEnvelope) -> dict[str, Any]:
+    return asdict(turn)
+
+
+def channel_turn_from_dict(payload: dict[str, Any]) -> ChannelTurnEnvelope:
+    if not isinstance(payload, dict):
+        raise ValueError("Channel turn payload must be an object.")
+    identity_payload = payload.get("identity")
+    context_payload = payload.get("context")
+    tool_request_payload = payload.get("portability_tool_request")
+    write_plan_payload = payload.get("write_plan") or []
+    suggested_operations = payload.get("suggested_memory_operations") or []
+    if not isinstance(identity_payload, dict):
+        raise ValueError("Channel turn identity payload must be an object.")
+    if not isinstance(context_payload, dict):
+        raise ValueError("Channel turn context payload must be an object.")
+    if not isinstance(tool_request_payload, dict):
+        raise ValueError("Channel turn portability_tool_request payload must be an object.")
+    if not isinstance(write_plan_payload, list):
+        raise ValueError("Channel turn write_plan payload must be an array.")
+    if not isinstance(suggested_operations, list):
+        raise ValueError("Channel turn suggested_memory_operations payload must be an array.")
+
+    identity = ResolvedChannelIdentity(
+        platform=str(identity_payload.get("platform", "")).strip(),
+        workspace_key=str(identity_payload.get("workspace_key", "")).strip(),
+        subject_key=str(identity_payload.get("subject_key", "")).strip(),
+        conversation_key=str(identity_payload.get("conversation_key", "")).strip(),
+        subject_root_namespace=str(identity_payload.get("subject_root_namespace", "")).strip(),
+        subject_namespace=str(identity_payload.get("subject_namespace", "")).strip(),
+        conversation_namespace=str(identity_payload.get("conversation_namespace", "")).strip(),
+        actor=str(identity_payload.get("actor", "")).strip(),
+        identity_type=str(identity_payload.get("identity_type", "")).strip(),
+        normalized_phone=str(identity_payload.get("normalized_phone", "")).strip(),
+        normalized_email=str(identity_payload.get("normalized_email", "")).strip(),
+        aliases=[str(item).strip() for item in list(identity_payload.get("aliases") or []) if str(item).strip()],
+    )
+
+    write_plan: list[ChannelWriteBatch] = []
+    for item in write_plan_payload:
+        if not isinstance(item, dict):
+            raise ValueError("Each channel write plan entry must be an object.")
+        operations = item.get("operations") or []
+        if not isinstance(operations, list):
+            raise ValueError("Channel write plan operations must be an array.")
+        write_plan.append(
+            ChannelWriteBatch(
+                namespace=str(item.get("namespace", "")).strip(),
+                operations=[dict(operation) for operation in operations],
+                purpose=str(item.get("purpose", "")).strip(),
+                message=str(item.get("message", "")).strip(),
+            )
+        )
+
+    return ChannelTurnEnvelope(
+        identity=identity,
+        target=str(payload.get("target", "")).strip(),
+        context=dict(context_payload),
+        portability_tool_request=dict(tool_request_payload),
+        write_plan=write_plan,
+        suggested_memory_operations=[dict(operation) for operation in suggested_operations],
+    )
 
 
 def channel_write_plan(message: ChannelMessage, identity: ResolvedChannelIdentity) -> list[ChannelWriteBatch]:

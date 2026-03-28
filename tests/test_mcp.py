@@ -80,6 +80,8 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_scan",
         "portability_status",
         "portability_audit",
+        "channel_prepare_turn",
+        "channel_seed_turn_memory",
     } <= names
 
 
@@ -395,6 +397,47 @@ def test_mcp_portability_scan_status_and_audit_report_drift(tmp_path, monkeypatc
         issue["type"] == "unexpected_context" and issue["target"] == "copilot" for issue in audit_payload["issues"]
     )
     assert any(issue["type"] == "missing_files" and issue["target"] == "claude" for issue in audit_payload["issues"])
+
+
+def test_mcp_channel_prepare_turn_and_seed_memory_round_trip(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    prepare = _tool_call(
+        server,
+        tool="channel_prepare_turn",
+        arguments={
+            "message": {
+                "platform": "telegram",
+                "workspace_id": "support-bot",
+                "conversation_id": "chat-42",
+                "user_id": "tg-123",
+                "text": "Need help with Next.js.",
+                "display_name": "Casey",
+                "phone_number": "+1 555 0101",
+                "project_dir": str(project_dir),
+                "metadata": {"message_id": "msg-1"},
+            },
+            "target": "chatgpt",
+            "smart": True,
+        },
+        request_id=10,
+    )
+    turn = prepare["result"]["structuredContent"]["turn"]
+    seed = _tool_call(
+        server,
+        tool="channel_seed_turn_memory",
+        arguments={"turn": turn, "source": "pytest.openclaw"},
+        request_id=11,
+    )
+
+    assert prepare["result"]["isError"] is False
+    assert "context_markdown" in turn["context"]
+    assert seed["result"]["isError"] is False
+    assert seed["result"]["structuredContent"]["status"] == "ok"
 
 
 def test_mcp_namespace_scoped_session_blocks_cross_namespace_access(tmp_path):

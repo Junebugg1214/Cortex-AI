@@ -109,6 +109,35 @@ def _record_namespace(service: "MemoryService", ref: str) -> str:
     return service._ref_namespace(ref) or service.backend.versions.current_branch()
 
 
+def _safe_head_ref(service: "MemoryService") -> str:
+    try:
+        return service.backend.versions.resolve_ref("HEAD")
+    except (FileNotFoundError, ValueError):
+        return ""
+
+
+def _safe_index_status(service: "MemoryService") -> dict[str, Any]:
+    try:
+        return service.backend.indexing.status(ref="HEAD")
+    except (FileNotFoundError, ValueError):
+        provider = get_embedding_provider()
+        return {
+            "status": "missing",
+            "backend": _backend_name(service.backend),
+            "persistent": _backend_name(service.backend) == "sqlite",
+            "supported": provider.enabled,
+            "ref": "HEAD",
+            "resolved_ref": "",
+            "last_indexed_commit": None,
+            "doc_count": 0,
+            "stale": False,
+            "updated_at": None,
+            "lag_commits": 0,
+            "embedding_provider": provider.name,
+            "embedding_enabled": provider.enabled,
+        }
+
+
 def _lookup_nodes(
     graph: CortexGraph,
     *,
@@ -372,13 +401,13 @@ class MemoryService:
         return payload
 
     def health(self) -> dict[str, Any]:
-        index_status = self.backend.indexing.status(ref="HEAD")
+        index_status = _safe_index_status(self)
         return {
             "status": "ok",
             "backend": _backend_name(self.backend),
             "store_dir": str(self.store_dir.resolve()),
             "current_branch": self.backend.versions.current_branch(),
-            "head": self.backend.versions.resolve_ref("HEAD"),
+            "head": _safe_head_ref(self),
             "index": index_status,
             "release": self.release(),
         }
@@ -397,11 +426,11 @@ class MemoryService:
             "context_file": str(self.context_file) if self.context_file else "",
             "backend": _backend_name(self.backend),
             "current_branch": self.backend.versions.current_branch(),
-            "head": self.backend.versions.resolve_ref("HEAD"),
+            "head": _safe_head_ref(self),
             "embedding_provider": provider.name,
             "embedding_enabled": provider.enabled,
             "log_path": str(self.observability.log_path),
-            "index": self.backend.indexing.status(ref="HEAD"),
+            "index": _safe_index_status(self),
             "release": self.release(),
         }
 
@@ -467,10 +496,59 @@ class MemoryService:
         payload["release"] = self.release()
         return payload
 
+    def channel_prepare_turn(
+        self,
+        *,
+        message: dict[str, Any],
+        target: str | None = None,
+        smart: bool = True,
+        max_chars: int = 1500,
+        project_dir: str = "",
+    ) -> dict[str, Any]:
+        from cortex.channel_runtime import (
+            ChannelContextBridge,
+            channel_message_from_dict,
+            channel_turn_to_dict,
+        )
+
+        channel_message = channel_message_from_dict(message)
+        if project_dir and not channel_message.project_dir:
+            channel_message.project_dir = str(Path(project_dir).resolve())
+        bridge = ChannelContextBridge(self, default_project_dir=Path(project_dir).resolve() if project_dir else None)
+        turn = bridge.prepare_turn(
+            channel_message,
+            target=target,
+            smart=smart,
+            max_chars=max_chars,
+        )
+        payload = {"status": "ok", "turn": channel_turn_to_dict(turn)}
+        payload["release"] = self.release()
+        return payload
+
+    def channel_seed_turn_memory(
+        self,
+        *,
+        turn: dict[str, Any],
+        ref: str = "HEAD",
+        source: str = "channel.runtime",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        from cortex.channel_runtime import ChannelContextBridge, channel_turn_from_dict
+
+        bridge = ChannelContextBridge(self)
+        payload = bridge.seed_turn_memory(
+            channel_turn_from_dict(turn),
+            ref=ref,
+            source=source,
+            approve=approve,
+        )
+        payload["release"] = self.release()
+        return payload
+
     def metrics(self, *, namespace: str | None = None) -> dict[str, Any]:
         self._enforce_namespace(namespace, ref="HEAD")
         metrics = self.observability.metrics(
-            index_status=self.backend.indexing.status(ref="HEAD"),
+            index_status=_safe_index_status(self),
             backend=_backend_name(self.backend),
             current_branch=self.backend.versions.current_branch(),
         )

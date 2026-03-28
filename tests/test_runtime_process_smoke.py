@@ -447,3 +447,81 @@ def test_cortex_mcp_process_serves_live_portability_after_cli_changes(tmp_path, 
     assert set(full_payload["labels"]) > set(technical_payload["labels"])
     assert before_payload["updated_at"] == stale_time
     assert after_payload["updated_at"] != stale_time
+
+
+def test_cortex_mcp_process_handles_channel_prepare_and_seed(tmp_path, monkeypatch):
+    project_dir, store_dir = _seed_portability_store(tmp_path, monkeypatch)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    process = subprocess.Popen(  # noqa: S603
+        [sys.executable, "-m", "cortex.mcp", "--store-dir", str(store_dir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(Path(__file__).resolve().parents[1]),
+        env=env,
+    )
+    try:
+        _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "clientInfo": {"name": "pytest", "version": "1.0"},
+                },
+            },
+        )
+        assert process.stdin is not None
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        process.stdin.flush()
+
+        prepare = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "channel_prepare_turn",
+                    "arguments": {
+                        "message": {
+                            "platform": "telegram",
+                            "workspace_id": "support-bot",
+                            "conversation_id": "chat-42",
+                            "user_id": "tg-123",
+                            "text": "Need help with Next.js.",
+                            "display_name": "Casey",
+                            "phone_number": "+1 555 0101",
+                            "project_dir": str(project_dir),
+                            "metadata": {"message_id": "msg-1"},
+                        },
+                        "target": "chatgpt",
+                        "smart": True,
+                    },
+                },
+            },
+        )
+        turn = prepare["result"]["structuredContent"]["turn"]
+        seed = _jsonrpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "channel_seed_turn_memory",
+                    "arguments": {"turn": turn, "source": "pytest.process"},
+                },
+            },
+        )
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        _stop_process(process)
+
+    assert prepare["result"]["structuredContent"]["turn"]["context"]["status"] == "ok"
+    assert seed["result"]["structuredContent"]["status"] == "ok"
