@@ -30,5 +30,5 @@ def test_help_all_shows_full_command_list(capsys):
 
     assert rc == 0
     assert set(CORE_PORTABILITY_COMMANDS).issubset(commands)
-    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory"}.issubset(commands)
+    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "doctor"}.issubset(commands)
     assert ADVANCED_HELP_NOTE not in out

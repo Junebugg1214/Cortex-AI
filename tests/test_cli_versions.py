@@ -33,6 +33,20 @@ def test_query_search_uses_alias(tmp_path, capsys):
     assert "aliases: postgres" in out
 
 
+def test_query_node_supports_json_output(tmp_path, capsys):
+    graph = CortexGraph()
+    graph.add_node(Node(id=make_node_id("Python"), label="Python", tags=["technical_expertise"], confidence=0.9))
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    rc = main(["query", str(graph_path), "--node", "Python", "--format", "json"])
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["query"] == "node"
+    assert out["nodes"][0]["label"] == "Python"
+
+
 def test_query_at_filters_temporal_graph(tmp_path, capsys):
     graph = CortexGraph()
     graph.add_node(

@@ -15,7 +15,7 @@ cortex portable chatgpt-export.zip --to all --project .
 That one command:
 
 1. loads an existing Cortex graph or extracts one from a raw export
-2. saves a portable `context.json`
+2. saves a portable graph-shaped `context.json` in the current v5-style format
 3. writes or generates target-specific context for the tools you selected
 
 ## Portability Control Plane
@@ -91,6 +91,16 @@ Typical routing shape:
 - coding assistants get technical stack, active project, and conventions
 - broader chat tools get more personal and professional context
 - each tool gets a tighter, more useful context window
+
+Current smart-routing defaults:
+
+| Tool | Routed categories |
+| --- | --- |
+| `claude-code`, `codex` | `technical_expertise`, `domain_knowledge`, `active_priorities`, `communication_preferences`, `user_preferences` |
+| `cursor`, `windsurf` | `technical_expertise`, `active_priorities`, `communication_preferences`, `user_preferences`, `domain_knowledge` |
+| `copilot` | `technical_expertise`, `communication_preferences`, `user_preferences`, `constraints` |
+| `chatgpt`, `grok` | `identity`, `professional_context`, `business_context`, `active_priorities`, `domain_knowledge`, `values` |
+| `gemini` | `domain_knowledge`, `professional_context`, `business_context`, `active_priorities`, `technical_expertise` |
 
 ### `cortex status`
 
