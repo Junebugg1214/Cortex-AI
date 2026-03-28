@@ -492,6 +492,96 @@ SKIP_WORDS = {
     "actually",
 }
 
+ROLE_HINT_WORDS = {
+    "advisor",
+    "analyst",
+    "architect",
+    "consultant",
+    "cto",
+    "ceo",
+    "cfo",
+    "cio",
+    "ciso",
+    "coo",
+    "cmo",
+    "designer",
+    "developer",
+    "director",
+    "doctor",
+    "engineer",
+    "founder",
+    "head",
+    "lead",
+    "lawyer",
+    "manager",
+    "mentor",
+    "nurse",
+    "officer",
+    "physician",
+    "principal",
+    "product",
+    "professor",
+    "researcher",
+    "scientist",
+    "senior",
+    "staff",
+    "student",
+    "teacher",
+    "vp",
+}
+ROLE_GUARD_WORDS = {"busy", "fan", "kind", "person", "thing", "stuff", "type"}
+PROJECT_HINT_WORDS = {
+    "agent",
+    "api",
+    "app",
+    "assistant",
+    "automation",
+    "backend",
+    "dashboard",
+    "feature",
+    "frontend",
+    "integration",
+    "library",
+    "migration",
+    "mobile",
+    "pipeline",
+    "platform",
+    "plugin",
+    "product",
+    "prototype",
+    "repo",
+    "sdk",
+    "service",
+    "site",
+    "stack",
+    "system",
+    "tool",
+    "workflow",
+}
+PRIORITY_ACTION_HINT_WORDS = {
+    "build",
+    "creating",
+    "deploy",
+    "design",
+    "document",
+    "explore",
+    "fix",
+    "improve",
+    "integrate",
+    "launch",
+    "migrate",
+    "prototype",
+    "refactor",
+    "research",
+    "rewrite",
+    "ship",
+    "support",
+    "test",
+}
+_KEYWORD_PATTERN_CACHE: dict[str, re.Pattern] = {}
+ALL_TECH_KEYWORDS = {keyword for keywords in TECH_KEYWORDS.values() for keyword in keywords}
+ALL_DOMAIN_KEYWORDS = {keyword for keywords in DOMAIN_KEYWORDS.values() for keyword in keywords}
+
 # Order matters: longer/more specific patterns must come before PHONE to avoid
 # partial matches (e.g., PHONE matching trailing digits of a credit card number).
 PII_PATTERNS = [
@@ -640,6 +730,72 @@ def clean_extracted_text(text: str) -> str:
     if text and text[0].islower():
         text = text[0].upper() + text[1:]
     return text.strip()
+
+
+def keyword_pattern(keyword: str) -> re.Pattern:
+    cached = _KEYWORD_PATTERN_CACHE.get(keyword)
+    if cached is not None:
+        return cached
+    pattern = re.compile(r"(?<![A-Za-z0-9])" + re.escape(keyword) + r"(?![A-Za-z0-9])", re.IGNORECASE)
+    _KEYWORD_PATTERN_CACHE[keyword] = pattern
+    return pattern
+
+
+def keyword_search(text: str, keyword: str) -> re.Match | None:
+    return keyword_pattern(keyword).search(text)
+
+
+def extract_match_context(text: str, start: int, end: int, window: int = 50) -> str:
+    start = max(0, start - window)
+    end = min(len(text), end + window)
+    while start > 0 and text[start] not in " \n\t":
+        start -= 1
+    while end < len(text) and text[end] not in " \n\t":
+        end += 1
+    return text[start:end].strip()
+
+
+def looks_like_role_phrase(text: str) -> bool:
+    normalized = normalize_text(text)
+    tokens = normalized.split()
+    if not tokens or len(tokens) > 8:
+        return False
+    if tokens[0] in ROLE_GUARD_WORDS:
+        return False
+    if tokens[0] in {"of", "for", "with"}:
+        return False
+    if " of " in normalized and tokens[0] not in ROLE_HINT_WORDS:
+        return False
+    return any(token in ROLE_HINT_WORDS for token in tokens)
+
+
+def clean_role_phrase(text: str) -> str:
+    text = clean_extracted_text(text)
+    segments = re.split(r"\s+(?:on|at|for|with)\s+", text, maxsplit=1, flags=re.IGNORECASE)
+    candidate = segments[0].strip() if segments else text
+    return candidate or text
+
+
+def looks_like_project_phrase(text: str) -> bool:
+    normalized = normalize_text(text)
+    tokens = normalized.split()
+    if len(tokens) < 2 or len(tokens) > 14:
+        return False
+    if tokens[0] in NOISE_WORDS | SKIP_WORDS:
+        return False
+    if any(phrase in normalized for phrase in {" with the team", " with my team", " with the people"}):
+        return False
+    if any(token in PROJECT_HINT_WORDS for token in tokens):
+        return True
+    if any(token in PRIORITY_ACTION_HINT_WORDS for token in tokens):
+        return True
+    if any(token in ALL_TECH_KEYWORDS for token in tokens):
+        return True
+    if any(ch.isdigit() for ch in text) or any(sym in text for sym in "-_/"):
+        return True
+    if any(token[:1].isupper() for token in text.split() if token):
+        return True
+    return False
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -1062,8 +1218,8 @@ class AggressiveExtractor:
     def _extract_roles(self, text: str, timestamp: datetime | None = None):
         for pattern in ROLE_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
-                role = match.group(1).strip()
-                if 3 < len(role) < 100:
+                role = clean_role_phrase(match.group(1))
+                if 3 < len(role) < 100 and looks_like_role_phrase(role):
                     self.context.add_topic(
                         "professional_context",
                         role,
@@ -1077,13 +1233,15 @@ class AggressiveExtractor:
             text,
             re.IGNORECASE,
         ):
-            self.context.add_topic(
-                "professional_context",
-                f"{match.group(1)} {match.group(2)}".strip(),
-                extraction_method="explicit_statement",
-                source_quote=match.group(0),
-                timestamp=timestamp,
-            )
+            role = clean_role_phrase(f"{match.group(1)} {match.group(2)}".strip())
+            if looks_like_role_phrase(role):
+                self.context.add_topic(
+                    "professional_context",
+                    role,
+                    extraction_method="explicit_statement",
+                    source_quote=match.group(0),
+                    timestamp=timestamp,
+                )
 
     def _extract_companies(self, text: str, timestamp: datetime | None = None):
         for pattern in COMPANY_PATTERNS:
@@ -1117,8 +1275,8 @@ class AggressiveExtractor:
     def _extract_projects(self, text: str, timestamp: datetime | None = None):
         for pattern in PROJECT_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
-                project = match.group(1).strip() if match.lastindex >= 1 else ""
-                if 3 < len(project) < 200:
+                project = clean_extracted_text(match.group(1).strip()) if match.lastindex >= 1 else ""
+                if 3 < len(project) < 200 and looks_like_project_phrase(project):
                     self.context.add_topic(
                         "active_priorities",
                         project,
@@ -1131,8 +1289,8 @@ class AggressiveExtractor:
             r"(?:my|our)\s+(?:current|main|primary|key)\s+(?:focus|priority|project|work)\s+(?:is\s+)?([^.,]+)",
         ]:
             for match in re.finditer(pattern, text, re.IGNORECASE):
-                focus = match.group(1).strip()
-                if 5 < len(focus) < 200:
+                focus = clean_extracted_text(match.group(1))
+                if 5 < len(focus) < 200 and looks_like_project_phrase(focus):
                     self.context.add_topic(
                         "active_priorities",
                         focus,
@@ -1145,14 +1303,15 @@ class AggressiveExtractor:
         lower = text.lower()
         for category, keywords in TECH_KEYWORDS.items():
             for keyword in keywords:
+                match = keyword_search(lower, keyword)
                 if len(keyword) <= 3:
-                    if not re.search(r"\b" + re.escape(keyword) + r"\b", lower):
+                    if not match:
                         continue
                     if keyword in TECH_FALSE_POSITIVES and not any(
                         tc in lower for tc in ["language", "programming", "code", "develop", "stack", "use", "prefer"]
                     ):
                         continue
-                elif keyword not in lower:
+                elif not match:
                     continue
                 method = (
                     "self_reference"
@@ -1166,22 +1325,23 @@ class AggressiveExtractor:
                     keyword.title() if len(keyword) > 3 else keyword.upper(),
                     brief=f"{category}: {keyword}",
                     extraction_method=method,
-                    source_quote=extract_with_context(text, keyword, 30),
+                    source_quote=extract_match_context(text, match.start(), match.end(), 30),
                     timestamp=timestamp,
                 )
 
     def _extract_domains(self, text: str, timestamp: datetime | None = None):
         lower = text.lower()
         for domain, keywords in DOMAIN_KEYWORDS.items():
-            matches = [kw for kw in keywords if kw in lower]
+            matches = [(kw, keyword_search(lower, kw)) for kw in keywords]
+            matches = [(kw, match) for kw, match in matches if match]
             if matches:
-                for kw in matches:
+                for kw, match in matches:
                     self.context.add_topic(
                         "domain_knowledge",
                         kw.title(),
                         brief=f"{domain}: {kw}",
                         extraction_method="contextual",
-                        source_quote=extract_with_context(text, kw, 50),
+                        source_quote=extract_match_context(text, match.start(), match.end(), 50),
                         timestamp=timestamp,
                     )
                 if len(matches) >= 2:
