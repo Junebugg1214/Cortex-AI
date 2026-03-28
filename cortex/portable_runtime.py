@@ -1374,7 +1374,15 @@ def _run_extraction_data(extractor: AggressiveExtractor, data: Any, fmt: str) ->
         extractor.process_gemini_export(data)
     elif fmt == "perplexity":
         extractor.process_perplexity_export(data)
-    elif fmt == "jsonl":
+    elif fmt == "grok":
+        extractor.process_grok_export(data)
+    elif fmt == "cursor":
+        extractor.process_cursor_export(data)
+    elif fmt == "windsurf":
+        extractor.process_windsurf_export(data)
+    elif fmt == "copilot":
+        extractor.process_copilot_export(data)
+    elif fmt in ("jsonl", "claude_code"):
         extractor.process_jsonl_messages(data)
     elif fmt == "api_logs":
         extractor.process_api_logs(data)

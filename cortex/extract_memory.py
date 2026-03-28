@@ -883,6 +883,124 @@ def get_message_text(message: dict) -> str:
     return ""
 
 
+def get_message_role(message: dict, *keys: str) -> str:
+    for key in keys:
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+        if isinstance(value, dict):
+            nested = value.get("role") or value.get("type") or value.get("name")
+            if isinstance(nested, str) and nested.strip():
+                return nested
+    return ""
+
+
+def get_message_timestamp(message: dict, *keys: str) -> datetime | None:
+    for key in keys:
+        value = message.get(key)
+        if value:
+            parsed = parse_timestamp(value)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def get_nested_value(data: Any, path: tuple[str, ...]) -> Any:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+        if current is None:
+            return None
+    return current
+
+
+def flatten_text_payload(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        parts = [flatten_text_payload(item) for item in value]
+        return " ".join(part.strip() for part in parts if part and part.strip())
+    if isinstance(value, dict):
+        preferred_keys = (
+            "text",
+            "content",
+            "message",
+            "body",
+            "prompt",
+            "input",
+            "query",
+            "markdown",
+            "value",
+            "parts",
+            "chunks",
+            "segments",
+            "items",
+        )
+        for key in preferred_keys:
+            if key in value:
+                text = flatten_text_payload(value[key])
+                if text:
+                    return text
+        if value.get("type") == "text" and "text" in value:
+            return flatten_text_payload(value["text"])
+    return ""
+
+
+def first_text_from_paths(message: dict, *paths: tuple[str, ...]) -> str:
+    for path in paths:
+        text = flatten_text_payload(get_nested_value(message, path))
+        if text:
+            return text
+    return ""
+
+
+def extract_message_stream(
+    extractor: "AggressiveExtractor",
+    messages: list[dict],
+    *,
+    role_keys: tuple[str, ...],
+    user_values: tuple[str, ...],
+    content_paths: tuple[tuple[str, ...], ...],
+    timestamp_keys: tuple[str, ...],
+) -> None:
+    allowed_roles = {value.lower() for value in user_values}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = get_message_role(message, *role_keys).lower()
+        if role not in allowed_roles:
+            continue
+        text = first_text_from_paths(message, *content_paths)
+        if not text:
+            text = get_message_text(message)
+        if not text:
+            continue
+        extractor.extract_from_text(text, get_message_timestamp(message, *timestamp_keys))
+
+
+def message_collection(container: Any, *keys: str) -> list[dict]:
+    if isinstance(container, list):
+        return [item for item in container if isinstance(item, dict)]
+    if not isinstance(container, dict):
+        return []
+    for key in keys:
+        value = container.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    if any(
+        key in container
+        for key in ("role", "author", "sender", "speaker", "type", "content", "text", "message", "prompt")
+    ):
+        return [container]
+    return []
+
+
 def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
     """Provide flat node and contradiction aliases for downstream compatibility."""
     from cortex.compat import upgrade_v4_to_v5
@@ -1997,6 +2115,139 @@ class AggressiveExtractor:
         self.post_process()
         return self.context.export()
 
+    def process_grok_export(self, data: list | dict) -> dict:
+        """Process Grok exports."""
+        conversations = data if isinstance(data, list) else data.get("conversations", data.get("chats", [data]))
+        for conv in conversations:
+            messages = message_collection(conv, "messages", "items", "entries", "turns")
+            extract_message_stream(
+                self,
+                messages,
+                role_keys=("role", "sender", "author", "speaker", "type"),
+                user_values=("user", "human", "prompt"),
+                content_paths=(
+                    ("content",),
+                    ("text",),
+                    ("body",),
+                    ("message",),
+                    ("prompt",),
+                    ("query",),
+                ),
+                timestamp_keys=("timestamp", "created_at", "createdAt", "time"),
+            )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_cursor_export(self, data: list | dict) -> dict:
+        """Process Cursor chat/composer exports."""
+        conversations = data if isinstance(data, list) else data.get("conversations", data.get("sessions", [data]))
+        for conv in conversations:
+            messages = message_collection(conv, "bubbles", "messages", "items", "conversation", "chat")
+            extract_message_stream(
+                self,
+                messages,
+                role_keys=("type", "role", "speaker", "kind", "author"),
+                user_values=("user", "human", "prompt"),
+                content_paths=(
+                    ("text",),
+                    ("content",),
+                    ("message",),
+                    ("prompt",),
+                    ("markdown",),
+                    ("body",),
+                ),
+                timestamp_keys=("timestamp", "created_at", "createdAt", "updatedAt"),
+            )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_windsurf_export(self, data: list | dict) -> dict:
+        """Process Windsurf session exports."""
+        conversations = data if isinstance(data, list) else data.get("conversations", data.get("sessions", [data]))
+        for conv in conversations:
+            messages = message_collection(conv, "timeline", "messages", "entries", "items", "conversation")
+            extract_message_stream(
+                self,
+                messages,
+                role_keys=("role", "speaker", "type", "author"),
+                user_values=("user", "human", "prompt"),
+                content_paths=(
+                    ("text",),
+                    ("content",),
+                    ("message",),
+                    ("body",),
+                    ("prompt",),
+                    ("input",),
+                ),
+                timestamp_keys=("timestamp", "created_at", "createdAt", "updatedAt"),
+            )
+
+        self.post_process()
+        return self.context.export()
+
+    def process_copilot_export(self, data: list | dict) -> dict:
+        """Process Copilot chat/export formats."""
+        if isinstance(data, list):
+            interactions = data
+        else:
+            interactions = data.get("interactions")
+            if interactions is None:
+                interactions = data.get("history")
+            if interactions is None:
+                interactions = data.get("sessions")
+            if interactions is None:
+                interactions = [data]
+
+        for interaction in interactions:
+            if not isinstance(interaction, dict):
+                continue
+            if "request" in interaction or "prompt" in interaction:
+                pseudo_message = {
+                    "role": "user",
+                    "content": first_text_from_paths(
+                        interaction,
+                        ("request", "message"),
+                        ("request", "content"),
+                        ("request", "prompt"),
+                        ("prompt",),
+                        ("message",),
+                        ("content",),
+                    ),
+                    "created_at": interaction.get(
+                        "createdAt", interaction.get("timestamp", interaction.get("created_at"))
+                    ),
+                }
+                extract_message_stream(
+                    self,
+                    [pseudo_message],
+                    role_keys=("role",),
+                    user_values=("user",),
+                    content_paths=(("content",),),
+                    timestamp_keys=("created_at",),
+                )
+                continue
+
+            messages = message_collection(interaction, "messages", "entries", "items")
+            extract_message_stream(
+                self,
+                messages,
+                role_keys=("role", "author", "speaker", "type"),
+                user_values=("user", "human", "prompt"),
+                content_paths=(
+                    ("content",),
+                    ("text",),
+                    ("message",),
+                    ("prompt",),
+                    ("body",),
+                ),
+                timestamp_keys=("timestamp", "created_at", "createdAt"),
+            )
+
+        self.post_process()
+        return self.context.export()
+
     def process_jsonl_messages(self, messages: list) -> dict:
         """Process JSONL message list."""
         for msg in messages:
@@ -2075,7 +2326,12 @@ def merge_contexts(existing_path: Path, extractor: "AggressiveExtractor") -> "Ag
 
 
 def load_file(file_path: Path) -> tuple[Any, str]:
-    def detect_json_format(data: Any) -> tuple[Any, str]:
+    def detect_json_format(data: Any, source_name: str = "") -> tuple[Any, str]:
+        source_name_lower = source_name.lower()
+
+        def hinted(*names: str) -> bool:
+            return any(name in source_name_lower for name in names)
+
         # Detection order: most specific to most generic
 
         # 1. OpenAI export (has "mapping" structure)
@@ -2087,6 +2343,37 @@ def load_file(file_path: Path) -> tuple[Any, str]:
             convs = data.get("conversations", [])
             if convs and isinstance(convs, list) and convs[0] and "mapping" in convs[0]:
                 return data, "openai"
+
+        # 1.5 Dedicated tool exports
+        if isinstance(data, dict):
+            if (
+                "composerId" in data
+                or "bubbles" in data
+                or (hinted("cursor") and any(k in data for k in ("chat", "conversation", "messages")))
+            ):
+                return data, "cursor"
+            if "cascadeId" in data or ("timeline" in data and ("workspace" in data or hinted("windsurf", "codeium"))):
+                return data, "windsurf"
+            if "interactions" in data or (
+                hinted("copilot") and any(k in data for k in ("history", "sessions", "messages"))
+            ):
+                return data, "copilot"
+            if hinted("grok", "xai") and any(k in data for k in ("conversations", "chats", "messages", "items")):
+                return data, "grok"
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            first = data[0]
+            if hinted("cursor") and any(k in first for k in ("composerId", "bubbleId", "prompt", "markdown", "text")):
+                return data, "cursor"
+            if hinted("windsurf", "codeium") and any(
+                k in first for k in ("cascadeId", "workspaceId", "timelineId", "prompt", "text")
+            ):
+                return data, "windsurf"
+            if hinted("copilot") and any(k in first for k in ("request", "prompt", "message", "copilotSessionId")):
+                return data, "copilot"
+            if hinted("grok", "xai") and any(
+                k in first for k in ("sender", "conversationId", "prompt", "text", "content")
+            ):
+                return data, "grok"
 
         # 2. Perplexity (has "threads" key with specific structure)
         if isinstance(data, dict) and "threads" in data:
@@ -2132,7 +2419,12 @@ def load_file(file_path: Path) -> tuple[Any, str]:
 
         return data, "generic"
 
-    def detect_jsonl_format(messages: list[dict]) -> tuple[Any, str]:
+    def detect_jsonl_format(messages: list[dict], source_name: str = "") -> tuple[Any, str]:
+        source_name_lower = source_name.lower()
+
+        def hinted(*names: str) -> bool:
+            return any(name in source_name_lower for name in names)
+
         if messages:
             first_real = next(
                 (
@@ -2144,6 +2436,23 @@ def load_file(file_path: Path) -> tuple[Any, str]:
             )
             if first_real is not None and "sessionId" in first_real and "cwd" in first_real:
                 return messages, "claude_code"
+            if first_real is not None:
+                if hinted("cursor") and any(
+                    key in first_real for key in ("composerId", "bubbleId", "markdown", "prompt")
+                ):
+                    return messages, "cursor"
+                if hinted("windsurf", "codeium") and any(
+                    key in first_real for key in ("cascadeId", "workspaceId", "timelineId", "prompt")
+                ):
+                    return messages, "windsurf"
+                if hinted("copilot") and any(
+                    key in first_real for key in ("request", "copilotSessionId", "prompt", "message")
+                ):
+                    return messages, "copilot"
+                if hinted("grok", "xai") and any(
+                    key in first_real for key in ("sender", "conversationId", "prompt", "content")
+                ):
+                    return messages, "grok"
         return messages, "jsonl"
 
     def load_jsonl_stream(handle) -> list[dict]:
@@ -2173,6 +2482,10 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                     "openai": 70,
                     "gemini": 60,
                     "perplexity": 60,
+                    "cursor": 58,
+                    "windsurf": 58,
+                    "copilot": 58,
+                    "grok": 58,
                     "claude_code": 55,
                     "api_logs": 50,
                     "messages": 40,
@@ -2194,13 +2507,13 @@ def load_file(file_path: Path) -> tuple[Any, str]:
                 if name.endswith(".json"):
                     with zf.open(name) as f:
                         try:
-                            consider(detect_json_format(json.load(f)))
+                            consider(detect_json_format(json.load(f), name))
                         except json.JSONDecodeError:
                             continue
                     continue
                 if name.endswith(".jsonl"):
                     with zf.open(name) as f:
-                        consider(detect_jsonl_format(load_jsonl_stream(f)))
+                        consider(detect_jsonl_format(load_jsonl_stream(f), name))
                     continue
                 if name.endswith((".txt", ".md")):
                     with zf.open(name) as f:
@@ -2213,12 +2526,12 @@ def load_file(file_path: Path) -> tuple[Any, str]:
     # JSONL format: one JSON object per line
     if file_path.suffix == ".jsonl":
         with open(file_path, "r", encoding="utf-8") as f:
-            return detect_jsonl_format(load_jsonl_stream(f))
+            return detect_jsonl_format(load_jsonl_stream(f), file_path.name)
 
     if file_path.suffix == ".json":
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return detect_json_format(data)
+        return detect_json_format(data, file_path.name)
 
     if file_path.suffix in [".txt", ".md"]:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -2233,7 +2546,21 @@ def main():
     parser.add_argument(
         "--format",
         "-f",
-        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        choices=[
+            "auto",
+            "openai",
+            "gemini",
+            "perplexity",
+            "grok",
+            "cursor",
+            "windsurf",
+            "copilot",
+            "jsonl",
+            "api_logs",
+            "messages",
+            "text",
+            "generic",
+        ],
         default="auto",
     )
     parser.add_argument("--merge", "-m", help="Existing context file to merge with (incremental extraction)")
@@ -2293,6 +2620,14 @@ def main():
         result = extractor.process_gemini_export(data)
     elif fmt == "perplexity":
         result = extractor.process_perplexity_export(data)
+    elif fmt == "grok":
+        result = extractor.process_grok_export(data)
+    elif fmt == "cursor":
+        result = extractor.process_cursor_export(data)
+    elif fmt == "windsurf":
+        result = extractor.process_windsurf_export(data)
+    elif fmt == "copilot":
+        result = extractor.process_copilot_export(data)
     elif fmt in ("jsonl", "claude_code"):
         result = extractor.process_jsonl_messages(data)
     elif fmt == "api_logs":
