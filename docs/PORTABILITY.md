@@ -66,6 +66,9 @@ Cortex is explicit about how each target works.
 | `chatgpt` | Import-ready artifacts | `portable/chatgpt/custom_instructions.md`, `portable/chatgpt/custom_instructions.json` |
 | `grok` | Import-ready artifacts | `portable/grok/context_prompt.md`, `portable/grok/context_prompt.json` |
 
+For a sample generated Claude Code file, see [`docs/examples/CLAUDE.generated.md`](examples/CLAUDE.generated.md).
+That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a contributor guide for working on Cortex itself.
+
 ## What The New Commands Do
 
 ### `cortex scan`
@@ -74,7 +77,7 @@ Audits the current machine and portability state to show what each supported too
 
 ### `cortex remember`
 
-Updates the canonical portable context graph once, then propagates that new fact to the direct-write tools by default.
+Updates the canonical portable context graph once, then propagates that new fact across all supported portability targets by default.
 
 Example:
 
@@ -167,6 +170,6 @@ cortex build --from package.json --from git-history --from github --sync --smart
 
 - `claude-code` installs both a global user file and a project file.
 - `gemini-cli` is still accepted as an alias for `gemini`.
-- `remember` defaults to the direct-write tools. Use `sync --smart` or `portable` when you also want fresh import-ready artifacts for chat tools.
+- `remember` now updates all supported portability targets by default, including import-ready artifacts for chat tools.
 - The portability layer keeps storage user-owned. It does not upload memory anywhere.
 - Lower-level commands like `extract`, `import`, `context-write`, and adapter `sync` still exist if you want finer control.
