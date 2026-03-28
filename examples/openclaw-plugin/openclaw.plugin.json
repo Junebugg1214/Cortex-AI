@@ -86,6 +86,23 @@
         "default": 15000,
         "description": "Timeout for Cortex MCP or bridge calls."
       },
+      "healthCheckTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 5000,
+        "description": "Timeout for managed cortex-mcp health checks."
+      },
+      "maxContextChars": {
+        "type": "integer",
+        "minimum": 256,
+        "default": 1500,
+        "description": "Maximum routed Cortex context characters injected into each turn."
+      },
+      "failOpen": {
+        "type": "boolean",
+        "default": true,
+        "description": "If Cortex is unavailable, continue the turn without injected context."
+      },
       "externalBaseUrl": {
         "type": "string",
         "format": "uri",
@@ -151,6 +168,15 @@
     },
     "requestTimeoutMs": {
       "label": "Request Timeout (ms)"
+    },
+    "healthCheckTimeoutMs": {
+      "label": "Health Check Timeout (ms)"
+    },
+    "maxContextChars": {
+      "label": "Max Injected Context Chars"
+    },
+    "failOpen": {
+      "label": "Fail Open On Cortex Outage"
     },
     "externalBaseUrl": {
       "label": "External Cortex Base URL",

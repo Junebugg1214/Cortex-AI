@@ -28,6 +28,62 @@ def _normalize_email(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _first_nonempty(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _metadata_identity_anchor(metadata: dict[str, Any]) -> str:
+    return _first_nonempty(
+        metadata.get("canonical_subject_id"),
+        metadata.get("contact_id"),
+        metadata.get("sender_id"),
+        metadata.get("author_id"),
+        metadata.get("participant_id"),
+    )
+
+
+def _metadata_thread_anchor(metadata: dict[str, Any]) -> str:
+    return _first_nonempty(
+        metadata.get("thread_id"),
+        metadata.get("chat_id"),
+        metadata.get("session_id"),
+        metadata.get("room_id"),
+        metadata.get("channel_id"),
+    )
+
+
+def _metadata_event_anchor(metadata: dict[str, Any]) -> str:
+    return _first_nonempty(
+        metadata.get("message_id"),
+        metadata.get("event_id"),
+        metadata.get("update_id"),
+        metadata.get("delivery_id"),
+    )
+
+
+def _event_fallback_key(
+    *,
+    platform: str,
+    workspace_key: str,
+    message: "ChannelMessage",
+    prefix: str,
+) -> str:
+    return _stable_key(
+        platform,
+        workspace_key,
+        _metadata_identity_anchor(message.metadata),
+        _metadata_thread_anchor(message.metadata),
+        _metadata_event_anchor(message.metadata),
+        message.timestamp,
+        message.text,
+        prefix=prefix,
+    )
+
+
 def _stable_key(*parts: str, prefix: str) -> str:
     payload = "|".join(part.strip() for part in parts if part and part.strip())
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -128,11 +184,17 @@ class BaseChannelAdapter:
         workspace_key = _workspace_key(platform, message.workspace_id)
         normalized_phone = _normalize_phone(message.phone_number)
         normalized_email = _normalize_email(message.email)
+        normalized_username = message.username.strip().lower()
+        canonical_subject_id = message.canonical_subject_id.strip()
+        user_id = message.user_id.strip()
+        conversation_id = message.conversation_id.strip()
+        metadata_identity = _metadata_identity_anchor(message.metadata)
+        metadata_thread = _metadata_thread_anchor(message.metadata)
 
         identity_type = "external_user_id"
         shared_identity = False
-        if message.canonical_subject_id.strip():
-            subject_key = _slug_fragment(message.canonical_subject_id, fallback="subject")
+        if canonical_subject_id:
+            subject_key = _slug_fragment(canonical_subject_id, fallback="subject")
             identity_type = "canonical_subject_id"
             shared_identity = True
         elif normalized_phone:
@@ -143,13 +205,47 @@ class BaseChannelAdapter:
             subject_key = _stable_key(normalized_email, prefix="email")
             identity_type = "email"
             shared_identity = True
-        elif message.username.strip():
-            subject_key = _stable_key(platform, workspace_key, message.username.strip().lower(), prefix="user")
+        elif normalized_username:
+            subject_key = _stable_key(platform, workspace_key, normalized_username, prefix="user")
             identity_type = "username"
+        elif user_id:
+            subject_key = _stable_key(platform, workspace_key, user_id, prefix="user")
+        elif metadata_identity:
+            subject_key = _stable_key(platform, workspace_key, metadata_identity, prefix="user")
+            identity_type = "metadata_identity"
+        elif conversation_id or metadata_thread:
+            subject_key = _stable_key(
+                platform, workspace_key, conversation_id, metadata_thread, prefix="conversation-user"
+            )
+            identity_type = "conversation_fallback"
         else:
-            subject_key = _stable_key(platform, workspace_key, message.user_id, prefix="user")
+            subject_key = _event_fallback_key(
+                platform=platform,
+                workspace_key=workspace_key,
+                message=message,
+                prefix="event-user",
+            )
+            identity_type = "event_fallback"
 
-        conversation_key = _stable_key(platform, workspace_key, message.conversation_id, prefix="thread")
+        conversation_anchor = _first_nonempty(
+            conversation_id,
+            metadata_thread,
+            user_id,
+            metadata_identity,
+            normalized_username,
+            normalized_phone,
+            normalized_email,
+            canonical_subject_id,
+        )
+        if conversation_anchor:
+            conversation_key = _stable_key(platform, workspace_key, conversation_anchor, prefix="thread")
+        else:
+            conversation_key = _event_fallback_key(
+                platform=platform,
+                workspace_key=workspace_key,
+                message=message,
+                prefix="thread",
+            )
         if shared_identity:
             subject_root_namespace = f"people/{identity_type}/{subject_key}"
         else:
@@ -163,9 +259,10 @@ class BaseChannelAdapter:
             aliases.append(f"phone:{normalized_phone}")
         if normalized_email:
             aliases.append(f"email:{normalized_email}")
-        if message.username.strip():
-            aliases.append(f"username:{message.username.strip().lower()}")
-        aliases.append(f"{platform}:{message.user_id}")
+        if normalized_username:
+            aliases.append(f"username:{normalized_username}")
+        if user_id:
+            aliases.append(f"{platform}:{user_id}")
 
         return ResolvedChannelIdentity(
             platform=platform,

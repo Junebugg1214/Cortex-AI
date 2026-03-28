@@ -4,9 +4,14 @@ This directory is a starter spec for a future native OpenClaw plugin, not a publ
 
 It exists to make the Cortex + OpenClaw path concrete:
 
+- [package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
 - [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
 - [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
 - [OpenClaw Native Plugin Spec](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_NATIVE_PLUGIN.md)
+- [src/index.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.ts)
+- [src/service.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.ts)
+- [src/hooks.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.ts)
+- [src/identity.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.ts)
 
 The intended install UX is:
 
