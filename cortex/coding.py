@@ -1,9 +1,16 @@
 """
 Cortex Coding Session Extraction — Phase 7 (v6.1)
 
-Extracts identity signals from coding tool sessions (Claude Code, Cursor, Copilot).
-Unlike chatbot extraction (regex on declarative text), coding extraction infers
-identity from behavior: files touched, tools used, commands run, patterns followed.
+Extracts identity signals from coding work.
+
+Today the session parser is Claude Code JSONL only. Project enrichment is
+tool-agnostic and works for repo-based tools like Cursor, Copilot, Codex,
+and Windsurf by reading local project files rather than proprietary session
+formats.
+
+Unlike chatbot extraction (regex on declarative text), coding extraction
+infers identity from behavior: files touched, tools used, commands run,
+patterns followed.
 
 Zero external deps. Outputs v4-compatible dicts for merge with existing pipeline.
 """
@@ -16,6 +23,11 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
+    tomllib = None
 
 # ---------------------------------------------------------------------------
 # File extension -> technology mapping
@@ -119,6 +131,7 @@ _CC_RECORD_TYPES = frozenset(
         "queue-operation",
     }
 )
+README_SUMMARY_MAX_CHARS = 1200
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +165,7 @@ class CodingSession:
     """Parsed representation of a coding tool session."""
 
     session_id: str = ""
-    tool: str = ""  # "claude_code", "cursor", "copilot"
+    tool: str = ""  # currently "claude_code" or "aggregate"
     project_path: str = ""  # cwd / working directory
     git_branch: str = ""
     start_time: datetime | None = None
@@ -383,18 +396,12 @@ def enrich_project(project_path: str) -> ProjectMetadata:
     Reads README, package manifests, and checks for CI/Docker.
     Returns ProjectMetadata with whatever could be found.
     Gracefully handles missing files, permission errors, etc.
-    Only reads from paths under the user's home directory (#34).
+    Resolves the provided path before reading to avoid traversal ambiguity.
     """
     meta = ProjectMetadata()
-    root = Path(project_path)
-
-    if not root.is_dir():
-        return meta
-
-    # Validate project path: reject path traversal (#34)
     try:
-        root.resolve()
-        if ".." in str(project_path):
+        root = Path(project_path).expanduser().resolve(strict=True)
+        if not root.is_dir():
             return meta
     except (OSError, ValueError):
         return meta
@@ -455,7 +462,7 @@ def _parse_readme_first_paragraph(text: str) -> str:
 
     Skips headings (#), badges ([![), images (![), horizontal rules (---/===),
     code fences (```), and blank lines. Returns first contiguous text block,
-    up to 500 chars truncated at word boundary.
+    up to README_SUMMARY_MAX_CHARS truncated at a sentence or word boundary.
     """
     lines = text.split("\n")
     paragraph_lines: list[str] = []
@@ -499,8 +506,13 @@ def _parse_readme_first_paragraph(text: str) -> str:
         paragraph_lines.append(stripped)
 
     result = " ".join(paragraph_lines)
-    if len(result) > 500:
-        result = result[:500].rsplit(" ", 1)[0] + "..."
+    if len(result) > README_SUMMARY_MAX_CHARS:
+        truncated = result[:README_SUMMARY_MAX_CHARS]
+        sentence_cut = max(truncated.rfind(". "), truncated.rfind("! "), truncated.rfind("? "))
+        if sentence_cut >= int(README_SUMMARY_MAX_CHARS * 0.6):
+            result = truncated[: sentence_cut + 1].rstrip() + "..."
+        else:
+            result = truncated.rsplit(" ", 1)[0] + "..."
     return result
 
 
@@ -532,34 +544,46 @@ def _extract_manifest_metadata(root: Path, meta: ProjectMetadata) -> None:
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
         try:
-            text = pyproject.read_text(encoding="utf-8")
+            data = _load_toml_file(pyproject)
             meta.manifest_file = "pyproject.toml"
-            meta.description = _toml_value(text, "description")
-            name = _toml_value(text, "name")
+            project = data.get("project", {}) if isinstance(data, dict) else {}
+            poetry = data.get("tool", {}).get("poetry", {}) if isinstance(data.get("tool"), dict) else {}
+            source = project if isinstance(project, dict) and project else poetry if isinstance(poetry, dict) else {}
+            meta.description = _coerce_toml_string(source.get("description"))
+            name = _coerce_toml_string(source.get("name"))
             if name:
                 meta.name = name
-            meta.license = _toml_value(text, "license")
+            meta.license = _extract_toml_license(source.get("license"))
+            keywords = source.get("keywords", [])
+            if isinstance(keywords, list):
+                meta.keywords = [str(k) for k in keywords]
             if "Python" not in meta.languages:
                 meta.languages.append("Python")
             return
-        except OSError:
+        except (OSError, ValueError, TypeError):
             pass
 
     # Cargo.toml
     cargo = root / "Cargo.toml"
     if cargo.exists():
         try:
-            text = cargo.read_text(encoding="utf-8")
+            data = _load_toml_file(cargo)
             meta.manifest_file = "Cargo.toml"
-            meta.description = _toml_value(text, "description")
-            name = _toml_value(text, "name")
+            package = data.get("package", {}) if isinstance(data, dict) else {}
+            if not isinstance(package, dict):
+                package = {}
+            meta.description = _coerce_toml_string(package.get("description"))
+            name = _coerce_toml_string(package.get("name"))
             if name:
                 meta.name = name
-            meta.license = _toml_value(text, "license")
+            meta.license = _extract_toml_license(package.get("license"))
+            keywords = package.get("keywords", [])
+            if isinstance(keywords, list):
+                meta.keywords = [str(k) for k in keywords]
             if "Rust" not in meta.languages:
                 meta.languages.append("Rust")
             return
-        except OSError:
+        except (OSError, ValueError, TypeError):
             pass
 
     # setup.cfg
@@ -594,6 +618,35 @@ def _toml_value(text: str, key: str) -> str:
     if not m:
         return ""
     return m.group(1) or m.group(2) or ""
+
+
+def _load_toml_file(path: Path) -> dict:
+    if tomllib is None:
+        raise ValueError("tomllib unavailable")
+    with path.open("rb") as handle:
+        data = tomllib.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError("TOML root must be a table")
+    return data
+
+
+def _coerce_toml_string(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _extract_toml_license(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str):
+            return text.strip()
+        file_name = value.get("file")
+        if isinstance(file_name, str):
+            return file_name.strip()
+    return ""
 
 
 def _detect_license(root: Path) -> str:

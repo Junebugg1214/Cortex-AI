@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import pytest
 
 from cortex.coding import (
+    README_SUMMARY_MAX_CHARS,
     CodingSession,
     ProjectMetadata,
     _detect_license,
@@ -564,9 +565,9 @@ class TestReadmeParsing:
         assert _parse_readme_first_paragraph(text) == ""
 
     def test_long_paragraph_truncated(self):
-        text = "# Title\n\n" + "word " * 200 + "\n"
+        text = "# Title\n\n" + "word " * 500 + "\n"
         result = _parse_readme_first_paragraph(text)
-        assert len(result) <= 504  # 500 + "..."
+        assert len(result) <= README_SUMMARY_MAX_CHARS + 4
         assert result.endswith("...")
 
     def test_skips_code_fences(self):
@@ -625,6 +626,18 @@ class TestManifestExtraction:
         assert meta.manifest_file == "pyproject.toml"
         assert "Python" in meta.languages
 
+    def test_pyproject_toml_multiline_description(self, tmp_path):
+        toml = tmp_path / "pyproject.toml"
+        toml.write_text(
+            '[project]\nname = "cortex"\ndescription = """Portable AI identity\nthat moves across tools."""\n'
+            'license = {text = "MIT"}\nkeywords = ["portable", "memory"]\n'
+        )
+        meta = enrich_project(str(tmp_path))
+        assert meta.name == "cortex"
+        assert "moves across tools" in meta.description
+        assert meta.license == "MIT"
+        assert meta.keywords == ["portable", "memory"]
+
     def test_cargo_toml(self, tmp_path):
         cargo = tmp_path / "Cargo.toml"
         cargo.write_text('[package]\nname = "mylib"\ndescription = "A Rust library"\nlicense = "Apache-2.0"\n')
@@ -633,6 +646,12 @@ class TestManifestExtraction:
         assert meta.description == "A Rust library"
         assert meta.manifest_file == "Cargo.toml"
         assert "Rust" in meta.languages
+
+    def test_cargo_toml_license_file_table(self, tmp_path):
+        cargo = tmp_path / "Cargo.toml"
+        cargo.write_text('[package]\nname = "mylib"\ndescription = "A Rust library"\nlicense = {file = "LICENSE"}\n')
+        meta = enrich_project(str(tmp_path))
+        assert meta.license == "LICENSE"
 
     def test_setup_cfg(self, tmp_path):
         cfg = tmp_path / "setup.cfg"
@@ -729,6 +748,13 @@ class TestEnrichProject:
 
     def test_nonexistent_directory(self):
         meta = enrich_project("/nonexistent/path/12345")
+        assert meta.enriched is False
+        assert meta.name == ""
+
+    def test_file_path_is_rejected(self, tmp_path):
+        file_path = tmp_path / "README.md"
+        file_path.write_text("# Not a project\n", encoding="utf-8")
+        meta = enrich_project(str(file_path))
         assert meta.enriched is False
         assert meta.name == ""
 
