@@ -840,8 +840,16 @@ def extract_entities(text: str) -> list[tuple[str, str]]:
 
 
 def is_user_message(message: dict) -> bool:
-    role = message.get("role", message.get("author", {}).get("role", ""))
-    return role in ["user", "human"]
+    role = message.get("role", "")
+    if not role:
+        author = message.get("author", {})
+        if isinstance(author, dict):
+            role = author.get("role", "")
+        elif isinstance(author, str):
+            role = author
+    if not role:
+        role = message.get("type", "")
+    return str(role).lower() in ["user", "human"]
 
 
 def get_message_text(message: dict) -> str:
@@ -852,7 +860,11 @@ def get_message_text(message: dict) -> str:
         if isinstance(content, dict):
             # ChatGPT format: {"content_type": "text", "parts": ["..."]}
             parts = content.get("parts", [])
-            return " ".join(str(p) for p in parts if isinstance(p, str))
+            if parts:
+                return " ".join(str(p) for p in parts if isinstance(p, str))
+            nested_content = content.get("content")
+            if nested_content is not None:
+                return get_message_text({"content": nested_content})
         if isinstance(content, list):
             parts = []
             for part in content:
@@ -864,7 +876,10 @@ def get_message_text(message: dict) -> str:
     if "text" in message:
         return message["text"]
     if "message" in message:
-        return get_message_text({"content": message["message"]})
+        nested_message = message["message"]
+        if isinstance(nested_message, dict):
+            return get_message_text(nested_message)
+        return get_message_text({"content": nested_message})
     return ""
 
 
@@ -1194,7 +1209,7 @@ class AggressiveExtractor:
 
     def _extract_identity(self, text: str, timestamp: datetime | None = None):
         for pattern in IDENTITY_PATTERNS:
-            for match in re.finditer(pattern, text):
+            for match in re.finditer(pattern, text, re.IGNORECASE):
                 name = match.group(1).strip()
                 if name.lower() not in SKIP_WORDS:
                     self.context.add_topic(
@@ -2060,68 +2075,11 @@ def merge_contexts(existing_path: Path, extractor: "AggressiveExtractor") -> "Ag
 
 
 def load_file(file_path: Path) -> tuple[Any, str]:
-    if file_path.suffix == ".zip":
-        _MAX_ZIP_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB limit (#26)
-        with zipfile.ZipFile(file_path, "r") as zf:
-            # Single-pass: categorize safe entries by priority
-            conversations_entry: str | None = None
-            json_entry: str | None = None
-            txt_entry: str | None = None
-            for name in zf.namelist():
-                # Skip path traversal entries (#11)
-                if ".." in name or os.path.isabs(name):
-                    continue
-                info = zf.getinfo(name)
-                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
-                    continue
-                if conversations_entry is None and "conversations.json" in name:
-                    conversations_entry = name
-                elif json_entry is None and name.endswith(".json"):
-                    json_entry = name
-                elif txt_entry is None and name.endswith(".txt"):
-                    txt_entry = name
-
-            # Load by priority: conversations.json > any .json > any .txt
-            if conversations_entry is not None:
-                with zf.open(conversations_entry) as f:
-                    return json.load(f), "openai"
-            if json_entry is not None:
-                with zf.open(json_entry) as f:
-                    return json.load(f), "generic"
-            if txt_entry is not None:
-                with zf.open(txt_entry) as f:
-                    return f.read().decode("utf-8"), "text"
-        raise ValueError("No supported files in zip")
-
-    # JSONL format: one JSON object per line
-    if file_path.suffix == ".jsonl":
-        messages = []
-        with open(file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        messages.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        # Check if this is Claude Code session JSONL
-        if messages and len(messages) >= 2:
-            first_real = next(
-                (r for r in messages if isinstance(r, dict) and r.get("type") in ("user", "assistant", "system")),
-                None,
-            )
-            if first_real is not None and "sessionId" in first_real and "cwd" in first_real:
-                return messages, "claude_code"
-        return messages, "jsonl"
-
-    if file_path.suffix == ".json":
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
+    def detect_json_format(data: Any) -> tuple[Any, str]:
         # Detection order: most specific to most generic
 
         # 1. OpenAI export (has "mapping" structure)
-        if isinstance(data, list) and data and "mapping" in data[0]:
+        if isinstance(data, list) and data and isinstance(data[0], dict) and "mapping" in data[0]:
             return data, "openai"
         if isinstance(data, dict) and ("conversations" in data or "mapping" in data):
             if "mapping" in data:
@@ -2141,10 +2099,8 @@ def load_file(file_path: Path) -> tuple[Any, str]:
             convs = data["conversations"]
             if convs and isinstance(convs[0], dict):
                 first_conv = convs[0]
-                # Check for Gemini "turns" structure
                 if "turns" in first_conv:
                     return data, "gemini"
-                # Check for Gemini author format
                 if "messages" in first_conv:
                     msgs = first_conv["messages"]
                     if msgs and isinstance(msgs[0], dict) and msgs[0].get("author") in ["user", "model"]:
@@ -2153,19 +2109,116 @@ def load_file(file_path: Path) -> tuple[Any, str]:
         # 4. API logs (has "requests" with messages arrays)
         if isinstance(data, dict) and "requests" in data:
             return data, "api_logs"
-        if isinstance(data, list) and data and "messages" in data[0] and "model" in data[0]:
+        if (
+            isinstance(data, list)
+            and data
+            and isinstance(data[0], dict)
+            and "messages" in data[0]
+            and "model" in data[0]
+        ):
             return {"requests": data}, "api_logs"
 
         # 5. Generic messages list
         if isinstance(data, dict) and "messages" in data:
             return data.get("messages", []), "messages"
 
-        # 6. Plain messages array
+        # 6. Plain messages array / Claude Code session export
         if isinstance(data, list) and data and isinstance(data[0], dict):
-            if "role" in data[0] or "author" in data[0]:
+            first = data[0]
+            if first.get("type") in ("user", "assistant", "system") and "sessionId" in first and "cwd" in first:
+                return data, "claude_code"
+            if "role" in first or "author" in first or "type" in first:
                 return data, "messages"
 
         return data, "generic"
+
+    def detect_jsonl_format(messages: list[dict]) -> tuple[Any, str]:
+        if messages:
+            first_real = next(
+                (
+                    record
+                    for record in messages
+                    if isinstance(record, dict) and record.get("type") in ("user", "assistant", "system")
+                ),
+                None,
+            )
+            if first_real is not None and "sessionId" in first_real and "cwd" in first_real:
+                return messages, "claude_code"
+        return messages, "jsonl"
+
+    def load_jsonl_stream(handle) -> list[dict]:
+        messages = []
+        for raw_line in handle:
+            if isinstance(raw_line, bytes):
+                raw_line = raw_line.decode("utf-8")
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return messages
+
+    if file_path.suffix == ".zip":
+        _MAX_ZIP_ENTRY_SIZE = 100 * 1024 * 1024  # 100 MB limit (#26)
+        with zipfile.ZipFile(file_path, "r") as zf:
+            best_payload: tuple[Any, str] | None = None
+            best_priority = -1
+
+            def consider(payload: tuple[Any, str]) -> None:
+                nonlocal best_payload, best_priority
+                _data, fmt = payload
+                priority = {
+                    "openai": 70,
+                    "gemini": 60,
+                    "perplexity": 60,
+                    "claude_code": 55,
+                    "api_logs": 50,
+                    "messages": 40,
+                    "jsonl": 35,
+                    "generic": 20,
+                    "text": 10,
+                }.get(fmt, 0)
+                if priority > best_priority:
+                    best_priority = priority
+                    best_payload = payload
+
+            for name in zf.namelist():
+                # Skip path traversal entries (#11)
+                if ".." in name or os.path.isabs(name):
+                    continue
+                info = zf.getinfo(name)
+                if info.file_size > _MAX_ZIP_ENTRY_SIZE:
+                    continue
+                if name.endswith(".json"):
+                    with zf.open(name) as f:
+                        try:
+                            consider(detect_json_format(json.load(f)))
+                        except json.JSONDecodeError:
+                            continue
+                    continue
+                if name.endswith(".jsonl"):
+                    with zf.open(name) as f:
+                        consider(detect_jsonl_format(load_jsonl_stream(f)))
+                    continue
+                if name.endswith((".txt", ".md")):
+                    with zf.open(name) as f:
+                        consider((f.read().decode("utf-8"), "text"))
+
+            if best_payload is not None:
+                return best_payload
+        raise ValueError("No supported files in zip")
+
+    # JSONL format: one JSON object per line
+    if file_path.suffix == ".jsonl":
+        with open(file_path, "r", encoding="utf-8") as f:
+            return detect_jsonl_format(load_jsonl_stream(f))
+
+    if file_path.suffix == ".json":
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return detect_json_format(data)
 
     if file_path.suffix in [".txt", ".md"]:
         with open(file_path, "r", encoding="utf-8") as f:

@@ -119,12 +119,18 @@ def _load_graph_result(graph_path: str) -> GraphLoadResult:
         return GraphLoadResult(None, status="missing_file", path=str(path))
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return GraphLoadResult(None, status="read_error", message=str(exc), path=str(path))
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         return GraphLoadResult(None, status="invalid_json", message=str(exc), path=str(path))
+    if not isinstance(data, dict) or (
+        "graph" not in data and "categories" not in data and "nodes" not in data and "edges" not in data
+    ):
+        return GraphLoadResult(
+            None, status="invalid_graph", message="JSON does not look like a Cortex graph.", path=str(path)
+        )
     try:
         version = data.get("schema_version", "")
         if version.startswith(("5", "6")) and "graph" in data:
