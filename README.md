@@ -11,12 +11,16 @@ Cortex fixes that.
 Cortex is a CLI and MCP server for portable AI context across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Windsurf, Cursor, and Copilot. Humans curate context with the CLI. AI tools fetch their live routed slice over MCP.
 
 ```bash
-pip install "cortex-identity[server]"
+git clone https://github.com/Junebugg1214/Cortex-AI.git
+cd Cortex-AI
+python3.11 -m pip install -e ".[server]"
 
 cortex portable chatgpt-export.zip --to all --project .
 cortex scan
 cortex sync --smart
 ```
+
+Use `python3.11 -m pip`, not plain `pip`. Cortex requires Python 3.10+, and the full CLI + MCP beta surface in this repo tracks the source install first. If you only want the published core package, use `python3.11 -m pip install cortex-identity`.
 
 What that looks like:
 

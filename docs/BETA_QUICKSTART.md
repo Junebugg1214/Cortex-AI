@@ -15,10 +15,26 @@ Use one of these surfaces during beta:
 
 1. GitHub release assets for the tagged beta or release candidate
 2. Docker images from `ghcr.io/junebugg1214/cortex-ai:<tag>`
-3. Local source install if you are contributing or evaluating changes from `main`
+3. Local source install if you are contributing, evaluating changes from `main`, or want the latest CLI + MCP beta surface
 
 For prerelease tags like `v1.4.1-rc1`, prefer GitHub release assets or the matching Docker tag over stable package-manager
 channels.
+
+If you install locally, use `python3.11 -m pip`, not plain `pip`. Cortex requires Python 3.10+, and many macOS environments still map `pip` to Python 3.9.
+
+For the latest source build from this repo:
+
+```bash
+git clone https://github.com/Junebugg1214/Cortex-AI.git
+cd Cortex-AI
+python3.11 -m pip install -e ".[server]"
+```
+
+If you only want the currently published core package from PyPI, use:
+
+```bash
+python3.11 -m pip install cortex-identity
+```
 
 ## 5-Minute Setup
 
