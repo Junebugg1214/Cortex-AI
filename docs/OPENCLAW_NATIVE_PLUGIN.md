@@ -1,99 +1,86 @@
-# OpenClaw Native Plugin Spec
+# OpenClaw Native Plugin
 
-This document defines the proposed one-click native OpenClaw plugin for Cortex.
+This document describes the real Cortex native plugin package for OpenClaw.
 
 Goal:
 
-- install once with `openclaw plugins install @cortex/openclaw`
-- enable once with `openclaw plugins enable cortex`
+- install with `openclaw plugins install @cortex/openclaw`
+- enable with `openclaw plugins enable cortex`
 - restart the gateway
-- get cross-channel identity resolution, live Cortex context, and durable per-user/per-thread memory automatically
+- get live Cortex context plus cross-channel durable memory automatically
 
-This is a starter spec, not a claim that `@cortex/openclaw` is already published.
+The package scaffold lives in:
 
-## Phase 1 Scope
+- [examples/openclaw-plugin/package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
+- [examples/openclaw-plugin/openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
+- [examples/openclaw-plugin/config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
+- [examples/openclaw-plugin/src/index.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.js)
+- [examples/openclaw-plugin/src/service.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.js)
+- [examples/openclaw-plugin/src/hooks.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.js)
+- [examples/openclaw-plugin/src/identity.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.js)
 
-Phase 1 should be a standard native OpenClaw plugin with:
+## Package Shape
 
-- `openclaw.plugin.json`
-- inline JSON Schema for config validation
-- a managed background service that starts `cortex-mcp`
-- typed runtime hooks for prompt injection and post-turn memory writes
+The package is publish-ready:
 
-Phase 1 should intentionally leave `kind` unset so it can coexist with OpenClaw's built-in `memory-core` plugin. Cortex adds cross-channel portable context and external durable memory first. If a later version owns `openclaw memory` CLI surfaces directly, promote it to `kind: "memory"` then.
+- public `package.json`
+- `openclaw.extensions` points at a real runtime file
+- manifest and config schema ship at the package root
+- `npm pack` produces an installable tarball
 
-## Package Layout
+The current local test/install flow is:
 
-```text
-@cortex/openclaw/
-  package.json
-  openclaw.plugin.json
-  config.schema.json
-  README.md
-  src/
-    index.ts
-    service.ts
-    hooks.ts
-    identity.ts
+```bash
+cd examples/openclaw-plugin
+npm pack
+openclaw plugins install ./cortex-openclaw-1.4.1.tgz
+openclaw plugins enable cortex
+openclaw gateway restart
 ```
 
-Reference starter files in this repo:
+## Runtime Model
 
-- [package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
-- [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
-- [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
-- [README.md](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/README.md)
+The plugin does not take over OpenClaw's exclusive `memory` slot yet.
 
-## `openclaw.plugin.json`
+Instead it runs as a normal plugin with:
 
-Proposed manifest:
+- a managed background service
+- typed runtime hooks
+- channel normalization
+- durable memory seeding
 
-```json
-{
-  "id": "cortex",
-  "configSchema": {
-    "type": "object",
-    "additionalProperties": false
-  }
-}
-```
+The managed sidecar is `cortex-mcp`, not a custom wrapper.
 
-Exact starter manifest lives here:
+That keeps the runtime aligned with the broader Cortex loop:
 
-- [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
-
-Design notes:
-
-- `id` should stay `cortex` so the UX is `openclaw plugins enable cortex`
-- do not set `kind: "memory"` in phase 1
-- use `uiHints` so OpenClaw Control UI can render friendly labels and mark sensitive fields correctly
+- humans curate context with the Cortex CLI
+- OpenClaw consumes and updates that context through the native plugin
+- other AI runtimes can still consume Cortex over MCP directly
 
 ## Config Schema
 
-The plugin config should validate these fields:
+Important config fields:
 
 - `storeDir`: where Cortex data lives, default `~/.openclaw/cortex`
-- `configPath`: path to Cortex `config.toml`, default `~/.openclaw/cortex/config.toml`
-- `transport`: one of `managed-child`, `external-mcp`, `in-process-python`
+- `configPath`: path to the managed Cortex `config.toml`
+- `transport`: `managed-child` or `custom-command`
 - `mcpCommand`: default `cortex-mcp`
 - `mcpArgs`: default `["--config", "~/.openclaw/cortex/config.toml"]`
-- `defaultTarget`: routed portability target, default `chatgpt`
-- `smartRouting`: whether to use Cortex smart routing, default `true`
-- `autoSeedThreads`: whether to materialize subject/thread scaffolds automatically, default `true`
-- `projectDirStrategy`: one of `agent-workspace`, `gateway-cwd`, `explicit`
+- `defaultTarget`: routed target for the live context slice
+- `smartRouting`: whether to use Cortex smart routing
+- `autoSeedThreads`: whether to materialize subject/thread memory after each turn
+- `projectDirStrategy`: `agent-workspace`, `gateway-cwd`, or `explicit`
 - `projectDir`: explicit project dir when strategy is `explicit`
-- `requestTimeoutMs`: timeout for Cortex calls
-- `healthCheckTimeoutMs`: timeout for managed `cortex-mcp --check`
-- `maxContextChars`: max routed context characters injected per turn
-- `failOpen`: if Cortex is temporarily unavailable, let OpenClaw continue without injected context
-- `identityFields`: precedence toggles for `canonicalSubjectId`, `phoneNumber`, `email`, and `username`
-- `externalBaseUrl`: only used when `transport = external-mcp`
+- `requestTimeoutMs`: timeout for Cortex MCP requests
+- `healthCheckTimeoutMs`: timeout for `cortex-mcp --check`
+- `maxContextChars`: cap for injected live context
+- `failOpen`: keep OpenClaw running even if Cortex is temporarily unavailable
+- `serviceRestartLimit`: bounded restart count for the managed child
+- `serviceRestartBackoffMs`: restart backoff base
+- `namespace`: optional namespace pin for the Cortex MCP session
+- `identityFields`: which incoming fields are allowed to collapse identity across channels
 
-Exact starter schema lives here:
-
-- [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
-
-Recommended OpenClaw config snippet:
+Recommended OpenClaw config:
 
 ```json5
 {
@@ -102,11 +89,9 @@ Recommended OpenClaw config snippet:
       cortex: {
         enabled: true,
         hooks: {
-          allowPromptInjection: true,
+          allowPromptInjection: true
         },
         config: {
-          storeDir: "~/.openclaw/cortex",
-          configPath: "~/.openclaw/cortex/config.toml",
           transport: "managed-child",
           defaultTarget: "chatgpt",
           smartRouting: true,
@@ -114,161 +99,82 @@ Recommended OpenClaw config snippet:
           projectDirStrategy: "agent-workspace",
           maxContextChars: 1500,
           failOpen: true,
-          requestTimeoutMs: 15000,
-          healthCheckTimeoutMs: 5000,
-        },
-      },
-    },
-  },
+          serviceRestartLimit: 3,
+          serviceRestartBackoffMs: 1000
+        }
+      }
+    }
+  }
 }
 ```
 
-## Runtime Hook Lifecycle
+## Hook Lifecycle
 
-Use the current OpenClaw plugin APIs documented for `registerService` and `api.on(...)`.
+### `gateway_start`
 
-### 1. Plugin load
+The managed service starts `cortex-mcp`, writes a default config if one does not exist yet, runs `--check`, initializes the MCP session, and verifies health.
 
-On plugin registration:
+### `message_received`
 
-- read and validate `plugins.entries.cortex.config`
-- normalize `~` and relative paths before starting any child process
-- register a background service named `cortex-mcp`
-- register typed runtime hooks
+The plugin normalizes the incoming OpenClaw event into a Cortex `ChannelMessage` shape and caches it for the run.
 
-### 2. `gateway_start`
+### `before_prompt_build`
 
-On `gateway_start`:
+The plugin calls `channel_prepare_turn` over MCP.
 
-- ensure `storeDir` exists
-- ensure `configPath` exists, copying a starter config when needed
-- if `transport = managed-child`, start `cortex-mcp --config <configPath>`
-- run a lightweight health check before marking the service ready
-- if `failOpen = true`, mark the plugin degraded instead of blocking the whole gateway
+That returns:
 
-### 3. `message_received`
+- shared identity resolution
+- the routed context slice for the target runtime
+- the per-user and per-thread write plan
 
-On `message_received`:
+If routed context exists, the plugin injects it through `prependContext`.
 
-- normalize the inbound channel event into a `ChannelMessage`
-- cache a lightweight turn envelope seed keyed by session or run id
-- preserve the raw channel ids needed for thread scoping
+### `agent_end`
 
-### 4. `before_prompt_build`
+The plugin calls `channel_seed_turn_memory` over MCP and materializes the prepared per-user and per-thread memory branches.
 
-On `before_prompt_build`:
+### `gateway_stop`
 
-- rebuild or load the `ChannelMessage`
-- call Cortex through the Python bridge or MCP:
-  - `ChannelContextBridge.prepare_turn(...)` for in-process mode
-  - `portability_context` for MCP mode
-- cap injected content with `maxContextChars`
-- inject the returned routed slice using `prependContext`
+The managed sidecar stops cleanly and the plugin clears its caches.
 
-Why `prependContext`:
+## Identity And Channels
 
-- the OpenClaw docs recommend it for per-turn dynamic content
-- routed Cortex context is dynamic and channel/user-specific
+The plugin normalizes OpenClaw events into the Cortex channel contract and intentionally supports sparse real-world payloads.
 
-If `plugins.entries.cortex.hooks.allowPromptInjection = false`, skip prompt mutation and only keep the cached envelope for later memory writes.
+Identity collapse prefers:
 
-### 5. `agent_end`
+1. `canonicalSubjectId`
+2. phone number
+3. email
+4. username
+5. channel-local ids
+6. conversation and event fallback anchors
 
-On `agent_end`:
+That lets the same person carry memory across Telegram, WhatsApp, Discord, Slack, SMS, web chat, and similar channels without collapsing unrelated sparse events together.
 
-- if `autoSeedThreads` is enabled, call `bridge.seed_turn_memory(turn)` or the MCP-backed equivalent
-- write durable user or thread facts only when extraction confidence is high
-- keep writes idempotent by reusing the Cortex subject/thread namespace model
-- if one namespace write fails, log it with namespace and purpose and keep the gateway process alive
+## Operational Model
 
-### 6. `gateway_stop`
+Default mode is `managed-child`.
 
-On `gateway_stop`:
+That means the plugin owns the lifecycle of `cortex-mcp`:
 
-- stop the managed Cortex child process cleanly
-- flush pending writes
-- clear in-memory turn caches
+- health check before startup
+- initialization handshake
+- automatic bounded restarts
+- degraded mode when `failOpen = true`
 
-## MCP / Background Service Behavior
+Advanced mode is `custom-command`.
 
-Default mode should be `managed-child`.
+Use it when operators want to point OpenClaw at a custom Cortex MCP wrapper or a non-default launcher command.
 
-### `managed-child`
+## Current State
 
-OpenClaw owns the lifecycle:
+This repo now includes the real package scaffold and runtime logic.
 
-- start `cortex-mcp --config <configPath>` on `gateway_start`
-- probe with `cortex-mcp --config <configPath> --check`
-- restart on crash with bounded exponential backoff
-- stop on `gateway_stop`
-- always expand `~` and relative paths before spawning the child
+What still remains operational rather than code-level:
 
-This is the best one-click UX because the user does not manage Cortex separately.
+- publishing `@cortex/openclaw` to npm
+- exercising `openclaw plugins install @cortex/openclaw` against the published package in release automation
 
-### `external-mcp`
-
-Use this when operators already run Cortex themselves:
-
-- do not spawn a child process
-- connect to the existing Cortex MCP endpoint
-- surface clearer diagnostics if the endpoint is unavailable
-
-### `in-process-python`
-
-Reserve this for advanced or embedded installs:
-
-- import Cortex directly
-- use `ChannelContextBridge`
-- use this only when Python environment and dependency management are controlled carefully
-
-## Install UX and CLI Copy
-
-The target UX should be:
-
-```bash
-openclaw plugins install @cortex/openclaw
-openclaw plugins enable cortex
-openclaw gateway restart
-```
-
-Optional chat-native control:
-
-```text
-/plugin install clawhub:@cortex/openclaw
-/plugin show cortex
-/plugin enable cortex
-```
-
-Recommended success copy:
-
-```text
-✓ Installed plugin: cortex
-✓ Enabled plugin: cortex
-✓ Cortex shared context is now active for OpenClaw
-  - live routed context via Cortex MCP
-  - cross-channel identity resolution
-  - per-user and per-thread memory scaffolding
-
-Restart the gateway to finish activation:
-  openclaw gateway restart
-```
-
-Recommended config guidance after install:
-
-```text
-Set `plugins.entries.cortex.config.storeDir` if you want a non-default Cortex store.
-Set `plugins.entries.cortex.hooks.allowPromptInjection = false` if operators want Cortex memory writes without prompt mutation.
-Set `plugins.entries.cortex.config.failOpen = false` only if you want Cortex outages to block prompt execution.
-```
-
-## Why This Is Worth Shipping
-
-OpenClaw already has its own memory model. Cortex adds:
-
-- cross-channel identity collapse
-- portable context outside the runtime
-- per-user plus per-thread namespaces
-- live MCP-backed context retrieval
-- self-hosted, user-owned memory shared across channels and AI tools
-
-That is the difference between "memory inside one runtime" and "portable context across every surface that runtime touches."
+Those are release steps, not missing runtime architecture.

@@ -1,19 +1,34 @@
-# OpenClaw Plugin Starter Spec
+# Cortex Native Plugin For OpenClaw
 
-This directory is a starter spec for a future native OpenClaw plugin, not a published npm package yet.
-
-It exists to make the Cortex + OpenClaw path concrete:
+This directory now contains the real OpenClaw-native Cortex plugin package scaffold:
 
 - [package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
 - [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
 - [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
-- [OpenClaw Native Plugin Spec](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_NATIVE_PLUGIN.md)
-- [src/index.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.ts)
-- [src/service.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.ts)
-- [src/hooks.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.ts)
-- [src/identity.ts](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.ts)
+- [src/index.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.js)
+- [src/service.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.js)
+- [src/hooks.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.js)
+- [src/identity.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.js)
 
-The intended install UX is:
+What it does:
+
+- starts a managed `cortex-mcp` sidecar by default
+- injects live routed Cortex context in `before_prompt_build`
+- seeds per-user and per-thread memory in `agent_end`
+- resolves the same person across Telegram, WhatsApp, Discord, Slack, web chat, and similar channels
+- keeps context self-hosted and user-owned
+
+Install from a local packed tarball today:
+
+```bash
+cd examples/openclaw-plugin
+npm pack
+openclaw plugins install ./cortex-openclaw-1.4.1.tgz
+openclaw plugins enable cortex
+openclaw gateway restart
+```
+
+Once published, the install UX becomes:
 
 ```bash
 openclaw plugins install @cortex/openclaw
@@ -21,11 +36,27 @@ openclaw plugins enable cortex
 openclaw gateway restart
 ```
 
-The plugin should:
+Recommended config:
 
-- start or connect to `cortex-mcp`
-- fetch live routed context before prompt build
-- seed per-user and per-thread memory after the turn
-- keep Cortex self-hosted and user-owned
+```json5
+{
+  plugins: {
+    entries: {
+      cortex: {
+        enabled: true,
+        hooks: { allowPromptInjection: true },
+        config: {
+          transport: "managed-child",
+          defaultTarget: "chatgpt",
+          smartRouting: true,
+          autoSeedThreads: true,
+          maxContextChars: 1500,
+          failOpen: true
+        }
+      }
+    }
+  }
+}
+```
 
-Phase 1 should ship as a normal plugin with hooks and a background service. It should not take over the exclusive OpenClaw `memory` slot until it also owns the `openclaw memory` surface directly.
+OpenClaw handles channel delivery and agent execution. Cortex handles portable context, cross-channel identity, and durable memory.

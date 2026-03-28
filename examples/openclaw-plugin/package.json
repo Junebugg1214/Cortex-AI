@@ -1,12 +1,47 @@
 {
   "name": "@cortex/openclaw",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.4.1",
   "type": "module",
-  "description": "OpenClaw native plugin starter scaffold for Cortex portable context and channel memory.",
+  "description": "Native OpenClaw plugin for Cortex portable context, cross-channel identity resolution, and durable per-user/per-thread memory.",
+  "license": "MIT",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src/**/*.js",
+    "openclaw.plugin.json",
+    "config.schema.json",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Junebugg1214/Cortex-AI.git"
+  },
+  "homepage": "https://github.com/Junebugg1214/Cortex-AI/tree/main/examples/openclaw-plugin",
+  "bugs": {
+    "url": "https://github.com/Junebugg1214/Cortex-AI/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "cortex",
+    "memory",
+    "portable-context",
+    "mcp"
+  ],
   "openclaw": {
     "extensions": [
-      "./src/index.ts"
+      "./src/index.js"
     ]
+  },
+  "scripts": {
+    "check": "node --check ./src/index.js && node --check ./src/service.js && node --check ./src/hooks.js && node --check ./src/identity.js"
   }
 }

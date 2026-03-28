@@ -20,4 +20,8 @@ def test_openclaw_plugin_manifest_matches_schema_example():
     assert schema["properties"]["defaultTarget"]["default"] == "chatgpt"
     assert schema["properties"]["maxContextChars"]["default"] == 1500
     assert schema["properties"]["failOpen"]["default"] is True
-    assert package_json["openclaw"]["extensions"] == ["./src/index.ts"]
+    assert schema["properties"]["serviceRestartLimit"]["default"] == 3
+    assert "externalBaseUrl" not in schema["properties"]
+    assert package_json["openclaw"]["extensions"] == ["./src/index.js"]
+    assert package_json["publishConfig"]["access"] == "public"
+    assert package_json["main"] == "./src/index.js"

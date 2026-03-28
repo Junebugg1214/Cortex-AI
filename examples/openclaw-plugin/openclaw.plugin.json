@@ -18,16 +18,15 @@
         "type": "string",
         "enum": [
           "managed-child",
-          "external-mcp",
-          "in-process-python"
+          "custom-command"
         ],
         "default": "managed-child",
-        "description": "How the plugin talks to Cortex."
+        "description": "How the plugin launches the Cortex MCP runtime."
       },
       "mcpCommand": {
         "type": "string",
         "default": "cortex-mcp",
-        "description": "Command used to launch the managed Cortex MCP server."
+        "description": "Command used to launch the Cortex MCP server."
       },
       "mcpArgs": {
         "type": "array",
@@ -38,7 +37,7 @@
           "--config",
           "~/.openclaw/cortex/config.toml"
         ],
-        "description": "Arguments passed to the managed Cortex MCP process."
+        "description": "Arguments passed to the Cortex MCP process."
       },
       "defaultTarget": {
         "type": "string",
@@ -103,10 +102,21 @@
         "default": true,
         "description": "If Cortex is unavailable, continue the turn without injected context."
       },
-      "externalBaseUrl": {
+      "serviceRestartLimit": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 3,
+        "description": "Maximum automatic restarts for the managed Cortex MCP child."
+      },
+      "serviceRestartBackoffMs": {
+        "type": "integer",
+        "minimum": 100,
+        "default": 1000,
+        "description": "Base backoff used when restarting the managed Cortex MCP child."
+      },
+      "namespace": {
         "type": "string",
-        "format": "uri",
-        "description": "External Cortex base URL when transport is external-mcp."
+        "description": "Optional namespace to pin the Cortex MCP session to."
       },
       "identityFields": {
         "type": "object",
@@ -178,9 +188,14 @@
     "failOpen": {
       "label": "Fail Open On Cortex Outage"
     },
-    "externalBaseUrl": {
-      "label": "External Cortex Base URL",
-      "placeholder": "http://127.0.0.1:8766"
+    "serviceRestartLimit": {
+      "label": "Managed Restart Limit"
+    },
+    "serviceRestartBackoffMs": {
+      "label": "Managed Restart Backoff (ms)"
+    },
+    "namespace": {
+      "label": "Pinned Cortex Namespace"
     },
     "identityFields": {
       "label": "Identity Mapping Fields"
