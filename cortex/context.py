@@ -143,27 +143,16 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
 
     if path.exists():
         existing = path.read_text(encoding="utf-8")
-
-        if CORTEX_START in existing and CORTEX_END in existing:
-            # Replace between first matching pair of markers (validate order)
-            start_idx = existing.index(CORTEX_START)
-            end_idx = existing.index(CORTEX_END, start_idx) + len(CORTEX_END)
-            if start_idx >= existing.index(CORTEX_END):
-                # Markers are reversed/malformed — treat as no markers, append
-                separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-                path.write_text(existing + separator + content, encoding="utf-8")
-                return "updated"
-            # Consume trailing newline if present
-            if end_idx < len(existing) and existing[end_idx] == "\n":
-                end_idx += 1
+        marker_region = _find_marker_region(existing)
+        if marker_region is not None:
+            start_idx, end_idx = marker_region
             new_content = existing[:start_idx] + content + existing[end_idx:]
             path.write_text(new_content, encoding="utf-8")
             return "updated"
-        else:
-            # Append marked section
-            separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-            path.write_text(existing + separator + content, encoding="utf-8")
-            return "updated"
+
+        separator = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+        path.write_text(existing + separator + content, encoding="utf-8")
+        return "updated"
     else:
         # Create new file
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,9 +179,36 @@ def _resolve_path(template: str, project_dir: str | None = None) -> Path:
     resolved_home = home_path.resolve()
     resolved_project = Path(project).resolve()
     # Validate the resolved path is under home or project (#30)
-    if not (str(result).startswith(str(resolved_home)) or str(result).startswith(str(resolved_project))):
+    if not (_is_within(result, resolved_home) or _is_within(result, resolved_project)):
         raise ValueError(f"Resolved path {result} is outside allowed directories")
-    return Path(resolved)
+    return result
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _find_marker_region(existing: str) -> tuple[int, int] | None:
+    start_count = existing.count(CORTEX_START)
+    end_count = existing.count(CORTEX_END)
+    if start_count == 0 and end_count == 0:
+        return None
+    if start_count != 1 or end_count != 1:
+        raise ValueError("Ambiguous Cortex marker layout in existing file")
+
+    start_idx = existing.find(CORTEX_START)
+    end_idx = existing.find(CORTEX_END, start_idx + len(CORTEX_START))
+    if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+        raise ValueError("Malformed Cortex marker layout in existing file")
+
+    end_idx += len(CORTEX_END)
+    if end_idx < len(existing) and existing[end_idx] == "\n":
+        end_idx += 1
+    return start_idx, end_idx
 
 
 # ---------------------------------------------------------------------------
@@ -269,14 +285,15 @@ def write_context(
         # Format for platform
         formatted = target.format_fn(context)
 
-        # Resolve file path
-        file_path = _resolve_path(target.file_path, project_dir)
-
-        # Write
+        file_path = Path(target.file_path)
         try:
+            # Resolve file path
+            file_path = _resolve_path(target.file_path, project_dir)
+
+            # Write
             status = _write_non_destructive(file_path, formatted, dry_run=dry_run)
             results.append((canonical_name, file_path, status))
-        except (OSError, PermissionError):
+        except (OSError, PermissionError, ValueError):
             results.append((canonical_name, file_path, "error"))
 
     return results
