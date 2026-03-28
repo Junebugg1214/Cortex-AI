@@ -96,6 +96,7 @@ Use `cortex scan`, `cortex remember`, `cortex portable`, and `cortex sync --smar
 - Self-hosted API and UI: local REST API, web control plane, metrics, backup/restore, and scoped auth. See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 - Agent loop integration: Python helpers, TypeScript SDK, and MCP quickstarts. See [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md).
 - Messaging runtime integration: OpenClaw, Hermes, Telegram, and WhatsApp design plus the minimum adapter API. See [docs/CHANNEL_INTEGRATIONS.md](docs/CHANNEL_INTEGRATIONS.md).
+- OpenClaw-native plugin starter kit: proposed `openclaw.plugin.json`, config schema, hook lifecycle, MCP service behavior, and install UX. See [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md).
 - Portability reference docs: extraction, sync, routing, artifacts, and platform notes. See [docs/PORTABILITY.md](docs/PORTABILITY.md).
 
 ## Uninstall
