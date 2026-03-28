@@ -38,19 +38,24 @@ Found 5 AI tools:
   Copilot      ██████░░░░░░░░░░░░░░   12 facts  (copilot-instructions.md)
 ```
 
-## Supported Platforms
+## Compatibility Matrix
 
-| Platform | How Cortex works |
-| --- | --- |
-| Claude Code | Writes `CLAUDE.md` directly |
-| Codex | Writes `AGENTS.md` directly |
-| Cursor | Writes `.cursor/rules/cortex.mdc` directly |
-| Copilot | Writes `.github/copilot-instructions.md` directly |
-| Gemini / Gemini CLI | Writes `GEMINI.md` directly |
-| Windsurf | Writes `.windsurfrules` directly |
-| Claude | Generates import-ready artifacts |
-| ChatGPT | Generates import-ready artifacts |
-| Grok | Generates import-ready artifacts |
+| Platform | Direct file / artifact support | MCP support now | Best Cortex path |
+| --- | --- | --- | --- |
+| Claude Desktop | No direct file target | Native | `cortex-mcp` |
+| Claude Code | `CLAUDE.md` | Native | `cortex-mcp` + `CLAUDE.md` |
+| Claude.ai | Import-ready artifacts | Partial / workspace-dependent | Artifacts first, MCP where available |
+| Codex | `AGENTS.md` | Native | `cortex-mcp` + `AGENTS.md` |
+| Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex-mcp` + direct rule file |
+| GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex-mcp` + direct instruction file |
+| Gemini CLI | `GEMINI.md` | Native | `cortex-mcp` + `GEMINI.md` |
+| Gemini web app | `GEMINI.md` export path only | No clear consumer MCP path | Direct file output |
+| Windsurf | `.windsurfrules` | Native | `cortex-mcp` + direct rule file |
+| ChatGPT | Import-ready artifacts | Partial / beta / plan-dependent | Artifacts first, MCP where available |
+| Grok API | Import-ready artifacts | Remote MCP via API | Remote MCP or artifacts |
+| Grok consumer app | Import-ready artifacts | No clear consumer MCP path | Artifacts |
+
+`cortex-mcp` is the live path for MCP-capable clients. Direct files and import-ready artifacts remain the safest universal path for everything else.
 
 ## The Data Model
 
