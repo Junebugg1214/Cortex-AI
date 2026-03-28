@@ -126,7 +126,15 @@ def _run_extraction(extractor, data, fmt):
         extractor.process_gemini_export(data)
     elif fmt == "perplexity":
         extractor.process_perplexity_export(data)
-    elif fmt == "jsonl":
+    elif fmt == "grok":
+        extractor.process_grok_export(data)
+    elif fmt == "cursor":
+        extractor.process_cursor_export(data)
+    elif fmt == "windsurf":
+        extractor.process_windsurf_export(data)
+    elif fmt == "copilot":
+        extractor.process_copilot_export(data)
+    elif fmt in ("jsonl", "claude_code"):
         extractor.process_jsonl_messages(data)
     elif fmt == "api_logs":
         extractor.process_api_logs(data)
@@ -236,7 +244,21 @@ def build_parser(*, show_all_commands: bool = False):
     mig.add_argument(
         "--input-format",
         "-F",
-        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        choices=[
+            "auto",
+            "openai",
+            "gemini",
+            "perplexity",
+            "grok",
+            "cursor",
+            "windsurf",
+            "copilot",
+            "jsonl",
+            "api_logs",
+            "messages",
+            "text",
+            "generic",
+        ],
         default="auto",
         help="Override input format auto-detection",
     )
@@ -262,7 +284,21 @@ def build_parser(*, show_all_commands: bool = False):
     ext.add_argument(
         "--format",
         "-f",
-        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        choices=[
+            "auto",
+            "openai",
+            "gemini",
+            "perplexity",
+            "grok",
+            "cursor",
+            "windsurf",
+            "copilot",
+            "jsonl",
+            "api_logs",
+            "messages",
+            "text",
+            "generic",
+        ],
         default="auto",
     )
     ext.add_argument("--merge", "-m", help="Existing context file to merge with")
@@ -572,7 +608,21 @@ def build_parser(*, show_all_commands: bool = False):
     sw.add_argument(
         "--input-format",
         "-F",
-        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        choices=[
+            "auto",
+            "openai",
+            "gemini",
+            "perplexity",
+            "grok",
+            "cursor",
+            "windsurf",
+            "copilot",
+            "jsonl",
+            "api_logs",
+            "messages",
+            "text",
+            "generic",
+        ],
         default="auto",
         help="Override input format detection when using portable switch mode",
     )
@@ -873,7 +923,21 @@ def build_parser(*, show_all_commands: bool = False):
     pt.add_argument(
         "--input-format",
         "-F",
-        choices=["auto", "openai", "gemini", "perplexity", "jsonl", "api_logs", "messages", "text", "generic"],
+        choices=[
+            "auto",
+            "openai",
+            "gemini",
+            "perplexity",
+            "grok",
+            "cursor",
+            "windsurf",
+            "copilot",
+            "jsonl",
+            "api_logs",
+            "messages",
+            "text",
+            "generic",
+        ],
         default="auto",
         help="Override input format auto-detection for export inputs",
     )

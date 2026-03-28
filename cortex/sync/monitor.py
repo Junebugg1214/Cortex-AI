@@ -196,6 +196,22 @@ class ExportMonitor:
         # Route through extraction
         if detected_format == "openai":
             extractor.process_openai_export(data)
+        elif detected_format == "gemini":
+            extractor.process_gemini_export(data)
+        elif detected_format == "perplexity":
+            extractor.process_perplexity_export(data)
+        elif detected_format == "grok":
+            extractor.process_grok_export(data)
+        elif detected_format == "cursor":
+            extractor.process_cursor_export(data)
+        elif detected_format == "windsurf":
+            extractor.process_windsurf_export(data)
+        elif detected_format == "copilot":
+            extractor.process_copilot_export(data)
+        elif detected_format in {"jsonl", "claude_code"}:
+            extractor.process_jsonl_messages(data)
+        elif detected_format == "api_logs":
+            extractor.process_api_logs(data)
         elif isinstance(data, list):
             extractor.process_messages_list(data)
         elif isinstance(data, dict) and "messages" in data:

@@ -160,3 +160,126 @@ def test_load_file_detects_claude_code_jsonl_inside_zip(tmp_path):
     assert fmt == "claude_code"
     tech = {item["topic"] for item in result["categories"]["technical_expertise"]}
     assert {"Pytest", "Fastapi"} <= tech
+
+
+def test_load_file_detects_grok_export_and_uses_dedicated_parser(tmp_path):
+    export_path = tmp_path / "grok-export.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "chats": [
+                    {
+                        "messages": [
+                            {
+                                "sender": "user",
+                                "content": "I am Riley. I use Rust and React.",
+                                "created_at": "2025-01-01T00:00:00Z",
+                            }
+                        ]
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from cortex.extract_memory import load_file
+
+    data, fmt = load_file(export_path)
+    extractor = AggressiveExtractor()
+    result = extractor.process_grok_export(data)
+
+    assert fmt == "grok"
+    labels = {item["topic"] for item in result["categories"]["technical_expertise"]}
+    assert {"Rust", "React"} <= labels
+    assert "Riley" in {item["topic"] for item in result["categories"]["identity"]}
+
+
+def test_load_file_detects_cursor_jsonl_and_uses_dedicated_parser(tmp_path):
+    export_path = tmp_path / "cursor-session.jsonl"
+    export_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "composerId": "cmp-1",
+                        "type": "user",
+                        "text": "I am Lee. We use TypeScript and Prisma.",
+                        "createdAt": "2025-01-01T00:00:00Z",
+                    }
+                ),
+                json.dumps({"composerId": "cmp-1", "type": "assistant", "text": "ok"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from cortex.extract_memory import load_file
+
+    data, fmt = load_file(export_path)
+    extractor = AggressiveExtractor()
+    result = extractor.process_cursor_export(data)
+
+    assert fmt == "cursor"
+    labels = {item["topic"] for item in result["categories"]["technical_expertise"]}
+    assert "Typescript" in labels
+    assert "Prisma" in {item["topic"] for item in result["categories"]["mentions"]}
+    assert "Lee" in {item["topic"] for item in result["categories"]["identity"]}
+
+
+def test_load_file_detects_windsurf_export_and_uses_dedicated_parser(tmp_path):
+    export_path = tmp_path / "windsurf-session.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "workspace": {"name": "demo"},
+                "timeline": [
+                    {
+                        "role": "user",
+                        "content": "I am Dana. We use Python and Postgres.",
+                        "timestamp": "2025-01-01T00:00:00Z",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from cortex.extract_memory import load_file
+
+    data, fmt = load_file(export_path)
+    extractor = AggressiveExtractor()
+    result = extractor.process_windsurf_export(data)
+
+    assert fmt == "windsurf"
+    labels = {item["topic"] for item in result["categories"]["technical_expertise"]}
+    assert {"Python", "Postgres"} <= labels
+    assert "Dana" in {item["topic"] for item in result["categories"]["identity"]}
+
+
+def test_load_file_detects_copilot_export_and_uses_dedicated_parser(tmp_path):
+    export_path = tmp_path / "copilot-history.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "interactions": [
+                    {
+                        "request": {"message": "I am Avery. We use Python and Django."},
+                        "createdAt": "2025-01-01T00:00:00Z",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    from cortex.extract_memory import load_file
+
+    data, fmt = load_file(export_path)
+    extractor = AggressiveExtractor()
+    result = extractor.process_copilot_export(data)
+
+    assert fmt == "copilot"
+    labels = {item["topic"] for item in result["categories"]["technical_expertise"]}
+    assert {"Python", "Django"} <= labels
+    assert "Avery" in {item["topic"] for item in result["categories"]["identity"]}
