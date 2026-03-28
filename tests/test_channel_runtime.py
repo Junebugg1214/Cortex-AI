@@ -9,6 +9,8 @@ from cortex.channel_runtime import (
     TelegramAdapter,
     WhatsAppAdapter,
 )
+from cortex.service import MemoryService
+from cortex.storage import get_storage_backend
 
 
 class _StubService:
@@ -19,6 +21,11 @@ class _StubService:
     def portability_context(self, **kwargs):
         self.calls.append(kwargs)
         return {"status": "ok", "context": "portable context", "target": kwargs["target"]}
+
+
+def _real_service(store_dir: Path) -> MemoryService:
+    backend = get_storage_backend(store_dir)
+    return MemoryService(store_dir=store_dir, backend=backend)
 
 
 def test_cross_platform_phone_identity_shares_subject_namespace():
@@ -48,7 +55,9 @@ def test_cross_platform_phone_identity_shares_subject_namespace():
     assert wa_identity.identity_type == "phone_number"
     assert tg_identity.subject_key == wa_identity.subject_key
     assert tg_identity.subject_namespace == wa_identity.subject_namespace
+    assert tg_identity.subject_root_namespace == wa_identity.subject_root_namespace
     assert tg_identity.subject_namespace.startswith("people/phone_number/")
+    assert tg_identity.subject_namespace.endswith("/profile")
     assert tg_identity.conversation_namespace != wa_identity.conversation_namespace
 
 
@@ -105,9 +114,95 @@ def test_prepare_turn_returns_context_request_and_memory_operations(tmp_path):
     ]
     assert envelope.portability_tool_request["name"] == "portability_context"
     assert envelope.portability_tool_request["arguments"]["target"] == "chatgpt"
-    assert len(envelope.suggested_memory_operations) == 3
+    assert len(envelope.write_plan) == 2
+    assert {batch.namespace for batch in envelope.write_plan} == {
+        envelope.identity.subject_namespace,
+        envelope.identity.conversation_namespace,
+    }
+    assert len(envelope.suggested_memory_operations) == 4
     namespaces = {item["namespace"] for item in envelope.suggested_memory_operations}
     assert any(namespace.startswith("people/phone_number/") for namespace in namespaces)
+
+
+def test_prepare_turn_falls_back_to_generic_channel_adapter(tmp_path):
+    service = _StubService(tmp_path / ".cortex")
+    bridge = ChannelContextBridge(service, default_project_dir=tmp_path)
+    message = ChannelMessage(
+        platform="discord",
+        workspace_id="support-bot",
+        conversation_id="thread-9",
+        user_id="discord-user-1",
+        text="Need help",
+        username="casey_dev",
+    )
+
+    envelope = bridge.prepare_turn(message, smart=True)
+
+    assert envelope.identity.platform == "discord"
+    assert envelope.identity.subject_namespace.startswith("channels/discord/")
+    assert envelope.identity.subject_namespace.endswith("/profile")
+    assert envelope.identity.conversation_namespace.startswith(envelope.identity.subject_root_namespace + "/threads/")
+
+
+def test_seed_turn_memory_applies_executable_namespaced_batches(tmp_path, monkeypatch):
+    service = _real_service(tmp_path / ".cortex")
+    monkeypatch.setattr(
+        MemoryService,
+        "portability_context",
+        lambda self, **kwargs: {"status": "ok", "context": "portable context", "target": kwargs["target"]},
+    )
+    bridge = ChannelContextBridge(service, default_project_dir=tmp_path)
+    message = ChannelMessage(
+        platform="telegram",
+        workspace_id="support-bot",
+        conversation_id="chat-42",
+        user_id="user-1",
+        text="Can you help?",
+        display_name="Casey",
+        phone_number="+15550101",
+    )
+
+    envelope = bridge.prepare_turn(message, smart=True)
+    result = bridge.seed_turn_memory(envelope)
+
+    assert result["status"] == "ok"
+    assert len(result["batches"]) == 2
+    assert service.backend.versions.current_branch() == "main"
+
+    subject_node_id = f"contact/{envelope.identity.subject_key}"
+    thread_node_id = f"thread/{envelope.identity.conversation_key}"
+
+    subject_node = service.get_node(
+        node_id=subject_node_id,
+        ref=envelope.identity.subject_namespace,
+        namespace=envelope.identity.subject_namespace,
+    )
+    conversation_subject_node = service.get_node(
+        node_id=subject_node_id,
+        ref=envelope.identity.conversation_namespace,
+        namespace=envelope.identity.conversation_namespace,
+    )
+    thread_node = service.get_node(
+        node_id=thread_node_id,
+        ref=envelope.identity.conversation_namespace,
+        namespace=envelope.identity.conversation_namespace,
+    )
+    edges = service.lookup_edges(
+        source_id=subject_node_id,
+        target_id=thread_node_id,
+        relation="participates_in",
+        ref=envelope.identity.conversation_namespace,
+        namespace=envelope.identity.conversation_namespace,
+    )
+
+    assert subject_node["node"]["id"] == subject_node_id
+    assert conversation_subject_node["node"]["properties"]["subject_namespace"] == envelope.identity.subject_namespace
+    assert (
+        conversation_subject_node["node"]["properties"]["subject_root_namespace"]
+        == envelope.identity.subject_root_namespace
+    )
+    assert thread_node["node"]["id"] == thread_node_id
+    assert edges["count"] == 1
 
 
 def test_remember_global_fact_delegates_to_portability_runtime(tmp_path, monkeypatch):
