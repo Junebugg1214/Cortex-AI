@@ -27,7 +27,10 @@ from pathlib import Path
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
-    tomllib = None
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:  # pragma: no cover - dependency missing
+        tomllib = None
 
 # ---------------------------------------------------------------------------
 # File extension -> technology mapping
