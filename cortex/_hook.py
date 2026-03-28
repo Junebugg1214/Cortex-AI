@@ -5,12 +5,21 @@ for Claude Code SessionStart injection.
 """
 
 import json
+import logging
+import os
 import sys
 
 from cortex.hooks import handle_session_start, load_hook_config
 
 
+def _configure_logging() -> None:
+    level_name = os.environ.get("CORTEX_HOOK_LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    logging.basicConfig(level=level, format="cortex-hook: %(levelname)s: %(message)s", stream=sys.stderr)
+
+
 def main():
+    _configure_logging()
     try:
         input_data = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, OSError):

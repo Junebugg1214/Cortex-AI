@@ -9,6 +9,8 @@ system message.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import shlex
 import sys
 from dataclasses import asdict, dataclass
@@ -25,6 +27,26 @@ from cortex.upai.disclosure import BUILTIN_POLICIES, apply_disclosure
 
 DEFAULT_CONFIG_DIR = Path.home() / ".cortex"
 DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "hook-config.json"
+logger = logging.getLogger(__name__)
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_FOCUS_STOP_WORDS = {
+    "app",
+    "code",
+    "codes",
+    "desktop",
+    "dev",
+    "home",
+    "private",
+    "project",
+    "projects",
+    "repo",
+    "repos",
+    "src",
+    "tmp",
+    "user",
+    "users",
+    "var",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +62,22 @@ class HookConfig:
     include_project: bool = True  # Include project-specific context
 
 
+@dataclass(frozen=True)
+class GraphLoadResult:
+    graph: CortexGraph | None
+    status: str
+    message: str = ""
+    path: str = ""
+
+
+@dataclass(frozen=True)
+class ContextGenerationResult:
+    context: str
+    status: str
+    reason: str
+    warnings: tuple[str, ...] = ()
+
+
 def load_hook_config(config_path: Path | None = None) -> HookConfig:
     """Load hook configuration from JSON file. Returns defaults if missing."""
     path = config_path or DEFAULT_CONFIG_PATH
@@ -53,7 +91,8 @@ def load_hook_config(config_path: Path | None = None) -> HookConfig:
             max_chars=data.get("max_chars", 1500),
             include_project=data.get("include_project", True),
         )
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load hook config from %s: %s", path, exc)
         return HookConfig()
 
 
@@ -73,19 +112,33 @@ def save_hook_config(config: HookConfig, config_path: Path | None = None) -> Pat
 # ---------------------------------------------------------------------------
 
 
-def _load_graph(graph_path: str) -> CortexGraph | None:
-    """Load a v4, v5, or v6 graph from a JSON file. Returns None on error."""
+def _load_graph_result(graph_path: str) -> GraphLoadResult:
+    """Load a v4, v5, or v6 graph from a JSON file with diagnostics."""
     path = Path(graph_path)
     if not path.exists():
-        return None
+        return GraphLoadResult(None, status="missing_file", path=str(path))
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return GraphLoadResult(None, status="read_error", message=str(exc), path=str(path))
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return GraphLoadResult(None, status="invalid_json", message=str(exc), path=str(path))
+    try:
         version = data.get("schema_version", "")
         if version.startswith(("5", "6")) and "graph" in data:
-            return CortexGraph.from_v5_json(data)
-        return upgrade_v4_to_v5(data)
-    except (json.JSONDecodeError, OSError, KeyError, TypeError):
-        return None
+            graph = CortexGraph.from_v5_json(data)
+        else:
+            graph = upgrade_v4_to_v5(data)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        return GraphLoadResult(None, status="invalid_graph", message=str(exc), path=str(path))
+    return GraphLoadResult(graph, status="ok", path=str(path))
+
+
+def _load_graph(graph_path: str) -> CortexGraph | None:
+    """Load a v4, v5, or v6 graph from a JSON file. Returns None on error."""
+    return _load_graph_result(graph_path).graph
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +226,9 @@ def _focus_terms(cwd: str | None) -> set[str]:
         return set()
     parts: set[str] = set()
     for part in Path(cwd).parts:
-        normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in part)
-        for token in normalized.split():
-            if len(token) >= 3:
-                parts.add(token)
+        if not part or part in {"/", "."}:
+            continue
+        parts.update(_tokenize(part))
     return parts
 
 
@@ -184,9 +236,10 @@ def _context_rank(node, focus_terms: set[str] | None = None) -> tuple[float, flo
     focus_terms = focus_terms or set()
     text_parts = [node.label, node.brief, node.full_description, *getattr(node, "aliases", [])]
     text = " ".join(part.lower() for part in text_parts if part)
+    text_tokens = _tokenize(text)
 
     focus_boost = 0.0
-    if focus_terms and any(term in text for term in focus_terms):
+    if focus_terms and focus_terms.intersection(text_tokens):
         focus_boost += 1.0
 
     tag_boost = 0.0
@@ -217,45 +270,92 @@ def _context_rank(node, focus_terms: set[str] | None = None) -> tuple[float, flo
     return (score, node.confidence, node.mention_count, node.label.lower())
 
 
+def _tokenize(value: str) -> set[str]:
+    tokens = set()
+    for match in _TOKEN_RE.findall(value.lower()):
+        if len(match) < 3 or match in _FOCUS_STOP_WORDS:
+            continue
+        tokens.add(match)
+    return tokens
+
+
+def _log_generation_result(result: ContextGenerationResult, *, cwd: str | None = None) -> None:
+    extra = {"cwd": cwd or ""}
+    if result.status == "ok":
+        if result.warnings:
+            logger.warning("Generated hook context with warnings: %s", "; ".join(result.warnings), extra=extra)
+        return
+    message = f"Hook context generation {result.status}: {result.reason}"
+    if result.status in {"error", "noop"}:
+        logger.warning(message, extra=extra)
+    else:
+        logger.info(message, extra=extra)
+
+
 # ---------------------------------------------------------------------------
 # Context generation pipeline
 # ---------------------------------------------------------------------------
 
 
-def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
-    """Load graph, apply disclosure policy, format as compact markdown.
-
-    Returns empty string if graph can't be loaded or is empty.
-    cwd: optional working directory for future project-aware context.
-    """
+def generate_compact_context_result(config: HookConfig, cwd: str | None = None) -> ContextGenerationResult:
+    """Load graph, apply disclosure policy, and return compact markdown plus diagnostics."""
     if not config.graph_path:
-        return ""
+        result = ContextGenerationResult("", status="noop", reason="missing_graph_path")
+        _log_generation_result(result, cwd=cwd)
+        return result
 
-    graph = _load_graph(config.graph_path)
-    if graph is None or not graph.nodes:
-        return ""
+    load_result = _load_graph_result(config.graph_path)
+    if load_result.graph is None:
+        reason = load_result.status if not load_result.message else f"{load_result.status}: {load_result.message}"
+        result = ContextGenerationResult("", status="error", reason=reason)
+        _log_generation_result(result, cwd=cwd)
+        return result
+
+    graph = load_result.graph
+    if not graph.nodes:
+        result = ContextGenerationResult("", status="empty", reason="empty_graph")
+        _log_generation_result(result, cwd=cwd)
+        return result
 
     # Apply disclosure policy
     policy = BUILTIN_POLICIES.get(config.policy)
+    warnings: list[str] = []
     if policy is None:
         policy = BUILTIN_POLICIES["technical"]
+        warnings.append(f"Unknown policy '{config.policy}', using 'technical'")
 
     # If include_project and cwd provided, try to load project-specific graph
     if config.include_project and cwd:
         project_graph_path = Path(cwd) / ".cortex" / "graph.json"
         if project_graph_path.exists():
-            project_graph = _load_graph(str(project_graph_path))
-            if project_graph and project_graph.nodes:
+            project_result = _load_graph_result(str(project_graph_path))
+            if project_result.graph and project_result.graph.nodes:
                 # Merge project nodes into main graph for context
-                for node in project_graph.nodes.values():
+                for node in project_result.graph.nodes.values():
                     if node.id not in graph.nodes:
                         graph.nodes[node.id] = node
+            elif project_result.graph is None:
+                warnings.append(f"Project graph ignored: {project_result.status}")
 
     filtered = apply_disclosure(graph, policy)
     if not filtered.nodes:
-        return ""
+        result = ContextGenerationResult("", status="empty", reason="filtered_empty", warnings=tuple(warnings))
+        _log_generation_result(result, cwd=cwd)
+        return result
 
-    return _format_compact_markdown(filtered, config.max_chars, focus_terms=_focus_terms(cwd))
+    result = ContextGenerationResult(
+        _format_compact_markdown(filtered, config.max_chars, focus_terms=_focus_terms(cwd)),
+        status="ok",
+        reason="generated",
+        warnings=tuple(warnings),
+    )
+    _log_generation_result(result, cwd=cwd)
+    return result
+
+
+def generate_compact_context(config: HookConfig, cwd: str | None = None) -> str:
+    """Load graph, apply disclosure policy, format as compact markdown."""
+    return generate_compact_context_result(config, cwd=cwd).context
 
 
 # ---------------------------------------------------------------------------
@@ -275,12 +375,12 @@ def handle_session_start(input_json: dict, config: HookConfig) -> dict:
         Hook output dict with additionalContext for injection.
     """
     cwd = input_json.get("cwd")
-    context = generate_compact_context(config, cwd=cwd)
+    result = generate_compact_context_result(config, cwd=cwd)
 
     return {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": context,
+            "additionalContext": result.context,
         }
     }
 
@@ -321,7 +421,8 @@ def install_hook(
     if settings.exists():
         try:
             existing = json.loads(settings.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to read existing Claude settings from %s: %s", settings, exc)
             existing = {}
 
     hooks = existing.setdefault("hooks", {})
@@ -410,7 +511,8 @@ def uninstall_hook(
                 json.dumps(data, indent=2) + "\n",
                 encoding="utf-8",
             )
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to update Claude settings during hook uninstall from %s: %s", settings, exc)
             pass
 
     return removed
@@ -437,7 +539,8 @@ def hook_status(
             installed = any(
                 any("cortex-hook.py" in h.get("command", "") for h in entry.get("hooks", [])) for entry in session_start
             )
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to inspect Claude settings for hook status from %s: %s", settings, exc)
             pass
 
     hook_script = Path(__file__).resolve().parent.parent / "cortex-hook.py"

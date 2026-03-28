@@ -1,14 +1,18 @@
 """Tests for cortex.hooks — auto-inject context into Claude Code sessions."""
 
 import json
+import logging
 from pathlib import Path
 
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.hooks import (
     HookConfig,
+    _focus_terms,
     _format_compact_markdown,
     _load_graph,
+    _load_graph_result,
     generate_compact_context,
+    generate_compact_context_result,
     handle_session_start,
     hook_status,
     install_hook,
@@ -198,6 +202,13 @@ class TestLoadGraph:
         path.write_text("not json")
         assert _load_graph(str(path)) is None
 
+    def test_load_graph_result_reports_invalid_json(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("not json")
+        result = _load_graph_result(str(path))
+        assert result.graph is None
+        assert result.status == "invalid_json"
+
 
 # ---------------------------------------------------------------------------
 # TestFormatCompactMarkdown
@@ -282,6 +293,29 @@ class TestFormatCompactMarkdown:
         result = _format_compact_markdown(g, 1500, focus_terms={"payments"})
         assert result.index("Payments SDK") < result.index("Infra Toolkit")
 
+    def test_focus_terms_do_not_match_substrings(self):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id=make_node_id("Trust Platform"),
+                label="Trust Platform",
+                tags=["technical_expertise"],
+                confidence=0.95,
+                brief="Customer trust tooling",
+            )
+        )
+        g.add_node(
+            Node(
+                id=make_node_id("Rust SDK"),
+                label="Rust SDK",
+                tags=["technical_expertise"],
+                confidence=0.7,
+                brief="Rust services",
+            )
+        )
+        result = _format_compact_markdown(g, 1500, focus_terms={"rust"})
+        assert result.index("Rust SDK") < result.index("Trust Platform")
+
     def test_max_chars_truncation(self):
         g = self._make_graph_with_nodes(
             [(f"Tech{i}", ["technical_expertise"], 0.9, f"Uses Tech{i}") for i in range(50)]
@@ -361,10 +395,24 @@ class TestGenerateCompactContext:
         result = generate_compact_context(config)
         assert result == ""
 
+    def test_missing_graph_has_diagnostic_reason(self):
+        config = HookConfig(graph_path="/nonexistent/graph.json")
+        result = generate_compact_context_result(config)
+        assert result.status == "error"
+        assert result.reason == "missing_file"
+
     def test_no_graph_path(self):
         config = HookConfig(graph_path="")
         result = generate_compact_context(config)
         assert result == ""
+
+    def test_no_graph_path_logs_warning(self, caplog):
+        config = HookConfig(graph_path="")
+        with caplog.at_level(logging.WARNING):
+            result = generate_compact_context_result(config)
+        assert result.status == "noop"
+        assert result.reason == "missing_graph_path"
+        assert "missing_graph_path" in caplog.text
 
     def test_policy_filtering(self, tmp_path):
         data = _make_sample_v4()
@@ -389,6 +437,31 @@ class TestGenerateCompactContext:
         result = generate_compact_context(config)
         # Falls back to "technical" policy
         assert "Python" in result
+
+    def test_invalid_policy_reports_warning(self, tmp_path, caplog):
+        data = _make_sample_v4()
+        path = _write_graph_file(tmp_path, data)
+        config = HookConfig(graph_path=str(path), policy="nonexistent_policy")
+        with caplog.at_level(logging.WARNING):
+            result = generate_compact_context_result(config)
+        assert result.status == "ok"
+        assert any("Unknown policy" in warning for warning in result.warnings)
+        assert "Unknown policy" in caplog.text
+
+    def test_project_graph_failure_is_non_fatal_warning(self, tmp_path, caplog):
+        data = _make_sample_v4()
+        path = _write_graph_file(tmp_path, data)
+        project_dir = tmp_path / "project"
+        project_graph = project_dir / ".cortex" / "graph.json"
+        project_graph.parent.mkdir(parents=True)
+        project_graph.write_text("not json", encoding="utf-8")
+        config = HookConfig(graph_path=str(path))
+        with caplog.at_level(logging.WARNING):
+            result = generate_compact_context_result(config, cwd=str(project_dir))
+        assert result.status == "ok"
+        assert result.context
+        assert any("Project graph ignored" in warning for warning in result.warnings)
+        assert "Project graph ignored" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +499,16 @@ class TestHandleSessionStart:
         config = HookConfig(graph_path="")
         result = handle_session_start({"session_id": "x"}, config)
         assert result["hookSpecificOutput"]["additionalContext"] == ""
+
+
+class TestFocusTerms:
+    def test_ignores_generic_path_segments(self):
+        focus_terms = _focus_terms("/Users/marcsaint/Desktop/code/repos/payments-app")
+        assert "users" not in focus_terms
+        assert "desktop" not in focus_terms
+        assert "code" not in focus_terms
+        assert "repos" not in focus_terms
+        assert "payments" in focus_terms
 
 
 # ---------------------------------------------------------------------------
