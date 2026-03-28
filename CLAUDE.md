@@ -2,57 +2,41 @@
 
 ## Project Overview
 
-Cortex-AI is a CLI-only toolkit for portable AI identity and local memory graphs.
-It extracts structured context from chat exports and coding sessions, stores that
-context as local graph files, and exports compact views for downstream tools.
+Cortex-AI is a CLI toolkit for portable AI context across AI tools.
+It extracts context from exports and local project signals, writes tool-specific context files, serves live routed context over MCP, and keeps the broader memory/versioning stack available behind the same repo.
 
 - Package name: `cortex-identity`
 - License: MIT
 - Python: 3.10+
-- Runtime model: local files only, no server, no web app, no hosted backend
+- Runtime model: local-first, self-hosted optional
 
-## Core Capabilities
-
-- Extract graph data from chat exports and plain text
-- Analyze local graphs with querying, timelines, contradictions, drift, and visualization
-- Export filtered context to downstream formats such as Claude, Notion, Google Docs, and system prompts
-- Manage local UPAI identity material and graph version history
-- Inject compact context into coding tools such as Claude Code, Cursor, Copilot, Windsurf, and Gemini CLI
-
-## Repository Structure
-
-```text
-Cortex-AI/
-├── cortex/              # Main Python package
-│   ├── cli.py           # CLI entry point
-│   ├── extract_memory.py
-│   ├── import_memory.py
-│   ├── graph.py
-│   ├── query.py
-│   ├── timeline.py
-│   ├── contradictions.py
-│   ├── coding.py
-│   ├── hooks.py
-│   ├── context.py
-│   ├── sync/            # File monitoring and scheduling helpers
-│   ├── upai/            # Identity, disclosure, schemas, versioning
-│   └── viz/             # Graph rendering helpers
-├── tests/               # CLI/core-library test suite
-├── pyproject.toml
-├── README.md
-├── migrate.py
-└── cortex-hook.py
-```
-
-## Common Commands
+## Portability Commands
 
 ```bash
+cortex portable <export-or-graph> --to all --project .
+cortex scan
 cortex extract <export-file> -o context.json
-cortex import context.json --to all -o ./output
-cortex query context.json --node "Python"
-cortex timeline context.json --format md
-cortex identity --init --name "Your Name"
-cortex context-write context.json --platforms claude-code cursor
+cortex sync --smart
+cortex remember "We use CockroachDB now"
+cortex status
+cortex query context.json --search "CockroachDB"
+cortex-mcp --config .cortex/config.toml
+```
+
+## Advanced
+
+Infrastructure and memory-control-plane commands still exist and work the same:
+
+```bash
+cortex commit context.json -m "update context"
+cortex branch feature/context
+cortex merge feature/context
+cortex review --against HEAD
+cortex log
+cortex governance list
+cortex remote list
+cortex server --config .cortex/config.toml
+cortex ui --store-dir .cortex
 ```
 
 ## Development

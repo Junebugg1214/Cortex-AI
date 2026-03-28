@@ -32,6 +32,7 @@ Changelog = "https://github.com/Junebugg1214/Cortex-AI/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 crypto = ["pynacl>=1.5.0"]
 fast = ["numpy>=1.24.0"]
+server = []
 full = ["pynacl>=1.5.0", "numpy>=1.24.0"]
 dev = ["pytest>=7.0", "pynacl>=1.5.0", "ruff>=0.6.0"]
 
