@@ -12,7 +12,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cortex.compat import downgrade_v5_to_v4
 from cortex.graph import CortexGraph
@@ -29,6 +29,16 @@ from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
 
 if TYPE_CHECKING:
     from cortex.upai.identity import UPAIIdentity
+else:
+    UPAIIdentity = Any
+
+try:
+    from cortex.upai.identity import UPAIIdentity as _UPAIIdentity
+except Exception:  # pragma: no cover - exercised when crypto extras are absent
+    _HAS_IDENTITY = False
+else:
+    UPAIIdentity = _UPAIIdentity
+    _HAS_IDENTITY = True
 
 
 def _graph_to_normalized(graph: CortexGraph, policy: DisclosurePolicy) -> NormalizedContext:

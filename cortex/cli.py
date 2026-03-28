@@ -12,15 +12,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cortex.adapters import ADAPTERS
-from cortex.claims import (
-    ClaimEvent,
-    claim_event_to_node,
-    extraction_source_label,
-    record_graph_claims,
-    stamp_graph_provenance,
-)
 from cortex.compat import upgrade_v4_to_v5
 from cortex.connectors import connector_to_text
 from cortex.contradictions import ContradictionEngine
@@ -31,7 +25,6 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
-from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.graph import CortexGraph, Node
 from cortex.import_memory import (
     CONFIDENCE_THRESHOLDS,
@@ -45,30 +38,43 @@ from cortex.import_memory import (
     export_summary,
     export_system_prompt,
 )
-from cortex.memory_ops import (
-    blame_memory_nodes,
-    forget_nodes,
-    list_memory_conflicts,
-    resolve_memory_conflict,
-    retract_source,
-    set_memory_node,
-    show_memory_nodes,
-)
-from cortex.merge import (
-    clear_merge_state,
-    load_merge_state,
-    load_merge_worktree,
-    merge_refs,
-    resolve_merge_conflict,
-    save_merge_state,
-)
-from cortex.review import parse_failure_policies, review_graphs
-from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
-from cortex.storage import get_storage_backend
-from cortex.temporal import drift_score
-from cortex.timeline import TimelineGenerator
 from cortex.upai.disclosure import BUILTIN_POLICIES
-from cortex.upai.identity import UPAIIdentity
+
+if TYPE_CHECKING:
+    from cortex.claims import ClaimEvent
+    from cortex.schemas.memory_v1 import GovernanceRuleRecord
+    from cortex.upai.identity import UPAIIdentity
+
+CORE_PORTABILITY_COMMANDS = ("scan", "extract", "sync", "remember", "status", "query")
+ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced commands."
+GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
+
+
+class CortexArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, show_all_commands: bool = False, **kwargs):
+        self.show_all_commands = show_all_commands
+        super().__init__(*args, **kwargs)
+
+    def format_help(self) -> str:
+        if self.show_all_commands or self.prog != "cortex":
+            return super().format_help()
+
+        action = next((item for item in self._actions if isinstance(item, argparse._SubParsersAction)), None)
+        if action is None:
+            return super().format_help()
+
+        original_choices_actions = action._choices_actions
+        original_metavar = action.metavar
+        filtered_map = {choice.dest: choice for choice in original_choices_actions}
+        action._choices_actions = [filtered_map[name] for name in CORE_PORTABILITY_COMMANDS if name in filtered_map]
+        action.metavar = "{" + ",".join(CORE_PORTABILITY_COMMANDS) + "}"
+        try:
+            help_text = super().format_help().rstrip()
+        finally:
+            action._choices_actions = original_choices_actions
+            action.metavar = original_metavar
+        return f"{help_text}\n\n{ADVANCED_HELP_NOTE}\n"
+
 
 # ---------------------------------------------------------------------------
 # Platform → format-key mapping
@@ -166,6 +172,9 @@ def _finalize_extraction_output(
     store_dir: Path | None = None,
     record_claims: bool = True,
 ) -> tuple[dict, int]:
+    from cortex.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
+    from cortex.storage import get_storage_backend
+
     graph = upgrade_v4_to_v5(v4_output)
     source = extraction_source_label(input_path)
     claim_count = 0
@@ -203,11 +212,13 @@ def _finalize_extraction_output(
 # ---------------------------------------------------------------------------
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(
+def build_parser(*, show_all_commands: bool = False):
+    parser = CortexArgumentParser(
         prog="cortex",
-        description="Cortex — portable AI context and memory CLI.",
+        description="Cortex — portable AI context across AI tools.",
+        show_all_commands=show_all_commands,
     )
+    parser.add_argument("--help-all", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="subcommand")
 
     # -- migrate (default) --------------------------------------------------
@@ -650,7 +661,12 @@ def build_parser():
 
     gov_check = gov_sub.add_parser("check", help="Check whether an actor may perform an action")
     gov_check.add_argument("--actor", required=True, help="Actor identity")
-    gov_check.add_argument("--action", required=True, choices=sorted(GOVERNANCE_ACTIONS), help="Action to evaluate")
+    gov_check.add_argument(
+        "--action",
+        required=True,
+        choices=GOVERNANCE_ACTION_CHOICES,
+        help="Action to evaluate",
+    )
     gov_check.add_argument("--namespace", required=True, help="Namespace or branch name")
     gov_check.add_argument("--input-file", help="Optional current graph to evaluate for approval gating")
     gov_check.add_argument("--against", help="Optional baseline ref for semantic diff/approval gating")
@@ -1586,7 +1602,9 @@ def _parse_properties(items: list[str] | None) -> dict[str, str]:
     return result
 
 
-def _load_identity(store_dir: Path) -> UPAIIdentity | None:
+def _load_identity(store_dir: Path) -> "UPAIIdentity | None":
+    from cortex.upai.identity import UPAIIdentity
+
     id_path = store_dir / "identity.json"
     if id_path.exists():
         return UPAIIdentity.load(store_dir)
@@ -1609,6 +1627,8 @@ def _governance_decision_or_error(
     baseline_graph: CortexGraph | None = None,
     approve: bool = False,
 ) -> object | None:
+    from cortex.storage import get_storage_backend
+
     governance = get_storage_backend(store_dir).governance
     decision = governance.authorize(
         actor,
@@ -1632,6 +1652,8 @@ def _governance_decision_or_error(
 
 
 def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None) -> str | None:
+    from cortex.storage import get_storage_backend
+
     if not message:
         return None
     store = get_storage_backend(store_dir).versions
@@ -1640,7 +1662,9 @@ def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None
     return version.version_id
 
 
-def _claim_event_from_record(record: object | None) -> ClaimEvent | None:
+def _claim_event_from_record(record: object | None) -> "ClaimEvent | None":
+    from cortex.claims import ClaimEvent
+
     if record is None:
         return None
     if isinstance(record, ClaimEvent):
@@ -1658,6 +1682,8 @@ def _emit_result(result, output_format: str) -> int:
 
 def run_timeline(args):
     """Generate a timeline from a context/graph file."""
+    from cortex.timeline import TimelineGenerator
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1675,6 +1701,8 @@ def run_timeline(args):
 
 
 def run_memory_conflicts(args):
+    from cortex.memory_ops import list_memory_conflicts
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1694,6 +1722,8 @@ def run_memory_conflicts(args):
 
 
 def run_memory_show(args):
+    from cortex.memory_ops import show_memory_nodes
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1715,6 +1745,8 @@ def run_memory_show(args):
 
 
 def run_memory_forget(args):
+    from cortex.memory_ops import forget_nodes
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1733,6 +1765,10 @@ def run_memory_forget(args):
 
 
 def run_memory_set(args):
+    from cortex.claims import ClaimEvent
+    from cortex.memory_ops import set_memory_node
+    from cortex.storage import get_storage_backend
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1778,6 +1814,10 @@ def run_memory_set(args):
 
 
 def run_memory_retract(args):
+    from cortex.claims import ClaimEvent
+    from cortex.memory_ops import retract_source
+    from cortex.storage import get_storage_backend
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1831,6 +1871,9 @@ def run_memory_retract(args):
 
 
 def run_blame(args):
+    from cortex.memory_ops import blame_memory_nodes
+    from cortex.storage import get_storage_backend
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -1956,6 +1999,9 @@ def run_blame(args):
 
 
 def run_history(args):
+    from cortex.memory_ops import blame_memory_nodes
+    from cortex.storage import get_storage_backend
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2029,7 +2075,7 @@ def run_history(args):
     return 0
 
 
-def _find_claim_target_node(graph: CortexGraph, event: ClaimEvent) -> Node | None:
+def _find_claim_target_node(graph: CortexGraph, event: "ClaimEvent") -> Node | None:
     if event.node_id and graph.get_node(event.node_id):
         return graph.get_node(event.node_id)
     if event.canonical_id:
@@ -2042,12 +2088,16 @@ def _find_claim_target_node(graph: CortexGraph, event: ClaimEvent) -> Node | Non
     return None
 
 
-def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[object, ClaimEvent | None]:
+def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[object, "ClaimEvent | None"]:
+    from cortex.storage import get_storage_backend
+
     ledger = get_storage_backend(store_dir).claims
     return ledger, _claim_event_from_record(ledger.latest_event(claim_id))
 
 
 def run_claim_accept(args):
+    from cortex.claims import ClaimEvent, claim_event_to_node
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2108,6 +2158,8 @@ def run_claim_accept(args):
 
 
 def run_claim_reject(args):
+    from cortex.claims import ClaimEvent
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2164,6 +2216,8 @@ def run_claim_reject(args):
 
 
 def run_claim_supersede(args):
+    from cortex.claims import ClaimEvent, claim_event_to_node
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2245,6 +2299,8 @@ def run_claim_supersede(args):
 
 
 def run_claim_log(args):
+    from cortex.storage import get_storage_backend
+
     ledger = get_storage_backend(Path(args.store_dir)).claims
     events = ledger.list_events(
         label=args.label or "",
@@ -2268,6 +2324,8 @@ def run_claim_log(args):
 
 
 def run_claim_show(args):
+    from cortex.storage import get_storage_backend
+
     ledger = get_storage_backend(Path(args.store_dir)).claims
     events = ledger.get_claim(args.claim_id)
     payload = {"claim_id": args.claim_id, "events": [event.to_dict() for event in events]}
@@ -2288,6 +2346,8 @@ def run_claim_show(args):
 
 
 def run_memory_resolve(args):
+    from cortex.memory_ops import resolve_memory_conflict
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2342,6 +2402,8 @@ def run_contradictions(args):
 
 def run_drift(args):
     """Compute identity drift between two graph files."""
+    from cortex.temporal import drift_score
+
     input_path = Path(args.input_file)
     compare_path = Path(args.compare)
     if not input_path.exists():
@@ -2390,6 +2452,8 @@ def _resolve_version_at_or_exit(store, timestamp: str, ref: str | None = None) -
 
 def run_diff(args):
     """Compare two stored graph versions."""
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions
     if (
@@ -2450,6 +2514,8 @@ def run_diff(args):
 
 def run_checkout(args):
     """Write a stored graph version to a file."""
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions
     if (
@@ -2473,6 +2539,8 @@ def run_checkout(args):
 
 def run_rollback(args):
     """Restore a stored graph state as a new commit without rewriting history."""
+    from cortex.storage import get_storage_backend
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2527,6 +2595,8 @@ def run_rollback(args):
 
 def run_identity(args):
     """Init or show UPAI identity."""
+    from cortex.upai.identity import UPAIIdentity
+
     store_dir = Path(args.store_dir)
 
     if args.init:
@@ -2596,6 +2666,9 @@ def run_identity(args):
 
 def run_commit(args):
     """Version a graph snapshot."""
+    from cortex.storage import get_storage_backend
+    from cortex.upai.identity import UPAIIdentity
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -2642,6 +2715,8 @@ def run_commit(args):
 
 def run_branch(args):
     """List or create memory branches."""
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions
 
@@ -2725,6 +2800,8 @@ def run_switch(args):
     if not args.branch_name:
         print("Specify a branch name, or use --to for platform switch mode.")
         return 1
+    from cortex.storage import get_storage_backend
+
     store = get_storage_backend(Path(args.store_dir)).versions
     try:
         if args.create:
@@ -2744,6 +2821,17 @@ def run_switch(args):
 
 def run_merge(args):
     """Merge another branch/ref into the current branch."""
+    from cortex.merge import (
+        clear_merge_state,
+        load_merge_state,
+        load_merge_worktree,
+        merge_refs,
+        resolve_merge_conflict,
+        save_merge_state,
+    )
+    from cortex.storage import get_storage_backend
+    from cortex.upai.identity import UPAIIdentity
+
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions
     current_branch = store.current_branch()
@@ -2974,6 +3062,9 @@ def run_merge(args):
 
 def run_review(args):
     """Review a graph or stored ref against a baseline."""
+    from cortex.review import parse_failure_policies, review_graphs
+    from cortex.storage import get_storage_backend
+
     backend = get_storage_backend(Path(args.store_dir))
     store = backend.versions
     against_version = _resolve_version_or_exit(store, args.against)
@@ -3052,6 +3143,8 @@ def run_review(args):
 
 def run_log(args):
     """Show version history."""
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     backend = get_storage_backend(store_dir)
     store = backend.versions
@@ -3084,8 +3177,10 @@ def run_log(args):
     return 0
 
 
-def _rule_from_args(args, effect: str, tenant_id: str) -> GovernanceRuleRecord:
-    invalid_actions = [item for item in args.action if item != "*" and item not in GOVERNANCE_ACTIONS]
+def _rule_from_args(args, effect: str, tenant_id: str) -> "GovernanceRuleRecord":
+    from cortex.schemas.memory_v1 import GovernanceRuleRecord
+
+    invalid_actions = [item for item in args.action if item != "*" and item not in GOVERNANCE_ACTION_CHOICES]
     if invalid_actions:
         raise ValueError(f"Unknown governance action(s): {', '.join(sorted(invalid_actions))}")
     return GovernanceRuleRecord(
@@ -3104,6 +3199,8 @@ def _rule_from_args(args, effect: str, tenant_id: str) -> GovernanceRuleRecord:
 
 
 def run_governance(args):
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     backend = get_storage_backend(store_dir)
     governance = backend.governance
@@ -3184,6 +3281,9 @@ def run_governance(args):
 
 
 def run_remote(args):
+    from cortex.schemas.memory_v1 import RemoteRecord
+    from cortex.storage import get_storage_backend
+
     store_dir = Path(args.store_dir)
     backend = get_storage_backend(store_dir)
     store = backend.versions
@@ -3386,6 +3486,8 @@ def run_sync(args):
     store_dir = Path(args.store_dir)
     id_path = store_dir / "identity.json"
     if id_path.exists():
+        from cortex.upai.identity import UPAIIdentity
+
         identity = UPAIIdentity.load(store_dir)
 
     paths = adapter.push(graph, policy, identity=identity, output_dir=output_dir)
@@ -3398,6 +3500,8 @@ def run_sync(args):
 
 def run_verify(args):
     """Verify a signed export file."""
+    from cortex.upai.identity import UPAIIdentity
+
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")
@@ -4014,6 +4118,8 @@ def run_portable(args):
     identity = None
     identity_path = store_dir / "identity.json"
     if identity_path.exists():
+        from cortex.upai.identity import UPAIIdentity
+
         identity = UPAIIdentity.load(store_dir)
 
     if args.dry_run:
@@ -4429,6 +4535,7 @@ def run_pull(args):
 
 def run_rotate(args):
     """Rotate UPAI identity key."""
+    from cortex.upai.identity import UPAIIdentity
     from cortex.upai.keychain import Keychain
 
     store_dir = Path(args.store_dir)
@@ -4525,12 +4632,18 @@ def main(argv=None):
         "completion",
         "-h",
         "--help",
+        "--help-all",
     )
     if argv and argv[0] not in known_subcommands:
         argv = ["migrate"] + list(argv)
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if getattr(args, "help_all", False):
+        parser.show_all_commands = True
+        print(parser.format_help(), end="")
+        return 0
 
     if args.subcommand is None:
         parser.print_help()
