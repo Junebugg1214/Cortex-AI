@@ -3810,7 +3810,7 @@ def run_extract_coding(args):
 def run_context_hook(args):
     """Install/manage Cortex context hook for Claude Code."""
     from cortex.hooks import (
-        generate_compact_context,
+        generate_compact_context_result,
         hook_status,
         install_hook,
         load_hook_config,
@@ -3853,13 +3853,16 @@ def run_context_hook(args):
             print("No hook config found. Install first:")
             print("  python migrate.py context-hook install <graph.json>")
             return 1
-        context = generate_compact_context(config)
+        result = generate_compact_context_result(config)
+        context = result.context
         if context:
             print("Context that would be injected:\n")
             print(context)
             print(f"\n({len(context)} chars)")
         else:
-            print("No context generated (graph may be empty or missing).")
+            print(f"No context generated ({result.reason.replace('_', ' ')}).")
+            for warning in result.warnings:
+                print(f"Warning: {warning}")
         return 0
 
     elif args.action == "status":
@@ -3878,7 +3881,7 @@ def run_context_hook(args):
 
 def run_context_export(args):
     """Export compact context markdown to stdout."""
-    from cortex.hooks import HookConfig, _load_graph, generate_compact_context
+    from cortex.hooks import HookConfig, _load_graph, generate_compact_context_result
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -3894,11 +3897,13 @@ def run_context_export(args):
         policy=args.policy,
         max_chars=args.max_chars,
     )
-    context = generate_compact_context(config)
-    if context:
-        print(context)
+    result = generate_compact_context_result(config)
+    if result.context:
+        print(result.context)
     else:
-        print("No context generated (graph may be empty).", file=sys.stderr)
+        print(f"No context generated ({result.reason.replace('_', ' ')}).", file=sys.stderr)
+        for warning in result.warnings:
+            print(f"Warning: {warning}", file=sys.stderr)
     return 0
 
 
