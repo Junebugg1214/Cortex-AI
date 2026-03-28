@@ -1636,7 +1636,7 @@ def remember_and_sync(
         "graph_path": str(graph_path),
         "targets": sync_targets(
             merged,
-            targets=[canonical_target_name(target) for target in (targets or DEFAULT_DIRECT_TARGETS)],
+            targets=[canonical_target_name(target) for target in (targets or ALL_PORTABLE_TARGETS)],
             store_dir=store_dir,
             project_dir=str(project_dir),
             output_dir=output_dir,

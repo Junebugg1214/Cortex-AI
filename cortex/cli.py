@@ -1051,8 +1051,8 @@ def build_parser(*, show_all_commands: bool = False):
         "--to",
         "-t",
         nargs="+",
-        default=["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"],
-        help="Direct-write targets to update after remembering",
+        default=["all"],
+        help="Targets to update after remembering (default: all supported portability targets)",
     )
     rem.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     rem.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")

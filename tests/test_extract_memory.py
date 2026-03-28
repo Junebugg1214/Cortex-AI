@@ -283,3 +283,107 @@ def test_load_file_detects_copilot_export_and_uses_dedicated_parser(tmp_path):
     labels = {item["topic"] for item in result["categories"]["technical_expertise"]}
     assert {"Python", "Django"} <= labels
     assert "Avery" in {item["topic"] for item in result["categories"]["identity"]}
+
+
+def test_load_file_detects_vendor_specific_json_without_filename_hints(tmp_path):
+    cases = [
+        (
+            "cursor",
+            {
+                "messages": [
+                    {
+                        "composerId": "cmp-1",
+                        "type": "user",
+                        "text": "I am Lee. We use TypeScript and Prisma.",
+                    }
+                ]
+            },
+        ),
+        (
+            "windsurf",
+            {
+                "messages": [
+                    {
+                        "cascadeId": "cas-1",
+                        "role": "user",
+                        "content": "I am Dana. We use Python and Postgres.",
+                    }
+                ]
+            },
+        ),
+        (
+            "copilot",
+            {
+                "messages": [
+                    {
+                        "copilotSessionId": "cp-1",
+                        "request": {"message": "I am Avery. We use Python and Django."},
+                    }
+                ]
+            },
+        ),
+        (
+            "grok",
+            {
+                "messages": [
+                    {
+                        "conversationId": "g-1",
+                        "sender": "user",
+                        "content": "I am Riley. I use Rust and React.",
+                    }
+                ]
+            },
+        ),
+    ]
+
+    from cortex.extract_memory import load_file
+
+    for expected_format, payload in cases:
+        export_path = tmp_path / f"generic-{expected_format}.json"
+        export_path.write_text(json.dumps(payload), encoding="utf-8")
+        _, fmt = load_file(export_path)
+        assert fmt == expected_format
+
+
+def test_load_file_detects_vendor_specific_jsonl_without_filename_hints(tmp_path):
+    cases = [
+        (
+            "cursor",
+            {
+                "composerId": "cmp-1",
+                "type": "user",
+                "text": "I use TypeScript and Prisma.",
+            },
+        ),
+        (
+            "windsurf",
+            {
+                "cascadeId": "cas-1",
+                "role": "user",
+                "content": "I use Python and Postgres.",
+            },
+        ),
+        (
+            "copilot",
+            {
+                "copilotSessionId": "cp-1",
+                "request": {"message": "I use Python and Django."},
+            },
+        ),
+        (
+            "grok",
+            {
+                "conversationId": "g-1",
+                "sender": "user",
+                "content": "I use Rust and React.",
+            },
+        ),
+    ]
+
+    from cortex.extract_memory import load_file
+
+    for expected_format, record in cases:
+        export_path = tmp_path / f"generic-{expected_format}.jsonl"
+        export_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        _, fmt = load_file(export_path)
+        assert fmt == expected_format
