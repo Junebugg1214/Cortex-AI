@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "storeDir": {
+      "type": "string",
+      "default": "~/.openclaw/cortex",
+      "description": "Directory for the Cortex store used by the OpenClaw plugin."
+    },
+    "configPath": {
+      "type": "string",
+      "default": "~/.openclaw/cortex/config.toml",
+      "description": "Path to the Cortex config.toml used by the managed MCP service."
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "managed-child",
+        "external-mcp",
+        "in-process-python"
+      ],
+      "default": "managed-child",
+      "description": "How the plugin talks to Cortex."
+    },
+    "mcpCommand": {
+      "type": "string",
+      "default": "cortex-mcp",
+      "description": "Command used to launch the managed Cortex MCP server."
+    },
+    "mcpArgs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "--config",
+        "~/.openclaw/cortex/config.toml"
+      ],
+      "description": "Arguments passed to the managed Cortex MCP process."
+    },
+    "defaultTarget": {
+      "type": "string",
+      "enum": [
+        "chatgpt",
+        "claude",
+        "claude-code",
+        "codex",
+        "cursor",
+        "copilot",
+        "gemini",
+        "grok",
+        "windsurf"
+      ],
+      "default": "chatgpt",
+      "description": "Default Cortex portability target used for live routed context."
+    },
+    "smartRouting": {
+      "type": "boolean",
+      "default": true,
+      "description": "Use Cortex smart routing so each runtime gets the right slice."
+    },
+    "autoSeedThreads": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically materialize Cortex subject and thread scaffolds after turns."
+    },
+    "projectDirStrategy": {
+      "type": "string",
+      "enum": [
+        "agent-workspace",
+        "gateway-cwd",
+        "explicit"
+      ],
+      "default": "agent-workspace",
+      "description": "How the plugin resolves the project directory for Cortex calls."
+    },
+    "projectDir": {
+      "type": "string",
+      "description": "Explicit project directory when projectDirStrategy is explicit."
+    },
+    "requestTimeoutMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 15000,
+      "description": "Timeout for Cortex MCP or bridge calls."
+    },
+    "externalBaseUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "External Cortex base URL when transport is external-mcp."
+    },
+    "identityFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Controls which incoming fields the plugin uses when mapping users across channels.",
+      "properties": {
+        "canonicalSubjectId": {
+          "type": "boolean",
+          "default": true
+        },
+        "phoneNumber": {
+          "type": "boolean",
+          "default": true
+        },
+        "email": {
+          "type": "boolean",
+          "default": true
+        },
+        "username": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

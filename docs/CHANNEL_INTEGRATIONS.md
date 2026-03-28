@@ -56,6 +56,10 @@ conversation_namespace = turn.identity.conversation_namespace
 OpenClaw can then use `subject_namespace` and `conversation_namespace` when it calls the object API, claim API, or
 future channel-specific write paths.
 
+If you want the shortest path to a one-click OpenClaw-native install, see the proposed native plugin starter kit:
+
+- [OPENCLAW_NATIVE_PLUGIN.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_NATIVE_PLUGIN.md)
+
 To seed the identity and thread scaffold safely, use the built-in write helper:
 
 ```python
