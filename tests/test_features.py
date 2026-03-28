@@ -572,6 +572,26 @@ class TestMigratePipeline:
             assert ctx_path.exists(), "context.json should be saved"
             data = json.loads(ctx_path.read_text())
             assert "schema_version" in data
+            assert data["schema_version"] != "4.0"
+            assert "graph" in data
+            assert "nodes" in data["graph"]
+
+    def test_pipeline_v4_schema_is_explicit_and_deprecated(self, capsys):
+        """Legacy v4 output still works only when requested explicitly."""
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            input_file.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "I work on Cortex and use Python."}]})
+            )
+            out_dir = Path(tmpdir) / "out"
+            rc = mod.main(["migrate", str(input_file), "--to", "claude", "-o", str(out_dir), "--schema", "v4"])
+            captured = capsys.readouterr()
+
+            assert rc == 0
+            data = json.loads((out_dir / "context.json").read_text())
+            assert data["schema_version"] == "4.0"
+            assert "deprecated" in captured.err.lower()
 
     # 8
     def test_pipeline_claude_shortcut(self):
@@ -626,6 +646,21 @@ class TestMigratePipeline:
                 list(Path(tmpdir).glob("*.txt")) + list(Path(tmpdir).glob("*.md")) + list(Path(tmpdir).glob("*.html"))
             )
             assert len(siblings) == 0
+
+    def test_extract_global_json_outputs_machine_readable_summary(self, capsys):
+        mod = self._import_migrate()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = Path(tmpdir) / "input.json"
+            out_path = Path(tmpdir) / "ctx.json"
+            input_file.write_text(json.dumps({"messages": [{"role": "user", "content": "I use Python."}]}))
+
+            rc = mod.main(["--json", "extract", str(input_file), "-o", str(out_path)])
+            payload = json.loads(capsys.readouterr().out)
+
+            assert rc == 0
+            assert payload["status"] == "ok"
+            assert payload["output_file"] == str(out_path)
+            assert out_path.exists()
 
     # 11
     def test_import_only_mode(self):

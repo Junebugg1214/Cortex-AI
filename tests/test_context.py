@@ -199,6 +199,14 @@ class TestWriteNonDestructive:
 
         assert target.read_text(encoding="utf-8") == original
 
+    def test_reject_binary_file(self, tmp_path):
+        """Refuses to modify binary files instead of guessing."""
+        target = tmp_path / "binary.md"
+        target.write_bytes(b"\x00\x01\x02not-text")
+
+        with pytest.raises(ValueError, match="binary file"):
+            _write_non_destructive(target, f"{CORTEX_START}\nNew\n{CORTEX_END}\n")
+
 
 # ===========================================================================
 # TestPlatformFormatting

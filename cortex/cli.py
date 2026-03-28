@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
-from cortex.connectors import connector_to_text
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
     AggressiveExtractor,
@@ -26,18 +25,6 @@ from cortex.extract_memory import (
     merge_contexts,
 )
 from cortex.graph import CortexGraph, Node
-from cortex.import_memory import (
-    CONFIDENCE_THRESHOLDS,
-    NormalizedContext,
-    export_claude_memories,
-    export_claude_preferences,
-    export_full_json,
-    export_google_docs,
-    export_notion,
-    export_notion_database_json,
-    export_summary,
-    export_system_prompt,
-)
 from cortex.upai.disclosure import BUILTIN_POLICIES
 
 if TYPE_CHECKING:
@@ -48,6 +35,7 @@ if TYPE_CHECKING:
 CORE_PORTABILITY_COMMANDS = ("scan", "extract", "sync", "remember", "status", "query")
 ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced commands."
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
+_CLI_QUIET = False
 
 
 class CortexArgumentParser(argparse.ArgumentParser):
@@ -102,20 +90,96 @@ PLATFORM_FORMATS = {
 # Export dispatch table: format-key → (export_fn, filename, is_json)
 # ---------------------------------------------------------------------------
 EXPORT_DISPATCH = {
-    "claude-preferences": (export_claude_preferences, "claude_preferences.txt", False),
-    "claude-memories": (export_claude_memories, "claude_memories.json", True),
-    "system-prompt": (export_system_prompt, "system_prompt.txt", False),
-    "notion": (export_notion, "notion_page.md", False),
-    "notion-db": (export_notion_database_json, "notion_database.json", True),
-    "gdocs": (export_google_docs, "google_docs.html", False),
-    "summary": (export_summary, "summary.md", False),
-    "full": (export_full_json, "full_export.json", True),
+    # Populated lazily via _export_dispatch() so portability-first CLI commands
+    # do not pay the import cost of the full export stack.
 }
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _echo(message: str = "", *, stderr: bool = False, force: bool = False) -> None:
+    if _CLI_QUIET and not stderr and not force:
+        return
+    print(message, file=sys.stderr if stderr else sys.stdout)
+
+
+def _error(message: str, *, hint: str | None = None, code: int = 1) -> int:
+    _echo(f"Error: {message}", stderr=True, force=True)
+    if hint:
+        _echo(f"Hint: {hint}", stderr=True, force=True)
+    return code
+
+
+def _missing_path_error(path: Path, *, label: str = "File") -> int:
+    return _error(f"{label} not found: {path}", hint="Check the path and try again.")
+
+
+def _permission_error(path: Path, *, action: str) -> int:
+    return _error(
+        f"Permission denied while trying to {action}: {path}",
+        hint="Check file permissions or choose a writable location.",
+    )
+
+
+def _no_context_error() -> int:
+    return _error(
+        "No portability context found yet.",
+        hint="Run `cortex portable <export-or-graph> --to all --project .`, `cortex build`, or `cortex remember` first.",
+    )
+
+
+def _extract_global_flags(argv: list[str]) -> tuple[list[str], bool, bool]:
+    cleaned: list[str] = []
+    force_json = False
+    quiet = False
+    for token in argv:
+        if token == "--json":
+            force_json = True
+            continue
+        if token == "--quiet":
+            quiet = True
+            continue
+        cleaned.append(token)
+    return cleaned, force_json, quiet
+
+
+def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
+    from cortex.import_memory import (
+        export_claude_memories,
+        export_claude_preferences,
+        export_full_json,
+        export_google_docs,
+        export_notion,
+        export_notion_database_json,
+        export_summary,
+        export_system_prompt,
+    )
+
+    return {
+        "claude-preferences": (export_claude_preferences, "claude_preferences.txt", False),
+        "claude-memories": (export_claude_memories, "claude_memories.json", True),
+        "system-prompt": (export_system_prompt, "system_prompt.txt", False),
+        "notion": (export_notion, "notion_page.md", False),
+        "notion-db": (export_notion_database_json, "notion_database.json", True),
+        "gdocs": (export_google_docs, "google_docs.html", False),
+        "summary": (export_summary, "summary.md", False),
+        "full": (export_full_json, "full_export.json", True),
+    }
+
+
+def _confidence_thresholds() -> dict[str, float]:
+    from cortex.import_memory import CONFIDENCE_THRESHOLDS
+
+    return CONFIDENCE_THRESHOLDS
+
+
+def _normalized_context_cls():
+    from cortex.import_memory import NormalizedContext
+
+    return NormalizedContext
 
 
 def _run_extraction(extractor, data, fmt):
@@ -156,10 +220,11 @@ def _run_extraction(extractor, data, fmt):
 
 def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
     """Write the requested formats to *output_dir*. Returns list of (label, path)."""
+    export_dispatch = _export_dispatch()
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = []
     for key in format_keys:
-        export_fn, filename, is_json = EXPORT_DISPATCH[key]
+        export_fn, filename, is_json = export_dispatch[key]
         path = output_dir / filename
         result = export_fn(ctx, min_conf)
         if is_json:
@@ -215,6 +280,11 @@ def _finalize_extraction_output(
     return result, claim_count
 
 
+def _to_context_json_v5(data: dict) -> dict:
+    """Normalize extraction output into the pinned portable context.json format."""
+    return upgrade_v4_to_v5(data).export_v5()
+
+
 # ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
@@ -226,6 +296,8 @@ def build_parser(*, show_all_commands: bool = False):
         description="Cortex — portable AI context across AI tools.",
         show_all_commands=show_all_commands,
     )
+    parser.add_argument("--json", action="store_true", help="Emit JSON output when supported")
+    parser.add_argument("--quiet", action="store_true", help="Suppress human-readable success output")
     parser.add_argument("--help-all", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="subcommand")
 
@@ -269,7 +341,12 @@ def build_parser(*, show_all_commands: bool = False):
     mig.add_argument("--dry-run", action="store_true", help="Preview without writing")
     mig.add_argument("--verbose", "-v", action="store_true")
     mig.add_argument("--stats", action="store_true", help="Show category stats")
-    mig.add_argument("--schema", choices=["v4", "v5"], default="v4", help="Output schema version (default: v4)")
+    mig.add_argument(
+        "--schema",
+        choices=["v5", "v4"],
+        default="v5",
+        help="Output context.json schema version (default: v5; v4 is deprecated)",
+    )
     mig.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     mig.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
     mig.add_argument(
@@ -425,6 +502,7 @@ def build_parser(*, show_all_commands: bool = False):
     qry.add_argument("--dsl", metavar="QUERY", help="Run the Cortex query DSL directly")
     qry.add_argument("--nl", metavar="QUERY", help="Natural-language query (limited patterns)")
     qry.add_argument("--at", help="Query the graph as-of an ISO timestamp using validity windows and snapshots")
+    qry.add_argument("--format", choices=["json", "text"], default="text", help="Output format (default: text)")
 
     # -- stats (Phase 1) ---------------------------------------------------
     st = sub.add_parser("stats", help="Show graph/context statistics")
@@ -1034,6 +1112,11 @@ def build_parser(*, show_all_commands: bool = False):
     aud.add_argument("--project", "-d", help="Project directory for live manifest comparison (default: cwd)")
     aud.add_argument("--format", choices=["json", "text"], default="text")
 
+    doc = sub.add_parser("doctor", help="Run portability diagnostics for your local Cortex setup")
+    doc.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    doc.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -1153,18 +1236,18 @@ def run_extract(args):
     """Extract context from an export file and save as JSON."""
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Export file")
 
-    print(f"Loading: {input_path}")
+    _echo(f"Loading: {input_path}")
     try:
         data, detected_format = load_file(input_path)
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except PermissionError:
+        return _permission_error(input_path, action="read the export file")
+    except Exception as exc:
+        return _error(str(exc))
 
     fmt = args.format if args.format != "auto" else detected_format
-    print(f"Format: {fmt}")
+    _echo(f"Format: {fmt}")
 
     # PII redactor
     redactor = None
@@ -1173,12 +1256,11 @@ def run_extract(args):
         if args.redact_patterns:
             pp = Path(args.redact_patterns)
             if not pp.exists():
-                print(f"Redaction patterns file not found: {pp}")
-                return 1
+                return _missing_path_error(pp, label="Redaction patterns file")
             with open(pp, "r", encoding="utf-8") as f:
                 custom_patterns = json.load(f)
         redactor = PIIRedactor(custom_patterns)
-        print("PII redaction enabled")
+        _echo("PII redaction enabled")
 
     extractor = AggressiveExtractor(redactor=redactor)
 
@@ -1186,10 +1268,10 @@ def run_extract(args):
     if args.merge:
         merge_path = Path(args.merge)
         if merge_path.exists():
-            print(f"Merging with existing context: {merge_path}")
+            _echo(f"Merging with existing context: {merge_path}")
             extractor = merge_contexts(merge_path, extractor)
         else:
-            print(f"Merge file not found: {merge_path} (proceeding without merge)")
+            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
 
     result = _run_extraction(extractor, data, fmt)
     claim_count = 0
@@ -1203,36 +1285,60 @@ def run_extract(args):
         )
 
     stats = extractor.context.stats()
-    print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
-    if args.stats or args.verbose:
+    v5_output = _to_context_json_v5(result)
+    payload = {
+        "status": "ok",
+        "input_file": str(input_path),
+        "output_file": str(
+            Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
+        ),
+        "input_format": fmt,
+        "schema_version": v5_output["schema_version"],
+        "stats": stats,
+        "claim_count": claim_count,
+    }
+    json_only = bool(getattr(args, "json_output", False))
+    if not json_only:
+        _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    if (args.stats or args.verbose) and not json_only:
         for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
-            print(f"   {cat}: {count}")
+            _echo(f"   {cat}: {count}")
 
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2)
-    print(f"Saved to: {output_path}")
-    if not args.no_claims:
-        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(v5_output, f, indent=2)
+    except PermissionError:
+        return _permission_error(output_path, action="write context.json")
+    except OSError as exc:
+        return _error(f"Could not write {output_path}: {exc}")
+    if json_only:
+        _echo(json.dumps(payload, indent=2), force=True)
+    else:
+        _echo(f"Saved to: {output_path}")
+        if not args.no_claims:
+            _echo(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
 def run_ingest(args):
     """Normalize connector input and extract it into Cortex memory."""
+    from cortex.connectors import connector_to_text
+
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Connector input")
 
-    print(f"Loading connector input: {input_path}")
+    _echo(f"Loading connector input: {input_path}")
     try:
         normalized_text = connector_to_text(args.kind, input_path)
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except PermissionError:
+        return _permission_error(input_path, action="read connector input")
+    except Exception as exc:
+        return _error(str(exc))
 
     if args.preview:
-        print(normalized_text, end="" if normalized_text.endswith("\n") else "\n")
+        _echo(normalized_text.rstrip("\n"))
         return 0
 
     redactor = None
@@ -1241,22 +1347,21 @@ def run_ingest(args):
         if args.redact_patterns:
             pp = Path(args.redact_patterns)
             if not pp.exists():
-                print(f"Redaction patterns file not found: {pp}")
-                return 1
+                return _missing_path_error(pp, label="Redaction patterns file")
             with open(pp, "r", encoding="utf-8") as f:
                 custom_patterns = json.load(f)
         redactor = PIIRedactor(custom_patterns)
-        print("PII redaction enabled")
+        _echo("PII redaction enabled")
 
     extractor = AggressiveExtractor(redactor=redactor)
 
     if args.merge:
         merge_path = Path(args.merge)
         if merge_path.exists():
-            print(f"Merging with existing context: {merge_path}")
+            _echo(f"Merging with existing context: {merge_path}")
             extractor = merge_contexts(merge_path, extractor)
         else:
-            print(f"Merge file not found: {merge_path} (proceeding without merge)")
+            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
 
     result = extractor.process_plain_text(normalized_text)
     claim_count = 0
@@ -1270,65 +1375,81 @@ def run_ingest(args):
         )
 
     stats = extractor.context.stats()
-    print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2)
-    print(f"Saved to: {output_path}")
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(_to_context_json_v5(result), f, indent=2)
+    except PermissionError:
+        return _permission_error(output_path, action="write context.json")
+    except OSError as exc:
+        return _error(f"Could not write {output_path}: {exc}")
+    _echo(f"Saved to: {output_path}")
     if not args.no_claims:
-        print(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
+        _echo(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
 def run_import(args):
     """Import a context JSON file and export to platform formats."""
+    NormalizedContext = _normalized_context_cls()
+    confidence_thresholds = _confidence_thresholds()
+
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Context file")
 
-    print(f"Loading: {input_path}")
+    _echo(f"Loading: {input_path}")
     ctx = NormalizedContext.load(input_path)
-    min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
+    min_conf = confidence_thresholds[args.confidence]
     format_keys = PLATFORM_FORMATS[args.to]
     output_dir = Path(args.output)
 
     if args.dry_run:
-        print("\nDRY RUN PREVIEW")
+        _echo("\nDRY RUN PREVIEW")
+        export_dispatch = _export_dispatch()
         for key in format_keys:
-            export_fn, filename, is_json = EXPORT_DISPATCH[key]
+            export_fn, filename, is_json = export_dispatch[key]
             result = export_fn(ctx, min_conf)
-            print(f"\n--- {key} ({filename}) ---")
+            _echo(f"\n--- {key} ({filename}) ---")
             text = json.dumps(result, indent=2) if is_json else result
             for line in text.split("\n")[:30]:
-                print(line)
+                _echo(line)
         return 0
 
-    outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
+    try:
+        outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
+    except PermissionError:
+        return _permission_error(output_dir, action="write exported files")
+    except OSError as exc:
+        return _error(f"Could not write export files into {output_dir}: {exc}")
 
-    print(f"\nExported {len(outputs)} files to {output_dir}/:")
+    _echo(f"\nExported {len(outputs)} files to {output_dir}/:")
     for key, path in outputs:
-        print(f"   {key}: {path.name}")
+        _echo(f"   {key}: {path.name}")
     return 0
 
 
 def run_migrate(args):
     """Full pipeline: extract from export file, then import to platform formats."""
+    NormalizedContext = _normalized_context_cls()
+    confidence_thresholds = _confidence_thresholds()
+
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Input file")
 
     # --- Extract phase ---
-    print(f"Loading: {input_path}")
+    _echo(f"Loading: {input_path}")
     try:
         data, detected_format = load_file(input_path)
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+    except PermissionError:
+        return _permission_error(input_path, action="read the input file")
+    except Exception as exc:
+        return _error(str(exc))
 
     fmt = args.input_format if args.input_format != "auto" else detected_format
-    print(f"Format: {fmt}")
+    _echo(f"Format: {fmt}")
 
     # PII redactor
     redactor = None
@@ -1337,12 +1458,11 @@ def run_migrate(args):
         if args.redact_patterns:
             pp = Path(args.redact_patterns)
             if not pp.exists():
-                print(f"Redaction patterns file not found: {pp}")
-                return 1
+                return _missing_path_error(pp, label="Redaction patterns file")
             with open(pp, "r", encoding="utf-8") as f:
                 custom_patterns = json.load(f)
         redactor = PIIRedactor(custom_patterns)
-        print("PII redaction enabled")
+        _echo("PII redaction enabled")
 
     extractor = AggressiveExtractor(redactor=redactor)
 
@@ -1350,10 +1470,10 @@ def run_migrate(args):
     if args.merge:
         merge_path = Path(args.merge)
         if merge_path.exists():
-            print(f"Merging with existing context: {merge_path}")
+            _echo(f"Merging with existing context: {merge_path}")
             extractor = merge_contexts(merge_path, extractor)
         else:
-            print(f"Merge file not found: {merge_path} (proceeding without merge)")
+            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
 
     v4_data = _run_extraction(extractor, data, fmt)
     claim_count = 0
@@ -1367,10 +1487,10 @@ def run_migrate(args):
         )
 
     stats = extractor.context.stats()
-    print(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
     if args.stats or args.verbose:
         for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
-            print(f"   {cat}: {count}")
+            _echo(f"   {cat}: {count}")
 
     # --- Save intermediate context.json ---
     output_dir = Path(args.output)
@@ -1424,39 +1544,46 @@ def run_migrate(args):
             json.dump(v5_data, f, indent=2)
         if args.verbose:
             gs = graph.stats()
-            print(f"   v5 graph: {gs['node_count']} nodes, {gs['edge_count']} edges")
-            print(f"   saved v5 context: {ctx_path}")
+            _echo(f"   v5 graph: {gs['node_count']} nodes, {gs['edge_count']} edges")
+            _echo(f"   saved v5 context: {ctx_path}")
     else:
+        _echo("Warning: --schema v4 is deprecated. Prefer the default v5 context.json.", stderr=True, force=True)
         ctx_path = output_dir / "context.json"
         with open(ctx_path, "w", encoding="utf-8") as f:
             json.dump(v4_data, f, indent=2)
         if args.verbose:
-            print(f"   saved intermediate context: {ctx_path}")
+            _echo(f"   saved intermediate context: {ctx_path}")
 
     # --- Import phase (in-memory handoff) ---
     ctx = NormalizedContext.from_v4(v4_data)
-    min_conf = CONFIDENCE_THRESHOLDS[args.confidence]
+    min_conf = confidence_thresholds[args.confidence]
     format_keys = PLATFORM_FORMATS[args.to]
 
     if args.dry_run:
-        print("\nDRY RUN PREVIEW")
+        _echo("\nDRY RUN PREVIEW")
+        export_dispatch = _export_dispatch()
         for key in format_keys:
-            export_fn, filename, is_json = EXPORT_DISPATCH[key]
+            export_fn, filename, is_json = export_dispatch[key]
             result = export_fn(ctx, min_conf)
-            print(f"\n--- {key} ({filename}) ---")
+            _echo(f"\n--- {key} ({filename}) ---")
             text = json.dumps(result, indent=2) if is_json else result
             for line in text.split("\n")[:30]:
-                print(line)
+                _echo(line)
         return 0
 
-    outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
+    try:
+        outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
+    except PermissionError:
+        return _permission_error(output_dir, action="write exported files")
+    except OSError as exc:
+        return _error(f"Could not write export files into {output_dir}: {exc}")
 
-    print(f"\nExported {len(outputs) + 1} files to {output_dir}/:")
-    print("   context: context.json")
+    _echo(f"\nExported {len(outputs) + 1} files to {output_dir}/:")
+    _echo("   context: context.json")
     for key, path in outputs:
-        print(f"   {key}: {path.name}")
+        _echo(f"   {key}: {path.name}")
     if not args.no_claims and not args.dry_run:
-        print(f"   claims: {claim_count} event(s) -> {Path(args.store_dir) / 'claims.jsonl'}")
+        _echo(f"   claims: {claim_count} event(s) -> {Path(args.store_dir) / 'claims.jsonl'}")
     return 0
 
 
@@ -1464,47 +1591,71 @@ def run_query(args):
     """Query nodes/neighbors in a context file."""
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Context file")
 
     graph = _load_graph(input_path)
     if args.at:
         graph = graph.graph_at(args.at)
 
+    def _node_payload(node: Node) -> dict[str, object]:
+        return node.to_dict()
+
     # --- Phase 1 queries (--node, --neighbors) ---
     if args.node:
         nodes = graph.find_nodes(label=args.node)
+        payload = {
+            "status": "ok",
+            "query": "node",
+            "label": args.node,
+            "at": args.at or "",
+            "nodes": [_node_payload(node) for node in nodes],
+        }
+        if _emit_result(payload, args.format) == 0:
+            return 0
         if not nodes:
-            print(f"No node found with label '{args.node}'")
+            _echo(f"No node found with label '{args.node}'")
             return 0
         for node in nodes:
-            print(f"Node: {node.label} (id={node.id})")
-            print(f"  Tags: {', '.join(node.tags)}")
-            print(f"  Confidence: {node.confidence:.2f}")
-            print(f"  Mentions: {node.mention_count}")
+            _echo(f"Node: {node.label} (id={node.id})")
+            _echo(f"  Tags: {', '.join(node.tags)}")
+            _echo(f"  Confidence: {node.confidence:.2f}")
+            _echo(f"  Mentions: {node.mention_count}")
             if getattr(node, "status", ""):
-                print(f"  Status: {node.status}")
+                _echo(f"  Status: {node.status}")
             if getattr(node, "valid_from", "") or getattr(node, "valid_to", ""):
-                print(f"  Valid: {getattr(node, 'valid_from', '') or '?'} -> {getattr(node, 'valid_to', '') or '?'}")
+                _echo(f"  Valid: {getattr(node, 'valid_from', '') or '?'} -> {getattr(node, 'valid_to', '') or '?'}")
             if node.brief:
-                print(f"  Brief: {node.brief}")
+                _echo(f"  Brief: {node.brief}")
             if node.full_description:
-                print(f"  Description: {node.full_description}")
+                _echo(f"  Description: {node.full_description}")
         return 0
 
     if args.neighbors:
         nodes = graph.find_nodes(label=args.neighbors)
+        payload = {
+            "status": "ok",
+            "query": "neighbors",
+            "label": args.neighbors,
+            "neighbors": [],
+        }
+        if nodes:
+            node = nodes[0]
+            payload["neighbors"] = [
+                {"edge": edge.to_dict(), "node": neighbor.to_dict()} for edge, neighbor in graph.get_neighbors(node.id)
+            ]
+        if _emit_result(payload, args.format) == 0:
+            return 0
         if not nodes:
-            print(f"No node found with label '{args.neighbors}'")
+            _echo(f"No node found with label '{args.neighbors}'")
             return 0
         node = nodes[0]
         neighbors = graph.get_neighbors(node.id)
         if not neighbors:
-            print(f"No neighbors for '{node.label}'")
+            _echo(f"No neighbors for '{node.label}'")
             return 0
-        print(f"Neighbors of '{node.label}':")
+        _echo(f"Neighbors of '{node.label}':")
         for edge, neighbor in neighbors:
-            print(f"  --[{edge.relation}]--> {neighbor.label} (conf={neighbor.confidence:.2f})")
+            _echo(f"  --[{edge.relation}]--> {neighbor.label} (conf={neighbor.confidence:.2f})")
         return 0
 
     # --- Phase 5 queries (QueryEngine) ---
@@ -1520,97 +1671,154 @@ def run_query(args):
 
     if args.category:
         nodes = engine.query_category(args.category)
-        if not nodes:
-            print(f"No nodes with tag '{args.category}'")
+        payload = {
+            "status": "ok",
+            "query": "category",
+            "tag": args.category,
+            "nodes": [_node_payload(node) for node in nodes],
+        }
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Nodes tagged '{args.category}' ({len(nodes)}):")
+        if not nodes:
+            _echo(f"No nodes with tag '{args.category}'")
+            return 0
+        _echo(f"Nodes tagged '{args.category}' ({len(nodes)}):")
         for node in nodes:
-            print(f"  {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.path:
         from_label, to_label = args.path
         paths = engine.query_path(from_label, to_label)
-        if not paths:
-            print(f"No path from '{from_label}' to '{to_label}'")
+        payload = {
+            "status": "ok",
+            "query": "path",
+            "from": from_label,
+            "to": to_label,
+            "paths": [[_node_payload(node) for node in path] for path in paths],
+        }
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Path from '{from_label}' to '{to_label}':")
+        if not paths:
+            _echo(f"No path from '{from_label}' to '{to_label}'")
+            return 0
+        _echo(f"Path from '{from_label}' to '{to_label}':")
         for node in paths[0]:
-            print(f"  -> {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  -> {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.changed_since:
         result = engine.query_changed(args.changed_since)
-        print(f"Changes since {result['since']}: {result['total_changed']} total")
+        if _emit_result(result, args.format) == 0:
+            return 0
+        _echo(f"Changes since {result['since']}: {result['total_changed']} total")
         if result["new_nodes"]:
-            print(f"\nNew ({len(result['new_nodes'])}):")
+            _echo(f"\nNew ({len(result['new_nodes'])}):")
             for n in result["new_nodes"]:
-                print(f"  + {n['label']} (conf={n['confidence']:.2f})")
+                _echo(f"  + {n['label']} (conf={n['confidence']:.2f})")
         if result["updated_nodes"]:
-            print(f"\nUpdated ({len(result['updated_nodes'])}):")
+            _echo(f"\nUpdated ({len(result['updated_nodes'])}):")
             for n in result["updated_nodes"]:
-                print(f"  ~ {n['label']} (conf={n['confidence']:.2f})")
+                _echo(f"  ~ {n['label']} (conf={n['confidence']:.2f})")
         return 0
 
     if args.strongest:
         nodes = engine.query_strongest(args.strongest)
-        print(f"Top {len(nodes)} by confidence:")
+        payload = {"status": "ok", "query": "strongest", "nodes": [_node_payload(node) for node in nodes]}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Top {len(nodes)} by confidence:")
         for node in nodes:
-            print(f"  {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.weakest:
         nodes = engine.query_weakest(args.weakest)
-        print(f"Bottom {len(nodes)} by confidence:")
+        payload = {"status": "ok", "query": "weakest", "nodes": [_node_payload(node) for node in nodes]}
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Bottom {len(nodes)} by confidence:")
         for node in nodes:
-            print(f"  {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.isolated:
         analyzer = GapAnalyzer()
         isolated = analyzer.isolated_nodes(graph)
-        if not isolated:
-            print("No isolated nodes.")
+        payload = {"status": "ok", "query": "isolated", "nodes": [_node_payload(node) for node in isolated]}
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Isolated nodes ({len(isolated)}):")
+        if not isolated:
+            _echo("No isolated nodes.")
+            return 0
+        _echo(f"Isolated nodes ({len(isolated)}):")
         for node in isolated:
-            print(f"  {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.related is not None:
         if not args.related:
-            print("Specify a label: --related <LABEL>")
-            return 1
+            return _error("Specify a label for --related.", hint="Usage: cortex query <file> --related <LABEL>")
         nodes = engine.query_related(args.related, depth=args.related_depth)
-        if not nodes:
-            print(f"No related nodes for '{args.related}'")
+        payload = {
+            "status": "ok",
+            "query": "related",
+            "label": args.related,
+            "depth": args.related_depth,
+            "nodes": [_node_payload(node) for node in nodes],
+        }
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Related to '{args.related}' (depth={args.related_depth}):")
+        if not nodes:
+            _echo(f"No related nodes for '{args.related}'")
+            return 0
+        _echo(f"Related to '{args.related}' (depth={args.related_depth}):")
         for node in nodes:
-            print(f"  {node.label} (conf={node.confidence:.2f})")
+            _echo(f"  {node.label} (conf={node.confidence:.2f})")
         return 0
 
     if args.components:
         comps = connected_components(graph)
-        if not comps:
-            print("No components (empty graph).")
+        payload = {
+            "status": "ok",
+            "query": "components",
+            "components": [
+                {
+                    "size": len(comp),
+                    "labels": sorted(graph.get_node(nid).label for nid in comp if graph.get_node(nid)),
+                }
+                for comp in comps
+            ],
+        }
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Connected components ({len(comps)}):")
+        if not comps:
+            _echo("No components (empty graph).")
+            return 0
+        _echo(f"Connected components ({len(comps)}):")
         for i, comp in enumerate(comps, 1):
             labels = sorted(graph.get_node(nid).label for nid in comp if graph.get_node(nid))
-            print(f"  {i}. [{len(comp)} nodes] {', '.join(labels[:10])}{'...' if len(labels) > 10 else ''}")
+            _echo(f"  {i}. [{len(comp)} nodes] {', '.join(labels[:10])}{'...' if len(labels) > 10 else ''}")
         return 0
 
     if args.search:
         results = graph.semantic_search(args.search, limit=args.limit)
-        if not results:
-            print(f"No search results for '{args.search}'")
+        payload = {
+            "status": "ok",
+            "query": "search",
+            "search": args.search,
+            "results": [{"score": item["score"], "node": item["node"].to_dict()} for item in results],
+        }
+        if _emit_result(payload, args.format) == 0:
             return 0
-        print(f"Search results for '{args.search}' ({len(results)}):")
+        if not results:
+            _echo(f"No search results for '{args.search}'")
+            return 0
+        _echo(f"Search results for '{args.search}' ({len(results)}):")
         for item in results:
             node = item["node"]
             aliases = f" | aliases: {', '.join(node.aliases)}" if getattr(node, "aliases", []) else ""
-            print(f"  {node.label} (score={item['score']:.4f}, conf={node.confidence:.2f}){aliases}")
+            _echo(f"  {node.label} (score={item['score']:.4f}, conf={node.confidence:.2f}){aliases}")
         return 0
 
     if args.dsl:
@@ -1618,20 +1826,25 @@ def run_query(args):
         if result.get("type") == "search" and args.limit and len(result.get("results", [])) > args.limit:
             result["results"] = result["results"][: args.limit]
             result["count"] = len(result["results"])
-        print(json.dumps(result, indent=2, default=str))
+        if _emit_result(result, args.format) == 0:
+            return 0
+        _echo(json.dumps(result, indent=2, default=str))
         return 0
 
     if args.nl:
         result = parse_nl_query(args.nl, engine)
-        print(json.dumps(result, indent=2, default=str))
+        if _emit_result(result, args.format) == 0:
+            return 0
+        _echo(json.dumps(result, indent=2, default=str))
         return 0
 
-    print(
-        "Specify a query flag: --node, --neighbors, --category, --path, "
-        "--changed-since, --strongest, --weakest, --isolated, --related, "
-        "--components, --search, --dsl, --nl, --at"
+    return _error(
+        "No query option provided.",
+        hint=(
+            "Specify one of --node, --neighbors, --category, --path, --changed-since, "
+            "--strongest, --weakest, --isolated, --related, --components, --search, --dsl, or --nl."
+        ),
     )
-    return 1
 
 
 def _load_graph(input_path: Path) -> CortexGraph:
@@ -1739,7 +1952,9 @@ def _claim_event_from_record(record: object | None) -> "ClaimEvent | None":
 
 def _emit_result(result, output_format: str) -> int:
     if output_format == "json":
-        print(json.dumps(result, indent=2))
+        _echo(json.dumps(result, indent=2), force=True)
+        return 0
+    if _CLI_QUIET:
         return 0
     return -1
 
@@ -3500,45 +3715,44 @@ def run_sync(args):
         state = load_portability_state(store_dir)
         graph, graph_path = load_canonical_graph(store_dir, state)
         if not graph.nodes:
-            print(
-                "No canonical portability context found. Run `cortex portable`, `cortex build`, or `cortex remember` first."
-            )
-            return 1
+            return _no_context_error()
         project_dir = (
             Path(args.project) if args.project else Path(state.project_dir) if state.project_dir else Path.cwd()
         )
         output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
-        payload = sync_targets(
-            graph,
-            targets=ALL_PORTABLE_TARGETS,
-            store_dir=store_dir,
-            project_dir=str(project_dir),
-            output_dir=output_dir,
-            graph_path=graph_path,
-            policy_name=args.policy,
-            smart=True,
-            max_chars=args.max_chars,
-            state=state,
-        )
+        try:
+            payload = sync_targets(
+                graph,
+                targets=ALL_PORTABLE_TARGETS,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=graph_path,
+                policy_name=args.policy,
+                smart=True,
+                max_chars=args.max_chars,
+                state=state,
+            )
+        except PermissionError:
+            return _permission_error(output_dir, action="write synced portability files")
+        except OSError as exc:
+            return _error(f"Could not sync portability files into {output_dir}: {exc}")
         if _emit_result(payload, args.format) == 0:
             return 0
-        print("Smart context sync complete:")
+        _echo("Smart context sync complete:")
         for target in payload["targets"]:
             label = target["target"]
-            print(f"  {label:<12} → {', '.join(target['route_tags']) or 'default route'}")
+            _echo(f"  {label:<12} → {', '.join(target['route_tags']) or 'default route'}")
         return 0
 
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Context file")
 
     if not args.to:
-        print("Specify --to for adapter export mode, or use --smart.")
-        return 1
+        return _error("Specify --to for adapter export mode, or use --smart.")
     if args.to not in ADAPTERS:
-        print(f"Unknown adapter target: {args.to}")
-        return 1
+        return _error(f"Unknown adapter target: {args.to}")
 
     graph = _load_graph(input_path)
     adapter = ADAPTERS[args.to]
@@ -3556,9 +3770,11 @@ def run_sync(args):
 
     paths = adapter.push(graph, policy, identity=identity, output_dir=output_dir)
 
-    print(f"Synced to {args.to} with policy '{args.policy}':")
+    if _CLI_QUIET:
+        return 0
+    _echo(f"Synced to {args.to} with policy '{args.policy}':")
     for p in paths:
-        print(f"  {p}")
+        _echo(f"  {p}")
     return 0
 
 
@@ -4136,14 +4352,12 @@ def run_portable(args):
 
     input_path = Path(args.input_file)
     if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
+        return _missing_path_error(input_path, label="Input file")
 
     try:
         targets = resolve_portable_targets(args.to)
     except ValueError as exc:
-        print(str(exc))
-        return 1
+        return _error(str(exc))
 
     graph = load_graph_optional(str(input_path))
     detected_kind = "graph"
@@ -4152,9 +4366,10 @@ def run_portable(args):
     if graph is None:
         try:
             data, detected_format = load_file(input_path)
+        except PermissionError:
+            return _permission_error(input_path, action="read the input file")
         except Exception as exc:  # pragma: no cover - same behavior as extract
-            print(f"Error: {exc}")
-            return 1
+            return _error(str(exc))
 
         fmt = args.input_format if args.input_format != "auto" else detected_format
         redactor = None
@@ -4163,8 +4378,7 @@ def run_portable(args):
             if args.redact_patterns:
                 patterns_path = Path(args.redact_patterns)
                 if not patterns_path.exists():
-                    print(f"Redaction patterns file not found: {patterns_path}")
-                    return 1
+                    return _missing_path_error(patterns_path, label="Redaction patterns file")
                 with patterns_path.open("r", encoding="utf-8") as handle:
                     custom_patterns = json.load(handle)
             redactor = PIIRedactor(custom_patterns)
@@ -4189,21 +4403,28 @@ def run_portable(args):
     if args.dry_run:
         graph_path_for_installs = output_dir / "context.json"
     else:
-        state, graph_path_for_installs = save_canonical_graph(store_dir, graph, graph_path=output_dir / "context.json")
-        payload = sync_targets(
-            graph,
-            targets=targets,
-            store_dir=store_dir,
-            project_dir=str(project_dir),
-            output_dir=output_dir,
-            graph_path=graph_path_for_installs,
-            policy_name=args.policy,
-            smart=False,
-            max_chars=args.max_chars,
-            dry_run=False,
-            state=state,
-            identity=identity,
-        )
+        try:
+            state, graph_path_for_installs = save_canonical_graph(
+                store_dir, graph, graph_path=output_dir / "context.json"
+            )
+            payload = sync_targets(
+                graph,
+                targets=targets,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=graph_path_for_installs,
+                policy_name=args.policy,
+                smart=False,
+                max_chars=args.max_chars,
+                dry_run=False,
+                state=state,
+                identity=identity,
+            )
+        except PermissionError:
+            return _permission_error(output_dir, action="write portability files")
+        except OSError as exc:
+            return _error(f"Could not write portability files into {output_dir}: {exc}")
     if args.dry_run:
         payload = switch_portability(
             input_path,
@@ -4247,19 +4468,19 @@ def run_portable(args):
     if _emit_result(payload, args.format) == 0:
         return 0
 
-    print("Portable context ready:")
-    print(f"  context: {graph_path_for_installs}" + (" (dry-run)" if args.dry_run else ""))
-    print(f"  source: {detected_kind}")
+    _echo("Portable context ready:")
+    _echo(f"  context: {graph_path_for_installs}" + (" (dry-run)" if args.dry_run else ""))
+    _echo(f"  source: {detected_kind}")
     if extracted_stats is not None and (args.verbose or True):
-        print(f"  extracted: {extracted_stats['total']} topics across {len(extracted_stats['by_category'])} categories")
+        _echo(f"  extracted: {extracted_stats['total']} topics across {len(extracted_stats['by_category'])} categories")
 
     if payload["targets"]:
-        print("\nTargets:")
+        _echo("\nTargets:")
         for result in payload["targets"]:
             joined = ", ".join(result["paths"]) if result["paths"] else "(no files)"
-            print(f"  {result['target']}: {joined} [{result['status']}]")
+            _echo(f"  {result['target']}: {joined} [{result['status']}]")
             if result.get("note"):
-                print(f"    {result['note']}")
+                _echo(f"    {result['note']}")
 
     return 0
 
@@ -4275,15 +4496,15 @@ def run_scan(args):
     if _emit_result(payload, args.format) == 0:
         return 0
 
-    print(f"Found {len(payload['tools'])} AI tools:\n")
+    _echo(f"Found {len(payload['tools'])} AI tools:\n")
     for tool in payload["tools"]:
         line = f"  {tool['name']:<12} {bar(tool['coverage'])}  {tool['fact_count']:>3} facts"
         if tool["note"]:
             line += f"  ({tool['note']})"
-        print(line)
+        _echo(line)
     percent = round(payload["coverage"] * 100)
-    print(f"\nYour AI tools know {percent}% of your full context.")
-    print("Run `cortex sync --smart` or `cortex remember` to fix this.")
+    _echo(f"\nYour AI tools know {percent}% of your full context.")
+    _echo("Run `cortex sync --smart` or `cortex remember` to fix this.")
     return 0
 
 
@@ -4302,10 +4523,10 @@ def run_remember(args):
     )
     if _emit_result(payload, args.format) == 0:
         return 0
-    print("Remembered once. Updated:")
+    _echo("Remembered once. Updated:")
     for target in payload["targets"]:
         joined = ", ".join(target["paths"]) if target["paths"] else "(no files)"
-        print(f"  {target['target']:<12} → {joined}")
+        _echo(f"  {target['target']:<12} → {joined}")
     return 0
 
 
@@ -4318,18 +4539,21 @@ def run_status(args):
     )
     if _emit_result(payload, args.format) == 0:
         return 0
+    if not payload["issues"]:
+        _echo("No stale or missing context detected.")
+        return 0
     for issue in payload["issues"]:
         prefix = "WARN" if issue["stale"] else "OK"
         line = f"{prefix} {issue['name']}"
         if issue["stale_days"] is not None:
             line += f" - {issue['stale_days']} days since last update"
-        print(line)
+        _echo(line)
         if issue["missing_labels"]:
-            print("  Missing:", "; ".join(issue["missing_labels"]))
+            _echo("  Missing: " + "; ".join(issue["missing_labels"]))
         if issue.get("unexpected_labels"):
-            print("  Drifted:", "; ".join(issue["unexpected_labels"]))
+            _echo("  Drifted: " + "; ".join(issue["unexpected_labels"]))
         if issue.get("missing_paths"):
-            print("  Missing files:", "; ".join(issue["missing_paths"]))
+            _echo("  Missing files: " + "; ".join(issue["missing_paths"]))
     return 0
 
 
@@ -4350,13 +4574,12 @@ def run_build(args):
             max_chars=args.max_chars,
         )
     except ValueError as exc:
-        print(str(exc))
-        return 1
+        return _error(str(exc))
     if _emit_result(payload, args.format) == 0:
         return 0
     for source in payload["sources"]:
-        print(f"{source['source']}: {json.dumps(source, ensure_ascii=False)}")
-    print(f"Built context graph with {payload['fact_count']} facts")
+        _echo(f"{source['source']}: {json.dumps(source, ensure_ascii=False)}")
+    _echo(f"Built context graph with {payload['fact_count']} facts")
     return 0
 
 
@@ -4370,12 +4593,76 @@ def run_audit(args):
     if _emit_result(payload, args.format) == 0:
         return 0
     if not payload["issues"]:
-        print("No cross-platform conflicts detected.")
+        _echo("No cross-platform conflicts detected.")
         return 0
-    print("Detected context conflicts:\n")
+    _echo("Detected context conflicts:\n")
     for issue in payload["issues"]:
         tag = issue.get("tag", "portable")
-        print(f"  [{tag}] {issue['message']}")
+        _echo(f"  [{tag}] {issue['message']}")
+    return 0
+
+
+def run_doctor(args):
+    from cortex.context import _resolve_path
+    from cortex.portable_runtime import SMART_ROUTE_TAGS, load_canonical_graph, load_portability_state, scan_portability
+    from cortex.release import PROJECT_VERSION
+
+    store_dir = Path(args.store_dir)
+    project_dir = Path(args.project) if args.project else Path.cwd()
+    state = load_portability_state(store_dir)
+    graph, graph_path = load_canonical_graph(store_dir, state)
+    scan = scan_portability(store_dir=store_dir, project_dir=project_dir)
+
+    try:
+        import nacl  # noqa: F401
+
+        crypto_available = True
+    except Exception:  # pragma: no cover
+        crypto_available = False
+
+    payload = {
+        "status": "ok",
+        "release": PROJECT_VERSION,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "store_dir": str(store_dir.resolve()),
+        "project_dir": str(project_dir.resolve()),
+        "canonical_graph_path": str(graph_path),
+        "canonical_graph_exists": graph_path.exists(),
+        "fact_count": len(graph.nodes),
+        "coverage": scan["coverage"],
+        "configured_tools": [tool["target"] for tool in scan["tools"] if tool["configured"]],
+        "smart_routing": SMART_ROUTE_TAGS,
+        "sample_paths": {
+            "claude-code": str(_resolve_path("{home}/.claude/CLAUDE.md", str(project_dir))),
+            "codex": str(_resolve_path("{project}/AGENTS.md", str(project_dir))),
+            "cursor": str(_resolve_path("{project}/.cursor/rules/cortex.mdc", str(project_dir))),
+        },
+        "crypto_available": crypto_available,
+        "advice": (
+            ["Run `cortex portable <export-or-graph> --to all --project .` to create your first canonical context."]
+            if not graph.nodes
+            else ["Run `cortex scan` to audit coverage or `cortex sync --smart` to refresh every tool."]
+        ),
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+
+    _echo("Cortex portability diagnostics:")
+    _echo(f"  Release: {payload['release']}")
+    _echo(f"  Python:  {payload['python']}")
+    _echo(f"  Store:   {payload['store_dir']}")
+    _echo(f"  Project: {payload['project_dir']}")
+    _echo(
+        f"  Graph:   {payload['canonical_graph_path']} ({'present' if payload['canonical_graph_exists'] else 'missing'})"
+    )
+    _echo(f"  Facts:   {payload['fact_count']}")
+    _echo(f"  Coverage: {round(payload['coverage'] * 100)}%")
+    _echo(f"  Crypto:  {'installed' if crypto_available else 'not installed'}")
+    _echo("  Smart routing:")
+    for target, tags in SMART_ROUTE_TAGS.items():
+        _echo(f"    {target:<12} → {', '.join(tags)}")
+    for hint in payload["advice"]:
+        _echo(f"  Next: {hint}")
     return 0
 
 
@@ -4636,8 +4923,15 @@ def run_completion(args):
 
 
 def main(argv=None):
+    global _CLI_QUIET
+
     if argv is None:
         argv = sys.argv[1:]
+    else:
+        argv = list(argv)
+
+    argv, force_json, quiet = _extract_global_flags(argv)
+    _CLI_QUIET = quiet or force_json
 
     # Default-subcommand routing: if the first arg is not a known subcommand,
     # treat it as a file path and route to the "migrate" subcommand.
@@ -4684,6 +4978,7 @@ def main(argv=None):
         "status",
         "build",
         "audit",
+        "doctor",
         "ui",
         "benchmark",
         "server",
@@ -4703,6 +4998,8 @@ def main(argv=None):
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    setattr(args, "json_output", force_json)
+    setattr(args, "quiet", quiet)
 
     if getattr(args, "help_all", False):
         parser.show_all_commands = True
@@ -4712,6 +5009,12 @@ def main(argv=None):
     if args.subcommand is None:
         parser.print_help()
         return 1
+
+    if force_json:
+        if hasattr(args, "format"):
+            args.format = "json"
+        elif args.subcommand not in {"extract"}:
+            return _error(f"`--json` is not supported for '{args.subcommand}'.")
 
     if args.subcommand == "extract":
         return run_extract(args)
@@ -4823,6 +5126,8 @@ def main(argv=None):
         return run_build(args)
     elif args.subcommand == "audit":
         return run_audit(args)
+    elif args.subcommand == "doctor":
+        return run_doctor(args)
     elif args.subcommand == "ui":
         return run_ui(args)
     elif args.subcommand == "benchmark":

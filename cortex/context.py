@@ -138,12 +138,16 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
 
     Returns status: "created", "updated", or "dry-run".
     """
-    if dry_run:
+    if dry_run and not path.exists():
         return "dry-run"
 
+    _validate_generated_block(content)
+
     if path.exists():
-        existing = path.read_text(encoding="utf-8")
+        existing = _read_existing_text(path)
         marker_region = _find_marker_region(existing)
+        if dry_run:
+            return "dry-run"
         if marker_region is not None:
             start_idx, end_idx = marker_region
             new_content = existing[:start_idx] + content + existing[end_idx:]
@@ -154,6 +158,8 @@ def _write_non_destructive(path: Path, content: str, dry_run: bool = False) -> s
         path.write_text(existing + separator + content, encoding="utf-8")
         return "updated"
     else:
+        if dry_run:
+            return "dry-run"
         # Create new file
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -209,6 +215,25 @@ def _find_marker_region(existing: str) -> tuple[int, int] | None:
     if end_idx < len(existing) and existing[end_idx] == "\n":
         end_idx += 1
     return start_idx, end_idx
+
+
+def _validate_generated_block(content: str) -> None:
+    start_count = content.count(CORTEX_START)
+    end_count = content.count(CORTEX_END)
+    if start_count != 1 or end_count != 1:
+        raise ValueError("Generated Cortex content has malformed markers")
+    if content.find(CORTEX_END) < content.find(CORTEX_START):
+        raise ValueError("Generated Cortex content has malformed markers")
+
+
+def _read_existing_text(path: Path) -> str:
+    raw = path.read_bytes()
+    if b"\x00" in raw:
+        raise ValueError(f"Refusing to modify binary file: {path}")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Refusing to modify non-UTF-8 text file: {path}") from exc
 
 
 # ---------------------------------------------------------------------------

@@ -190,6 +190,62 @@ def test_build_and_smart_sync_cover_github_manifest_and_git_history(tmp_path, ca
     assert "grok" in sync_targets
 
 
+def test_scan_sync_scan_core_loop(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_dir = tmp_path / "portable"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    graph_path = tmp_path / "context.json"
+    _write_graph(
+        graph_path,
+        [
+            ("Marc Saint-Jour", "identity", "Marc Saint-Jour"),
+            ("Cortex-AI", "active_priorities", "Active project: Cortex-AI"),
+            ("Python", "technical_expertise", "Uses Python"),
+        ],
+    )
+
+    rc = main(
+        [
+            "portable",
+            str(graph_path),
+            "--to",
+            "chatgpt",
+            "-o",
+            str(output_dir),
+            "-d",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["scan", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    before = json.loads(capsys.readouterr().out)
+    assert rc == 0
+
+    rc = main(["sync", "--smart", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    sync_payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert {item["target"] for item in sync_payload["targets"]}.issuperset(
+        {"claude-code", "codex", "cursor", "chatgpt"}
+    )
+
+    rc = main(["scan", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    after = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert after["coverage"] >= before["coverage"]
+    assert sum(1 for tool in after["tools"] if tool["configured"]) >= sum(
+        1 for tool in before["tools"] if tool["configured"]
+    )
+
+
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):
     home_dir = tmp_path / "home"
     project_dir = tmp_path / "project"
@@ -298,6 +354,39 @@ def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypa
     assert rc == 0
     assert status_map["cursor"]["stale"] is True
     assert any(label in {"Next.js", "Vitest"} for label in status_map["cursor"]["missing_labels"])
+
+
+def test_doctor_reports_portability_state_and_smart_routing(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    rc = main(
+        [
+            "remember",
+            "We use Vitest and prefer direct technical answers.",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["doctor", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["status"] == "ok"
+    assert payload["canonical_graph_exists"] is True
+    assert payload["fact_count"] > 0
+    assert "technical_expertise" in payload["smart_routing"]["claude-code"]
 
 
 def test_switch_generates_target_specific_artifacts(tmp_path, capsys):
