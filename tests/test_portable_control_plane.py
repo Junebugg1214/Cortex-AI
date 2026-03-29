@@ -255,6 +255,105 @@ def test_scan_sync_scan_core_loop(tmp_path, capsys, monkeypatch):
     )
 
 
+def test_scan_auto_detects_local_platform_paths_and_mcp_configs(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (project_dir / ".cursor" / "rules").mkdir(parents=True)
+    (project_dir / ".cursor" / "rules" / "team.mdc").write_text(
+        "**Tech stack:** Python, FastAPI\n",
+        encoding="utf-8",
+    )
+    (project_dir / ".github").mkdir()
+    (project_dir / ".github" / "copilot-instructions.md").write_text("Use Python.\n", encoding="utf-8")
+    (project_dir / ".vscode").mkdir()
+    (project_dir / ".vscode" / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "cortex": {"command": "cortex-mcp", "args": ["--config", ".cortex/config.toml"]},
+                    "github": {"type": "stdio", "command": "npx", "args": ["-y", "github-mcp"]},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cortex": {"command": "cortex-mcp", "args": ["--config", ".cortex/config.toml"]},
+                    "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (home_dir / ".cursor").mkdir()
+    (home_dir / ".cursor" / "mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cortex": {"command": "cortex-mcp", "args": ["--config", str(store_dir / "config.toml")]},
+                    "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (home_dir / ".codex").mkdir()
+    (home_dir / ".codex" / "config.toml").write_text(
+        '[mcp_servers.cortex]\ncommand = "cortex-mcp"\nargs = ["--config", ".cortex/config.toml"]\n'
+        '[mcp_servers.github]\ncommand = "npx"\nargs = ["-y", "github-mcp"]\n',
+        encoding="utf-8",
+    )
+    (home_dir / ".gemini").mkdir()
+    (home_dir / ".gemini" / "settings.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "cortex": {"command": "cortex-mcp", "args": ["--config", ".cortex/config.toml"]},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(["scan", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    tool_map = {tool["target"]: tool for tool in payload["tools"]}
+
+    assert rc == 0
+    assert tool_map["cursor"]["configured"] is True
+    assert tool_map["cursor"]["fact_count"] > 0
+    assert tool_map["cursor"]["mcp_server_count"] == 2
+    assert tool_map["cursor"]["cortex_mcp_configured"] is True
+    assert "mcp" in tool_map["cursor"]["detection_sources"]
+    assert any(path.endswith(".cursor/mcp.json") for path in tool_map["cursor"]["mcp_paths"])
+
+    assert tool_map["claude-code"]["configured"] is True
+    assert tool_map["claude-code"]["mcp_server_count"] == 2
+    assert tool_map["claude-code"]["cortex_mcp_configured"] is True
+    assert "MCP:" in tool_map["claude-code"]["note"]
+
+    assert tool_map["codex"]["configured"] is True
+    assert tool_map["codex"]["mcp_server_count"] == 2
+    assert any(path.endswith(".codex/config.toml") for path in tool_map["codex"]["mcp_paths"])
+
+    assert tool_map["copilot"]["configured"] is True
+    assert tool_map["copilot"]["mcp_server_count"] == 2
+    assert tool_map["gemini"]["configured"] is True
+    assert tool_map["gemini"]["cortex_mcp_configured"] is True
+
+
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):
     home_dir = tmp_path / "home"
     project_dir = tmp_path / "project"

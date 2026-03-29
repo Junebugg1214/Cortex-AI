@@ -77,6 +77,8 @@ That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), w
 
 Audits the current machine and portability state to show what each supported tool knows, how many facts it has, and whether that context is stale or missing.
 
+It also auto-detects known local instruction files, artifacts, and MCP config definitions from the compatibility matrix, so already-installed tools can show up even before Cortex has synced them.
+
 ### `cortex remember`
 
 Updates the canonical portable context graph once, then propagates that new fact across all supported portability targets by default.
