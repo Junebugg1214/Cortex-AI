@@ -12,6 +12,8 @@ The promise is simple:
 cortex portable chatgpt-export.zip --to all --project .
 ```
 
+If you want copy-paste first-run flows by platform, see [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md).
+
 That one command:
 
 1. loads an existing Cortex graph or extracts one from a raw export
@@ -165,6 +167,8 @@ Build from existing project files and immediately sync smart slices:
 ```bash
 cortex build --from package.json --from git-history --from github --sync --smart
 ```
+
+For a fuller onboarding guide with per-platform import and sync commands, see [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md).
 
 ## Notes
 
