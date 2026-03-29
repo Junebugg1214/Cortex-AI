@@ -94,6 +94,7 @@ Use `cortex scan`, `cortex remember`, `cortex portable`, and `cortex sync --smar
 
 - Versioned graph runtime: diff, review, rollback, blame, and history when you need more than sync. Run `cortex --help-all`.
 - Self-hosted API and UI: local REST API, web control plane, metrics, backup/restore, and scoped auth. See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
+- Copy-paste platform onboarding: exact first-run flows for ChatGPT, Claude, Claude Code, Codex, Gemini, Grok, Cursor, Copilot, and Windsurf. See [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md).
 - Agent loop integration: Python helpers, TypeScript SDK, and MCP quickstarts. See [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md).
 - Messaging runtime integration: OpenClaw, Hermes, Telegram, and WhatsApp design plus the minimum adapter API. See [docs/CHANNEL_INTEGRATIONS.md](docs/CHANNEL_INTEGRATIONS.md).
 - OpenClaw-native plugin package: real `@cortex/openclaw` package scaffold with managed `cortex-mcp`, live prompt injection hooks, and per-user/per-thread memory seeding. See [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md).
