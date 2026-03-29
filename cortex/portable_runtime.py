@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -10,6 +11,11 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:  # pragma: no cover - Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib
 
 from cortex.coding import enrich_project
 from cortex.compat import upgrade_v4_to_v5
@@ -49,6 +55,132 @@ ARTIFACT_TARGET_PATHS = {
     "claude": ("claude/claude_preferences.txt", "claude/claude_memories.json"),
     "chatgpt": ("chatgpt/custom_instructions.md", "chatgpt/custom_instructions.json"),
     "grok": ("grok/context_prompt.md", "grok/context_prompt.json"),
+}
+
+EXPORT_DISCOVERY_PATTERNS = {
+    "chatgpt": ("*chatgpt*.zip", "*conversations*.json", "*chat.html"),
+    "claude": ("*claude*memories*.json", "*claude*preferences*.txt"),
+    "grok": ("*grok*context*.json", "*grok*context*.md"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class MCPDiscoverySpec:
+    path_templates: tuple[str, ...]
+    schema: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityEntry:
+    target: str
+    content_templates: tuple[str, ...] = ()
+    export_patterns: tuple[str, ...] = ()
+    mcp_specs: tuple[MCPDiscoverySpec, ...] = ()
+
+
+COMPATIBILITY_MATRIX = {
+    "chatgpt": CompatibilityEntry(
+        target="chatgpt",
+        export_patterns=EXPORT_DISCOVERY_PATTERNS["chatgpt"],
+    ),
+    "claude": CompatibilityEntry(
+        target="claude",
+        content_templates=(
+            "{output_dir}/claude/claude_preferences.txt",
+            "{output_dir}/claude/claude_memories.json",
+        ),
+        export_patterns=EXPORT_DISCOVERY_PATTERNS["claude"],
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=(
+                    "{home}/Library/Application Support/Claude/claude_desktop_config.json",
+                    "{xdg_config_home}/Claude/claude_desktop_config.json",
+                    "{appdata}/Claude/claude_desktop_config.json",
+                ),
+                schema="mcpServers",
+            ),
+        ),
+    ),
+    "claude-code": CompatibilityEntry(
+        target="claude-code",
+        content_templates=(
+            "{home}/.claude/CLAUDE.md",
+            "{project}/CLAUDE.md",
+        ),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=("{project}/.mcp.json",),
+                schema="mcpServers",
+            ),
+        ),
+    ),
+    "codex": CompatibilityEntry(
+        target="codex",
+        content_templates=("{project}/AGENTS.md",),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=("{home}/.codex/config.toml",),
+                schema="mcp_servers",
+            ),
+        ),
+    ),
+    "cursor": CompatibilityEntry(
+        target="cursor",
+        content_templates=(
+            "{project}/.cursor/rules/*.mdc",
+            "{project}/.cursor/rules/cortex.mdc",
+        ),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=(
+                    "{home}/.cursor/mcp.json",
+                    "{project}/.cursor/mcp.json",
+                ),
+                schema="mcpServers",
+            ),
+        ),
+    ),
+    "copilot": CompatibilityEntry(
+        target="copilot",
+        content_templates=("{project}/.github/copilot-instructions.md",),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=("{project}/.vscode/mcp.json",),
+                schema="servers",
+            ),
+        ),
+    ),
+    "gemini": CompatibilityEntry(
+        target="gemini",
+        content_templates=("{project}/GEMINI.md",),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=(
+                    "{home}/.gemini/settings.json",
+                    "{project}/.gemini/settings.json",
+                ),
+                schema="mcpServers",
+            ),
+        ),
+    ),
+    "grok": CompatibilityEntry(
+        target="grok",
+        content_templates=(
+            "{output_dir}/grok/context_prompt.md",
+            "{output_dir}/grok/context_prompt.json",
+        ),
+        export_patterns=EXPORT_DISCOVERY_PATTERNS["grok"],
+    ),
+    "windsurf": CompatibilityEntry(
+        target="windsurf",
+        content_templates=("{project}/.windsurfrules",),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=("{home}/.codeium/windsurf/mcp_config.json",),
+                schema="mcpServers",
+            ),
+        ),
+    ),
 }
 
 SMART_ROUTE_TAGS = {
@@ -359,6 +491,141 @@ def expected_tool_paths(target: str, *, project_dir: str | None, output_dir: Pat
     if target in PORTABLE_DIRECT_TARGETS:
         return _direct_target_paths(target, project_dir)
     return _artifact_target_paths(target, output_dir)
+
+
+def _compatibility_tokens(project_dir: Path | None, output_dir: Path) -> dict[str, str]:
+    home = Path.home()
+    xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+    return {
+        "home": str(home),
+        "project": str(project_dir or Path.cwd()),
+        "output_dir": str(output_dir),
+        "appdata": os.environ.get("APPDATA", ""),
+        "localappdata": os.environ.get("LOCALAPPDATA", ""),
+        "xdg_config_home": str(xdg_config_home),
+    }
+
+
+def _expand_compatibility_templates(
+    templates: tuple[str, ...],
+    *,
+    project_dir: Path | None,
+    output_dir: Path,
+) -> list[Path]:
+    tokens = _compatibility_tokens(project_dir, output_dir)
+    expanded: list[Path] = []
+    seen: set[str] = set()
+    for template in templates:
+        try:
+            rendered = template.format(**tokens)
+        except KeyError:
+            continue
+        if not rendered:
+            continue
+        candidate = Path(rendered).expanduser()
+        matches = (
+            [path for path in candidate.parent.glob(candidate.name)]
+            if any(char in candidate.name for char in "*?[")
+            else [candidate]
+        )
+        for match in matches:
+            key = str(match)
+            if key in seen:
+                continue
+            seen.add(key)
+            expanded.append(match)
+    return expanded
+
+
+def _candidate_content_paths(target: str, *, project_dir: Path | None, output_dir: Path) -> list[Path]:
+    entry = COMPATIBILITY_MATRIX.get(target)
+    if entry is None:
+        return expected_tool_paths(target, project_dir=str(project_dir) if project_dir else None, output_dir=output_dir)
+    paths = _expand_compatibility_templates(entry.content_templates, project_dir=project_dir, output_dir=output_dir)
+    if paths:
+        return paths
+    return expected_tool_paths(target, project_dir=str(project_dir) if project_dir else None, output_dir=output_dir)
+
+
+def _config_mentions_cortex(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if isinstance(key, str) and "cortex" in key.casefold():
+                return True
+            if _config_mentions_cortex(child):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_config_mentions_cortex(item) for item in value)
+    if isinstance(value, str):
+        lowered = value.casefold()
+        return "cortex-mcp" in lowered or "cortex.mcp" in lowered or ".cortex/config.toml" in lowered
+    return False
+
+
+def _mcp_servers_from_payload(payload: Any, schema: str) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    if schema in {"mcpServers", "servers"}:
+        servers = payload.get(schema, {})
+        return servers if isinstance(servers, dict) else {}
+    if schema == "mcp_servers":
+        servers = payload.get("mcp_servers", {})
+        return servers if isinstance(servers, dict) else {}
+    return {}
+
+
+def _parse_mcp_config(path: Path, *, schema: str) -> dict[str, Any] | None:
+    try:
+        if path.suffix.lower() == ".toml":
+            payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        else:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError, tomllib.TOMLDecodeError):
+        return None
+    servers = _mcp_servers_from_payload(payload, schema)
+    if not servers:
+        return None
+    return {
+        "path": str(path),
+        "schema": schema,
+        "server_count": len(servers),
+        "server_names": sorted(str(name) for name in servers),
+        "cortex_configured": any(
+            _config_mentions_cortex(config) or "cortex" in str(name).casefold() for name, config in servers.items()
+        ),
+    }
+
+
+def _discover_mcp_configs(target: str, *, project_dir: Path | None, output_dir: Path) -> list[dict[str, Any]]:
+    entry = COMPATIBILITY_MATRIX.get(target)
+    if entry is None:
+        return []
+    configs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for spec in entry.mcp_specs:
+        for path in _expand_compatibility_templates(
+            spec.path_templates, project_dir=project_dir, output_dir=output_dir
+        ):
+            if not path.exists() or not path.is_file():
+                continue
+            parsed = _parse_mcp_config(path, schema=spec.schema)
+            if parsed is None or parsed["path"] in seen:
+                continue
+            seen.add(parsed["path"])
+            configs.append(parsed)
+    return configs
+
+
+def _mcp_note(configs: list[dict[str, Any]]) -> str:
+    if not configs:
+        return ""
+    cortex_paths = [Path(item["path"]).name for item in configs if item["cortex_configured"]]
+    if cortex_paths:
+        return f"MCP: cortex in {cortex_paths[0]}"
+    total_servers = sum(int(item["server_count"]) for item in configs)
+    primary = Path(configs[0]["path"]).name
+    return f"MCP: {total_servers} server(s) in {primary}"
 
 
 def _human_age(path: Path, *, now: datetime | None = None) -> tuple[int | None, str]:
@@ -1169,13 +1436,10 @@ def _search_roots(project_dir: Path | None, extra_roots: list[Path] | None) -> l
 
 
 def _find_export_file(target: str, roots: list[Path]) -> Path | None:
-    patterns = {
-        "chatgpt": ["*chatgpt*.zip", "*conversations*.json", "*chat.html"],
-        "claude": ["*claude*memories*.json", "*claude*preferences*.txt"],
-        "grok": ["*grok*context*.json", "*grok*context*.md"],
-    }
+    entry = COMPATIBILITY_MATRIX.get(target)
+    patterns = entry.export_patterns if entry is not None else ()
     for root in roots:
-        for pattern in patterns.get(target, []):
+        for pattern in patterns:
             for match in root.glob(pattern):
                 if match.is_file():
                     return match
@@ -1421,7 +1685,10 @@ def scan_portability(
 
     for target in ALL_PORTABLE_TARGETS:
         target_state = state.targets.get(target)
-        paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
+        compatibility_paths = _candidate_content_paths(target, project_dir=project_dir, output_dir=output_dir)
+        state_paths = _target_paths(state, target, project_dir=project_dir, output_dir=output_dir)
+        paths = compatibility_paths if compatibility_paths else state_paths
+        mcp_configs = _discover_mcp_configs(target, project_dir=project_dir, output_dir=output_dir)
         export_path = None
         if not any(path.exists() for path in paths) and target_state is None:
             export_path = _find_export_file(target, roots)
@@ -1448,11 +1715,19 @@ def scan_portability(
                 note = f"{existing_paths[0].name}: {age_days} days stale"
             else:
                 note = existing_paths[0].name
+            mcp_note = _mcp_note(mcp_configs)
+            if mcp_note:
+                note = f"{note}; {mcp_note}"
+        elif mcp_configs:
+            note = _mcp_note(mcp_configs)
         elif target_state is not None:
             note = "configured, files missing"
 
         coverage = (len(matched_keys) / total_facts) if total_facts else 0.0
-        visible_paths = existing_paths if existing_paths else (paths if target_state is not None else [])
+        visible_paths = (
+            existing_paths if existing_paths else ([path for path in paths if target_state is not None] or [])
+        )
+        mcp_paths = [Path(item["path"]) for item in mcp_configs]
         tools.append(
             {
                 "target": target,
@@ -1463,9 +1738,23 @@ def scan_portability(
                 "labels": labels,
                 "coverage": coverage,
                 "paths": [str(path) for path in visible_paths] + ([str(export_path)] if export_path else []),
+                "detected_paths": [str(path) for path in visible_paths],
+                "mcp_paths": [str(path) for path in mcp_paths],
+                "mcp_server_count": sum(int(item["server_count"]) for item in mcp_configs),
+                "cortex_mcp_configured": any(item["cortex_configured"] for item in mcp_configs),
+                "detection_sources": [
+                    source
+                    for source, enabled in (
+                        ("local_files", bool(existing_paths)),
+                        ("mcp", bool(mcp_configs)),
+                        ("export", export_path is not None),
+                        ("state", target_state is not None),
+                    )
+                    if enabled
+                ],
                 "stale_days": age_days,
                 "note": note,
-                "configured": bool(existing_paths or export_path or target_state is not None),
+                "configured": bool(existing_paths or export_path or target_state is not None or mcp_configs),
             }
         )
 

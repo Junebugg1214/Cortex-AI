@@ -399,6 +399,42 @@ def test_mcp_portability_scan_status_and_audit_report_drift(tmp_path, monkeypatc
     assert any(issue["type"] == "missing_files" and issue["target"] == "claude" for issue in audit_payload["issues"])
 
 
+def test_mcp_portability_scan_auto_detects_local_mcp_configs(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    (project_dir / ".vscode").mkdir()
+    (project_dir / ".vscode" / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "cortex": {"command": "cortex-mcp", "args": ["--config", ".cortex/config.toml"]},
+                    "github": {"type": "stdio", "command": "npx", "args": ["-y", "github-mcp"]},
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    scan = _tool_call(
+        server,
+        tool="portability_scan",
+        arguments={"project_dir": str(project_dir)},
+        request_id=13,
+    )["result"]["structuredContent"]
+    copilot = {tool["target"]: tool for tool in scan["tools"]}["copilot"]
+
+    assert copilot["configured"] is True
+    assert copilot["mcp_server_count"] == 2
+    assert copilot["cortex_mcp_configured"] is True
+    assert "mcp" in copilot["detection_sources"]
+    assert any(path.endswith(".vscode/mcp.json") for path in copilot["mcp_paths"])
+
+
 def test_mcp_channel_prepare_turn_and_seed_memory_round_trip(tmp_path, monkeypatch):
     project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
     backend = build_sqlite_backend(store_dir)
