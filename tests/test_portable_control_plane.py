@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 
 from cortex.cli import main
@@ -442,6 +443,72 @@ def test_extract_from_detected_can_include_mcp_config_metadata(tmp_path, capsys,
     graph = json.loads(output_path.read_text(encoding="utf-8"))
     assert graph["schema_version"] == "6.0"
     assert len(graph["graph"]["nodes"]) > 0
+
+
+def test_portable_from_detected_chatgpt_export_syncs_targets(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    downloads_dir = home_dir / "Downloads"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_dir = tmp_path / "portable"
+    home_dir.mkdir()
+    downloads_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    export_path = downloads_dir / "chatgpt-export.zip"
+    with zipfile.ZipFile(export_path, "w") as handle:
+        handle.writestr(
+            "conversations.json",
+            json.dumps(
+                [
+                    {
+                        "mapping": {
+                            "msg-1": {
+                                "message": {
+                                    "author": {"role": "user"},
+                                    "content": {"parts": ["I use Python and FastAPI."]},
+                                    "create_time": "2025-01-01T00:00:00Z",
+                                }
+                            }
+                        }
+                    }
+                ]
+            ),
+        )
+
+    rc = main(
+        [
+            "portable",
+            "--from-detected",
+            "chatgpt",
+            "--to",
+            "codex",
+            "cursor",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["source"] == "detected"
+    assert {item["target"] for item in payload["selected_sources"]} == {"chatgpt"}
+    assert any(item["kind"] == "export" for item in payload["selected_sources"])
+    assert payload["target_count"] == 2
+    assert (output_dir / "context.json").exists()
+    graph = json.loads((output_dir / "context.json").read_text(encoding="utf-8"))
+    labels = {node["label"] for node in graph["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert "Fastapi" in labels
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
 
 
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):

@@ -1008,7 +1008,7 @@ def build_parser(*, show_all_commands: bool = False):
 
     # -- portable (one-command cross-tool context) -------------------------
     pt = sub.add_parser("portable", help="One command to carry AI context across supported tools")
-    pt.add_argument("input_file", help="Path to a chat export or existing Cortex context graph")
+    pt.add_argument("input_file", nargs="?", help="Path to a chat export or existing Cortex context graph")
     pt.add_argument(
         "--to",
         "-t",
@@ -1052,6 +1052,22 @@ def build_parser(*, show_all_commands: bool = False):
     pt.add_argument("--verbose", "-v", action="store_true")
     pt.add_argument("--redact", action="store_true", help="Enable PII redaction when extracting raw exports")
     pt.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+    pt.add_argument(
+        "--from-detected",
+        nargs="+",
+        help="Explicitly adopt detected local platform sources instead of a raw export file",
+    )
+    pt.add_argument(
+        "--search-root",
+        action="append",
+        default=[],
+        help="Extra directory to search for detected exports (repeatable)",
+    )
+    pt.add_argument(
+        "--include-config-metadata",
+        action="store_true",
+        help="Also ingest detected MCP config metadata; config files are metadata-only by default",
+    )
     pt.add_argument("--format", choices=["json", "text"], default="text")
 
     scn = sub.add_parser("scan", help="Audit what each supported AI tool knows about you")
@@ -1252,6 +1268,50 @@ def build_parser(*, show_all_commands: bool = False):
 # ---------------------------------------------------------------------------
 
 
+def _load_detected_sources_or_error(args, *, project_dir: Path, announce: bool = True) -> dict[str, Any] | None:
+    detected_selection = list(getattr(args, "from_detected", []) or [])
+    if not detected_selection:
+        return None
+
+    from cortex.portable_runtime import extract_graph_from_detected_sources
+
+    if announce:
+        _echo("Loading detected local sources")
+    try:
+        detected_payload = extract_graph_from_detected_sources(
+            targets=detected_selection,
+            store_dir=Path(args.store_dir),
+            project_dir=project_dir,
+            extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
+            include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
+        )
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
+
+    selected_sources = detected_payload["selected_sources"]
+    if selected_sources:
+        return detected_payload
+
+    skipped = detected_payload["skipped_sources"]
+    metadata_hint = (
+        " Add `--include-config-metadata` if you want MCP setup metadata too."
+        if any(item.get("reason") == "metadata_only" for item in skipped)
+        else ""
+    )
+    raise ValueError(
+        "No detected sources were approved for extraction.\n"
+        f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}"
+    )
+
+
+def _graph_category_stats(graph: CortexGraph) -> dict[str, Any]:
+    categories = graph.export_v4().get("categories", {})
+    return {
+        "total": sum(len(items) for items in categories.values()),
+        "by_category": {name: len(items) for name, items in categories.items()},
+    }
+
+
 def run_extract(args):
     """Extract context from an export file and save as JSON."""
     detected_selection = list(getattr(args, "from_detected", []) or [])
@@ -1267,31 +1327,12 @@ def run_extract(args):
     detected_payload: dict[str, Any] | None = None
 
     if detected_selection:
-        from cortex.portable_runtime import extract_graph_from_detected_sources
-
-        _echo("Loading detected local sources")
         try:
-            detected_payload = extract_graph_from_detected_sources(
-                targets=detected_selection,
-                store_dir=Path(args.store_dir),
-                project_dir=project_dir,
-                extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
-                include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
-            )
-        except Exception as exc:
-            return _error(str(exc))
+            detected_payload = _load_detected_sources_or_error(args, project_dir=project_dir, announce=not _CLI_QUIET)
+        except ValueError as exc:
+            lines = str(exc).splitlines()
+            return _error(lines[0], hint="\n".join(lines[1:]) or None)
         selected_sources = detected_payload["selected_sources"]
-        if not selected_sources:
-            skipped = detected_payload["skipped_sources"]
-            metadata_hint = (
-                " Add `--include-config-metadata` if you want MCP setup metadata too."
-                if any(item.get("reason") == "metadata_only" for item in skipped)
-                else ""
-            )
-            return _error(
-                "No detected sources were approved for extraction.",
-                hint=f"Run `cortex scan` first and select an adoptable target.{metadata_hint}",
-            )
         result = detected_payload["graph"].export_v4()
         input_path = project_dir / "detected_sources.json"
         _echo(f"Detected sources: {len(selected_sources)} selected, {len(detected_payload['skipped_sources'])} skipped")
@@ -1353,11 +1394,7 @@ def run_extract(args):
                     result = merge_graphs(existing, upgrade_v4_to_v5(result)).export_v4()
             else:
                 _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
-        categories = result.get("categories", {})
-        stats = {
-            "total": sum(len(items) for items in categories.values()),
-            "by_category": {name: len(items) for name, items in categories.items()},
-        }
+        stats = _graph_category_stats(upgrade_v4_to_v5(result))
     claim_count = 0
     if not args.no_claims:
         result, claim_count = _finalize_extraction_output(
@@ -4447,24 +4484,53 @@ def run_portable(args):
     from cortex.portability import resolve_portable_targets
     from cortex.portable_runtime import (
         save_canonical_graph,
-        switch_portability,
         sync_targets,
     )
 
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        return _missing_path_error(input_path, label="Input file")
+    detected_selection = list(getattr(args, "from_detected", []) or [])
+    project_dir = Path(args.project) if args.project else Path.cwd()
+    detected_payload: dict[str, Any] | None = None
+
+    if detected_selection and args.input_file:
+        return _error("Use either an input file or `--from-detected`, not both.")
+    if not detected_selection and not args.input_file:
+        return _error("Provide an export file or use `--from-detected`.")
 
     try:
         targets = resolve_portable_targets(args.to)
     except ValueError as exc:
         return _error(str(exc))
 
-    graph = load_graph_optional(str(input_path))
-    detected_kind = "graph"
+    input_path: Path | None = None
+    graph: CortexGraph | None = None
+    detected_kind = "detected" if detected_selection else "graph"
     extracted_stats = None
 
-    if graph is None:
+    if detected_selection:
+        try:
+            detected_payload = _load_detected_sources_or_error(
+                args,
+                project_dir=project_dir,
+                announce=args.format != "json" and not _CLI_QUIET,
+            )
+        except ValueError as exc:
+            lines = str(exc).splitlines()
+            return _error(lines[0], hint="\n".join(lines[1:]) or None)
+        graph = detected_payload["graph"]
+        input_path = project_dir / "detected_sources.json"
+        extracted_stats = _graph_category_stats(graph)
+        if args.format != "json":
+            _echo(
+                f"Detected sources: {len(detected_payload['selected_sources'])} selected, "
+                f"{len(detected_payload['skipped_sources'])} skipped"
+            )
+    else:
+        input_path = Path(args.input_file)
+        if not input_path.exists():
+            return _missing_path_error(input_path, label="Input file")
+        graph = load_graph_optional(str(input_path))
+
+    if graph is None and input_path is not None:
         try:
             data, detected_format = load_file(input_path)
         except PermissionError:
@@ -4492,7 +4558,6 @@ def run_portable(args):
 
     output_dir = Path(args.output)
     store_dir = Path(args.store_dir)
-    project_dir = Path(args.project) if args.project else Path.cwd()
 
     identity = None
     identity_path = store_dir / "identity.json"
@@ -4501,9 +4566,8 @@ def run_portable(args):
 
         identity = UPAIIdentity.load(store_dir)
 
-    if args.dry_run:
-        graph_path_for_installs = output_dir / "context.json"
-    else:
+    graph_path_for_installs = output_dir / "context.json"
+    if not args.dry_run:
         try:
             state, graph_path_for_installs = save_canonical_graph(
                 store_dir, graph, graph_path=output_dir / "context.json"
@@ -4526,36 +4590,25 @@ def run_portable(args):
             return _permission_error(output_dir, action="write portability files")
         except OSError as exc:
             return _error(f"Could not write portability files into {output_dir}: {exc}")
-    if args.dry_run:
-        payload = switch_portability(
-            input_path,
-            to_target=targets[0] if len(targets) == 1 else targets[0],
-            store_dir=store_dir,
-            project_dir=project_dir,
-            output_dir=output_dir,
-            input_format=args.input_format,
-            policy_name=args.policy,
-            max_chars=args.max_chars,
-            dry_run=True,
-        )
-        if len(targets) > 1:
-            payload = {
-                "source": detected_kind,
-                "graph_path": str(output_dir / "context.json"),
-                "targets": sync_targets(
-                    graph,
-                    targets=targets,
-                    store_dir=store_dir,
-                    project_dir=str(project_dir),
-                    output_dir=output_dir,
-                    graph_path=output_dir / "context.json",
-                    policy_name=args.policy,
-                    smart=False,
-                    max_chars=args.max_chars,
-                    dry_run=True,
-                    identity=identity,
-                )["targets"],
-            }
+    else:
+        payload = {
+            "source": detected_kind,
+            "input_path": str(input_path),
+            "graph_path": str(output_dir / "context.json"),
+            "targets": sync_targets(
+                graph,
+                targets=targets,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=output_dir / "context.json",
+                policy_name=args.policy,
+                smart=False,
+                max_chars=args.max_chars,
+                dry_run=True,
+                identity=identity,
+            )["targets"],
+        }
 
     payload = {
         **payload,
@@ -4566,6 +4619,10 @@ def run_portable(args):
     }
     if extracted_stats is not None:
         payload["extracted"] = extracted_stats
+    if detected_payload is not None:
+        payload["selected_sources"] = detected_payload["selected_sources"]
+        payload["skipped_sources"] = detected_payload["skipped_sources"]
+        payload["detected_source_count"] = len(detected_payload["detected_sources"])
     if _emit_result(payload, args.format) == 0:
         return 0
 
@@ -4611,11 +4668,11 @@ def run_scan(args):
     ]
     if adoptable_targets:
         joined = " ".join(adoptable_targets)
-        _echo(f"Run `cortex extract --from-detected {joined} --project .` to adopt detected local context.")
+        _echo(f"Run `cortex portable --from-detected {joined} --to all --project .` to adopt detected local context.")
     elif metadata_only_targets:
         joined = " ".join(metadata_only_targets)
         _echo(
-            f"Run `cortex extract --from-detected {joined} --project . --include-config-metadata` to record detected MCP setup metadata."
+            f"Run `cortex portable --from-detected {joined} --to all --project . --include-config-metadata` to record detected MCP setup metadata."
         )
     else:
         _echo("Run `cortex sync --smart` or `cortex remember` to fix this.")
