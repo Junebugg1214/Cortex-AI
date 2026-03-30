@@ -388,8 +388,11 @@ def test_mcp_portability_scan_status_and_audit_report_drift(tmp_path, monkeypatc
     audit_payload = audit["result"]["structuredContent"]
 
     assert scan["result"]["isError"] is False
-    assert scan_tools["copilot"]["unexpected_fact_count"] > 0
-    assert any(label == "MongoDB" for label in scan_tools["copilot"]["labels"])
+    assert scan_payload["scan_mode"] == "metadata_only"
+    assert scan_payload["graph_path"] == ""
+    assert scan_tools["copilot"]["labels"] == []
+    assert scan_tools["copilot"]["paths"] == []
+    assert scan_tools["copilot"]["mcp_paths"] == []
     assert status["result"]["isError"] is False
     assert status_map["copilot"]["stale"] is True
     assert status_map["claude"]["stale"] is True
@@ -432,7 +435,32 @@ def test_mcp_portability_scan_auto_detects_local_mcp_configs(tmp_path, monkeypat
     assert copilot["mcp_server_count"] == 2
     assert copilot["cortex_mcp_configured"] is True
     assert "mcp" in copilot["detection_sources"]
-    assert any(path.endswith(".vscode/mcp.json") for path in copilot["mcp_paths"])
+    assert copilot["mcp_paths"] == []
+    assert all("path" not in source for source in scan["adoptable_sources"])
+
+
+def test_mcp_portability_scan_rejects_search_roots_argument(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "tools/call",
+            "params": {
+                "name": "portability_scan",
+                "arguments": {"project_dir": str(project_dir), "search_roots": [str(tmp_path)]},
+            },
+        }
+    )
+
+    assert response is not None
+    assert response["error"]["code"] == -32602
+    assert "Unknown argument(s)" in response["error"]["message"]
 
 
 def test_mcp_channel_prepare_turn_and_seed_memory_round_trip(tmp_path, monkeypatch):
