@@ -12,7 +12,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
@@ -244,6 +244,7 @@ def _finalize_extraction_output(
     fmt: str,
     store_dir: Path | None = None,
     record_claims: bool = True,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> tuple[dict, int]:
     from cortex.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
     from cortex.storage import get_storage_backend
@@ -251,13 +252,15 @@ def _finalize_extraction_output(
     graph = upgrade_v4_to_v5(v4_output)
     source = extraction_source_label(input_path)
     claim_count = 0
+    metadata = {"input_format": fmt, "input_file": str(input_path)}
+    metadata.update(dict(extra_metadata or {}))
 
     if record_claims:
         stamp_graph_provenance(
             graph,
             source=source,
             method="extract",
-            metadata={"input_format": fmt, "input_file": str(input_path)},
+            metadata=metadata,
         )
         if store_dir is not None:
             ledger = get_storage_backend(store_dir).claims
@@ -267,7 +270,7 @@ def _finalize_extraction_output(
                 op="assert",
                 source=source,
                 method="extract",
-                metadata={"input_format": fmt, "input_file": str(input_path)},
+                metadata=metadata,
             )
             claim_count = len(events)
 
@@ -356,7 +359,7 @@ def build_parser(*, show_all_commands: bool = False):
 
     # -- extract ------------------------------------------------------------
     ext = sub.add_parser("extract", help="Extract context from export file")
-    ext.add_argument("input_file", help="Path to chat export file")
+    ext.add_argument("input_file", nargs="?", help="Path to chat export file")
     ext.add_argument("--output", "-o", help="Output JSON path")
     ext.add_argument(
         "--format",
@@ -383,6 +386,23 @@ def build_parser(*, show_all_commands: bool = False):
     ext.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
     ext.add_argument("--verbose", "-v", action="store_true")
     ext.add_argument("--stats", action="store_true")
+    ext.add_argument(
+        "--from-detected",
+        nargs="+",
+        help="Explicitly adopt detected local platform sources instead of a raw export file",
+    )
+    ext.add_argument("--project", "-d", help="Project directory for detected local sources (default: cwd)")
+    ext.add_argument(
+        "--search-root",
+        action="append",
+        default=[],
+        help="Extra directory to search for detected exports (repeatable)",
+    )
+    ext.add_argument(
+        "--include-config-metadata",
+        action="store_true",
+        help="Also ingest detected MCP config metadata; config files are metadata-only by default",
+    )
     ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
@@ -1234,20 +1254,62 @@ def build_parser(*, show_all_commands: bool = False):
 
 def run_extract(args):
     """Extract context from an export file and save as JSON."""
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        return _missing_path_error(input_path, label="Export file")
+    detected_selection = list(getattr(args, "from_detected", []) or [])
+    project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
 
-    _echo(f"Loading: {input_path}")
-    try:
-        data, detected_format = load_file(input_path)
-    except PermissionError:
-        return _permission_error(input_path, action="read the export file")
-    except Exception as exc:
-        return _error(str(exc))
+    if detected_selection and args.input_file:
+        return _error("Use either an input file or `--from-detected`, not both.")
+    if not detected_selection and not args.input_file:
+        return _error("Provide an export file or use `--from-detected`.")
 
-    fmt = args.format if args.format != "auto" else detected_format
-    _echo(f"Format: {fmt}")
+    input_path: Path | None = None
+    fmt = "detected" if detected_selection else "auto"
+    detected_payload: dict[str, Any] | None = None
+
+    if detected_selection:
+        from cortex.portable_runtime import extract_graph_from_detected_sources
+
+        _echo("Loading detected local sources")
+        try:
+            detected_payload = extract_graph_from_detected_sources(
+                targets=detected_selection,
+                store_dir=Path(args.store_dir),
+                project_dir=project_dir,
+                extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
+                include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
+            )
+        except Exception as exc:
+            return _error(str(exc))
+        selected_sources = detected_payload["selected_sources"]
+        if not selected_sources:
+            skipped = detected_payload["skipped_sources"]
+            metadata_hint = (
+                " Add `--include-config-metadata` if you want MCP setup metadata too."
+                if any(item.get("reason") == "metadata_only" for item in skipped)
+                else ""
+            )
+            return _error(
+                "No detected sources were approved for extraction.",
+                hint=f"Run `cortex scan` first and select an adoptable target.{metadata_hint}",
+            )
+        result = detected_payload["graph"].export_v4()
+        input_path = project_dir / "detected_sources.json"
+        _echo(f"Detected sources: {len(selected_sources)} selected, {len(detected_payload['skipped_sources'])} skipped")
+    else:
+        input_path = Path(args.input_file)
+        if not input_path.exists():
+            return _missing_path_error(input_path, label="Export file")
+
+        _echo(f"Loading: {input_path}")
+        try:
+            data, detected_format = load_file(input_path)
+        except PermissionError:
+            return _permission_error(input_path, action="read the export file")
+        except Exception as exc:
+            return _error(str(exc))
+
+        fmt = args.format if args.format != "auto" else detected_format
+        _echo(f"Format: {fmt}")
 
     # PII redactor
     redactor = None
@@ -1261,19 +1323,41 @@ def run_extract(args):
                 custom_patterns = json.load(f)
         redactor = PIIRedactor(custom_patterns)
         _echo("PII redaction enabled")
+    if detected_selection and redactor is not None:
+        _echo(
+            "PII redaction currently applies to raw export extraction only; detected local sources are ingested as-is."
+        )
 
-    extractor = AggressiveExtractor(redactor=redactor)
+    if not detected_selection:
+        extractor = AggressiveExtractor(redactor=redactor)
 
-    # Merge
-    if args.merge:
-        merge_path = Path(args.merge)
-        if merge_path.exists():
-            _echo(f"Merging with existing context: {merge_path}")
-            extractor = merge_contexts(merge_path, extractor)
-        else:
-            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
+        # Merge
+        if args.merge:
+            merge_path = Path(args.merge)
+            if merge_path.exists():
+                _echo(f"Merging with existing context: {merge_path}")
+                extractor = merge_contexts(merge_path, extractor)
+            else:
+                _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
 
-    result = _run_extraction(extractor, data, fmt)
+        result = _run_extraction(extractor, data, fmt)
+        stats = extractor.context.stats()
+    else:
+        if args.merge:
+            merge_path = Path(args.merge)
+            if merge_path.exists():
+                existing = _load_graph(merge_path)
+                if existing is not None:
+                    from cortex.portable_runtime import merge_graphs
+
+                    result = merge_graphs(existing, upgrade_v4_to_v5(result)).export_v4()
+            else:
+                _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
+        categories = result.get("categories", {})
+        stats = {
+            "total": sum(len(items) for items in categories.values()),
+            "by_category": {name: len(items) for name, items in categories.items()},
+        }
     claim_count = 0
     if not args.no_claims:
         result, claim_count = _finalize_extraction_output(
@@ -1282,9 +1366,22 @@ def run_extract(args):
             fmt=fmt,
             store_dir=Path(args.store_dir),
             record_claims=True,
+            extra_metadata=(
+                {
+                    "detected_sources": [
+                        {
+                            "target": item["target"],
+                            "kind": item["kind"],
+                            "path": item["path"],
+                        }
+                        for item in (detected_payload["selected_sources"] if detected_payload else [])
+                    ],
+                    "include_config_metadata": bool(getattr(args, "include_config_metadata", False)),
+                }
+                if detected_payload is not None
+                else None
+            ),
         )
-
-    stats = extractor.context.stats()
     v5_output = _to_context_json_v5(result)
     payload = {
         "status": "ok",
@@ -1297,6 +1394,10 @@ def run_extract(args):
         "stats": stats,
         "claim_count": claim_count,
     }
+    if detected_payload is not None:
+        payload["selected_sources"] = detected_payload["selected_sources"]
+        payload["skipped_sources"] = detected_payload["skipped_sources"]
+        payload["detected_source_count"] = len(detected_payload["detected_sources"])
     json_only = bool(getattr(args, "json_output", False))
     if not json_only:
         _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
@@ -4504,7 +4605,20 @@ def run_scan(args):
         _echo(line)
     percent = round(payload["coverage"] * 100)
     _echo(f"\nYour AI tools know {percent}% of your full context.")
-    _echo("Run `cortex sync --smart` or `cortex remember` to fix this.")
+    adoptable_targets = payload.get("adoptable_targets", [])
+    metadata_only_targets = [
+        target for target in payload.get("metadata_only_targets", []) if target not in set(adoptable_targets)
+    ]
+    if adoptable_targets:
+        joined = " ".join(adoptable_targets)
+        _echo(f"Run `cortex extract --from-detected {joined} --project .` to adopt detected local context.")
+    elif metadata_only_targets:
+        joined = " ".join(metadata_only_targets)
+        _echo(
+            f"Run `cortex extract --from-detected {joined} --project . --include-config-metadata` to record detected MCP setup metadata."
+        )
+    else:
+        _echo("Run `cortex sync --smart` or `cortex remember` to fix this.")
     return 0
 
 

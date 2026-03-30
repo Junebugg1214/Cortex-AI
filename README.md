@@ -78,7 +78,7 @@ Found 5 AI tools:
 
 Use `cortex scan`, `cortex remember`, `cortex portable`, and `cortex sync --smart` to curate your context. Run `cortex-mcp --config .cortex/config.toml` so MCP-capable tools can pull their live routed slice during conversations instead of relying only on local files.
 
-`cortex scan` also auto-detects known local platform files and MCP config definitions from the compatibility matrix, so it can recognize tools you already have installed before Cortex has written anything itself.
+`cortex scan` also auto-detects known local platform files and MCP config definitions from the compatibility matrix, so it can recognize tools you already have installed before Cortex has written anything itself. It stays read-only by default; use `cortex extract --from-detected ...` to explicitly adopt detected local context.
 
 ## Smart Routing Tags
 

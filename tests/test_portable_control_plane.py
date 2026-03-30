@@ -352,6 +352,96 @@ def test_scan_auto_detects_local_platform_paths_and_mcp_configs(tmp_path, capsys
     assert tool_map["copilot"]["mcp_server_count"] == 2
     assert tool_map["gemini"]["configured"] is True
     assert tool_map["gemini"]["cortex_mcp_configured"] is True
+    assert {"cursor", "copilot"}.issubset(set(payload["adoptable_targets"]))
+    assert "codex" in payload["metadata_only_targets"]
+
+
+def test_extract_from_detected_requires_explicit_permission_and_skips_mcp_metadata_by_default(
+    tmp_path, capsys, monkeypatch
+):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (project_dir / ".cursor" / "rules").mkdir(parents=True)
+    (project_dir / ".cursor" / "rules" / "team.mdc").write_text(
+        "**Tech stack:** Python, FastAPI\n**Current priorities:** Cortex-AI\n",
+        encoding="utf-8",
+    )
+    (home_dir / ".codex").mkdir()
+    (home_dir / ".codex" / "config.toml").write_text(
+        '[mcp_servers.cortex]\ncommand = "cortex-mcp"\nargs = ["--config", ".cortex/config.toml"]\n',
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "cursor",
+            "codex",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"cursor"}
+    assert any(item["target"] == "codex" and item["reason"] == "metadata_only" for item in payload["skipped_sources"])
+    graph = json.loads(output_path.read_text(encoding="utf-8"))
+    labels = {node["label"] for node in graph["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert "Fastapi" in labels
+
+
+def test_extract_from_detected_can_include_mcp_config_metadata(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (home_dir / ".codex").mkdir()
+    (home_dir / ".codex" / "config.toml").write_text(
+        '[mcp_servers.cortex]\ncommand = "cortex-mcp"\nargs = ["--config", ".cortex/config.toml"]\n'
+        '[mcp_servers.github]\ncommand = "npx"\nargs = ["-y", "github-mcp"]\n',
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "codex",
+            "--include-config-metadata",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert any(item["target"] == "codex" and item["kind"] == "mcp_config" for item in payload["selected_sources"])
+    graph = json.loads(output_path.read_text(encoding="utf-8"))
+    assert graph["schema_version"] == "6.0"
+    assert len(graph["graph"]["nodes"]) > 0
 
 
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):
