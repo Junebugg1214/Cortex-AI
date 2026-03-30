@@ -628,6 +628,90 @@ def _mcp_note(configs: list[dict[str, Any]]) -> str:
     return f"MCP: {total_servers} server(s) in {primary}"
 
 
+def _path_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _content_source_kind(path: Path, *, output_dir: Path) -> str:
+    return "artifact" if _path_within(path, output_dir) else "local_context"
+
+
+def detect_portability_sources(
+    *,
+    store_dir: Path,
+    project_dir: Path,
+    extra_roots: list[Path] | None = None,
+) -> list[dict[str, Any]]:
+    state = load_portability_state(store_dir)
+    output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+    roots = _search_roots(project_dir, extra_roots)
+    detected: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for target in ALL_PORTABLE_TARGETS:
+        for path in [
+            path
+            for path in _candidate_content_paths(target, project_dir=project_dir, output_dir=output_dir)
+            if path.exists()
+        ]:
+            key = (target, "content", str(path))
+            if key in seen:
+                continue
+            seen.add(key)
+            kind = _content_source_kind(path, output_dir=output_dir)
+            detected.append(
+                {
+                    "target": target,
+                    "kind": kind,
+                    "path": str(path),
+                    "importable": True,
+                    "permission": "explicit_extract",
+                    "metadata_only": False,
+                }
+            )
+
+        export_path = _find_export_file(target, roots)
+        if export_path is not None:
+            key = (target, "export", str(export_path))
+            if key not in seen:
+                seen.add(key)
+                detected.append(
+                    {
+                        "target": target,
+                        "kind": "export",
+                        "path": str(export_path),
+                        "importable": True,
+                        "permission": "explicit_extract",
+                        "metadata_only": False,
+                    }
+                )
+
+        for config in _discover_mcp_configs(target, project_dir=project_dir, output_dir=output_dir):
+            key = (target, "mcp_config", config["path"])
+            if key in seen:
+                continue
+            seen.add(key)
+            detected.append(
+                {
+                    "target": target,
+                    "kind": "mcp_config",
+                    "path": config["path"],
+                    "importable": False,
+                    "permission": "explicit_extract",
+                    "metadata_only": True,
+                    "cortex_mcp_configured": bool(config["cortex_configured"]),
+                    "mcp_server_count": int(config["server_count"]),
+                    "schema": config["schema"],
+                }
+            )
+
+    return detected
+
+
 def _human_age(path: Path, *, now: datetime | None = None) -> tuple[int | None, str]:
     if not path.exists():
         return None, ""
@@ -849,6 +933,65 @@ def extract_fact_labels_from_file(path: Path) -> list[str]:
         return []
 
 
+def _stringify_json_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        lines: list[str] = []
+        for item in value:
+            lines.extend(_stringify_json_value(item))
+        return lines
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key, child in value.items():
+            for entry in _stringify_json_value(child):
+                if entry:
+                    lines.append(f"{key}: {entry}")
+        return lines
+    if isinstance(value, int | float):
+        return [str(value)]
+    return []
+
+
+def render_detected_source_text(target: str, path: Path) -> str:
+    try:
+        if path.suffix.lower() == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if target == "claude":
+                return "\n".join(_parse_claude_json_payload(payload))
+            if target in {"chatgpt", "grok"} and isinstance(payload, dict):
+                lines: list[str] = []
+                for value in payload.values():
+                    lines.extend(_stringify_json_value(value))
+                return "\n".join(lines)
+            return "\n".join(_stringify_json_value(payload))
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return ""
+
+    if target in PORTABLE_DIRECT_TARGETS:
+        text = _strip_cursor_frontmatter(text)
+        cortex_section, outside = _extract_cortex_section(text)
+        return "\n\n".join(part for part in (cortex_section, outside) if part).strip()
+    return text.strip()
+
+
+def _extract_graph_from_text(text: str) -> CortexGraph:
+    extractor = AggressiveExtractor()
+    payload = extractor.process_plain_text(text)
+    return upgrade_v4_to_v5(payload)
+
+
+def _mcp_metadata_text(target: str, source: dict[str, Any]) -> str:
+    server_count = int(source.get("mcp_server_count", 0))
+    if source.get("cortex_mcp_configured"):
+        return (
+            f"{display_name(target)} is configured to use Cortex MCP. "
+            f"{display_name(target)} has {server_count} MCP servers configured."
+        )
+    return f"{display_name(target)} has {server_count} MCP servers configured."
+
+
 def _clone_graph(graph: CortexGraph) -> CortexGraph:
     return CortexGraph.from_v5_json(graph.export_v5())
 
@@ -944,6 +1087,61 @@ def extract_graph_from_statement(statement: str, *, confidence: float = 0.85) ->
     if graph.nodes:
         return graph
     return create_fallback_graph(statement, confidence=confidence)
+
+
+def extract_graph_from_detected_sources(
+    *,
+    targets: list[str],
+    store_dir: Path,
+    project_dir: Path,
+    extra_roots: list[Path] | None = None,
+    include_config_metadata: bool = False,
+) -> dict[str, Any]:
+    requested = resolve_requested_targets(targets)
+    detected = detect_portability_sources(store_dir=store_dir, project_dir=project_dir, extra_roots=extra_roots)
+    selected_targets = set(requested)
+    selected_sources: list[dict[str, Any]] = []
+    skipped_sources: list[dict[str, Any]] = []
+    merged = CortexGraph()
+
+    for source in detected:
+        if source["target"] not in selected_targets:
+            continue
+        path = Path(source["path"])
+        kind = str(source["kind"])
+
+        if kind == "mcp_config" and not include_config_metadata:
+            skipped_sources.append({**source, "reason": "metadata_only"})
+            continue
+
+        source_graph = CortexGraph()
+        if kind == "export":
+            data, fmt = load_file(path)
+            payload = _run_extraction_data(AggressiveExtractor(), data, fmt)
+            source_graph = upgrade_v4_to_v5(payload)
+            source = {**source, "input_format": fmt}
+        elif kind == "mcp_config":
+            metadata_text = _mcp_metadata_text(source["target"], source)
+            source_graph = _extract_graph_from_text(metadata_text)
+        else:
+            rendered = render_detected_source_text(source["target"], path)
+            if not rendered.strip():
+                skipped_sources.append({**source, "reason": "empty"})
+                continue
+            source_graph = _extract_graph_from_text(rendered)
+
+        if not source_graph.nodes:
+            skipped_sources.append({**source, "reason": "no_facts"})
+            continue
+        selected_sources.append({**source, "fact_count": len(source_graph.nodes)})
+        merged = merge_graphs(merged, source_graph)
+
+    return {
+        "graph": merged,
+        "selected_sources": selected_sources,
+        "skipped_sources": skipped_sources,
+        "detected_sources": detected,
+    }
 
 
 def _package_dependencies(data: dict[str, Any]) -> dict[str, str]:
@@ -1681,6 +1879,10 @@ def scan_portability(
     expected_map = _label_map([node.label for node in graph.nodes.values()])
     expected_keys = set(expected_map)
     known_union: set[str] = set()
+    detected_sources = detect_portability_sources(store_dir=store_dir, project_dir=project_dir, extra_roots=extra_roots)
+    sources_by_target: dict[str, list[dict[str, Any]]] = {}
+    for source in detected_sources:
+        sources_by_target.setdefault(str(source["target"]), []).append(dict(source))
     tools: list[dict[str, Any]] = []
 
     for target in ALL_PORTABLE_TARGETS:
@@ -1752,6 +1954,7 @@ def scan_portability(
                     )
                     if enabled
                 ],
+                "adoptable_sources": sources_by_target.get(target, []),
                 "stale_days": age_days,
                 "note": note,
                 "configured": bool(existing_paths or export_path or target_state is not None or mcp_configs),
@@ -1766,6 +1969,9 @@ def scan_portability(
         "total_facts": total_facts,
         "known_facts": known_facts,
         "coverage": overall_coverage,
+        "adoptable_sources": detected_sources,
+        "adoptable_targets": sorted({source["target"] for source in detected_sources if source["importable"]}),
+        "metadata_only_targets": sorted({source["target"] for source in detected_sources if source["metadata_only"]}),
         "tools": tools,
     }
 

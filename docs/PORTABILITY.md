@@ -79,6 +79,8 @@ Audits the current machine and portability state to show what each supported too
 
 It also auto-detects known local instruction files, artifacts, and MCP config definitions from the compatibility matrix, so already-installed tools can show up even before Cortex has synced them.
 
+Detection is permissioned. `scan` does not mutate the canonical graph. If you want to adopt detected local context into Cortex, run `cortex extract --from-detected ...`. MCP config files stay metadata-only unless you explicitly opt into `--include-config-metadata`.
+
 ### `cortex remember`
 
 Updates the canonical portable context graph once, then propagates that new fact across all supported portability targets by default.
