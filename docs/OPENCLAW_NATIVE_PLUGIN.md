@@ -2,6 +2,8 @@
 
 This document describes the real Cortex native plugin package for OpenClaw.
 
+If you want the shortest copy-paste install and onboarding flow first, start with [OPENCLAW_QUICKSTART.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_QUICKSTART.md).
+
 Goal:
 
 - install with `openclaw plugins install @cortex/openclaw`
