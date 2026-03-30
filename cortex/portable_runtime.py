@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import fnmatch
 import hashlib
 import json
 import os
@@ -58,10 +59,27 @@ ARTIFACT_TARGET_PATHS = {
 }
 
 EXPORT_DISCOVERY_PATTERNS = {
-    "chatgpt": ("*chatgpt*.zip", "*conversations*.json", "*chat.html"),
-    "claude": ("*claude*memories*.json", "*claude*preferences*.txt"),
-    "grok": ("*grok*context*.json", "*grok*context*.md"),
+    "chatgpt": (
+        "*chatgpt*.zip",
+        "*conversations*.json",
+        "*chat.html",
+        "custom_instructions.json",
+        "custom_instructions.md",
+    ),
+    "claude": (
+        "*claude*memories*.json",
+        "*claude*preferences*.txt",
+        "claude_memories.json",
+        "claude_preferences.txt",
+    ),
+    "grok": (
+        "*grok*context*.json",
+        "*grok*context*.md",
+        "context_prompt.json",
+        "context_prompt.md",
+    ),
 }
+DISCOVERY_MAX_DEPTH = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -640,6 +658,18 @@ def _content_source_kind(path: Path, *, output_dir: Path) -> str:
     return "artifact" if _path_within(path, output_dir) else "local_context"
 
 
+def _artifact_file_names(target: str) -> set[str]:
+    return {Path(path).name for path in ARTIFACT_TARGET_PATHS.get(target, ())}
+
+
+def _discovered_path_kind(target: str, path: Path, *, output_dir: Path) -> str:
+    if _path_within(path, output_dir):
+        return "artifact"
+    if path.name in _artifact_file_names(target):
+        return "artifact"
+    return "export"
+
+
 def detect_portability_sources(
     *,
     store_dir: Path,
@@ -676,13 +706,14 @@ def detect_portability_sources(
 
         export_path = _find_export_file(target, roots)
         if export_path is not None:
-            key = (target, "export", str(export_path))
+            kind = _discovered_path_kind(target, export_path, output_dir=output_dir)
+            key = (target, kind, str(export_path))
             if key not in seen:
                 seen.add(key)
                 detected.append(
                     {
                         "target": target,
-                        "kind": "export",
+                        "kind": kind,
                         "path": str(export_path),
                         "importable": True,
                         "permission": "explicit_extract",
@@ -1115,20 +1146,24 @@ def extract_graph_from_detected_sources(
             continue
 
         source_graph = CortexGraph()
-        if kind == "export":
-            data, fmt = load_file(path)
-            payload = _run_extraction_data(AggressiveExtractor(), data, fmt)
-            source_graph = upgrade_v4_to_v5(payload)
-            source = {**source, "input_format": fmt}
-        elif kind == "mcp_config":
-            metadata_text = _mcp_metadata_text(source["target"], source)
-            source_graph = _extract_graph_from_text(metadata_text)
-        else:
-            rendered = render_detected_source_text(source["target"], path)
-            if not rendered.strip():
-                skipped_sources.append({**source, "reason": "empty"})
-                continue
-            source_graph = _extract_graph_from_text(rendered)
+        try:
+            if kind == "export":
+                data, fmt = load_file(path)
+                payload = _run_extraction_data(AggressiveExtractor(), data, fmt)
+                source_graph = upgrade_v4_to_v5(payload)
+                source = {**source, "input_format": fmt}
+            elif kind == "mcp_config":
+                metadata_text = _mcp_metadata_text(source["target"], source)
+                source_graph = _extract_graph_from_text(metadata_text)
+            else:
+                rendered = render_detected_source_text(source["target"], path)
+                if not rendered.strip():
+                    skipped_sources.append({**source, "reason": "empty"})
+                    continue
+                source_graph = _extract_graph_from_text(rendered)
+        except Exception:
+            skipped_sources.append({**source, "reason": "unreadable"})
+            continue
 
         if not source_graph.nodes:
             skipped_sources.append({**source, "reason": "no_facts"})
@@ -1614,6 +1649,7 @@ def _search_roots(project_dir: Path | None, extra_roots: list[Path] | None) -> l
     for candidate in [
         project_dir,
         Path.home() / "Downloads",
+        Path.home() / "Desktop",
         Path.home() / "Documents",
         *(extra_roots or []),
     ]:
@@ -1633,15 +1669,51 @@ def _search_roots(project_dir: Path | None, extra_roots: list[Path] | None) -> l
     return deduped
 
 
+def _iter_discovery_matches(root: Path, pattern: str) -> list[Path]:
+    root = root.resolve()
+    if root.is_file():
+        return [root] if fnmatch.fnmatch(root.name.casefold(), pattern.casefold()) else []
+
+    matches: list[Path] = []
+    for current, dirnames, filenames in os.walk(root):
+        current_path = Path(current)
+        try:
+            depth = len(current_path.relative_to(root).parts)
+        except ValueError:
+            depth = 0
+        if depth >= DISCOVERY_MAX_DEPTH:
+            dirnames[:] = []
+        for name in filenames:
+            if fnmatch.fnmatch(name.casefold(), pattern.casefold()):
+                matches.append((current_path / name).resolve())
+    return matches
+
+
 def _find_export_file(target: str, roots: list[Path]) -> Path | None:
     entry = COMPATIBILITY_MATRIX.get(target)
     patterns = entry.export_patterns if entry is not None else ()
+    matches: list[Path] = []
+    seen: set[str] = set()
     for root in roots:
         for pattern in patterns:
-            for match in root.glob(pattern):
-                if match.is_file():
-                    return match
-    return None
+            for match in _iter_discovery_matches(root, pattern):
+                if not match.is_file():
+                    continue
+                key = str(match)
+                if key in seen:
+                    continue
+                seen.add(key)
+                matches.append(match)
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda path: (
+            path.stat().st_mtime if path.exists() else 0.0,
+            str(path),
+        ),
+        reverse=True,
+    )
+    return matches[0]
 
 
 def _load_snapshot_graph(state: PortabilityState, target: str) -> CortexGraph | None:

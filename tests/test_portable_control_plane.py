@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import zipfile
 from pathlib import Path
@@ -445,19 +446,23 @@ def test_extract_from_detected_can_include_mcp_config_metadata(tmp_path, capsys,
     assert len(graph["graph"]["nodes"]) > 0
 
 
-def test_portable_from_detected_chatgpt_export_syncs_targets(tmp_path, capsys, monkeypatch):
+def test_scan_and_portable_from_detected_prefer_newest_nested_artifact(tmp_path, capsys, monkeypatch):
     home_dir = tmp_path / "home"
     downloads_dir = home_dir / "Downloads"
+    desktop_dir = home_dir / "Desktop"
+    documents_dir = home_dir / "Documents"
     project_dir = tmp_path / "project"
     store_dir = tmp_path / ".cortex"
     output_dir = tmp_path / "portable"
     home_dir.mkdir()
     downloads_dir.mkdir()
+    desktop_dir.mkdir()
+    documents_dir.mkdir()
     project_dir.mkdir()
     monkeypatch.setenv("HOME", str(home_dir))
 
-    export_path = downloads_dir / "chatgpt-export.zip"
-    with zipfile.ZipFile(export_path, "w") as handle:
+    old_export = documents_dir / "chatgpt-export.zip"
+    with zipfile.ZipFile(old_export, "w") as handle:
         handle.writestr(
             "conversations.json",
             json.dumps(
@@ -467,7 +472,7 @@ def test_portable_from_detected_chatgpt_export_syncs_targets(tmp_path, capsys, m
                             "msg-1": {
                                 "message": {
                                     "author": {"role": "user"},
-                                    "content": {"parts": ["I use Python and FastAPI."]},
+                                    "content": {"parts": ["I use Rust and Axum."]},
                                     "create_time": "2025-01-01T00:00:00Z",
                                 }
                             }
@@ -476,6 +481,44 @@ def test_portable_from_detected_chatgpt_export_syncs_targets(tmp_path, capsys, m
                 ]
             ),
         )
+    old_time = 1_700_000_000
+    os.utime(old_export, (old_time, old_time))
+
+    nested_artifact_dir = downloads_dir / "Exports" / "ChatGPT"
+    nested_artifact_dir.mkdir(parents=True)
+    new_artifact = nested_artifact_dir / "custom_instructions.json"
+    new_artifact.write_text(
+        json.dumps(
+            {
+                "what_chatgpt_should_know_about_you": "I use Python and FastAPI.",
+                "how_chatgpt_should_respond": "Be concise.",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    new_time = old_time + 10_000
+    os.utime(new_artifact, (new_time, new_time))
+
+    rc = main(
+        [
+            "scan",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    scan_payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert "chatgpt" in scan_payload["adoptable_targets"]
+    chatgpt_sources = [item for item in scan_payload["adoptable_sources"] if item["target"] == "chatgpt"]
+    assert len(chatgpt_sources) == 1
+    assert chatgpt_sources[0]["kind"] == "artifact"
+    assert chatgpt_sources[0]["path"].endswith("custom_instructions.json")
 
     rc = main(
         [
@@ -500,15 +543,61 @@ def test_portable_from_detected_chatgpt_export_syncs_targets(tmp_path, capsys, m
     assert rc == 0
     assert payload["source"] == "detected"
     assert {item["target"] for item in payload["selected_sources"]} == {"chatgpt"}
-    assert any(item["kind"] == "export" for item in payload["selected_sources"])
+    assert any(item["kind"] == "artifact" for item in payload["selected_sources"])
+    assert payload["selected_sources"][0]["path"].endswith("custom_instructions.json")
     assert payload["target_count"] == 2
     assert (output_dir / "context.json").exists()
     graph = json.loads((output_dir / "context.json").read_text(encoding="utf-8"))
     labels = {node["label"] for node in graph["graph"]["nodes"].values()}
     assert "Python" in labels
     assert "Fastapi" in labels
+    assert "Rust" not in labels
     assert (project_dir / "AGENTS.md").exists()
     assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+
+
+def test_extract_from_detected_skips_unreadable_export_and_keeps_valid_sources(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    downloads_dir = home_dir / "Downloads"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    downloads_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (downloads_dir / "chatgpt-export.zip").write_bytes(b"not-a-real-zip")
+    (project_dir / ".cursor" / "rules").mkdir(parents=True)
+    (project_dir / ".cursor" / "rules" / "team.mdc").write_text(
+        "**Tech stack:** Python, FastAPI\n**Current priorities:** Cortex-AI\n",
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "chatgpt",
+            "cursor",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"cursor"}
+    assert any(item["target"] == "chatgpt" and item["reason"] == "unreadable" for item in payload["skipped_sources"])
+    graph = json.loads(output_path.read_text(encoding="utf-8"))
+    labels = {node["label"] for node in graph["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert "Fastapi" in labels
 
 
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):

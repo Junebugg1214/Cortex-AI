@@ -77,7 +77,7 @@ That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), w
 
 Audits the current machine and portability state to show what each supported tool knows, how many facts it has, and whether that context is stale or missing.
 
-It also auto-detects known local instruction files, artifacts, and MCP config definitions from the compatibility matrix, so already-installed tools can show up even before Cortex has synced them.
+It also auto-detects known local instruction files, artifacts, and MCP config definitions from the compatibility matrix, so already-installed tools can show up even before Cortex has synced them. By default it searches the current project plus `~/Downloads`, `~/Desktop`, and `~/Documents` recursively for known export and artifact names, and it prefers the newest match when multiple candidates exist.
 
 Detection is permissioned. `scan` does not mutate the canonical graph. If you want to adopt detected local context into Cortex and sync it in one step, run `cortex portable --from-detected ... --to all --project .`. If you only want the graph, use `cortex extract --from-detected ...`. MCP config files stay metadata-only unless you explicitly opt into `--include-config-metadata`.
 
