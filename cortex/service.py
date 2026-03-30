@@ -460,12 +460,14 @@ class MemoryService:
         *,
         project_dir: str = "",
         search_roots: list[str] | None = None,
+        metadata_only: bool = False,
     ) -> dict[str, Any]:
         project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
         payload = scan_portability(
             store_dir=self.store_dir,
             project_dir=project_path,
             extra_roots=[Path(root).resolve() for root in (search_roots or [])],
+            metadata_only=metadata_only,
         )
         payload["release"] = self.release()
         return payload

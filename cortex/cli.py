@@ -403,6 +403,16 @@ def build_parser(*, show_all_commands: bool = False):
         action="store_true",
         help="Also ingest detected MCP config metadata; config files are metadata-only by default",
     )
+    ext.add_argument(
+        "--include-unmanaged-text",
+        action="store_true",
+        help="Also ingest unmanaged text outside Cortex markers from detected instruction files",
+    )
+    ext.add_argument(
+        "--no-redact-detected",
+        action="store_true",
+        help="Disable the default PII redaction applied to detected local source adoption",
+    )
     ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
@@ -1068,6 +1078,16 @@ def build_parser(*, show_all_commands: bool = False):
         action="store_true",
         help="Also ingest detected MCP config metadata; config files are metadata-only by default",
     )
+    pt.add_argument(
+        "--include-unmanaged-text",
+        action="store_true",
+        help="Also ingest unmanaged text outside Cortex markers from detected instruction files",
+    )
+    pt.add_argument(
+        "--no-redact-detected",
+        action="store_true",
+        help="Disable the default PII redaction applied to detected local source adoption",
+    )
     pt.add_argument("--format", choices=["json", "text"], default="text")
 
     scn = sub.add_parser("scan", help="Audit what each supported AI tool knows about you")
@@ -1268,7 +1288,13 @@ def build_parser(*, show_all_commands: bool = False):
 # ---------------------------------------------------------------------------
 
 
-def _load_detected_sources_or_error(args, *, project_dir: Path, announce: bool = True) -> dict[str, Any] | None:
+def _load_detected_sources_or_error(
+    args,
+    *,
+    project_dir: Path,
+    announce: bool = True,
+    redactor: PIIRedactor | None = None,
+) -> dict[str, Any] | None:
     detected_selection = list(getattr(args, "from_detected", []) or [])
     if not detected_selection:
         return None
@@ -1284,6 +1310,8 @@ def _load_detected_sources_or_error(args, *, project_dir: Path, announce: bool =
             project_dir=project_dir,
             extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
             include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
+            include_unmanaged_text=bool(getattr(args, "include_unmanaged_text", False)),
+            redactor=redactor,
         )
     except Exception as exc:
         raise ValueError(str(exc)) from exc
@@ -1298,9 +1326,14 @@ def _load_detected_sources_or_error(args, *, project_dir: Path, announce: bool =
         if any(item.get("reason") == "metadata_only" for item in skipped)
         else ""
     )
+    unmanaged_hint = (
+        " Add `--include-unmanaged-text` if you want to ingest text outside Cortex markers from instruction files."
+        if any(item.get("reason") == "unmanaged_only" for item in skipped)
+        else ""
+    )
     raise ValueError(
         "No detected sources were approved for extraction.\n"
-        f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}"
+        f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}{unmanaged_hint}"
     )
 
 
@@ -1310,6 +1343,22 @@ def _graph_category_stats(graph: CortexGraph) -> dict[str, Any]:
         "total": sum(len(items) for items in categories.values()),
         "by_category": {name: len(items) for name, items in categories.items()},
     }
+
+
+def _build_pii_redactor(args, *, default_enabled: bool = False) -> PIIRedactor | None:
+    enabled = bool(getattr(args, "redact", False) or default_enabled)
+    if not enabled:
+        return None
+
+    custom_patterns = None
+    patterns_path = getattr(args, "redact_patterns", None)
+    if patterns_path:
+        pp = Path(patterns_path)
+        if not pp.exists():
+            raise FileNotFoundError(pp)
+        with pp.open("r", encoding="utf-8") as handle:
+            custom_patterns = json.load(handle)
+    return PIIRedactor(custom_patterns)
 
 
 def run_extract(args):
@@ -1325,17 +1374,39 @@ def run_extract(args):
     input_path: Path | None = None
     fmt = "detected" if detected_selection else "auto"
     detected_payload: dict[str, Any] | None = None
+    try:
+        redactor = _build_pii_redactor(
+            args,
+            default_enabled=bool(detected_selection and not getattr(args, "no_redact_detected", False)),
+        )
+    except FileNotFoundError as exc:
+        return _missing_path_error(Path(exc.args[0]), label="Redaction patterns file")
+
+    if redactor is not None and not bool(getattr(args, "json_output", False)):
+        if detected_selection and not args.redact:
+            _echo("PII redaction enabled for detected local sources")
+        else:
+            _echo("PII redaction enabled")
 
     if detected_selection:
         try:
-            detected_payload = _load_detected_sources_or_error(args, project_dir=project_dir, announce=not _CLI_QUIET)
+            detected_payload = _load_detected_sources_or_error(
+                args,
+                project_dir=project_dir,
+                announce=not _CLI_QUIET and not bool(getattr(args, "json_output", False)),
+                redactor=redactor,
+            )
         except ValueError as exc:
             lines = str(exc).splitlines()
             return _error(lines[0], hint="\n".join(lines[1:]) or None)
         selected_sources = detected_payload["selected_sources"]
         result = detected_payload["graph"].export_v4()
         input_path = project_dir / "detected_sources.json"
-        _echo(f"Detected sources: {len(selected_sources)} selected, {len(detected_payload['skipped_sources'])} skipped")
+        if not bool(getattr(args, "json_output", False)):
+            _echo(
+                f"Detected sources: {len(selected_sources)} selected, "
+                f"{len(detected_payload['skipped_sources'])} skipped"
+            )
     else:
         input_path = Path(args.input_file)
         if not input_path.exists():
@@ -1351,23 +1422,6 @@ def run_extract(args):
 
         fmt = args.format if args.format != "auto" else detected_format
         _echo(f"Format: {fmt}")
-
-    # PII redactor
-    redactor = None
-    if args.redact:
-        custom_patterns = None
-        if args.redact_patterns:
-            pp = Path(args.redact_patterns)
-            if not pp.exists():
-                return _missing_path_error(pp, label="Redaction patterns file")
-            with open(pp, "r", encoding="utf-8") as f:
-                custom_patterns = json.load(f)
-        redactor = PIIRedactor(custom_patterns)
-        _echo("PII redaction enabled")
-    if detected_selection and redactor is not None:
-        _echo(
-            "PII redaction currently applies to raw export extraction only; detected local sources are ingested as-is."
-        )
 
     if not detected_selection:
         extractor = AggressiveExtractor(redactor=redactor)
@@ -4505,6 +4559,19 @@ def run_portable(args):
     graph: CortexGraph | None = None
     detected_kind = "detected" if detected_selection else "graph"
     extracted_stats = None
+    try:
+        redactor = _build_pii_redactor(
+            args,
+            default_enabled=bool(detected_selection and not getattr(args, "no_redact_detected", False)),
+        )
+    except FileNotFoundError as exc:
+        return _missing_path_error(Path(exc.args[0]), label="Redaction patterns file")
+
+    if redactor is not None and args.format != "json":
+        if detected_selection and not args.redact:
+            _echo("PII redaction enabled for detected local sources")
+        else:
+            _echo("PII redaction enabled")
 
     if detected_selection:
         try:
@@ -4512,6 +4579,7 @@ def run_portable(args):
                 args,
                 project_dir=project_dir,
                 announce=args.format != "json" and not _CLI_QUIET,
+                redactor=redactor,
             )
         except ValueError as exc:
             lines = str(exc).splitlines()
@@ -4539,17 +4607,6 @@ def run_portable(args):
             return _error(str(exc))
 
         fmt = args.input_format if args.input_format != "auto" else detected_format
-        redactor = None
-        if args.redact:
-            custom_patterns = None
-            if args.redact_patterns:
-                patterns_path = Path(args.redact_patterns)
-                if not patterns_path.exists():
-                    return _missing_path_error(patterns_path, label="Redaction patterns file")
-                with patterns_path.open("r", encoding="utf-8") as handle:
-                    custom_patterns = json.load(handle)
-            redactor = PIIRedactor(custom_patterns)
-
         extractor = AggressiveExtractor(redactor=redactor)
         v4_data = _run_extraction(extractor, data, fmt)
         graph = upgrade_v4_to_v5(v4_data)

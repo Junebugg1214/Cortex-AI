@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 from cortex.coding import enrich_project
 from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
-from cortex.extract_memory import AggressiveExtractor, load_file
+from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.hooks import _load_graph as load_graph_optional
@@ -646,6 +646,15 @@ def _mcp_note(configs: list[dict[str, Any]]) -> str:
     return f"MCP: {total_servers} server(s) in {primary}"
 
 
+def _sanitized_mcp_note(configs: list[dict[str, Any]]) -> str:
+    if not configs:
+        return ""
+    if any(item["cortex_configured"] for item in configs):
+        return "MCP: Cortex configured"
+    total_servers = sum(int(item["server_count"]) for item in configs)
+    return f"MCP: {total_servers} server(s) configured"
+
+
 def _path_within(path: Path, root: Path) -> bool:
     try:
         path.resolve().relative_to(root.resolve())
@@ -984,7 +993,20 @@ def _stringify_json_value(value: Any) -> list[str]:
     return []
 
 
-def render_detected_source_text(target: str, path: Path) -> str:
+def _render_direct_target_text(text: str, *, include_unmanaged_text: bool) -> str:
+    text = _strip_cursor_frontmatter(text)
+    cortex_section, outside = _extract_cortex_section(text)
+    if cortex_section:
+        parts = [cortex_section.strip()]
+        if include_unmanaged_text and outside.strip():
+            parts.append(outside.strip())
+        return "\n\n".join(part for part in parts if part).strip()
+    if include_unmanaged_text:
+        return text.strip()
+    return ""
+
+
+def render_detected_source_text(target: str, path: Path, *, include_unmanaged_text: bool = False) -> str:
     try:
         if path.suffix.lower() == ".json":
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1001,9 +1023,7 @@ def render_detected_source_text(target: str, path: Path) -> str:
         return ""
 
     if target in PORTABLE_DIRECT_TARGETS:
-        text = _strip_cursor_frontmatter(text)
-        cortex_section, outside = _extract_cortex_section(text)
-        return "\n\n".join(part for part in (cortex_section, outside) if part).strip()
+        return _render_direct_target_text(text, include_unmanaged_text=include_unmanaged_text)
     return text.strip()
 
 
@@ -1011,6 +1031,20 @@ def _extract_graph_from_text(text: str) -> CortexGraph:
     extractor = AggressiveExtractor()
     payload = extractor.process_plain_text(text)
     return upgrade_v4_to_v5(payload)
+
+
+def _sanitize_detected_source(source: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = {
+        "target",
+        "kind",
+        "importable",
+        "permission",
+        "metadata_only",
+        "cortex_mcp_configured",
+        "mcp_server_count",
+        "schema",
+    }
+    return {key: value for key, value in source.items() if key in allowed_keys}
 
 
 def _mcp_metadata_text(target: str, source: dict[str, Any]) -> str:
@@ -1127,6 +1161,8 @@ def extract_graph_from_detected_sources(
     project_dir: Path,
     extra_roots: list[Path] | None = None,
     include_config_metadata: bool = False,
+    include_unmanaged_text: bool = False,
+    redactor: PIIRedactor | None = None,
 ) -> dict[str, Any]:
     requested = resolve_requested_targets(targets)
     detected = detect_portability_sources(store_dir=store_dir, project_dir=project_dir, extra_roots=extra_roots)
@@ -1149,17 +1185,24 @@ def extract_graph_from_detected_sources(
         try:
             if kind == "export":
                 data, fmt = load_file(path)
-                payload = _run_extraction_data(AggressiveExtractor(), data, fmt)
+                payload = _run_extraction_data(AggressiveExtractor(redactor=redactor), data, fmt)
                 source_graph = upgrade_v4_to_v5(payload)
                 source = {**source, "input_format": fmt}
             elif kind == "mcp_config":
                 metadata_text = _mcp_metadata_text(source["target"], source)
                 source_graph = _extract_graph_from_text(metadata_text)
             else:
-                rendered = render_detected_source_text(source["target"], path)
+                rendered = render_detected_source_text(
+                    source["target"],
+                    path,
+                    include_unmanaged_text=include_unmanaged_text,
+                )
                 if not rendered.strip():
-                    skipped_sources.append({**source, "reason": "empty"})
+                    reason = "unmanaged_only" if kind == "local_context" else "empty"
+                    skipped_sources.append({**source, "reason": reason})
                     continue
+                if redactor is not None:
+                    rendered = redactor.redact(rendered)
                 source_graph = _extract_graph_from_text(rendered)
         except Exception:
             skipped_sources.append({**source, "reason": "unreadable"})
@@ -1940,6 +1983,7 @@ def scan_portability(
     store_dir: Path,
     project_dir: Path,
     extra_roots: list[Path] | None = None,
+    metadata_only: bool = False,
 ) -> dict[str, Any]:
     state = load_portability_state(store_dir)
     graph, graph_path = load_canonical_graph(store_dir, state)
@@ -1954,7 +1998,8 @@ def scan_portability(
     detected_sources = detect_portability_sources(store_dir=store_dir, project_dir=project_dir, extra_roots=extra_roots)
     sources_by_target: dict[str, list[dict[str, Any]]] = {}
     for source in detected_sources:
-        sources_by_target.setdefault(str(source["target"]), []).append(dict(source))
+        entry = _sanitize_detected_source(source) if metadata_only else dict(source)
+        sources_by_target.setdefault(str(source["target"]), []).append(entry)
     tools: list[dict[str, Any]] = []
 
     for target in ALL_PORTABLE_TARGETS:
@@ -1966,7 +2011,7 @@ def scan_portability(
         export_path = None
         if not any(path.exists() for path in paths) and target_state is None:
             export_path = _find_export_file(target, roots)
-        labels = _tool_labels(state, target, paths, export_path)
+        labels = [] if metadata_only else _tool_labels(state, target, paths, export_path)
         actual_map = _label_map(labels)
         matched_keys = expected_keys & set(actual_map)
         known_union.update(matched_keys)
@@ -1982,20 +2027,34 @@ def scan_portability(
             age_days = _human_age(export_path, now=now)[0]
 
         note = "not configured"
-        if export_path is not None and not existing_paths:
-            note = f"export: {age_days or 0} days old"
-        elif existing_paths:
-            if age_days is not None and age_days >= DEFAULT_STALE_DAYS:
-                note = f"{existing_paths[0].name}: {age_days} days stale"
-            else:
-                note = existing_paths[0].name
-            mcp_note = _mcp_note(mcp_configs)
+        if metadata_only:
+            parts: list[str] = []
+            if existing_paths:
+                parts.append("local files detected")
+            elif export_path is not None:
+                parts.append("export detected")
+            mcp_note = _sanitized_mcp_note(mcp_configs)
             if mcp_note:
-                note = f"{note}; {mcp_note}"
-        elif mcp_configs:
-            note = _mcp_note(mcp_configs)
-        elif target_state is not None:
-            note = "configured, files missing"
+                parts.append(mcp_note)
+            if target_state is not None and not parts:
+                note = "configured in Cortex state"
+            elif parts:
+                note = "; ".join(parts)
+        else:
+            if export_path is not None and not existing_paths:
+                note = f"export: {age_days or 0} days old"
+            elif existing_paths:
+                if age_days is not None and age_days >= DEFAULT_STALE_DAYS:
+                    note = f"{existing_paths[0].name}: {age_days} days stale"
+                else:
+                    note = existing_paths[0].name
+                mcp_note = _mcp_note(mcp_configs)
+                if mcp_note:
+                    note = f"{note}; {mcp_note}"
+            elif mcp_configs:
+                note = _mcp_note(mcp_configs)
+            elif target_state is not None:
+                note = "configured, files missing"
 
         coverage = (len(matched_keys) / total_facts) if total_facts else 0.0
         visible_paths = (
@@ -2011,9 +2070,11 @@ def scan_portability(
                 "unexpected_fact_count": max(len(actual_map) - len(matched_keys), 0),
                 "labels": labels,
                 "coverage": coverage,
-                "paths": [str(path) for path in visible_paths] + ([str(export_path)] if export_path else []),
-                "detected_paths": [str(path) for path in visible_paths],
-                "mcp_paths": [str(path) for path in mcp_paths],
+                "paths": []
+                if metadata_only
+                else [str(path) for path in visible_paths] + ([str(export_path)] if export_path else []),
+                "detected_paths": [] if metadata_only else [str(path) for path in visible_paths],
+                "mcp_paths": [] if metadata_only else [str(path) for path in mcp_paths],
                 "mcp_server_count": sum(int(item["server_count"]) for item in mcp_configs),
                 "cortex_mcp_configured": any(item["cortex_configured"] for item in mcp_configs),
                 "detection_sources": [
@@ -2037,11 +2098,14 @@ def scan_portability(
     overall_coverage = (known_facts / total_facts) if total_facts else 0.0
 
     return {
-        "graph_path": str(graph_path),
+        "graph_path": "" if metadata_only else str(graph_path),
         "total_facts": total_facts,
         "known_facts": known_facts,
         "coverage": overall_coverage,
-        "adoptable_sources": detected_sources,
+        "scan_mode": "metadata_only" if metadata_only else "full",
+        "adoptable_sources": [_sanitize_detected_source(source) for source in detected_sources]
+        if metadata_only
+        else detected_sources,
         "adoptable_targets": sorted({source["target"] for source in detected_sources if source["importable"]}),
         "metadata_only_targets": sorted({source["target"] for source in detected_sources if source["metadata_only"]}),
         "tools": tools,

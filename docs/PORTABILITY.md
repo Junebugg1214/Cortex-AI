@@ -81,6 +81,10 @@ It also auto-detects known local instruction files, artifacts, and MCP config de
 
 Detection is permissioned. `scan` does not mutate the canonical graph. If you want to adopt detected local context into Cortex and sync it in one step, run `cortex portable --from-detected ... --to all --project .`. If you only want the graph, use `cortex extract --from-detected ...`. MCP config files stay metadata-only unless you explicitly opt into `--include-config-metadata`.
 
+Detected local-source adoption now redacts common PII by default. For direct instruction files like `AGENTS.md`, `CLAUDE.md`, Cursor rules, and similar project-scoped targets, Cortex imports only the managed Cortex marker block by default. Add `--include-unmanaged-text` only if you explicitly want to ingest surrounding human-authored instruction text too.
+
+Over MCP, `portability_scan` is metadata-only by default. It reports whether tools and MCP definitions are present, but it does not expose absolute file paths or parse detected export content.
+
 ### `cortex remember`
 
 Updates the canonical portable context graph once, then propagates that new fact across all supported portability targets by default.

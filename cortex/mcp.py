@@ -229,25 +229,30 @@ class CortexMCPServer:
                 read_only=True,
                 namespace_param=False,
             ),
-            self._service_tool(
+            ToolDefinition(
                 name="portability_scan",
                 title="Portability Scan",
-                description="Audit what each supported AI tool knows, how much context it has, and whether it is configured.",
-                method_name="portability_scan",
+                description=(
+                    "Audit which supported AI tools are configured and detectable from the local machine. "
+                    "MCP scans are metadata-only by default and do not expose absolute paths or parsed local content."
+                ),
                 input_schema=_object_schema(
                     {
                         "project_dir": _string_property(
                             "Project directory to inspect. Defaults to the current working directory."
                         ),
-                        "search_roots": _array_property(
-                            "Extra directories to search for exports or portability artifacts.",
-                            items={"type": "string"},
-                        ),
                     },
                     include_namespace=False,
                 ),
-                read_only=True,
-                namespace_param=False,
+                handler=lambda arguments: self.service.portability_scan(
+                    project_dir=str(arguments.get("project_dir", "")),
+                    metadata_only=True,
+                ),
+                annotations={
+                    "readOnlyHint": True,
+                    "destructiveHint": False,
+                    "idempotentHint": True,
+                },
             ),
             self._service_tool(
                 name="portability_status",

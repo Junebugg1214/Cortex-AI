@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 from cortex.cli import main
+from cortex.context import CORTEX_END, CORTEX_START
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 
 
@@ -371,7 +372,15 @@ def test_extract_from_detected_requires_explicit_permission_and_skips_mcp_metada
 
     (project_dir / ".cursor" / "rules").mkdir(parents=True)
     (project_dir / ".cursor" / "rules" / "team.mdc").write_text(
-        "**Tech stack:** Python, FastAPI\n**Current priorities:** Cortex-AI\n",
+        "\n".join(
+            [
+                CORTEX_START,
+                "**Tech stack:** Python, FastAPI",
+                "**Current priorities:** Cortex-AI",
+                CORTEX_END,
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     (home_dir / ".codex").mkdir()
@@ -570,7 +579,15 @@ def test_extract_from_detected_skips_unreadable_export_and_keeps_valid_sources(t
     (downloads_dir / "chatgpt-export.zip").write_bytes(b"not-a-real-zip")
     (project_dir / ".cursor" / "rules").mkdir(parents=True)
     (project_dir / ".cursor" / "rules" / "team.mdc").write_text(
-        "**Tech stack:** Python, FastAPI\n**Current priorities:** Cortex-AI\n",
+        "\n".join(
+            [
+                CORTEX_START,
+                "**Tech stack:** Python, FastAPI",
+                "**Current priorities:** Cortex-AI",
+                CORTEX_END,
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -598,6 +615,143 @@ def test_extract_from_detected_skips_unreadable_export_and_keeps_valid_sources(t
     labels = {node["label"] for node in graph["graph"]["nodes"].values()}
     assert "Python" in labels
     assert "Fastapi" in labels
+
+
+def test_extract_from_detected_redacts_local_sources_by_default(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    downloads_dir = home_dir / "Downloads"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    downloads_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (downloads_dir / "custom_instructions.json").write_text(
+        json.dumps(
+            {
+                "what_chatgpt_should_know_about_you": "Email me at john@example.com. I use Python and FastAPI.",
+                "how_chatgpt_should_respond": "Be concise.",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "chatgpt",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"chatgpt"}
+    graph_text = output_path.read_text(encoding="utf-8")
+    assert "john@example.com" not in graph_text
+    assert "Python" in graph_text
+
+
+def test_extract_from_detected_uses_managed_blocks_only_by_default(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (project_dir / "AGENTS.md").write_text(
+        "\n".join(
+            [
+                "This unmanaged guidance says to use MongoDB.",
+                CORTEX_START,
+                "**Tech stack:** Python, FastAPI",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "codex",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"codex"}
+    labels = {node["label"] for node in json.loads(output_path.read_text(encoding="utf-8"))["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert "Fastapi" in labels
+    assert not any("mongo" in label.lower() for label in labels)
+
+
+def test_extract_from_detected_can_opt_into_unmanaged_instruction_text(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    (project_dir / "AGENTS.md").write_text(
+        "\n".join(
+            [
+                "This unmanaged guidance says to use MongoDB.",
+                CORTEX_START,
+                "**Tech stack:** Python, FastAPI",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "codex",
+            "--include-unmanaged-text",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"codex"}
+    labels = {node["label"] for node in json.loads(output_path.read_text(encoding="utf-8"))["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert any("mongo" in label.lower() for label in labels)
 
 
 def test_status_and_audit_detect_stale_and_divergence(tmp_path, capsys, monkeypatch):
