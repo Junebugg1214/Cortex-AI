@@ -39,3 +39,4 @@ sample_*.json
 local/
 .cortex/
 corpus/
+portable/
