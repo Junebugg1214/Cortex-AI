@@ -15,9 +15,9 @@ After setup, Hermes keeps doing live reasoning and agent execution. Cortex adds:
 
 - user-owned portable context outside the runtime
 - `USER.md` and `MEMORY.md` kept in sync from the canonical graph
-- project-scoped `AGENTS.md` context
 - managed `cortex-mcp` wiring in `~/.hermes/config.yaml`
 - the same context available to your other AI tools too
+- optional project-scoped `AGENTS.md` if you also sync the `codex` target
 
 ## 1. Install Cortex
 
@@ -61,7 +61,7 @@ Seed Cortex directly:
 
 ```bash
 cortex remember "We use FastAPI, React, and CockroachDB." --smart
-cortex sync --to hermes --project .
+cortex sync --to hermes --smart --project .
 ```
 
 You can also bootstrap from the repo you are already in:
@@ -114,7 +114,7 @@ cortex scan --project .
 cortex sync --to hermes --smart --project .
 ```
 
-That keeps `USER.md`, `MEMORY.md`, `AGENTS.md`, and the Cortex MCP link up to date with the same canonical graph your other tools can also consume.
+That keeps `USER.md`, `MEMORY.md`, and the Cortex MCP link up to date with the same canonical graph your other tools can also consume. If you also sync `codex`, Cortex will keep a shared project `AGENTS.md` in step too.
 
 ## 6. Example End State
 

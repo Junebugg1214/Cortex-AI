@@ -144,10 +144,21 @@ def _top_level_key(line: str) -> str | None:
     stripped = line.strip()
     if not stripped or stripped.startswith("#"):
         return None
-    match = re.match(r"^([A-Za-z0-9_-]+)\s*:\s*(?:#.*)?$", stripped)
+    match = re.match(r"^([A-Za-z0-9_-]+)\s*:", stripped)
     if not match:
         return None
     return match.group(1)
+
+
+def _section_child_indent(lines: list[str], start_index: int, *, section_end: int) -> int:
+    for index in range(start_index + 1, section_end):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(lines[index]) - len(lines[index].lstrip(" "))
+        if indent > 0:
+            return indent
+    return 2
 
 
 def _section_end(lines: list[str], start_index: int) -> int:
@@ -170,6 +181,12 @@ def _child_block_end(lines: list[str], start_index: int, *, section_end: int, si
 
 def _replace_slice(lines: list[str], start_index: int, end_index: int, replacement: list[str]) -> list[str]:
     return lines[:start_index] + replacement + lines[end_index:]
+
+
+def _normalize_top_level_mapping_line(line: str, key: str) -> str:
+    before_comment, separator, comment = line.partition("#")
+    suffix = f"  #{comment.strip()}" if separator and comment.strip() else ""
+    return f"{key}:{suffix}"
 
 
 def update_hermes_config(config_path: Path, *, cortex_config_path: Path, dry_run: bool = False) -> str:
@@ -213,18 +230,28 @@ def update_hermes_config(config_path: Path, *, cortex_config_path: Path, dry_run
             updated_lines.extend(["mcp_servers:", *block])
         else:
             section_end = _section_end(lines, mcp_start)
-            cortex_start = None
-            for index in range(mcp_start + 1, section_end):
-                if re.match(r"^\s{2}cortex\s*:\s*(?:#.*)?$", lines[index]):
-                    cortex_start = index
-                    break
             updated_lines = list(lines)
+            if updated_lines[mcp_start].strip() != "mcp_servers:":
+                updated_lines[mcp_start] = _normalize_top_level_mapping_line(updated_lines[mcp_start], "mcp_servers")
+            cortex_start = None
+            cortex_indent = 2
+            for index in range(mcp_start + 1, section_end):
+                match = re.match(r"^(\s+)cortex\s*:\s*(?:#.*)?$", lines[index])
+                if match:
+                    cortex_start = index
+                    cortex_indent = len(match.group(1))
+                    break
             if cortex_start is not None:
-                cortex_end = _child_block_end(lines, cortex_start, section_end=section_end, sibling_indent=2)
-                updated_lines = _replace_slice(updated_lines, cortex_start, cortex_end, block)
+                replacement = _render_cortex_mcp_block(cortex_config_path, indent=" " * cortex_indent)
+                cortex_end = _child_block_end(
+                    lines, cortex_start, section_end=section_end, sibling_indent=cortex_indent
+                )
+                updated_lines = _replace_slice(updated_lines, cortex_start, cortex_end, replacement)
             else:
+                child_indent = _section_child_indent(lines, mcp_start, section_end=section_end)
                 insert_at = mcp_start + 1
-                updated_lines = _replace_slice(updated_lines, insert_at, insert_at, block)
+                replacement = _render_cortex_mcp_block(cortex_config_path, indent=" " * child_indent)
+                updated_lines = _replace_slice(updated_lines, insert_at, insert_at, replacement)
 
     updated = "\n".join(updated_lines).rstrip() + "\n"
     if updated == original:
