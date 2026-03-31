@@ -9,6 +9,7 @@ from pathlib import Path
 from cortex.cli import main
 from cortex.context import CORTEX_END, CORTEX_START
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.hermes_integration import HERMES_CONFIG_END, HERMES_CONFIG_START
 
 
 def _write_graph(path: Path, rows: list[tuple[str, str, str]]) -> None:
@@ -646,6 +647,180 @@ def test_extract_from_detected_can_adopt_hermes_memory_files(tmp_path, capsys, m
     assert "Python" in labels
     assert "FastAPI" in labels
     assert "Casey" in labels
+
+
+def test_portable_to_hermes_preserves_unmanaged_text_and_config_indent(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    export_path = tmp_path / "chatgpt-export.txt"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    hermes_dir = home_dir / ".hermes"
+    memories_dir = hermes_dir / "memories"
+    memories_dir.mkdir(parents=True)
+    user_path = memories_dir / "USER.md"
+    memory_path = memories_dir / "MEMORY.md"
+    config_path = hermes_dir / "config.yaml"
+
+    user_path.write_text(
+        "\n".join(
+            [
+                "User-owned intro",
+                "",
+                CORTEX_START,
+                "## Identity",
+                "- Old profile",
+                CORTEX_END,
+                "",
+                "User-owned footer",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    memory_path.write_text(
+        "\n".join(
+            [
+                "Hand-written durable note",
+                "",
+                CORTEX_START,
+                "## Technical Context",
+                "- Legacy stack",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        "\n".join(
+            [
+                "mcp_servers:",
+                "    cortex:",
+                '      command: "old-cortex"',
+                "      args:",
+                '        - "--config"',
+                '        - "/tmp/old.toml"',
+                "    github:",
+                '      command: "npx"',
+                "      args:",
+                '        - "-y"',
+                '        - "@modelcontextprotocol/server-github"',
+                "",
+                "memory:",
+                "  memory_enabled: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    export_path.write_text(
+        "My name is Casey. I use Python and FastAPI. I prefer direct answers.",
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "hermes",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(
+        [
+            "sync",
+            "--to",
+            "hermes",
+            "--smart",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    user_text = user_path.read_text(encoding="utf-8")
+    memory_text = memory_path.read_text(encoding="utf-8")
+    config_text = config_path.read_text(encoding="utf-8")
+
+    assert "User-owned intro" in user_text
+    assert "User-owned footer" in user_text
+    assert "Hand-written durable note" in memory_text
+    assert user_text.count(CORTEX_START) == 1
+    assert user_text.count(CORTEX_END) == 1
+    assert memory_text.count(CORTEX_START) == 1
+    assert memory_text.count(CORTEX_END) == 1
+    assert config_text.count(HERMES_CONFIG_START) == 1
+    assert config_text.count(HERMES_CONFIG_END) == 1
+    assert config_text.count("cortex-mcp") == 1
+    assert "\n    cortex:\n" in config_text
+    assert "\n    github:\n" in config_text
+
+
+def test_portable_to_hermes_normalizes_flow_style_mcp_servers(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    export_path = tmp_path / "chatgpt-export.txt"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    hermes_dir = home_dir / ".hermes"
+    hermes_dir.mkdir(parents=True)
+    config_path = hermes_dir / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "mcp_servers: {}",
+                "memory:",
+                "  memory_enabled: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    export_path.write_text("My name is Casey. I use Python.", encoding="utf-8")
+
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "hermes",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+
+    config_text = config_path.read_text(encoding="utf-8")
+    assert rc == 0
+    assert config_text.count("mcp_servers:") == 1
+    assert "mcp_servers: {}" not in config_text
+    assert "cortex-mcp" in config_text
+    assert "memory_enabled: true" in config_text
 
 
 def test_scan_and_portable_from_detected_prefer_newest_nested_artifact(tmp_path, capsys, monkeypatch):
