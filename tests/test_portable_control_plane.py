@@ -81,6 +81,7 @@ def test_remember_propagates_and_scan_audits(tmp_path, capsys, monkeypatch):
         "cursor",
         "copilot",
         "grok",
+        "hermes",
         "windsurf",
         "gemini",
     }
@@ -95,6 +96,9 @@ def test_remember_propagates_and_scan_audits(tmp_path, capsys, monkeypatch):
     assert (project_dir / ".github" / "copilot-instructions.md").exists()
     assert (project_dir / ".windsurfrules").exists()
     assert (project_dir / "GEMINI.md").exists()
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (home_dir / ".hermes" / "memories" / "MEMORY.md").exists()
+    assert (home_dir / ".hermes" / "config.yaml").exists()
 
     rc = main(
         [
@@ -453,6 +457,195 @@ def test_extract_from_detected_can_include_mcp_config_metadata(tmp_path, capsys,
     graph = json.loads(output_path.read_text(encoding="utf-8"))
     assert graph["schema_version"] == "6.0"
     assert len(graph["graph"]["nodes"]) > 0
+
+
+def test_portable_to_hermes_writes_memory_files_and_config(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    export_path = tmp_path / "chatgpt-export.txt"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    export_path.write_text(
+        (
+            "My name is Casey. "
+            "I use Python, FastAPI, and Next.js. "
+            "I prefer direct answers. "
+            "We migrated from PostgreSQL to CockroachDB in January."
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "hermes",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    user_path = home_dir / ".hermes" / "memories" / "USER.md"
+    memory_path = home_dir / ".hermes" / "memories" / "MEMORY.md"
+    config_path = home_dir / ".hermes" / "config.yaml"
+
+    assert rc == 0
+    assert payload["target_count"] == 1
+    assert payload["targets"][0]["target"] == "hermes"
+    assert user_path.exists()
+    assert memory_path.exists()
+    assert config_path.exists()
+    assert "cortex-mcp" in config_path.read_text(encoding="utf-8")
+    assert "memory_enabled: true" in config_path.read_text(encoding="utf-8")
+    assert CORTEX_START in user_path.read_text(encoding="utf-8")
+    assert CORTEX_START in memory_path.read_text(encoding="utf-8")
+
+
+def test_scan_detects_hermes_memory_files_and_yaml_mcp(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    hermes_dir = home_dir / ".hermes"
+    memories_dir = hermes_dir / "memories"
+    memories_dir.mkdir(parents=True)
+    (memories_dir / "USER.md").write_text(
+        "\n".join(
+            [
+                CORTEX_START,
+                "## Identity",
+                "- Casey",
+                "## Communication Preferences",
+                "- Direct answers",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (memories_dir / "MEMORY.md").write_text(
+        "\n".join(
+            [
+                CORTEX_START,
+                "## Technical Context",
+                "- Python",
+                "- FastAPI",
+                "## Active Priorities",
+                "- Cortex-AI",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (hermes_dir / "config.yaml").write_text(
+        "\n".join(
+            [
+                "mcp_servers:",
+                "  cortex:",
+                '    command: "cortex-mcp"',
+                "    args:",
+                '      - "--config"',
+                '      - "/tmp/cortex/config.toml"',
+                "  github:",
+                '    command: "npx"',
+                "    args:",
+                '      - "-y"',
+                '      - "@modelcontextprotocol/server-github"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(["scan", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    tool_map = {tool["target"]: tool for tool in payload["tools"]}
+
+    assert rc == 0
+    assert tool_map["hermes"]["configured"] is True
+    assert tool_map["hermes"]["fact_count"] > 0
+    assert tool_map["hermes"]["mcp_server_count"] == 2
+    assert tool_map["hermes"]["cortex_mcp_configured"] is True
+    assert any(path.endswith(".hermes/config.yaml") for path in tool_map["hermes"]["mcp_paths"])
+    assert "hermes" in payload["adoptable_targets"]
+
+
+def test_extract_from_detected_can_adopt_hermes_memory_files(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "detected_context.json"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    memories_dir = home_dir / ".hermes" / "memories"
+    memories_dir.mkdir(parents=True)
+    (memories_dir / "USER.md").write_text(
+        "\n".join(
+            [
+                CORTEX_START,
+                "## Identity",
+                "- Casey",
+                "## Communication Preferences",
+                "- Direct answers",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (memories_dir / "MEMORY.md").write_text(
+        "\n".join(
+            [
+                CORTEX_START,
+                "## Technical Context",
+                "- Python",
+                "- FastAPI",
+                "## Active Priorities",
+                "- Cortex-AI",
+                CORTEX_END,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(
+        [
+            "extract",
+            "--from-detected",
+            "hermes",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--output",
+            str(output_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert {item["target"] for item in payload["selected_sources"]} == {"hermes"}
+    graph = json.loads(output_path.read_text(encoding="utf-8"))
+    labels = {node["label"] for node in graph["graph"]["nodes"].values()}
+    assert "Python" in labels
+    assert "FastAPI" in labels
+    assert "Casey" in labels
 
 
 def test_scan_and_portable_from_detected_prefer_newest_nested_artifact(tmp_path, capsys, monkeypatch):

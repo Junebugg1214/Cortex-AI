@@ -78,6 +78,7 @@ class TestPortabilityHelpers:
             "copilot",
             "gemini",
             "grok",
+            "hermes",
             "windsurf",
             "cursor",
         ]

@@ -708,7 +708,18 @@ def build_parser(*, show_all_commands: bool = False):
     sw.add_argument(
         "--to",
         dest="to_platform",
-        choices=["claude", "claude-code", "chatgpt", "codex", "copilot", "gemini", "grok", "windsurf", "cursor"],
+        choices=[
+            "claude",
+            "claude-code",
+            "chatgpt",
+            "codex",
+            "copilot",
+            "gemini",
+            "grok",
+            "hermes",
+            "windsurf",
+            "cursor",
+        ],
         help="Portable platform switch target. When set, --from is treated as the source export/context path.",
     )
     sw.add_argument("--output", "-o", help="Output directory for generated switch artifacts")
@@ -1024,7 +1035,7 @@ def build_parser(*, show_all_commands: bool = False):
         "-t",
         nargs="+",
         default=["all"],
-        help="Targets: claude, claude-code, chatgpt, codex, copilot, gemini, grok, windsurf, cursor, or all",
+        help="Targets: claude, claude-code, chatgpt, codex, copilot, gemini, grok, hermes, windsurf, cursor, or all",
     )
     pt.add_argument("--output", "-o", default="./portable", help="Output directory for context and generated artifacts")
     pt.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
@@ -4864,6 +4875,7 @@ def run_doctor(args):
             "claude-code": str(_resolve_path("{home}/.claude/CLAUDE.md", str(project_dir))),
             "codex": str(_resolve_path("{project}/AGENTS.md", str(project_dir))),
             "cursor": str(_resolve_path("{project}/.cursor/rules/cortex.mdc", str(project_dir))),
+            "hermes": str(_resolve_path("{home}/.hermes/memories/USER.md", str(project_dir))),
         },
         "crypto_available": crypto_available,
         "advice": (

@@ -312,6 +312,29 @@ def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monke
     assert {"Marc", "Python", "Direct answers"} <= set(full_payload["labels"])
 
 
+def test_mcp_portability_context_supports_hermes_target(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    hermes = _tool_call(
+        server,
+        tool="portability_context",
+        arguments={"target": "hermes", "project_dir": str(project_dir), "smart": True},
+        request_id=10,
+    )
+    payload = hermes["result"]["structuredContent"]
+
+    assert hermes["result"]["isError"] is False
+    assert payload["target"] == "hermes"
+    assert payload["consume_as"] == "hermes_memory"
+    assert payload["target_payload"]["user_text"]
+    assert payload["target_payload"]["memory_text"]
+    assert payload["target_payload"]["agents_text"]
+
+
 def test_mcp_portability_context_uses_canonical_updated_at_after_cli_changes(tmp_path, monkeypatch):
     project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
     backend = build_sqlite_backend(store_dir)
@@ -436,6 +459,50 @@ def test_mcp_portability_scan_auto_detects_local_mcp_configs(tmp_path, monkeypat
     assert copilot["cortex_mcp_configured"] is True
     assert "mcp" in copilot["detection_sources"]
     assert copilot["mcp_paths"] == []
+    assert all("path" not in source for source in scan["adoptable_sources"])
+
+
+def test_mcp_portability_scan_auto_detects_hermes_yaml_config(tmp_path, monkeypatch):
+    project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    hermes_dir = tmp_path / "home" / ".hermes"
+    hermes_dir.mkdir(parents=True, exist_ok=True)
+    (hermes_dir / "config.yaml").write_text(
+        "\n".join(
+            [
+                "mcp_servers:",
+                "  cortex:",
+                '    command: "cortex-mcp"',
+                "    args:",
+                '      - "--config"',
+                '      - "/tmp/cortex/config.toml"',
+                "  github:",
+                '    command: "npx"',
+                "    args:",
+                '      - "-y"',
+                '      - "@modelcontextprotocol/server-github"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    scan = _tool_call(
+        server,
+        tool="portability_scan",
+        arguments={"project_dir": str(project_dir)},
+        request_id=14,
+    )["result"]["structuredContent"]
+    hermes = {tool["target"]: tool for tool in scan["tools"]}["hermes"]
+
+    assert hermes["configured"] is True
+    assert hermes["mcp_server_count"] == 2
+    assert hermes["cortex_mcp_configured"] is True
+    assert hermes["mcp_paths"] == []
     assert all("path" not in source for source in scan["adoptable_sources"])
 
 
