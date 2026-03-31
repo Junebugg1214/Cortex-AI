@@ -23,6 +23,7 @@ from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.hermes_integration import build_hermes_documents, install_hermes_context
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.hooks import _load_graph as load_graph_optional
 from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
@@ -49,6 +50,7 @@ TOOL_DISPLAY_NAMES = {
     "copilot": "Copilot",
     "gemini": "Gemini",
     "grok": "Grok",
+    "hermes": "Hermes",
     "windsurf": "Windsurf",
 }
 
@@ -77,6 +79,11 @@ EXPORT_DISCOVERY_PATTERNS = {
         "*grok*context*.md",
         "context_prompt.json",
         "context_prompt.md",
+    ),
+    "hermes": (
+        "USER.md",
+        "MEMORY.md",
+        "config.yaml",
     ),
 }
 DISCOVERY_MAX_DEPTH = 4
@@ -189,6 +196,19 @@ COMPATIBILITY_MATRIX = {
         ),
         export_patterns=EXPORT_DISCOVERY_PATTERNS["grok"],
     ),
+    "hermes": CompatibilityEntry(
+        target="hermes",
+        content_templates=(
+            "{home}/.hermes/memories/USER.md",
+            "{home}/.hermes/memories/MEMORY.md",
+        ),
+        mcp_specs=(
+            MCPDiscoverySpec(
+                path_templates=("{home}/.hermes/config.yaml",),
+                schema="mcp_servers",
+            ),
+        ),
+    ),
     "windsurf": CompatibilityEntry(
         target="windsurf",
         content_templates=("{project}/.windsurfrules",),
@@ -269,6 +289,19 @@ SMART_ROUTE_TAGS = {
         "domain_knowledge",
         "values",
         "communication_preferences",
+    ],
+    "hermes": [
+        "identity",
+        "professional_context",
+        "business_context",
+        "active_priorities",
+        "technical_expertise",
+        "domain_knowledge",
+        "relationships",
+        "constraints",
+        "communication_preferences",
+        "user_preferences",
+        "values",
     ],
     "windsurf": [
         "technical_expertise",
@@ -506,6 +539,12 @@ def _artifact_target_paths(target: str, output_dir: Path) -> list[Path]:
 
 
 def expected_tool_paths(target: str, *, project_dir: str | None, output_dir: Path) -> list[Path]:
+    if target == "hermes":
+        return _expand_compatibility_templates(
+            COMPATIBILITY_MATRIX["hermes"].content_templates,
+            project_dir=Path(project_dir) if project_dir else None,
+            output_dir=output_dir,
+        )
     if target in PORTABLE_DIRECT_TARGETS:
         return _direct_target_paths(target, project_dir)
     return _artifact_target_paths(target, output_dir)
@@ -597,6 +636,8 @@ def _parse_mcp_config(path: Path, *, schema: str) -> dict[str, Any] | None:
     try:
         if path.suffix.lower() == ".toml":
             payload = tomllib.loads(path.read_text(encoding="utf-8"))
+        elif path.suffix.lower() in {".yaml", ".yml"}:
+            payload = _parse_yaml_payload(path.read_text(encoding="utf-8"))
         else:
             payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError, tomllib.TOMLDecodeError):
@@ -613,6 +654,60 @@ def _parse_mcp_config(path: Path, *, schema: str) -> dict[str, Any] | None:
             _config_mentions_cortex(config) or "cortex" in str(name).casefold() for name, config in servers.items()
         ),
     }
+
+
+def _parse_yaml_payload(text: str) -> dict[str, Any]:
+    lines = text.splitlines()
+    payload: dict[str, Any] = {}
+    mcp_servers: dict[str, Any] = {}
+    payload["mcp_servers"] = mcp_servers
+
+    in_mcp_servers = False
+    current_name = ""
+    current_server: dict[str, Any] | None = None
+    collecting_list_key = ""
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 0:
+            collecting_list_key = ""
+            current_name = ""
+            current_server = None
+            in_mcp_servers = stripped.startswith("mcp_servers:")
+            continue
+        if not in_mcp_servers:
+            continue
+        if indent == 2 and stripped.endswith(":"):
+            current_name = stripped[:-1].strip()
+            current_server = {}
+            mcp_servers[current_name] = current_server
+            collecting_list_key = ""
+            continue
+        if current_server is None:
+            continue
+        if indent == 4 and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if value:
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                current_server[key] = value
+                collecting_list_key = ""
+            else:
+                current_server[key] = []
+                collecting_list_key = key
+            continue
+        if indent >= 6 and stripped.startswith("- ") and collecting_list_key:
+            item = stripped[2:].strip()
+            if item.startswith('"') and item.endswith('"'):
+                item = item[1:-1]
+            current_server.setdefault(collecting_list_key, []).append(item)
+    return payload
 
 
 def _discover_mcp_configs(target: str, *, project_dir: Path | None, output_dir: Path) -> list[dict[str, Any]]:
@@ -937,6 +1032,10 @@ def _parse_target_file(target: str, path: Path) -> list[str]:
         labels = _parse_shared_context_markdown(cortex_section)
         labels.extend(extract_fact_labels_from_text(outside))
         return _dedupe_labels(labels)
+    if target == "hermes":
+        return [
+            node.label for node in _extract_hermes_graph_from_text(text, include_unmanaged_text=True).nodes.values()
+        ]
     if target in {"chatgpt", "grok"}:
         return _parse_shared_context_markdown(text)
     if target == "claude":
@@ -1006,6 +1105,85 @@ def _render_direct_target_text(text: str, *, include_unmanaged_text: bool) -> st
     return ""
 
 
+def _render_hermes_target_text(text: str, *, include_unmanaged_text: bool) -> str:
+    cortex_section, outside = _extract_cortex_section(text)
+    source = cortex_section if cortex_section else (text if include_unmanaged_text else "")
+    lines: list[str] = []
+    current_heading = ""
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            current_heading = line.lstrip("#").strip()
+            continue
+        if line.startswith(("- ", "* ")):
+            line = line[2:].strip()
+        if current_heading:
+            line = f"{current_heading}: {line}"
+        if line:
+            lines.append(line)
+    if include_unmanaged_text and outside.strip():
+        lines.append(outside.strip())
+    return "\n".join(lines).strip()
+
+
+HERMES_SECTION_TAGS = {
+    "identity": "identity",
+    "professional context": "professional_context",
+    "communication preferences": "communication_preferences",
+    "working preferences": "user_preferences",
+    "values": "values",
+    "active priorities": "active_priorities",
+    "technical context": "technical_expertise",
+    "domain knowledge": "domain_knowledge",
+    "business context": "business_context",
+    "relationships": "relationships",
+    "constraints": "constraints",
+    "corrections": "correction_history",
+}
+
+
+def _extract_hermes_graph_from_text(text: str, *, include_unmanaged_text: bool = False) -> CortexGraph:
+    cortex_section, outside = _extract_cortex_section(text)
+    source_parts: list[str] = []
+    if cortex_section:
+        source_parts.append(cortex_section)
+    elif include_unmanaged_text:
+        source_parts.append(text)
+    if include_unmanaged_text and outside.strip():
+        source_parts.append(outside.strip())
+    source = "\n".join(part for part in source_parts if part).strip()
+    graph = CortexGraph()
+    current_heading = ""
+    current_tag = ""
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            current_heading = line.lstrip("#").strip()
+            current_tag = HERMES_SECTION_TAGS.get(current_heading.casefold(), "")
+            continue
+        if line.startswith(("- ", "* ")):
+            line = line[2:].strip()
+        if not line or not current_tag:
+            continue
+        label = _normalize_fact_label(line)
+        if not label:
+            continue
+        graph.add_node(
+            Node(
+                id=make_node_id_with_tag(label, current_tag),
+                label=label,
+                tags=[current_tag],
+                confidence=0.82,
+                brief=f"{current_heading}: {label}",
+            )
+        )
+    return graph
+
+
 def render_detected_source_text(target: str, path: Path, *, include_unmanaged_text: bool = False) -> str:
     try:
         if path.suffix.lower() == ".json":
@@ -1024,6 +1202,8 @@ def render_detected_source_text(target: str, path: Path, *, include_unmanaged_te
 
     if target in PORTABLE_DIRECT_TARGETS:
         return _render_direct_target_text(text, include_unmanaged_text=include_unmanaged_text)
+    if target == "hermes":
+        return _render_hermes_target_text(text, include_unmanaged_text=include_unmanaged_text)
     return text.strip()
 
 
@@ -1059,6 +1239,21 @@ def _mcp_metadata_text(target: str, source: dict[str, Any]) -> str:
 
 def _clone_graph(graph: CortexGraph) -> CortexGraph:
     return CortexGraph.from_v5_json(graph.export_v5())
+
+
+def _graph_from_hermes_paths(paths: list[str]) -> CortexGraph:
+    merged = CortexGraph()
+    for raw_path in paths:
+        path = Path(raw_path)
+        if path.suffix.lower() != ".md" or not path.exists():
+            continue
+        merged = merge_graphs(
+            merged,
+            _extract_hermes_graph_from_text(
+                path.read_text(encoding="utf-8", errors="replace"), include_unmanaged_text=True
+            ),
+        )
+    return merged
 
 
 def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1192,18 +1387,27 @@ def extract_graph_from_detected_sources(
                 metadata_text = _mcp_metadata_text(source["target"], source)
                 source_graph = _extract_graph_from_text(metadata_text)
             else:
-                rendered = render_detected_source_text(
-                    source["target"],
-                    path,
-                    include_unmanaged_text=include_unmanaged_text,
-                )
+                if source["target"] == "hermes":
+                    rendered = path.read_text(encoding="utf-8", errors="replace")
+                else:
+                    rendered = render_detected_source_text(
+                        source["target"],
+                        path,
+                        include_unmanaged_text=include_unmanaged_text,
+                    )
                 if not rendered.strip():
                     reason = "unmanaged_only" if kind == "local_context" else "empty"
                     skipped_sources.append({**source, "reason": reason})
                     continue
                 if redactor is not None:
                     rendered = redactor.redact(rendered)
-                source_graph = _extract_graph_from_text(rendered)
+                if source["target"] == "hermes":
+                    source_graph = _extract_hermes_graph_from_text(
+                        rendered,
+                        include_unmanaged_text=include_unmanaged_text,
+                    )
+                else:
+                    source_graph = _extract_graph_from_text(rendered)
         except Exception:
             skipped_sources.append({**source, "reason": "unreadable"})
             continue
@@ -1608,7 +1812,19 @@ def sync_targets(
     for target in resolve_requested_targets(targets):
         policy, route_tags = _policy_for_target(target, smart=smart, policy_name=policy_name)
         filtered = apply_disclosure(graph, policy)
-        if target in PORTABLE_DIRECT_TARGETS:
+        if target == "hermes":
+            install_result = install_hermes_context(
+                NormalizedContext.from_v5(filtered.export_v5()),
+                project_dir=project_dir,
+                store_dir=store_dir,
+                max_chars=max_chars,
+                min_confidence=policy.min_confidence,
+                dry_run=dry_run,
+            )
+            paths = [str(path) for path in install_result.paths]
+            status = install_result.status
+            note = install_result.note
+        elif target in PORTABLE_DIRECT_TARGETS:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 filtered_path = Path(tmp_dir) / f"{target}.json"
                 _write_graph(filtered_path, filtered)
@@ -1641,7 +1857,8 @@ def sync_targets(
 
         snapshot_path = portability_snapshot_dir(store_dir) / f"{target}.json"
         fingerprints = {path: file_fingerprint(Path(path)) for path in paths if Path(path).exists()}
-        facts = _graph_fact_rows(filtered)
+        facts_graph = _graph_from_hermes_paths(paths) if target == "hermes" else filtered
+        facts = _graph_fact_rows(facts_graph)
         results.append(
             {
                 "target": target,
@@ -1880,7 +2097,16 @@ def render_portability_context(
     target_payload: dict[str, Any] = {}
 
     if filtered.nodes:
-        if canonical_target in PORTABLE_DIRECT_TARGETS:
+        if canonical_target == "hermes":
+            documents = build_hermes_documents(ctx, max_chars=max_chars, min_confidence=policy.min_confidence)
+            context_markdown = documents["memory"]
+            consume_as = "hermes_memory"
+            target_payload = {
+                "user_text": documents["user"],
+                "memory_text": documents["memory"],
+                "agents_text": documents["agents"],
+            }
+        elif canonical_target in PORTABLE_DIRECT_TARGETS:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 filtered_path = Path(tmp_dir) / f"{canonical_target}.json"
                 _write_graph(filtered_path, filtered)

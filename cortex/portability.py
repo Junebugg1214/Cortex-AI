@@ -31,12 +31,14 @@ PORTABLE_TARGET_ORDER = [
     "copilot",
     "gemini",
     "grok",
+    "hermes",
     "windsurf",
     "cursor",
 ]
 
 PORTABLE_TARGET_ALIASES: dict[str, str] = {
     "gemini-cli": "gemini",
+    "hermes-agent": "hermes",
 }
 
 PORTABLE_DIRECT_TARGETS: dict[str, tuple[str, ...]] = {

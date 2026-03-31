@@ -63,6 +63,7 @@ Cortex is explicit about how each target works.
 | `cursor` | Direct install | `./.cursor/rules/cortex.mdc` |
 | `copilot` | Direct install | `./.github/copilot-instructions.md` |
 | `gemini` | Direct install | `./GEMINI.md` |
+| `hermes` | Direct install | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` |
 | `windsurf` | Direct install | `./.windsurfrules` |
 | `claude` | Import-ready artifacts | `portable/claude/claude_preferences.txt`, `portable/claude/claude_memories.json` |
 | `chatgpt` | Import-ready artifacts | `portable/chatgpt/custom_instructions.md`, `portable/chatgpt/custom_instructions.json` |
@@ -113,6 +114,7 @@ Current smart-routing defaults:
 | `cursor`, `windsurf` | `technical_expertise`, `active_priorities`, `communication_preferences`, `user_preferences`, `domain_knowledge` |
 | `copilot` | `technical_expertise`, `communication_preferences`, `user_preferences`, `constraints` |
 | `chatgpt`, `grok` | `identity`, `professional_context`, `business_context`, `active_priorities`, `domain_knowledge`, `values` |
+| `hermes` | `identity`, `professional_context`, `business_context`, `active_priorities`, `technical_expertise`, `domain_knowledge`, `relationships`, `constraints`, `communication_preferences`, `user_preferences`, `values` |
 | `gemini` | `domain_knowledge`, `professional_context`, `business_context`, `active_priorities`, `technical_expertise` |
 
 ### `cortex status`
@@ -155,7 +157,7 @@ cortex portable chatgpt-export.zip --to all --project .
 Start from an existing graph and only target coding tools:
 
 ```bash
-cortex portable context.json --to claude-code codex cursor copilot gemini windsurf --project .
+cortex portable context.json --to claude-code codex cursor copilot gemini hermes windsurf --project .
 ```
 
 Generate only ChatGPT and Grok artifacts:
@@ -181,6 +183,7 @@ For a fuller onboarding guide with per-platform import and sync commands, see [P
 ## Notes
 
 - `claude-code` installs both a global user file and a project file.
+- `hermes` installs Hermes-native `USER.md`, `MEMORY.md`, and `config.yaml`. If you also want a shared project `AGENTS.md`, sync the `codex` target alongside Hermes.
 - `gemini-cli` is still accepted as an alias for `gemini`.
 - `remember` now updates all supported portability targets by default, including import-ready artifacts for chat tools.
 - The portability layer keeps storage user-owned. It does not upload memory anywhere.

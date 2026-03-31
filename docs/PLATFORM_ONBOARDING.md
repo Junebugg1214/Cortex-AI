@@ -203,6 +203,28 @@ Output:
 - `portable/grok/context_prompt.md`
 - `portable/grok/context_prompt.json`
 
+### Hermes
+
+Hermes is now a first-class Cortex target.
+
+Sync Cortex into Hermes:
+
+```bash
+cortex portable context.json --to hermes --project .
+```
+
+Or, if you already have detected local context and want to install it into Hermes in one step:
+
+```bash
+cortex scan --project .
+cortex portable --from-detected chatgpt claude claude-code cursor codex copilot gemini windsurf grok hermes --to hermes --project .
+```
+
+Output:
+- `~/.hermes/memories/USER.md`
+- `~/.hermes/memories/MEMORY.md`
+- `~/.hermes/config.yaml`
+
 ### Cursor
 
 Cursor exports are supported as an extraction source and Cursor is also a first-class target.

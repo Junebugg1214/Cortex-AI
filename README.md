@@ -8,7 +8,7 @@ You use multiple AI tools.
 They all think you're a stranger.  
 Cortex fixes that.
 
-Cortex is a CLI and MCP server for portable AI context across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Windsurf, Cursor, and Copilot. Humans curate context with the CLI. AI tools fetch their live routed slice over MCP.
+Cortex is a CLI and MCP server for portable AI context across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Hermes, Windsurf, Cursor, and Copilot. Humans curate context with the CLI. AI tools fetch their live routed slice over MCP.
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
@@ -49,6 +49,7 @@ Found 5 AI tools:
 | Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex-mcp` + direct rule file |
 | GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex-mcp` + direct instruction file |
 | Gemini CLI | `GEMINI.md` | Native | `cortex-mcp` + `GEMINI.md` |
+| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex portable --to hermes` + `cortex-mcp` |
 | Gemini web app | `GEMINI.md` export path only | No clear consumer MCP path | Direct file output |
 | Windsurf | `.windsurfrules` | Native | `cortex-mcp` + direct rule file |
 | ChatGPT | Import-ready artifacts | Partial / beta / plan-dependent | Artifacts first, MCP where available |
@@ -98,9 +99,10 @@ Over MCP, `portability_scan` is intentionally metadata-only by default: it repor
 
 - Versioned graph runtime: diff, review, rollback, blame, and history when you need more than sync. Run `cortex --help-all`.
 - Self-hosted API and UI: local REST API, web control plane, metrics, backup/restore, and scoped auth. See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
-- Copy-paste platform onboarding: exact first-run flows for ChatGPT, Claude, Claude Code, Codex, Gemini, Grok, Cursor, Copilot, and Windsurf. See [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md).
+- Copy-paste platform onboarding: exact first-run flows for ChatGPT, Claude, Claude Code, Codex, Gemini, Grok, Hermes, Cursor, Copilot, and Windsurf. See [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md).
 - Agent loop integration: Python helpers, TypeScript SDK, and MCP quickstarts. See [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md).
 - OpenClaw quickstart: copy-paste setup for installing Cortex under OpenClaw and getting live cross-channel memory. See [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md).
+- Hermes quickstart: copy-paste setup for wiring Cortex into Hermes memory files and MCP config. See [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md).
 - Messaging runtime integration: OpenClaw, Hermes, Telegram, and WhatsApp design plus the minimum adapter API. See [docs/CHANNEL_INTEGRATIONS.md](docs/CHANNEL_INTEGRATIONS.md).
 - OpenClaw-native plugin package: real `@cortex/openclaw` package scaffold with managed `cortex-mcp`, live prompt injection hooks, and per-user/per-thread memory seeding. See [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md).
 - Portability reference docs: extraction, sync, routing, artifacts, and platform notes. See [docs/PORTABILITY.md](docs/PORTABILITY.md).

@@ -113,7 +113,7 @@ def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, ca
     )
     portable = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert portable["target_count"] == 9
+    assert portable["target_count"] == 10
     assert (project_dir / "AGENTS.md").exists()
     assert (project_dir / ".github" / "copilot-instructions.md").exists()
     assert (output_dir / "chatgpt" / "custom_instructions.json").exists()
@@ -379,7 +379,7 @@ def test_portability_edge_smoke_handles_all_targets_and_clamps_scan_coverage(tmp
     )
     portable = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert portable["target_count"] == 9
+    assert portable["target_count"] == 10
 
     rc = main(
         [
@@ -408,6 +408,7 @@ def test_portability_edge_smoke_handles_all_targets_and_clamps_scan_coverage(tmp
         "cursor",
         "gemini",
         "grok",
+        "hermes",
         "windsurf",
     }
     assert "all" not in remember_targets
@@ -520,6 +521,7 @@ def test_portability_edge_smoke_handles_all_targets_and_clamps_scan_coverage(tmp
         "cursor",
         "gemini",
         "grok",
+        "hermes",
         "windsurf",
     }
     assert "all" not in built_targets
@@ -692,7 +694,7 @@ def test_portability_edge_smoke_handles_multi_source_exports_with_live_mcp(tmp_p
         )
         portable = json.loads(capsys.readouterr().out)
         assert rc == 0
-        assert portable["target_count"] == 9
+        assert portable["target_count"] == 10
         assert portable["extracted"]["total"] > 0
 
         rc = main(
@@ -823,7 +825,7 @@ def test_portability_edge_smoke_handles_generic_named_vendor_exports_with_live_m
         )
         portable = json.loads(capsys.readouterr().out)
         assert rc == 0
-        assert portable["target_count"] == 9
+        assert portable["target_count"] == 10
         assert portable["extracted"]["total"] > 0
 
         rc = main(

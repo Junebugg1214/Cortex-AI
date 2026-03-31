@@ -75,6 +75,10 @@ That applies a real namespaced write plan for the current object API:
 
 Hermes is a good fit when you want a lighter agent runtime that still shares the same user-owned context layer.
 
+If you want the shortest copy-paste install path for Hermes itself, start with:
+
+- [HERMES_QUICKSTART.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/HERMES_QUICKSTART.md)
+
 Recommended flow:
 
 1. Hermes receives a channel event.
