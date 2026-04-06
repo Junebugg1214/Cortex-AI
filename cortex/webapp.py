@@ -295,6 +295,80 @@ class MemoryUIBackend:
             max_chars=max_chars,
         )
 
+    def portability_sync(
+        self,
+        *,
+        project_dir: str = "",
+        targets: list[str] | None = None,
+        smart: bool = True,
+        policy_name: str = "full",
+        max_chars: int = 1500,
+    ) -> dict[str, Any]:
+        from cortex.portable_runtime import (
+            ALL_PORTABLE_TARGETS,
+            canonical_target_name,
+            default_output_dir,
+            load_canonical_graph,
+            load_portability_state,
+            sync_targets,
+        )
+
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        state = load_portability_state(self.store_dir)
+        canonical_graph, graph_path = load_canonical_graph(self.store_dir, state)
+        if not canonical_graph.nodes:
+            return {
+                "status": "empty",
+                "message": "No canonical context exists yet. Run detected adoption or remember something first.",
+                "graph_path": str(graph_path),
+                "fact_count": 0,
+                "targets": [],
+            }
+        output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(self.store_dir)
+        payload = sync_targets(
+            canonical_graph,
+            targets=[canonical_target_name(target) for target in (targets or ALL_PORTABLE_TARGETS)],
+            store_dir=self.store_dir,
+            project_dir=str(project_path),
+            output_dir=output_dir,
+            graph_path=graph_path,
+            policy_name=policy_name,
+            smart=smart,
+            max_chars=max_chars,
+            state=state,
+        )
+        payload["status"] = "ok"
+        payload["graph_path"] = str(graph_path)
+        payload["fact_count"] = len(canonical_graph.nodes)
+        return payload
+
+    def portability_remember(
+        self,
+        *,
+        statement: str,
+        project_dir: str = "",
+        targets: list[str] | None = None,
+        smart: bool = True,
+        policy_name: str = "full",
+        max_chars: int = 1500,
+    ) -> dict[str, Any]:
+        from cortex.portable_runtime import remember_and_sync
+
+        if not statement.strip():
+            raise ValueError("statement is required")
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = remember_and_sync(
+            statement.strip(),
+            store_dir=self.store_dir,
+            project_dir=project_path,
+            targets=targets,
+            smart=smart,
+            policy_name=policy_name,
+            max_chars=max_chars,
+        )
+        payload["status"] = "ok"
+        return payload
+
     def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
         return self._safe_index_status(ref=ref)
 
@@ -568,10 +642,10 @@ UI_HTML = """<!doctype html>
       font-size: 1.2rem;
     }
     .panel-copy {
-      margin: 0 0 16px;
+      margin: 0 0 12px;
       color: var(--muted);
-      line-height: 1.55;
-      max-width: 72ch;
+      line-height: 1.45;
+      max-width: 68ch;
     }
     .panel-grid {
       display: grid;
@@ -647,7 +721,7 @@ UI_HTML = """<!doctype html>
     }
     .result {
       min-height: 140px;
-      padding: 18px;
+      padding: 16px;
       overflow: auto;
       background: var(--panel-strong);
     }
@@ -660,7 +734,7 @@ UI_HTML = """<!doctype html>
     .card {
       border: 1px solid var(--line);
       border-radius: 18px;
-      padding: 14px;
+      padding: 12px 14px;
       background: white;
     }
     .card strong {
@@ -671,7 +745,26 @@ UI_HTML = """<!doctype html>
     }
     .card small {
       display: block;
-      margin-top: 8px;
+      margin-top: 6px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .quick-actions {
+      padding: 18px;
+      background: linear-gradient(135deg, rgba(17, 105, 91, 0.08), rgba(255, 255, 255, 0.96));
+    }
+    .quick-actions h4 {
+      margin: 0 0 8px;
+      font-size: 1.05rem;
+    }
+    .quick-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-top: 12px;
+    }
+    .tiny {
+      font-size: 0.85rem;
       color: var(--muted);
       line-height: 1.45;
     }
@@ -729,7 +822,7 @@ UI_HTML = """<!doctype html>
       margin-top: 14px;
     }
     .tool-card {
-      padding: 18px;
+      padding: 14px 16px;
       background: var(--panel-strong);
     }
     .tool-head {
@@ -744,17 +837,18 @@ UI_HTML = """<!doctype html>
       font-size: 1.08rem;
     }
     .tool-note {
-      margin: 0 0 12px;
+      margin: 0 0 8px;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.4;
+      font-size: 0.9rem;
     }
     .meter {
       width: 100%;
-      height: 10px;
+      height: 8px;
       border-radius: 999px;
       background: #e6ece8;
       overflow: hidden;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .meter > span {
       display: block;
@@ -766,12 +860,35 @@ UI_HTML = """<!doctype html>
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
+    }
+    .tool-stats {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 10px;
+    }
+    .tool-stat {
+      padding: 10px;
+      border-radius: 12px;
+      background: #f4f7f3;
+      border: 1px solid var(--line);
+    }
+    .tool-stat strong {
+      display: block;
+      font-size: 1.05rem;
+      line-height: 1.1;
+    }
+    .tool-stat span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.78rem;
     }
     .path-list {
       display: grid;
       gap: 6px;
-      margin-top: 10px;
+      margin-top: 8px;
     }
     .path-list div {
       padding: 8px 10px;
@@ -864,16 +981,37 @@ UI_HTML = """<!doctype html>
       <section class="hero">
         <div class="eyebrow">Local-first control plane</div>
         <h2>Portable AI context, without the archaeology</h2>
-        <p>Cortex works best when it starts from what is already on your machine: detect local exports and instruction files, adopt them deliberately, inspect what each tool knows, preview the routed context, and then keep everything in sync from one place.</p>
+        <p>Scan what is already on disk, preview what each tool gets, and keep everything in sync from one place.</p>
       </section>
 
       <section id="panel-overview" class="panel active" role="tabpanel">
         <h3>Workspace Overview</h3>
-        <p class="panel-copy">This first screen is about the real Cortex loop: scan local tools, adopt detected context with permission, teach once, sync everywhere, and then use the advanced internals only when there is a specific problem to solve.</p>
+        <p class="panel-copy">Scan, remember, sync, and only dive into the advanced internals when you need them.</p>
         <div id="overview-cards" class="cards"></div>
-        <div class="actions">
-          <button class="action" onclick="loadWorkspace(this)">Refresh workspace</button>
-          <button class="action subtle" onclick="loadMetrics(this)">Refresh metrics only</button>
+        <div class="split-results">
+          <div class="quick-actions subpanel">
+            <div class="subpanel-body">
+              <h4>Quick actions</h4>
+              <p class="tiny">These run the same core portability loop as the CLI.</p>
+              <div class="actions">
+                <button class="action" onclick="runScanAction(this)">Run scan</button>
+                <button class="action subtle" onclick="runSyncAction(this)">Sync all</button>
+                <button class="action subtle" onclick="loadMetrics(this)">Refresh metrics</button>
+              </div>
+              <div class="quick-grid">
+                <label>Remember one thing
+                  <textarea id="remember-statement" placeholder="We prefer concise, implementation-first responses."></textarea>
+                </label>
+                <div>
+                  <p class="tiny">Use this for one-off context that should be merged into the canonical graph and pushed everywhere.</p>
+                  <div class="actions">
+                    <button class="action" onclick="runRememberAction(this)">Remember & sync</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="overview-action-result" class="result empty">Run scan, sync, or remember from here.</div>
         </div>
         <div class="split-results">
           <div id="overview-journey" class="result empty">Cortex will summarize the current workflow here.</div>
@@ -887,7 +1025,7 @@ UI_HTML = """<!doctype html>
 
       <section id="panel-tools" class="panel" role="tabpanel">
         <h3>Connected Tools</h3>
-        <p class="panel-copy">Each tool gets a different routed slice of the canonical graph. This view shows what is configured right now, how much context each target has, and lets you preview the exact context a tool will consume before you switch over to it.</p>
+        <p class="panel-copy">Each tool gets a different routed slice. This view shows what is configured, how much context each target has, and what it will receive.</p>
         <div class="panel-grid">
           <label>Preview target
             <select id="tools-context-target"></select>
@@ -907,7 +1045,7 @@ UI_HTML = """<!doctype html>
 
       <section id="panel-audit" class="panel" role="tabpanel">
         <h3>Freshness & Gaps</h3>
-        <p class="panel-copy">This is where you spot drift. Cortex compares the canonical graph against the local tool files it manages and flags missing context, stale targets, or anything that needs a sync pass.</p>
+        <p class="panel-copy">Spot drift fast. Cortex compares the canonical graph against the local files it manages and flags anything that needs a sync.</p>
         <div class="actions">
           <button class="action" onclick="loadWorkspace(this)">Refresh freshness audit</button>
         </div>
@@ -919,7 +1057,7 @@ UI_HTML = """<!doctype html>
 
       <section id="panel-review" class="panel" role="tabpanel">
         <h3>Review & Trace</h3>
-        <p class="panel-copy">These tools are still here when you need them. They are just no longer the first thing users see when opening Cortex.</p>
+        <p class="panel-copy">These tools are still here when you need them. They just are not the front door anymore.</p>
         <div class="stack">
           <div class="subpanel">
             <div class="subpanel-header">Semantic review</div>
@@ -986,7 +1124,7 @@ UI_HTML = """<!doctype html>
 
       <section id="panel-advanced" class="panel" role="tabpanel">
         <h3>Advanced Controls</h3>
-        <p class="panel-copy">These controls are still available for operators, but they no longer crowd the main experience for someone who just wants to understand and manage portable context.</p>
+        <p class="panel-copy">Operator controls stay available here without crowding the main portability workflow.</p>
         <div class="stack">
           <details class="subpanel" open>
             <summary>Governance</summary>
@@ -1261,14 +1399,12 @@ UI_HTML = """<!doctype html>
       const importable = sources.filter((item) => item.importable).length;
       const mcpReady = tools.filter((tool) => tool.cortex_mcp_configured).length;
       return `
-        <div class="card"><div>Coverage</div><strong>${escapeHtml(percent(scan?.coverage || 0))}</strong><small>${escapeHtml(String(scan?.known_facts || 0))} of ${escapeHtml(String(scan?.total_facts || 0))} known facts are already reflected in local tool files.</small></div>
-        <div class="card"><div>Detected tools</div><strong>${escapeHtml(String(tools.length))}</strong><small>Targets with local files, artifacts, or MCP config that Cortex can see right now.</small></div>
-        <div class="card"><div>Adoptable sources</div><strong>${escapeHtml(String(importable))}</strong><small>Importable local sources that can be adopted with explicit permission.</small></div>
-        <div class="card"><div>Metadata-only</div><strong>${escapeHtml(String(metadataOnly))}</strong><small>MCP configs are detected for visibility but are not ingested as memory by default.</small></div>
+        <div class="card"><div>Coverage</div><strong>${escapeHtml(percent(scan?.coverage || 0))}</strong><small>${escapeHtml(String(scan?.known_facts || 0))} of ${escapeHtml(String(scan?.total_facts || 0))} facts are reflected in local targets.</small></div>
+        <div class="card"><div>Tools</div><strong>${escapeHtml(String(tools.length))}</strong><small>Detected tools with local files or MCP config.</small></div>
+        <div class="card"><div>Sources</div><strong>${escapeHtml(String(importable))}</strong><small>Importable local sources waiting for explicit adoption.</small></div>
         <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>Targets already wired to Cortex MCP.</small></div>
-        <div class="card"><div>Needs attention</div><strong>${escapeHtml(String(alerts + ((audit?.issues || []).length || 0)))}</strong><small>Freshness or audit items that still need a sync or follow-up.</small></div>
-        <div class="card"><div>Graph facts</div><strong>${escapeHtml(String(scan?.total_facts || 0))}</strong><small>Cortex’s current canonical graph size for this workspace.</small></div>
-        <div class="card"><div>Release</div><strong>${escapeHtml(meta?.release?.project_version || "dev")}</strong><small>${escapeHtml(meta?.release?.maturity || "local")} · ${escapeHtml(meta?.backend || "filesystem")} backend</small></div>
+        <div class="card"><div>Attention</div><strong>${escapeHtml(String(alerts + ((audit?.issues || []).length || 0)))}</strong><small>Freshness or audit items that still need follow-up.</small></div>
+        <div class="card"><div>Graph</div><strong>${escapeHtml(String(scan?.total_facts || 0))}</strong><small>${escapeHtml(meta?.release?.project_version || "dev")} · ${escapeHtml(String(metadataOnly))} metadata-only detections.</small></div>
       `;
     }
 
@@ -1279,8 +1415,8 @@ UI_HTML = """<!doctype html>
         : "cortex portable INPUT --to all --project .";
       const alerts = collectStatusAlerts(status);
       const attentionCopy = alerts.length || (audit?.issues || []).length
-        ? "Cortex found at least one target that needs a follow-up sync or a missing-context fix."
-        : "Everything that Cortex can currently see looks fresh, so the next step is improving the content rather than troubleshooting the wiring.";
+        ? "At least one target needs a sync or a missing-context fix."
+        : "Everything Cortex can see looks fresh, so the next step is improving the content.";
       return `
         <div class="list">
           <div class="item">
@@ -1293,7 +1429,7 @@ UI_HTML = """<!doctype html>
           </div>
           <div class="item">
             <h4>Permission boundary</h4>
-            <p>Detection is automatic and read-only. Adoption stays explicit, which keeps local context discovery useful without silently ingesting files the user did not choose.</p>
+            <p>Detection is automatic and read-only. Adoption stays explicit.</p>
           </div>
         </div>
       `;
@@ -1318,9 +1454,7 @@ UI_HTML = """<!doctype html>
             <span class="pill good">${escapeHtml(String(info.importable))} importable</span>
             <span class="pill info">${escapeHtml(String(info.metadataOnly))} metadata only</span>
           </div>
-          <div class="path-list">
-            ${info.paths.slice(0, 4).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("")}
-          </div>
+          <p class="tiny">${escapeHtml(info.paths.slice(0, 2).join(" · "))}</p>
         </div>
       `).join("");
       return `<div class="list">${items}</div>`;
@@ -1389,9 +1523,9 @@ UI_HTML = """<!doctype html>
       const metadataOnly = (scan?.adoptable_sources || []).filter((source) => source.metadata_only).length;
       return `
         <div class="cards">
-          <div class="card"><div>Targets</div><strong>${escapeHtml(String(tools.length))}</strong><small>Local tools or artifacts that Cortex can inspect right now.</small></div>
+          <div class="card"><div>Targets</div><strong>${escapeHtml(String(tools.length))}</strong><small>Local tools or artifacts Cortex can inspect right now.</small></div>
           <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>Targets already configured to consume Cortex over MCP.</small></div>
-          <div class="card"><div>Metadata-only detections</div><strong>${escapeHtml(String(metadataOnly))}</strong><small>Configs detected for visibility only, not memory ingestion.</small></div>
+          <div class="card"><div>Metadata-only</div><strong>${escapeHtml(String(metadataOnly))}</strong><small>Configs detected for visibility only.</small></div>
         </div>
       `;
     }
@@ -1434,15 +1568,18 @@ UI_HTML = """<!doctype html>
               <div>${statusPill}</div>
             </div>
             <div class="meter"><span style="width:${escapeHtml(String(Math.max(4, Math.round((tool.coverage || 0) * 100))))}%"></span></div>
-            <div class="meta-row">
-              <span class="pill">${escapeHtml(String(tool.fact_count || 0))} facts</span>
-              <span class="pill">${escapeHtml(percent(tool.coverage || 0))} coverage</span>
-              <span class="pill">${escapeHtml(String(tool.mcp_server_count || 0))} MCP server(s)</span>
+            <div class="tool-stats">
+              <div class="tool-stat"><strong>${escapeHtml(String(tool.fact_count || 0))}</strong><span>facts</span></div>
+              <div class="tool-stat"><strong>${escapeHtml(percent(tool.coverage || 0))}</strong><span>coverage</span></div>
+              <div class="tool-stat"><strong>${escapeHtml(String(tool.mcp_server_count || 0))}</strong><span>MCP servers</span></div>
             </div>
             ${warningLine}
-            <div class="path-list">
-              ${(tool.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no local path recorded)</div>'}
-            </div>
+            <details class="raw">
+              <summary>Files</summary>
+              <div class="path-list">
+                ${(tool.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no local path recorded)</div>'}
+              </div>
+            </details>
           </article>
         `;
       }).join("");
@@ -1470,9 +1607,12 @@ UI_HTML = """<!doctype html>
               <span class="pill">${escapeHtml(String(data.fact_count || 0))} routed facts</span>
               ${(data.route_tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}
             </div>
-            <div class="path-list">
-              ${(data.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no path for this target)</div>'}
-            </div>
+            <details class="raw">
+              <summary>Files</summary>
+              <div class="path-list">
+                ${(data.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no path for this target)</div>'}
+              </div>
+            </details>
           </div>
           <div class="item">
             <h4>Rendered context</h4>
@@ -1544,6 +1684,73 @@ UI_HTML = """<!doctype html>
         const metrics = await api("/api/metrics");
         workspaceState.metrics = metrics;
         setResult("overview-metrics", renderMetricsSummary(metrics, workspaceState.pruneStatus || {}));
+      });
+    }
+
+    async function runScanAction(trigger) {
+      return withBusy(trigger, "Scanning...", async () => {
+        try {
+          await loadWorkspace();
+          const scan = workspaceState.scan || {};
+          setResult(
+            "overview-action-result",
+            `<div class="item"><h4>Scan complete</h4><p>Found ${escapeHtml(String((scan.tools || []).length))} tool(s), ${escapeHtml(String(scan.total_facts || 0))} graph fact(s), and ${escapeHtml(String((scan.adoptable_sources || []).length))} detected source(s).</p></div>`
+          );
+        } catch (err) {
+          setError("overview-action-result", err);
+        }
+      });
+    }
+
+    async function runSyncAction(trigger) {
+      return withBusy(trigger, "Syncing...", async () => {
+        try {
+          const data = await api("/api/portability/sync", {
+            method: "POST",
+            body: JSON.stringify({
+              smart: true,
+              max_chars: 1500,
+            }),
+          });
+          if (data.status === "empty") {
+            setResult("overview-action-result", `<div class="item"><h4>Nothing to sync yet</h4><p>${escapeHtml(data.message || "No canonical context exists yet.")}</p></div>`);
+            return;
+          }
+          setResult(
+            "overview-action-result",
+            `<div class="item"><h4>Sync complete</h4><p>Pushed ${escapeHtml(String(data.fact_count || 0))} graph fact(s) across ${escapeHtml(String((data.targets || []).length))} target(s).</p></div>`
+          );
+          await loadWorkspace();
+        } catch (err) {
+          setError("overview-action-result", err);
+        }
+      });
+    }
+
+    async function runRememberAction(trigger) {
+      return withBusy(trigger, "Remembering...", async () => {
+        try {
+          const statement = document.getElementById("remember-statement").value.trim();
+          if (!statement) {
+            throw new Error("Add a statement first.");
+          }
+          const data = await api("/api/portability/remember", {
+            method: "POST",
+            body: JSON.stringify({
+              statement,
+              smart: true,
+              max_chars: 1500,
+            }),
+          });
+          document.getElementById("remember-statement").value = "";
+          setResult(
+            "overview-action-result",
+            `<div class="item"><h4>Remembered and synced</h4><p>Added the statement to the canonical graph and updated ${escapeHtml(String((data.targets || []).length))} target(s).</p></div>`
+          );
+          await loadWorkspace();
+        } catch (err) {
+          setError("overview-action-result", err);
+        }
       });
     }
 
@@ -2179,6 +2386,12 @@ def make_handler(backend: MemoryUIBackend):
                 path = self.path
                 if path == "/api/review":
                     self._send_json(backend.review(**payload), request_id=request_id)
+                    return
+                if path == "/api/portability/sync":
+                    self._send_json(backend.portability_sync(**payload), request_id=request_id)
+                    return
+                if path == "/api/portability/remember":
+                    self._send_json(backend.portability_remember(**payload), request_id=request_id)
                     return
                 if path == "/api/blame":
                     self._send_json(backend.blame(**payload), request_id=request_id)

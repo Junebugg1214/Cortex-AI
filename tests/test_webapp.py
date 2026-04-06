@@ -48,6 +48,9 @@ def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dic
 def test_webapp_html_mentions_current_primary_surfaces():
     assert "Portable AI context, without the archaeology" in UI_HTML
     assert "Workspace Overview" in UI_HTML
+    assert "Quick actions" in UI_HTML
+    assert "Remember & sync" in UI_HTML
+    assert "Sync all" in UI_HTML
     assert "Connected Tools" in UI_HTML
     assert "Freshness & Gaps" in UI_HTML
     assert "Review & Trace" in UI_HTML
@@ -56,6 +59,8 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "/api/portability/status" in UI_HTML
     assert "/api/portability/audit" in UI_HTML
     assert "/api/portability/context" in UI_HTML
+    assert "/api/portability/sync" in UI_HTML
+    assert "/api/portability/remember" in UI_HTML
 
 
 def test_webapp_backend_meta_review_and_blame(tmp_path):
@@ -330,10 +335,50 @@ def test_webapp_handler_exposes_portability_endpoints(tmp_path):
             "context_markdown": "## Shared AI Context",
         }
 
+    def portability_sync(
+        *,
+        project_dir: str = "",
+        targets: list[str] | None = None,
+        smart: bool = True,
+        policy_name: str = "full",
+        max_chars: int = 1500,
+    ):
+        return {
+            "status": "ok",
+            "project_dir": project_dir,
+            "targets": [{"target": "codex"}],
+            "smart": smart,
+            "policy_name": policy_name,
+            "max_chars": max_chars,
+            "fact_count": 6,
+        }
+
+    def portability_remember(
+        *,
+        statement: str,
+        project_dir: str = "",
+        targets: list[str] | None = None,
+        smart: bool = True,
+        policy_name: str = "full",
+        max_chars: int = 1500,
+    ):
+        return {
+            "status": "ok",
+            "statement": statement,
+            "project_dir": project_dir,
+            "targets": [{"target": "codex"}],
+            "smart": smart,
+            "policy_name": policy_name,
+            "max_chars": max_chars,
+            "fact_count": 7,
+        }
+
     ui_backend.portability_scan = portability_scan
     ui_backend.portability_status = portability_status
     ui_backend.portability_audit = portability_audit
     ui_backend.portability_context = portability_context
+    ui_backend.portability_sync = portability_sync
+    ui_backend.portability_remember = portability_remember
 
     handler_cls = make_handler(ui_backend)
 
@@ -347,19 +392,38 @@ def test_webapp_handler_exposes_portability_endpoints(tmp_path):
         path="/api/portability/context?target=codex&smart=false&max_chars=333",
         method="GET",
     )
+    sync_status, _, sync_body = _invoke_handler(
+        handler_cls,
+        path="/api/portability/sync",
+        method="POST",
+        payload={"smart": True, "max_chars": 1200},
+    )
+    remember_status, _, remember_body = _invoke_handler(
+        handler_cls,
+        path="/api/portability/remember",
+        method="POST",
+        payload={"statement": "We use FastAPI.", "smart": True},
+    )
 
     scan = json.loads(scan_body)
     status = json.loads(status_body)
     audit = json.loads(audit_body)
     context = json.loads(context_body)
+    sync = json.loads(sync_body)
+    remember = json.loads(remember_body)
 
     assert scan_status == 200
     assert status_status == 200
     assert audit_status == 200
     assert context_status == 200
+    assert sync_status == 200
+    assert remember_status == 200
     assert scan["metadata_only"] is True
     assert status["issues"] == []
     assert audit["issues"] == []
     assert context["target"] == "codex"
     assert context["smart"] is False
     assert context["max_chars"] == 333
+    assert sync["targets"][0]["target"] == "codex"
+    assert sync["max_chars"] == 1200
+    assert remember["statement"] == "We use FastAPI."
