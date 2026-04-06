@@ -85,6 +85,8 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "pack_status",
         "pack_context",
         "pack_compile",
+        "pack_query",
+        "pack_ask",
         "channel_prepare_turn",
         "channel_seed_turn_memory",
     } <= names
@@ -322,12 +324,32 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         arguments={"name": "ai-memory", "target": "chatgpt", "smart": True, "max_chars": 900},
         request_id=23,
     )["result"]["structuredContent"]
+    query_payload = _tool_call(
+        server,
+        tool="pack_query",
+        arguments={"name": "ai-memory", "query": "portable AI brain-state layers", "limit": 5},
+        request_id=24,
+    )["result"]["structuredContent"]
+    ask_payload = _tool_call(
+        server,
+        tool="pack_ask",
+        arguments={
+            "name": "ai-memory",
+            "question": "What does this pack say about portable AI brain-state layers?",
+            "output": "note",
+            "limit": 5,
+            "write_back": True,
+        },
+        request_id=25,
+    )["result"]["structuredContent"]
 
     assert compile_payload["graph_nodes"] >= 3
     assert status_payload["compile_status"] == "compiled"
     assert list_payload["count"] == 1
     assert context_payload["target"] == "chatgpt"
     assert context_payload["fact_count"] >= 1
+    assert query_payload["total_matches"] >= 1
+    assert ask_payload["artifact_written"] is True
 
 
 def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monkeypatch):

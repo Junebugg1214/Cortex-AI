@@ -20,7 +20,7 @@ from cortex.merge import (
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
-from cortex.packs import compile_pack, list_packs, pack_status, render_pack_context
+from cortex.packs import ask_pack, compile_pack, list_packs, pack_status, query_pack, render_pack_context
 from cortex.portable_runtime import (
     audit_portability,
     render_portability_context,
@@ -523,6 +523,44 @@ class MemoryService:
             incremental=incremental,
             suggest_questions=suggest_questions,
             max_summary_chars=max_summary_chars,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_query(
+        self,
+        *,
+        name: str,
+        query: str,
+        limit: int = 8,
+        mode: str = "hybrid",
+    ) -> dict[str, Any]:
+        payload = query_pack(
+            self.store_dir,
+            name,
+            query,
+            limit=limit,
+            mode=mode,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_ask(
+        self,
+        *,
+        name: str,
+        question: str,
+        output: str = "note",
+        limit: int = 8,
+        write_back: bool = True,
+    ) -> dict[str, Any]:
+        payload = ask_pack(
+            self.store_dir,
+            name,
+            question,
+            output=output,
+            limit=limit,
+            write_back=write_back,
         )
         payload["release"] = self.release()
         return payload

@@ -353,6 +353,47 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="pack_query",
+                title="Query Brainpack",
+                description="Search a compiled Brainpack across concepts, claims, wiki pages, unknowns, and prior artifacts.",
+                method_name="pack_query",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "query": _string_property("Question or search query."),
+                        "limit": _integer_property("Maximum number of ranked results to return."),
+                        "mode": _string_property(
+                            "Search mode: hybrid, concepts, claims, wiki, unknowns, or artifacts."
+                        ),
+                    },
+                    required=("name", "query"),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="pack_ask",
+                title="Ask Brainpack",
+                description="Answer a question against a compiled Brainpack and optionally write the result back as an artifact.",
+                method_name="pack_ask",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "question": _string_property("Question to answer against the Brainpack."),
+                        "output": _string_property("Artifact format: note, report, or slides."),
+                        "limit": _integer_property("Maximum number of ranked supporting results to use."),
+                        "write_back": _boolean_property(
+                            "When true, save the generated answer into the pack artifacts directory."
+                        ),
+                    },
+                    required=("name", "question"),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="channel_prepare_turn",
                 title="Prepare Channel Turn",
                 description=(
