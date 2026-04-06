@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
+from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.packs import (
     ask_pack,
     compile_pack,
     ingest_pack,
     init_pack,
+    lint_pack,
     list_packs,
     load_manifest,
     pack_status,
@@ -104,6 +106,83 @@ def test_pack_query_and_ask_write_back_artifact(tmp_path):
     )
     assert artifact_query["counts"]["artifacts"] >= 1
     assert artifact_query["artifacts"][0]["path"].startswith("artifacts/reports/")
+
+    slides_payload = ask_pack(
+        store_dir,
+        "ai-memory",
+        "Summarize this pack as slides",
+        output="slides",
+        limit=4,
+        write_back=True,
+    )
+    assert slides_payload["artifact_path"]
+    assert "/artifacts/slides/" in slides_payload["artifact_path"]
+
+
+def test_pack_lint_reports_integrity_findings_and_persists_report(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    readable = tmp_path / "memory.md"
+    unreadable = tmp_path / "figure.png"
+    short_note = tmp_path / "tiny.txt"
+    _seed_source(readable)
+    unreadable.write_bytes(b"\x89PNG\r\n\x1a\nbinary")
+    short_note.write_text("Tiny note about memory.", encoding="utf-8")
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(readable), str(unreadable), str(short_note)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+
+    compiled_graph_path = store_dir / "packs" / "ai-memory" / "graph" / "brainpack.graph.json"
+    graph = CortexGraph.from_v5_json(json.loads(compiled_graph_path.read_text(encoding="utf-8")))
+    graph.add_node(
+        Node(
+            id=make_node_id("python-negated"),
+            label="Python",
+            tags=["technical_expertise", "negations"],
+            confidence=0.91,
+            brief="Conflicting statement about Python usage.",
+        )
+    )
+    graph.add_node(
+        Node(
+            id=make_node_id("python-2"),
+            label="Python 2",
+            tags=["technical_expertise"],
+            confidence=0.87,
+            brief="Duplicate-ish Python concept.",
+        )
+    )
+    compiled_graph_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+
+    claims_file = store_dir / "packs" / "ai-memory" / "claims" / "claims.json"
+    claims_payload = json.loads(claims_file.read_text(encoding="utf-8"))
+    claims_payload["claims"].append(
+        {
+            "id": "weak-claim",
+            "label": "Uncertain preference",
+            "tags": ["user_preferences"],
+            "confidence": 0.22,
+            "brief": "A deliberately weak claim for lint coverage.",
+            "source_quotes": [],
+            "provenance": [],
+        }
+    )
+    claims_file.write_text(json.dumps(claims_payload, indent=2), encoding="utf-8")
+
+    payload = lint_pack(store_dir, "ai-memory")
+    report_path = Path(payload["report_path"])
+
+    assert payload["lint_status"] in {"warn", "fail"}
+    assert payload["summary"]["contradictions"] >= 1
+    assert payload["summary"]["duplicates"] >= 1
+    assert payload["summary"]["weak_claims"] >= 1
+    assert payload["summary"]["unreadable_sources"] >= 1
+    assert any(item["type"] == "thin_article" for item in payload["findings"])
+    assert report_path.exists()
+    assert (
+        json.loads(report_path.read_text(encoding="utf-8"))["summary"]["total_findings"]
+        == payload["summary"]["total_findings"]
+    )
 
 
 def test_cli_pack_round_trip(tmp_path, capsys):
@@ -211,3 +290,21 @@ def test_cli_pack_round_trip(tmp_path, capsys):
     ask_payload = json.loads(capsys.readouterr().out)
     assert ask_payload["artifact_written"] is True
     assert ask_payload["artifact_path"]
+
+    assert (
+        main(
+            [
+                "pack",
+                "lint",
+                "brain-layer",
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    lint_payload = json.loads(capsys.readouterr().out)
+    assert lint_payload["status"] == "ok"
+    assert "summary" in lint_payload

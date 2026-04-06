@@ -20,7 +20,7 @@ from cortex.merge import (
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
-from cortex.packs import ask_pack, compile_pack, list_packs, pack_status, query_pack, render_pack_context
+from cortex.packs import ask_pack, compile_pack, lint_pack, list_packs, pack_status, query_pack, render_pack_context
 from cortex.portable_runtime import (
     audit_portability,
     render_portability_context,
@@ -561,6 +561,26 @@ class MemoryService:
             output=output,
             limit=limit,
             write_back=write_back,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_lint(
+        self,
+        *,
+        name: str,
+        stale_days: int = 30,
+        duplicate_threshold: float = 0.88,
+        weak_claim_confidence: float = 0.65,
+        thin_article_chars: int = 220,
+    ) -> dict[str, Any]:
+        payload = lint_pack(
+            self.store_dir,
+            name,
+            stale_days=stale_days,
+            duplicate_threshold=duplicate_threshold,
+            weak_claim_confidence=weak_claim_confidence,
+            thin_article_chars=thin_article_chars,
         )
         payload["release"] = self.release()
         return payload

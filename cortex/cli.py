@@ -1275,6 +1275,30 @@ def build_parser(*, show_all_commands: bool = False):
     pk_ask.set_defaults(write_back=True)
     pk_ask.add_argument("--format", choices=["json", "text"], default="text")
 
+    pk_lint = pk_sub.add_parser("lint", help="Run integrity checks over a compiled Brainpack")
+    pk_lint.add_argument("name", help="Brainpack name")
+    pk_lint.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_lint.add_argument("--stale-days", type=int, default=30, help="Days before a concept is considered stale")
+    pk_lint.add_argument(
+        "--duplicate-threshold",
+        type=float,
+        default=0.88,
+        help="Similarity threshold for duplicate concept candidates",
+    )
+    pk_lint.add_argument(
+        "--weak-claim-confidence",
+        type=float,
+        default=0.65,
+        help="Confidence threshold below which claims are flagged as weak",
+    )
+    pk_lint.add_argument(
+        "--thin-article-chars",
+        type=int,
+        default=220,
+        help="Minimum source article size before the page is considered thin",
+    )
+    pk_lint.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -4808,6 +4832,7 @@ def run_pack(args):
         compile_pack,
         ingest_pack,
         init_pack,
+        lint_pack,
         list_packs,
         pack_status,
         query_pack,
@@ -4995,7 +5020,46 @@ def run_pack(args):
         _echo(payload["answer_markdown"], force=True)
         return 0
 
-    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask")
+    if args.pack_subcommand == "lint":
+        try:
+            payload = lint_pack(
+                store_dir,
+                args.name,
+                stale_days=args.stale_days,
+                duplicate_threshold=args.duplicate_threshold,
+                weak_claim_confidence=args.weak_claim_confidence,
+                thin_article_chars=args.thin_article_chars,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Brainpack `{payload['pack']}` lint: {payload['lint_status']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['summary']['total_findings']} findings",
+                    f"{payload['summary']['high']} high",
+                    f"{payload['summary']['medium']} medium",
+                    f"{payload['summary']['low']} low",
+                ]
+            )
+        )
+        if payload["findings"]:
+            _echo("")
+            for item in payload["findings"][:8]:
+                _echo(f"- [{item['level']}] {item['title']}: {item['detail']}")
+        else:
+            _echo("  No Brainpack integrity issues detected.")
+        if payload["suggestions"]:
+            _echo("")
+            _echo("Suggestions:")
+            for suggestion in payload["suggestions"]:
+                _echo(f"- {suggestion}")
+        return 0
+
+    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask, lint")
 
 
 def run_scan(args):
