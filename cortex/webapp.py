@@ -121,6 +121,7 @@ class MemoryUIBackend:
         return {
             "status": "ok",
             "store_dir": str(self.store_dir.resolve()),
+            "workspace_dir": str(Path.cwd()),
             "context_file": str(default_context) if default_context else "",
             "default_context_available": default_context is not None,
             "backend": self._backend_name(),
@@ -270,6 +271,30 @@ class MemoryUIBackend:
     def metrics(self) -> dict[str, Any]:
         return self._safe_metrics()
 
+    def portability_scan(self, *, project_dir: str = "", metadata_only: bool = False) -> dict[str, Any]:
+        return self.service.portability_scan(project_dir=project_dir, metadata_only=metadata_only)
+
+    def portability_status(self, *, project_dir: str = "") -> dict[str, Any]:
+        return self.service.portability_status(project_dir=project_dir)
+
+    def portability_audit(self, *, project_dir: str = "") -> dict[str, Any]:
+        return self.service.portability_audit(project_dir=project_dir)
+
+    def portability_context(
+        self,
+        *,
+        target: str,
+        project_dir: str = "",
+        smart: bool | None = True,
+        max_chars: int = 900,
+    ) -> dict[str, Any]:
+        return self.service.portability_context(
+            target=target,
+            project_dir=project_dir,
+            smart=smart,
+            max_chars=max_chars,
+        )
+
     def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
         return self._safe_index_status(ref=ref)
 
@@ -394,32 +419,38 @@ UI_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cortex Infrastructure UI</title>
+  <title>Cortex UI</title>
   <style>
     :root {
-      --bg: #f4efe6;
-      --panel: #fff9f1;
-      --panel-strong: #fffdf8;
-      --ink: #1f1b18;
-      --muted: #6e6258;
-      --line: #d8cfc4;
-      --accent: #0f6c5c;
-      --accent-soft: #cde8e2;
-      --warning: #8c5a13;
-      --danger: #a43a2f;
-      --shadow: 0 18px 45px rgba(63, 43, 19, 0.08);
-      --radius: 20px;
+      --bg: #edf2ea;
+      --bg-soft: #f7fbf5;
+      --panel: rgba(255, 252, 247, 0.9);
+      --panel-strong: #fffdf9;
+      --ink: #15211b;
+      --muted: #607165;
+      --line: #d7dfd5;
+      --accent: #11695b;
+      --accent-strong: #0c4f45;
+      --accent-soft: #d9ece7;
+      --info: #244d72;
+      --warning: #9a5e14;
+      --danger: #a73d31;
+      --shadow: 0 18px 42px rgba(28, 46, 39, 0.1);
+      --radius: 22px;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(15, 108, 92, 0.16), transparent 30%),
-        radial-gradient(circle at bottom right, rgba(164, 58, 47, 0.12), transparent 28%),
-        var(--bg);
-      min-height: 100vh;
+        radial-gradient(circle at top left, rgba(17, 105, 91, 0.15), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(154, 94, 20, 0.10), transparent 24%),
+        linear-gradient(180deg, var(--bg-soft), var(--bg));
+    }
+    h1, h2, h3, h4, summary {
+      font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
     }
     .shell {
       display: grid;
@@ -429,29 +460,44 @@ UI_HTML = """<!doctype html>
     aside {
       padding: 28px 22px;
       border-right: 1px solid var(--line);
-      background: rgba(255, 249, 241, 0.78);
-      backdrop-filter: blur(14px);
+      background: rgba(248, 252, 248, 0.8);
+      backdrop-filter: blur(16px);
     }
-    .brand { margin-bottom: 24px; }
+    .brand {
+      margin-bottom: 24px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(17, 105, 91, 0.1);
+      color: var(--accent-strong);
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .brand h1 {
       margin: 0;
-      font-size: 1.8rem;
-      letter-spacing: 0.02em;
+      font-size: 2rem;
+      letter-spacing: 0.01em;
     }
     .brand p {
       margin: 8px 0 0;
       color: var(--muted);
-      line-height: 1.45;
-      font-size: 0.96rem;
+      line-height: 1.55;
+      font-size: 0.97rem;
     }
-    .meta-card, .nav button, .panel, .result {
+    .meta-card, .nav button, .panel, .result, .tool-card, .subpanel {
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
       border-radius: var(--radius);
       background: var(--panel);
     }
     .meta-card {
-      padding: 14px 16px;
+      padding: 16px;
       margin-bottom: 18px;
       font-size: 0.92rem;
       line-height: 1.45;
@@ -459,6 +505,13 @@ UI_HTML = """<!doctype html>
     .meta-card strong {
       display: block;
       margin-bottom: 4px;
+      font-size: 0.84rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .meta-block + .meta-block {
+      margin-top: 12px;
     }
     .nav {
       display: grid;
@@ -473,8 +526,8 @@ UI_HTML = """<!doctype html>
     }
     .nav button.active,
     .nav button[aria-selected="true"] {
-      background: linear-gradient(135deg, var(--accent-soft), #eefbf8);
-      border-color: rgba(15,108,92,0.34);
+      background: linear-gradient(135deg, var(--accent-soft), #eefaf7);
+      border-color: rgba(17, 105, 91, 0.32);
       transform: translateX(4px);
     }
     main {
@@ -484,35 +537,41 @@ UI_HTML = """<!doctype html>
       align-content: start;
     }
     .hero {
-      padding: 24px;
-      background: linear-gradient(135deg, rgba(15,108,92,0.12), rgba(255,255,255,0.82));
-      border: 1px solid rgba(15,108,92,0.16);
-      border-radius: calc(var(--radius) + 6px);
+      padding: 26px;
+      border: 1px solid rgba(17, 105, 91, 0.18);
+      border-radius: calc(var(--radius) + 8px);
+      background:
+        linear-gradient(135deg, rgba(17, 105, 91, 0.12), rgba(255, 255, 255, 0.9)),
+        var(--panel);
       box-shadow: var(--shadow);
     }
     .hero h2 {
       margin: 0 0 8px;
-      font-size: 2rem;
+      font-size: 2.1rem;
+      line-height: 1.05;
     }
     .hero p {
       margin: 0;
-      max-width: 72ch;
+      max-width: 74ch;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.6;
     }
     .panel {
-      padding: 20px;
       display: none;
+      padding: 22px;
     }
-    .panel.active { display: block; }
+    .panel.active {
+      display: block;
+    }
     .panel h3 {
       margin: 0 0 10px;
-      font-size: 1.1rem;
+      font-size: 1.2rem;
     }
     .panel-copy {
       margin: 0 0 16px;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.55;
+      max-width: 72ch;
     }
     .panel-grid {
       display: grid;
@@ -524,6 +583,7 @@ UI_HTML = """<!doctype html>
       display: grid;
       gap: 16px;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      margin-top: 16px;
     }
     .stack {
       display: grid;
@@ -534,6 +594,19 @@ UI_HTML = """<!doctype html>
       gap: 6px;
       font-size: 0.92rem;
       color: var(--muted);
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: white;
+      color: var(--ink);
+      font: inherit;
+    }
+    textarea {
+      min-height: 90px;
+      resize: vertical;
     }
     .checkbox {
       display: flex;
@@ -549,16 +622,6 @@ UI_HTML = """<!doctype html>
       width: auto;
       margin: 0;
     }
-    input, textarea, select {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: white;
-      padding: 11px 12px;
-      font: inherit;
-      color: var(--ink);
-    }
-    textarea { min-height: 90px; resize: vertical; }
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -575,7 +638,7 @@ UI_HTML = """<!doctype html>
       font: inherit;
     }
     button.subtle {
-      background: #efe8de;
+      background: #eef2ec;
       color: var(--ink);
     }
     button.action[disabled] {
@@ -583,37 +646,59 @@ UI_HTML = """<!doctype html>
       cursor: progress;
     }
     .result {
+      min-height: 140px;
       padding: 18px;
-      min-height: 150px;
       overflow: auto;
       background: var(--panel-strong);
     }
     .cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 10px;
       margin-bottom: 16px;
     }
     .card {
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 18px;
       padding: 14px;
       background: white;
     }
     .card strong {
       display: block;
-      font-size: 1.35rem;
       margin-top: 4px;
+      font-size: 1.5rem;
+      line-height: 1.1;
+    }
+    .card small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      line-height: 1.45;
     }
     .status-pass { color: var(--accent); }
     .status-fail { color: var(--danger); }
     .pill {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 4px 9px;
-      background: #efe8de;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       margin: 0 6px 6px 0;
-      font-size: 0.82rem;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #eef2ec;
+      color: var(--ink);
+      font-size: 0.8rem;
+    }
+    .pill.good {
+      background: rgba(17, 105, 91, 0.12);
+      color: var(--accent-strong);
+    }
+    .pill.warn {
+      background: rgba(154, 94, 20, 0.13);
+      color: var(--warning);
+    }
+    .pill.info {
+      background: rgba(36, 77, 114, 0.12);
+      color: var(--info);
     }
     .list {
       display: grid;
@@ -621,37 +706,140 @@ UI_HTML = """<!doctype html>
     }
     .item {
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 14px;
+      border-radius: 16px;
+      padding: 14px;
       background: white;
     }
     .item h4 {
       margin: 0 0 6px;
-      font-size: 1rem;
+      font-size: 1.02rem;
     }
     .item p {
       margin: 0;
       color: var(--muted);
-      line-height: 1.45;
+      line-height: 1.52;
     }
-    .mono {
+    .item p + p {
+      margin-top: 8px;
+    }
+    .tool-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      margin-top: 14px;
+    }
+    .tool-card {
+      padding: 18px;
+      background: var(--panel-strong);
+    }
+    .tool-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .tool-head h4 {
+      margin: 0;
+      font-size: 1.08rem;
+    }
+    .tool-note {
+      margin: 0 0 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .meter {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #e6ece8;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .meter > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #3b8c7b);
+    }
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .path-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .path-list div {
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: #f3f6f2;
+      border: 1px solid var(--line);
+      word-break: break-word;
+    }
+    .subpanel {
+      padding: 0;
+      overflow: hidden;
+      background: var(--panel-strong);
+    }
+    .subpanel > summary,
+    .subpanel-header {
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+      font-size: 1.06rem;
+      border-bottom: 1px solid transparent;
+      background: linear-gradient(135deg, rgba(17, 105, 91, 0.07), rgba(255, 255, 255, 0.92));
+    }
+    .subpanel > summary::-webkit-details-marker { display: none; }
+    .subpanel[open] > summary {
+      border-bottom-color: var(--line);
+    }
+    .subpanel-body {
+      padding: 18px;
+    }
+    .mono,
+    pre {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.88rem;
     }
-    .danger { color: var(--danger); }
-    .warning { color: var(--warning); }
-    .empty {
-      color: var(--muted);
-      font-style: italic;
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .command-block {
+      margin: 10px 0 0;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: #13211b;
+      color: #f5f7f4;
     }
     .helper {
       margin: -8px 0 8px;
       color: var(--muted);
       font-size: 0.88rem;
     }
+    .danger { color: var(--danger); }
+    .warning { color: var(--warning); }
+    .info { color: var(--info); }
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+    }
+    details.raw {
+      margin-top: 14px;
+    }
+    details.raw summary {
+      cursor: pointer;
+      color: var(--muted);
+    }
     @media (max-width: 980px) {
       .shell { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 20px; }
     }
   </style>
 </head>
@@ -659,191 +847,251 @@ UI_HTML = """<!doctype html>
   <div class="shell">
     <aside>
       <div class="brand">
-        <h1>Cortex Infra</h1>
-        <p>Local-first memory infrastructure with a browser control plane for review, provenance, protection, sync, and runtime operations.</p>
+        <div class="eyebrow">Cortex 1.4</div>
+        <h1>Cortex</h1>
+        <p>Portable AI context across your tools. Scan what already exists on disk, preview what each target receives, and only dive into the advanced memory plumbing when you actually need it.</p>
       </div>
-      <div class="meta-card" id="meta-card">Loading...</div>
+      <div class="meta-card" id="meta-card">Loading workspace…</div>
       <div class="nav" role="tablist" aria-label="Cortex UI panels">
         <button data-panel="overview" class="active" role="tab" aria-selected="true">Overview</button>
-        <button data-panel="review" role="tab" aria-selected="false">Review</button>
-        <button data-panel="blame" role="tab" aria-selected="false">Blame</button>
-        <button data-panel="history" role="tab" aria-selected="false">History</button>
-        <button data-panel="governance" role="tab" aria-selected="false">Governance</button>
-        <button data-panel="remote" role="tab" aria-selected="false">Remote</button>
-        <button data-panel="operations" role="tab" aria-selected="false">Operations</button>
+        <button data-panel="tools" role="tab" aria-selected="false">Tools</button>
+        <button data-panel="audit" role="tab" aria-selected="false">Freshness</button>
+        <button data-panel="review" role="tab" aria-selected="false">Review & Trace</button>
+        <button data-panel="advanced" role="tab" aria-selected="false">Advanced</button>
       </div>
     </aside>
     <main>
       <section class="hero">
-        <h2>Memory Infrastructure</h2>
-        <p>Review meaning-level drift, trace claims to receipts, audit branch history, protect namespaces, sync remotes, and operate indexing plus maintenance from one local console.</p>
+        <div class="eyebrow">Local-first control plane</div>
+        <h2>Portable AI context, without the archaeology</h2>
+        <p>Cortex works best when it starts from what is already on your machine: detect local exports and instruction files, adopt them deliberately, inspect what each tool knows, preview the routed context, and then keep everything in sync from one place.</p>
       </section>
 
-      <section id="panel-overview" class="panel active" role="tabpanel" aria-labelledby="overview">
-        <h3>Overview</h3>
-        <p class="panel-copy">This is the control-plane snapshot for the local store: backend, current branch, release contract, indexing health, and request telemetry.</p>
+      <section id="panel-overview" class="panel active" role="tabpanel">
+        <h3>Workspace Overview</h3>
+        <p class="panel-copy">This first screen is about the real Cortex loop: scan local tools, adopt detected context with permission, teach once, sync everywhere, and then use the advanced internals only when there is a specific problem to solve.</p>
         <div id="overview-cards" class="cards"></div>
         <div class="actions">
-          <button class="action" onclick="loadOverview(this)">Refresh overview</button>
+          <button class="action" onclick="loadWorkspace(this)">Refresh workspace</button>
           <button class="action subtle" onclick="loadMetrics(this)">Refresh metrics only</button>
         </div>
         <div class="split-results">
-          <div id="overview-health" class="result empty">Health and release metadata will appear here.</div>
-          <div id="overview-metrics" class="result empty">Request counts, error counts, and route timings will appear here.</div>
+          <div id="overview-journey" class="result empty">Cortex will summarize the current workflow here.</div>
+          <div id="overview-adoptable" class="result empty">Detected importable sources and permission boundaries will appear here.</div>
+        </div>
+        <div class="split-results">
+          <div id="overview-health" class="result empty">Store and release details will appear here.</div>
+          <div id="overview-metrics" class="result empty">Observability and maintenance signals will appear here.</div>
+        </div>
+      </section>
+
+      <section id="panel-tools" class="panel" role="tabpanel">
+        <h3>Connected Tools</h3>
+        <p class="panel-copy">Each tool gets a different routed slice of the canonical graph. This view shows what is configured right now, how much context each target has, and lets you preview the exact context a tool will consume before you switch over to it.</p>
+        <div class="panel-grid">
+          <label>Preview target
+            <select id="tools-context-target"></select>
+          </label>
+          <label>Preview max chars
+            <input id="tools-context-max-chars" type="number" value="700" min="150">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="action" onclick="loadWorkspace(this)">Refresh tool scan</button>
+          <button class="action subtle" onclick="previewTargetContext(this)">Preview routed context</button>
+        </div>
+        <div id="tools-summary" class="result empty">Tool coverage and routing details will appear here.</div>
+        <div id="tools-list" class="tool-grid"></div>
+        <div id="tools-context-result" class="result empty">Select a target to preview the context Cortex would hand it right now.</div>
+      </section>
+
+      <section id="panel-audit" class="panel" role="tabpanel">
+        <h3>Freshness & Gaps</h3>
+        <p class="panel-copy">This is where you spot drift. Cortex compares the canonical graph against the local tool files it manages and flags missing context, stale targets, or anything that needs a sync pass.</p>
+        <div class="actions">
+          <button class="action" onclick="loadWorkspace(this)">Refresh freshness audit</button>
+        </div>
+        <div class="split-results">
+          <div id="audit-status" class="result empty">Target freshness and missing-label details will appear here.</div>
+          <div id="audit-issues" class="result empty">Audit issues and next actions will appear here.</div>
         </div>
       </section>
 
       <section id="panel-review" class="panel" role="tabpanel">
-        <h3>Review</h3>
-        <p class="panel-copy">Run semantic review against a stored ref or point at a graph file if you want to compare an uncommitted payload.</p>
-        <div class="panel-grid">
-          <label>Context file (optional)<input id="review-input-file" placeholder="/abs/path/context.json"></label>
-          <label>Against ref<input id="review-against" value="HEAD"></label>
-          <label>Current ref<input id="review-ref" value="HEAD"></label>
-          <label>Fail on<input id="review-fail-on" value="blocking"></label>
-        </div>
-        <p class="helper">Leave the context file blank to review the stored ref directly.</p>
-        <div class="actions">
-          <button class="action" onclick="runReview(this)">Run review</button>
-          <button class="action subtle" onclick="fillDefaultContext('review-input-file')">Use default context</button>
-        </div>
-        <div id="review-result" class="result empty">Run a review to see structural and semantic drift.</div>
-      </section>
-
-      <section id="panel-blame" class="panel" role="tabpanel">
-        <h3>Blame</h3>
-        <p class="panel-copy">Trace one memory node back through commits and claim lineage. You can inspect a stored ref or an explicit graph file.</p>
-        <div class="panel-grid">
-          <label>Context file (optional)<input id="blame-input-file" placeholder="/abs/path/context.json"></label>
-          <label>Label<input id="blame-label" placeholder="Project Atlas"></label>
-          <label>Node id<input id="blame-node-id" placeholder="optional"></label>
-          <label>Ref<input id="blame-ref" value="HEAD"></label>
-          <label>Source filter<input id="blame-source" placeholder="optional"></label>
-          <label>Limit<input id="blame-limit" type="number" value="20" min="1"></label>
-        </div>
-        <p class="helper">Leave the context file blank to blame against the stored ref.</p>
-        <div class="actions">
-          <button class="action" onclick="runBlame(this)">Trace claim</button>
-          <button class="action subtle" onclick="fillDefaultContext('blame-input-file')">Use default context</button>
-        </div>
-        <div id="blame-result" class="result empty">Trace a claim back to versions, sources, and claim-ledger receipts.</div>
-      </section>
-
-      <section id="panel-history" class="panel" role="tabpanel">
-        <h3>History</h3>
-        <p class="panel-copy">Inspect the timeline for one memory node without leaving the browser. It works against stored refs and uncommitted payloads.</p>
-        <div class="panel-grid">
-          <label>Context file (optional)<input id="history-input-file" placeholder="/abs/path/context.json"></label>
-          <label>Label<input id="history-label" placeholder="Project Atlas"></label>
-          <label>Node id<input id="history-node-id" placeholder="optional"></label>
-          <label>Ref<input id="history-ref" value="HEAD"></label>
-          <label>Source filter<input id="history-source" placeholder="optional"></label>
-          <label>Limit<input id="history-limit" type="number" value="20" min="1"></label>
-        </div>
-        <p class="helper">Leave the context file blank to read history directly from the active store.</p>
-        <div class="actions">
-          <button class="action" onclick="runHistory(this)">Show history</button>
-          <button class="action subtle" onclick="fillDefaultContext('history-input-file')">Use default context</button>
-        </div>
-        <div id="history-result" class="result empty">See the timeline of one memory claim across versions and claim events.</div>
-      </section>
-
-      <section id="panel-governance" class="panel" role="tabpanel">
-        <h3>Governance</h3>
-        <p class="panel-copy">Create or delete namespace rules, then preview whether a write would be allowed or require approval.</p>
-        <div class="panel-grid">
-          <label>Rule name<input id="gov-name" placeholder="protect-main"></label>
-          <label>Actor pattern<input id="gov-actor-pattern" value="agent/*"></label>
-          <label>Actions (comma-separated)<input id="gov-actions" value="write"></label>
-          <label>Namespaces (comma-separated)<input id="gov-namespaces" value="main"></label>
-          <label>Approval below confidence<input id="gov-confidence" type="number" step="0.01" placeholder="0.75"></label>
-          <label>Approval tags (comma-separated)<input id="gov-tags" placeholder="active_priorities"></label>
-          <label>Approval semantic changes (comma-separated)<input id="gov-change-types" placeholder="lifecycle_shift"></label>
-          <label>Description<textarea id="gov-description" placeholder="Require review before low-confidence writes to main."></textarea></label>
-          <label class="checkbox"><input id="gov-require-approval" type="checkbox"> Require approval when this rule matches</label>
-        </div>
-        <div class="actions">
-          <button class="action" onclick="saveGovernance('allow', this)">Save allow rule</button>
-          <button class="action subtle" onclick="saveGovernance('deny', this)">Save deny rule</button>
-          <button class="action subtle" onclick="loadGovernance(this)">Refresh rules</button>
-        </div>
-        <div class="panel-grid">
-          <label>Check actor<input id="gov-check-actor" value="agent/coder"></label>
-          <label>Check action<input id="gov-check-action" value="write"></label>
-          <label>Check namespace<input id="gov-check-namespace" value="main"></label>
-          <label>Check input file (optional)<input id="gov-check-input-file" placeholder="/abs/path/context.json"></label>
-          <label>Against ref<input id="gov-check-against" value="HEAD"></label>
-        </div>
-        <div class="actions">
-          <button class="action" onclick="checkGovernance(this)">Check access</button>
-        </div>
-        <div class="split-results">
-          <div id="governance-rules-result" class="result empty">Configured governance rules will appear here.</div>
-          <div id="governance-check-result" class="result empty">Access-check results will appear here.</div>
-        </div>
-      </section>
-
-      <section id="panel-remote" class="panel" role="tabpanel">
-        <h3>Remote</h3>
-        <p class="panel-copy">Manage explicit remotes and run push, pull, or fork flows from the browser. Clicking “Use remote” will preload the form.</p>
-        <div class="panel-grid">
-          <label>Remote name<input id="remote-name" value="origin"></label>
-          <label>Remote path<input id="remote-path" placeholder="/abs/path/to/other/store"></label>
-          <label>Default branch<input id="remote-default-branch" value="main"></label>
-        </div>
-        <div class="actions">
-          <button class="action" onclick="addRemote(this)">Add remote</button>
-          <button class="action subtle" onclick="loadRemotes(this)">Refresh remotes</button>
-        </div>
-        <div class="panel-grid">
-          <label>Push branch<input id="remote-push-branch" value="main"></label>
-          <label>Push to branch<input id="remote-push-target" placeholder="optional"></label>
-          <label>Pull branch<input id="remote-pull-branch" value="main"></label>
-          <label>Into branch<input id="remote-pull-into" placeholder="remotes/origin/main"></label>
-          <label>Fork local branch<input id="remote-fork-branch" value="agent/experiment"></label>
-        </div>
-        <div class="actions">
-          <button class="action" onclick="pushRemote(this)">Push</button>
-          <button class="action subtle" onclick="pullRemote(this)">Pull</button>
-          <button class="action subtle" onclick="forkRemote(this)">Fork</button>
-        </div>
-        <div class="split-results">
-          <div id="remote-list-result" class="result empty">Configured remotes will appear here.</div>
-          <div id="remote-activity-result" class="result empty">Push, pull, and fork activity will appear here.</div>
-        </div>
-      </section>
-
-      <section id="panel-operations" class="panel" role="tabpanel">
-        <h3>Operations</h3>
-        <p class="panel-copy">Operate persistent indexing, inspect maintenance state, and run safe prune workflows with dry-run support.</p>
+        <h3>Review & Trace</h3>
+        <p class="panel-copy">These tools are still here when you need them. They are just no longer the first thing users see when opening Cortex.</p>
         <div class="stack">
-          <div>
-            <div class="panel-grid">
-              <label>Index ref<input id="ops-index-ref" value="HEAD"></label>
-              <label class="checkbox"><input id="ops-index-all-refs" type="checkbox"> Rebuild all refs</label>
-            </div>
-            <div class="actions">
-              <button class="action" onclick="loadIndexStatus(this)">Refresh index status</button>
-              <button class="action subtle" onclick="rebuildIndex(this)">Rebuild index</button>
-            </div>
-            <div id="ops-index-result" class="result empty">Index status, lag, and rebuild responses will appear here.</div>
-          </div>
-          <div>
-            <div class="panel-grid">
-              <label>Retention days<input id="ops-retention-days" type="number" value="7" min="0"></label>
-              <label class="checkbox"><input id="ops-prune-dry-run" type="checkbox" checked> Dry run prune first</label>
-              <label>Audit entries<input id="ops-audit-limit" type="number" value="20" min="1"></label>
-            </div>
-            <div class="actions">
-              <button class="action" onclick="loadPruneStatus(this)">Refresh maintenance status</button>
-              <button class="action subtle" onclick="runPrune(this)">Run prune</button>
-              <button class="action subtle" onclick="loadPruneAudit(this)">Refresh audit</button>
-            </div>
-            <div class="split-results">
-              <div id="ops-prune-result" class="result empty">Maintenance status and prune responses will appear here.</div>
-              <div id="ops-audit-result" class="result empty">Prune audit entries will appear here.</div>
+          <div class="subpanel">
+            <div class="subpanel-header">Semantic review</div>
+            <div class="subpanel-body">
+              <p class="panel-copy">Run semantic review against a stored ref or point at a graph file if you want to compare an uncommitted payload.</p>
+              <div class="panel-grid">
+                <label>Context file (optional)<input id="review-input-file" placeholder="/abs/path/context.json"></label>
+                <label>Against ref<input id="review-against" value="HEAD"></label>
+                <label>Current ref<input id="review-ref" value="HEAD"></label>
+                <label>Fail on<input id="review-fail-on" value="blocking"></label>
+              </div>
+              <p class="helper">Leave the context file blank to review the stored ref directly.</p>
+              <div class="actions">
+                <button class="action" onclick="runReview(this)">Run review</button>
+                <button class="action subtle" onclick="fillDefaultContext('review-input-file')">Use default context</button>
+              </div>
+              <div id="review-result" class="result empty">Run a review to see structural and semantic drift.</div>
             </div>
           </div>
+
+          <div class="subpanel">
+            <div class="subpanel-header">Trace one node</div>
+            <div class="subpanel-body">
+              <p class="panel-copy">Trace one memory node back through versions and claim lineage. This is useful when a fact looks wrong and you want to know where it came from.</p>
+              <div class="panel-grid">
+                <label>Context file (optional)<input id="blame-input-file" placeholder="/abs/path/context.json"></label>
+                <label>Label<input id="blame-label" placeholder="Project Atlas"></label>
+                <label>Node id<input id="blame-node-id" placeholder="optional"></label>
+                <label>Ref<input id="blame-ref" value="HEAD"></label>
+                <label>Source filter<input id="blame-source" placeholder="optional"></label>
+                <label>Limit<input id="blame-limit" type="number" value="20" min="1"></label>
+              </div>
+              <p class="helper">Leave the context file blank to blame against the stored ref.</p>
+              <div class="actions">
+                <button class="action" onclick="runBlame(this)">Trace claim</button>
+                <button class="action subtle" onclick="fillDefaultContext('blame-input-file')">Use default context</button>
+              </div>
+              <div id="blame-result" class="result empty">Trace a claim back to versions, sources, and claim-ledger receipts.</div>
+            </div>
+          </div>
+
+          <div class="subpanel">
+            <div class="subpanel-header">History timeline</div>
+            <div class="subpanel-body">
+              <p class="panel-copy">Inspect the timeline for one memory node without leaving the browser. It works against stored refs and uncommitted payloads.</p>
+              <div class="panel-grid">
+                <label>Context file (optional)<input id="history-input-file" placeholder="/abs/path/context.json"></label>
+                <label>Label<input id="history-label" placeholder="Project Atlas"></label>
+                <label>Node id<input id="history-node-id" placeholder="optional"></label>
+                <label>Ref<input id="history-ref" value="HEAD"></label>
+                <label>Source filter<input id="history-source" placeholder="optional"></label>
+                <label>Limit<input id="history-limit" type="number" value="20" min="1"></label>
+              </div>
+              <p class="helper">Leave the context file blank to read history directly from the active store.</p>
+              <div class="actions">
+                <button class="action" onclick="runHistory(this)">Show history</button>
+                <button class="action subtle" onclick="fillDefaultContext('history-input-file')">Use default context</button>
+              </div>
+              <div id="history-result" class="result empty">See the timeline of one memory claim across versions and claim events.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-advanced" class="panel" role="tabpanel">
+        <h3>Advanced Controls</h3>
+        <p class="panel-copy">These controls are still available for operators, but they no longer crowd the main experience for someone who just wants to understand and manage portable context.</p>
+        <div class="stack">
+          <details class="subpanel" open>
+            <summary>Governance</summary>
+            <div class="subpanel-body">
+              <p class="panel-copy">Create or delete namespace rules, then preview whether a write would be allowed or require approval.</p>
+              <div class="panel-grid">
+                <label>Rule name<input id="gov-name" placeholder="protect-main"></label>
+                <label>Actor pattern<input id="gov-actor-pattern" value="agent/*"></label>
+                <label>Actions (comma-separated)<input id="gov-actions" value="write"></label>
+                <label>Namespaces (comma-separated)<input id="gov-namespaces" value="main"></label>
+                <label>Approval below confidence<input id="gov-confidence" type="number" step="0.01" placeholder="0.75"></label>
+                <label>Approval tags (comma-separated)<input id="gov-tags" placeholder="active_priorities"></label>
+                <label>Approval semantic changes (comma-separated)<input id="gov-change-types" placeholder="lifecycle_shift"></label>
+                <label>Description<textarea id="gov-description" placeholder="Require review before low-confidence writes to main."></textarea></label>
+                <label class="checkbox"><input id="gov-require-approval" type="checkbox"> Require approval when this rule matches</label>
+              </div>
+              <div class="actions">
+                <button class="action" onclick="saveGovernance('allow', this)">Save allow rule</button>
+                <button class="action subtle" onclick="saveGovernance('deny', this)">Save deny rule</button>
+                <button class="action subtle" onclick="loadGovernance(this)">Refresh rules</button>
+              </div>
+              <div class="panel-grid">
+                <label>Check actor<input id="gov-check-actor" value="agent/coder"></label>
+                <label>Check action<input id="gov-check-action" value="write"></label>
+                <label>Check namespace<input id="gov-check-namespace" value="main"></label>
+                <label>Check input file (optional)<input id="gov-check-input-file" placeholder="/abs/path/context.json"></label>
+                <label>Against ref<input id="gov-check-against" value="HEAD"></label>
+              </div>
+              <div class="actions">
+                <button class="action" onclick="checkGovernance(this)">Check access</button>
+              </div>
+              <div class="split-results">
+                <div id="governance-rules-result" class="result empty">Configured governance rules will appear here.</div>
+                <div id="governance-check-result" class="result empty">Access-check results will appear here.</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="subpanel">
+            <summary>Remotes</summary>
+            <div class="subpanel-body">
+              <p class="panel-copy">Manage explicit remotes and run push, pull, or fork flows from the browser. Clicking “Use remote” will preload the form.</p>
+              <div class="panel-grid">
+                <label>Remote name<input id="remote-name" value="origin"></label>
+                <label>Remote path<input id="remote-path" placeholder="/abs/path/to/other/store"></label>
+                <label>Default branch<input id="remote-default-branch" value="main"></label>
+              </div>
+              <div class="actions">
+                <button class="action" onclick="addRemote(this)">Add remote</button>
+                <button class="action subtle" onclick="loadRemotes(this)">Refresh remotes</button>
+              </div>
+              <div class="panel-grid">
+                <label>Push branch<input id="remote-push-branch" value="main"></label>
+                <label>Push to branch<input id="remote-push-target" placeholder="optional"></label>
+                <label>Pull branch<input id="remote-pull-branch" value="main"></label>
+                <label>Into branch<input id="remote-pull-into" placeholder="remotes/origin/main"></label>
+                <label>Fork local branch<input id="remote-fork-branch" value="agent/experiment"></label>
+              </div>
+              <div class="actions">
+                <button class="action" onclick="pushRemote(this)">Push</button>
+                <button class="action subtle" onclick="pullRemote(this)">Pull</button>
+                <button class="action subtle" onclick="forkRemote(this)">Fork</button>
+              </div>
+              <div class="split-results">
+                <div id="remote-list-result" class="result empty">Configured remotes will appear here.</div>
+                <div id="remote-activity-result" class="result empty">Push, pull, and fork activity will appear here.</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="subpanel">
+            <summary>Maintenance & index</summary>
+            <div class="subpanel-body">
+              <p class="panel-copy">Operate persistent indexing, inspect maintenance state, and run safe prune workflows with dry-run support.</p>
+              <div class="stack">
+                <div>
+                  <div class="panel-grid">
+                    <label>Index ref<input id="ops-index-ref" value="HEAD"></label>
+                    <label class="checkbox"><input id="ops-index-all-refs" type="checkbox"> Rebuild all refs</label>
+                  </div>
+                  <div class="actions">
+                    <button class="action" onclick="loadIndexStatus(this)">Refresh index status</button>
+                    <button class="action subtle" onclick="rebuildIndex(this)">Rebuild index</button>
+                  </div>
+                  <div id="ops-index-result" class="result empty">Index status, lag, and rebuild responses will appear here.</div>
+                </div>
+                <div>
+                  <div class="panel-grid">
+                    <label>Retention days<input id="ops-retention-days" type="number" value="7" min="0"></label>
+                    <label class="checkbox"><input id="ops-prune-dry-run" type="checkbox" checked> Dry run prune first</label>
+                    <label>Audit entries<input id="ops-audit-limit" type="number" value="20" min="1"></label>
+                  </div>
+                  <div class="actions">
+                    <button class="action" onclick="loadPruneStatus(this)">Refresh maintenance status</button>
+                    <button class="action subtle" onclick="runPrune(this)">Run prune</button>
+                    <button class="action subtle" onclick="loadPruneAudit(this)">Refresh audit</button>
+                  </div>
+                  <div class="split-results">
+                    <div id="ops-prune-result" class="result empty">Maintenance status and prune responses will appear here.</div>
+                    <div id="ops-audit-result" class="result empty">Prune audit entries will appear here.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
       </section>
     </main>
@@ -851,6 +1099,15 @@ UI_HTML = """<!doctype html>
 
   <script>
     let defaultContext = "";
+    let workspaceState = {
+      meta: null,
+      health: null,
+      metrics: null,
+      pruneStatus: null,
+      scan: null,
+      status: null,
+      audit: null,
+    };
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -913,8 +1170,17 @@ UI_HTML = """<!doctype html>
       return value.length > 14 ? `${value.slice(0, 14)}…` : value;
     }
 
+    function percent(value) {
+      const numeric = Number(value || 0);
+      return `${Math.round(numeric * 100)}%`;
+    }
+
     function renderKeyValue(obj) {
       return `<pre class="mono">${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`;
+    }
+
+    function renderRawDetails(title, data) {
+      return `<details class="raw"><summary>${escapeHtml(title)}</summary>${renderKeyValue(data)}</details>`;
     }
 
     function setResult(id, html) {
@@ -960,6 +1226,15 @@ UI_HTML = """<!doctype html>
       });
     }
 
+    function collectStatusAlerts(status) {
+      return (status?.issues || []).filter((issue) =>
+        Boolean(issue.stale) ||
+        (issue.missing_labels || []).length > 0 ||
+        (issue.unexpected_labels || []).length > 0 ||
+        (issue.missing_paths || []).length > 0
+      );
+    }
+
     function renderBlameNodes(nodes) {
       if (!nodes.length) return '<div class="empty">No matching nodes found.</div>';
       return nodes.map((item) => {
@@ -978,54 +1253,314 @@ UI_HTML = """<!doctype html>
       }).join("");
     }
 
-    function renderOverviewCards(meta, metrics, pruneStatus) {
-      const index = meta.index || {};
+    function renderOverviewCards(meta, scan, status, audit) {
+      const alerts = collectStatusAlerts(status).length;
+      const tools = scan?.tools || [];
+      const sources = scan?.adoptable_sources || [];
+      const metadataOnly = sources.filter((item) => item.metadata_only).length;
+      const importable = sources.filter((item) => item.importable).length;
+      const mcpReady = tools.filter((tool) => tool.cortex_mcp_configured).length;
       return `
-        <div class="card"><div>Backend</div><strong>${escapeHtml(meta.backend || "filesystem")}</strong></div>
-        <div class="card"><div>Branch</div><strong>${escapeHtml(meta.current_branch || "main")}</strong></div>
-        <div class="card"><div>HEAD</div><strong class="mono">${escapeHtml(shortRef(meta.head))}</strong></div>
-        <div class="card"><div>Release</div><strong>${escapeHtml(meta.release?.project_version || "dev")}</strong></div>
-        <div class="card"><div>Index lag</div><strong>${escapeHtml(String(index.lag_commits ?? 0))}</strong></div>
-        <div class="card"><div>Requests</div><strong>${escapeHtml(String(metrics.requests_total ?? 0))}</strong></div>
-        <div class="card"><div>Errors</div><strong>${escapeHtml(String(metrics.errors_total ?? 0))}</strong></div>
-        <div class="card"><div>Stale artifacts</div><strong>${escapeHtml(String((pruneStatus.stale_merge_artifacts || []).length))}</strong></div>
+        <div class="card"><div>Coverage</div><strong>${escapeHtml(percent(scan?.coverage || 0))}</strong><small>${escapeHtml(String(scan?.known_facts || 0))} of ${escapeHtml(String(scan?.total_facts || 0))} known facts are already reflected in local tool files.</small></div>
+        <div class="card"><div>Detected tools</div><strong>${escapeHtml(String(tools.length))}</strong><small>Targets with local files, artifacts, or MCP config that Cortex can see right now.</small></div>
+        <div class="card"><div>Adoptable sources</div><strong>${escapeHtml(String(importable))}</strong><small>Importable local sources that can be adopted with explicit permission.</small></div>
+        <div class="card"><div>Metadata-only</div><strong>${escapeHtml(String(metadataOnly))}</strong><small>MCP configs are detected for visibility but are not ingested as memory by default.</small></div>
+        <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>Targets already wired to Cortex MCP.</small></div>
+        <div class="card"><div>Needs attention</div><strong>${escapeHtml(String(alerts + ((audit?.issues || []).length || 0)))}</strong><small>Freshness or audit items that still need a sync or follow-up.</small></div>
+        <div class="card"><div>Graph facts</div><strong>${escapeHtml(String(scan?.total_facts || 0))}</strong><small>Cortex’s current canonical graph size for this workspace.</small></div>
+        <div class="card"><div>Release</div><strong>${escapeHtml(meta?.release?.project_version || "dev")}</strong><small>${escapeHtml(meta?.release?.maturity || "local")} · ${escapeHtml(meta?.backend || "filesystem")} backend</small></div>
       `;
     }
 
-    function updateMetaCard(meta) {
-      const index = meta.index || {};
+    function renderJourney(scan, status, audit) {
+      const detectedTargets = (scan?.adoptable_targets || []).join(" ");
+      const adoptCommand = detectedTargets
+        ? `cortex portable --from-detected ${detectedTargets} --to all --project .`
+        : "cortex portable INPUT --to all --project .";
+      const alerts = collectStatusAlerts(status);
+      const attentionCopy = alerts.length || (audit?.issues || []).length
+        ? "Cortex found at least one target that needs a follow-up sync or a missing-context fix."
+        : "Everything that Cortex can currently see looks fresh, so the next step is improving the content rather than troubleshooting the wiring.";
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Current loop</h4>
+            <p>${escapeHtml(attentionCopy)}</p>
+            <div class="command-block">cortex scan --project .</div>
+            <div class="command-block">${escapeHtml(adoptCommand)}</div>
+            <div class="command-block">cortex remember "New fact" --smart</div>
+            <div class="command-block">cortex sync --smart</div>
+          </div>
+          <div class="item">
+            <h4>Permission boundary</h4>
+            <p>Detection is automatic and read-only. Adoption stays explicit, which keeps local context discovery useful without silently ingesting files the user did not choose.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAdoptableSources(scan) {
+      const grouped = new Map();
+      for (const source of (scan?.adoptable_sources || [])) {
+        const bucket = grouped.get(source.target) || { importable: 0, metadataOnly: 0, paths: [] };
+        if (source.importable) bucket.importable += 1;
+        if (source.metadata_only) bucket.metadataOnly += 1;
+        bucket.paths.push(source.path);
+        grouped.set(source.target, bucket);
+      }
+      if (!grouped.size) {
+        return '<div class="empty">No detected sources yet. Run a portability flow or create context first.</div>';
+      }
+      const items = Array.from(grouped.entries()).map(([target, info]) => `
+        <div class="item">
+          <h4>${escapeHtml(target)}</h4>
+          <div class="meta-row">
+            <span class="pill good">${escapeHtml(String(info.importable))} importable</span>
+            <span class="pill info">${escapeHtml(String(info.metadataOnly))} metadata only</span>
+          </div>
+          <div class="path-list">
+            ${info.paths.slice(0, 4).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("")}
+          </div>
+        </div>
+      `).join("");
+      return `<div class="list">${items}</div>`;
+    }
+
+    function renderHealthSummary(meta, health, scan, status) {
+      const alerts = collectStatusAlerts(status);
+      const index = meta?.index || {};
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Workspace state</h4>
+            <p><strong>Workspace:</strong> <span class="mono">${escapeHtml(meta?.workspace_dir || "(unknown)")}</span></p>
+            <p><strong>Store:</strong> <span class="mono">${escapeHtml(meta?.store_dir || "(unknown)")}</span></p>
+            <p><strong>Graph path:</strong> <span class="mono">${escapeHtml(scan?.graph_path || "portable/context.json")}</span></p>
+            <p><strong>Current branch:</strong> <span class="mono">${escapeHtml(meta?.current_branch || "main")}</span></p>
+            <p><strong>HEAD:</strong> <span class="mono">${escapeHtml(shortRef(meta?.head || "(empty)"))}</span></p>
+          </div>
+          <div class="item">
+            <h4>Release & index</h4>
+            <p><strong>Release:</strong> ${escapeHtml(meta?.release?.project_version || "dev")} (${escapeHtml(meta?.release?.maturity || "local")})</p>
+            <p><strong>Backend:</strong> ${escapeHtml(meta?.backend || "filesystem")}</p>
+            <p><strong>Index mode:</strong> ${escapeHtml(index.persistent ? "persistent" : "graph checkout")}</p>
+            <p>${escapeHtml(index.message || "Index is ready.")}</p>
+            <p><strong>Open alerts:</strong> ${escapeHtml(String(alerts.length))}</p>
+          </div>
+        </div>
+        ${renderRawDetails("Raw health payload", health)}
+      `;
+    }
+
+    function renderMetricsSummary(metrics, pruneStatus) {
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Observability</h4>
+            <p><strong>Requests:</strong> ${escapeHtml(String(metrics?.requests_total ?? 0))}</p>
+            <p><strong>Errors:</strong> ${escapeHtml(String(metrics?.errors_total ?? 0))}</p>
+            <p><strong>Backend:</strong> ${escapeHtml(metrics?.backend || "filesystem")}</p>
+            <p><strong>Current branch:</strong> ${escapeHtml(metrics?.current_branch || "main")}</p>
+          </div>
+          <div class="item">
+            <h4>Maintenance</h4>
+            <p><strong>Stale merge artifacts:</strong> ${escapeHtml(String((pruneStatus?.stale_merge_artifacts || []).length))}</p>
+            <p><strong>Pending prune audit entries:</strong> ${escapeHtml(String((pruneStatus?.audit_entries || []).length || 0))}</p>
+          </div>
+        </div>
+        ${renderRawDetails("Raw metrics payload", metrics)}
+      `;
+    }
+
+    function updateMetaCard(meta, scan, status) {
+      const alerts = collectStatusAlerts(status).length;
       document.getElementById("meta-card").innerHTML = `
-        <div><strong>Store</strong><span class="mono">${escapeHtml(meta.store_dir)}</span></div>
-        <div style="margin-top:10px;"><strong>Backend</strong><span class="mono">${escapeHtml(meta.backend || "filesystem")}</span></div>
-        <div style="margin-top:10px;"><strong>Branch</strong><span class="mono">${escapeHtml(meta.current_branch || "main")}</span></div>
-        <div style="margin-top:10px;"><strong>HEAD</strong><span class="mono">${escapeHtml(meta.head || "(empty)")}</span></div>
-        <div style="margin-top:10px;"><strong>Index</strong><span class="mono">${escapeHtml(index.persistent ? "persistent" : "graph checkout")}</span></div>
-        <div style="margin-top:10px;"><strong>Logs</strong><span class="mono">${escapeHtml(meta.log_path || "(not configured)")}</span></div>
+        <div class="meta-block"><strong>Workspace</strong><div class="mono">${escapeHtml(meta?.workspace_dir || "(unknown)")}</div></div>
+        <div class="meta-block"><strong>Store</strong><div class="mono">${escapeHtml(meta?.store_dir || "(unknown)")}</div></div>
+        <div class="meta-block"><strong>Coverage</strong><div class="mono">${escapeHtml(percent(scan?.coverage || 0))}</div></div>
+        <div class="meta-block"><strong>Detected tools</strong><div class="mono">${escapeHtml(String((scan?.tools || []).length))}</div></div>
+        <div class="meta-block"><strong>Needs attention</strong><div class="mono">${escapeHtml(String(alerts))}</div></div>
       `;
     }
 
-    async function loadOverview(trigger) {
+    function renderToolsSummary(scan) {
+      const tools = scan?.tools || [];
+      const mcpReady = tools.filter((tool) => tool.cortex_mcp_configured).length;
+      const metadataOnly = (scan?.adoptable_sources || []).filter((source) => source.metadata_only).length;
+      return `
+        <div class="cards">
+          <div class="card"><div>Targets</div><strong>${escapeHtml(String(tools.length))}</strong><small>Local tools or artifacts that Cortex can inspect right now.</small></div>
+          <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>Targets already configured to consume Cortex over MCP.</small></div>
+          <div class="card"><div>Metadata-only detections</div><strong>${escapeHtml(String(metadataOnly))}</strong><small>Configs detected for visibility only, not memory ingestion.</small></div>
+        </div>
+      `;
+    }
+
+    function renderTools(scan, status) {
+      const tools = [...(scan?.tools || [])].sort((left, right) => (right.fact_count || 0) - (left.fact_count || 0));
+      const statusMap = new Map((status?.issues || []).map((issue) => [issue.target, issue]));
+      if (!tools.length) {
+        document.getElementById("tools-list").innerHTML = '<div class="empty">No local tools detected yet.</div>';
+        return;
+      }
+      document.getElementById("tools-list").innerHTML = tools.map((tool) => {
+        const issue = statusMap.get(tool.target);
+        const hasAlert = issue && (
+          Boolean(issue.stale) ||
+          (issue.missing_labels || []).length > 0 ||
+          (issue.unexpected_labels || []).length > 0 ||
+          (issue.missing_paths || []).length > 0
+        );
+        const statusPill = tool.cortex_mcp_configured
+          ? '<span class="pill good">Cortex MCP configured</span>'
+          : hasAlert
+            ? '<span class="pill warn">Needs attention</span>'
+            : '<span class="pill info">File-based sync</span>';
+        const warningLine = hasAlert
+          ? `<p class="warning">${escapeHtml([
+              issue.stale ? "stale target" : "",
+              (issue.missing_labels || []).length ? `${issue.missing_labels.length} missing label(s)` : "",
+              (issue.unexpected_labels || []).length ? `${issue.unexpected_labels.length} unexpected label(s)` : "",
+              (issue.missing_paths || []).length ? `${issue.missing_paths.length} missing path(s)` : "",
+            ].filter(Boolean).join(" · "))}</p>`
+          : "";
+        return `
+          <article class="tool-card">
+            <div class="tool-head">
+              <div>
+                <h4>${escapeHtml(tool.name || tool.target)}</h4>
+                <p class="tool-note">${escapeHtml(tool.note || "No note available.")}</p>
+              </div>
+              <div>${statusPill}</div>
+            </div>
+            <div class="meter"><span style="width:${escapeHtml(String(Math.max(4, Math.round((tool.coverage || 0) * 100))))}%"></span></div>
+            <div class="meta-row">
+              <span class="pill">${escapeHtml(String(tool.fact_count || 0))} facts</span>
+              <span class="pill">${escapeHtml(percent(tool.coverage || 0))} coverage</span>
+              <span class="pill">${escapeHtml(String(tool.mcp_server_count || 0))} MCP server(s)</span>
+            </div>
+            ${warningLine}
+            <div class="path-list">
+              ${(tool.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no local path recorded)</div>'}
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function populateContextTargets(scan) {
+      const select = document.getElementById("tools-context-target");
+      const current = select.value;
+      const tools = scan?.tools || [];
+      select.innerHTML = tools.map((tool) => {
+        const value = tool.target || "";
+        const selected = value === current || (!current && tools[0]?.target === value) ? ' selected' : '';
+        return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(tool.name || value)}</option>`;
+      }).join("");
+    }
+
+    function renderTargetPreview(data) {
+      const markdown = data.context_markdown || JSON.stringify(data.target_payload || {}, null, 2);
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>${escapeHtml(data.name || data.target)}</h4>
+            <p><strong>Mode:</strong> ${escapeHtml(data.mode || "smart")} · <strong>Policy:</strong> ${escapeHtml(data.policy || "full")} · <strong>Consumes as:</strong> ${escapeHtml(data.consume_as || "context")}</p>
+            <div class="meta-row">
+              <span class="pill">${escapeHtml(String(data.fact_count || 0))} routed facts</span>
+              ${(data.route_tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}
+            </div>
+            <div class="path-list">
+              ${(data.paths || []).map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("") || '<div class="mono">(no path for this target)</div>'}
+            </div>
+          </div>
+          <div class="item">
+            <h4>Rendered context</h4>
+            <pre>${escapeHtml(markdown)}</pre>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAuditStatus(status) {
+      const alerts = collectStatusAlerts(status);
+      if (!alerts.length) {
+        return '<div class="item"><h4>All synced</h4><p>Every detected target currently matches the routed context Cortex expects to see.</p></div>';
+      }
+      return `<div class="list">${alerts.map((issue) => `
+        <div class="item">
+          <h4>${escapeHtml(issue.name || issue.target)}</h4>
+          <p>${escapeHtml(issue.stale ? "Target is stale." : "Target differs from the expected routed context.")}</p>
+          ${(issue.missing_labels || []).length ? `<p><strong>Missing labels:</strong> ${escapeHtml(issue.missing_labels.join(", "))}</p>` : ""}
+          ${(issue.unexpected_labels || []).length ? `<p><strong>Unexpected labels:</strong> ${escapeHtml(issue.unexpected_labels.join(", "))}</p>` : ""}
+          ${(issue.missing_paths || []).length ? `<p><strong>Missing paths:</strong> ${escapeHtml(issue.missing_paths.join(", "))}</p>` : ""}
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderAuditIssues(audit) {
+      if (!(audit?.issues || []).length) {
+        return '<div class="item"><h4>No audit issues</h4><p>Cortex did not find any missing-context or portability issues that require immediate intervention.</p></div>';
+      }
+      return `<div class="list">${(audit.issues || []).map((issue) => `
+        <div class="item">
+          <h4>${escapeHtml(issue.target || issue.type || "Issue")}</h4>
+          <p>${escapeHtml(issue.message || "No message provided.")}</p>
+          ${(issue.missing_labels || []).length ? `<p><strong>Missing labels:</strong> ${escapeHtml(issue.missing_labels.join(", "))}</p>` : ""}
+        </div>
+      `).join("")}</div>`;
+    }
+
+    async function loadWorkspace(trigger) {
       return withBusy(trigger, "Refreshing...", async () => {
-        const [meta, health, metrics, pruneStatus] = await Promise.all([
+        const [meta, health, metrics, pruneStatus, scan, status, audit] = await Promise.all([
           api("/api/meta"),
           api("/api/health"),
           api("/api/metrics"),
           api("/api/prune/status"),
+          api("/api/portability/scan"),
+          api("/api/portability/status"),
+          api("/api/portability/audit"),
         ]);
+        workspaceState = { meta, health, metrics, pruneStatus, scan, status, audit };
         defaultContext = meta.context_file || "";
         applyDefaultContext();
-        updateMetaCard(meta);
-        document.getElementById("overview-cards").innerHTML = renderOverviewCards(meta, metrics, pruneStatus);
-        setResult("overview-health", renderKeyValue(health));
-        setResult("overview-metrics", renderKeyValue(metrics));
-        return meta;
+        updateMetaCard(meta, scan, status);
+        document.getElementById("overview-cards").innerHTML = renderOverviewCards(meta, scan, status, audit);
+        setResult("overview-journey", renderJourney(scan, status, audit));
+        setResult("overview-adoptable", renderAdoptableSources(scan));
+        setResult("overview-health", renderHealthSummary(meta, health, scan, status));
+        setResult("overview-metrics", renderMetricsSummary(metrics, pruneStatus));
+        setResult("tools-summary", renderToolsSummary(scan));
+        renderTools(scan, status);
+        setResult("audit-status", renderAuditStatus(status));
+        setResult("audit-issues", renderAuditIssues(audit));
+        populateContextTargets(scan);
       });
     }
 
     async function loadMetrics(trigger) {
       return withBusy(trigger, "Refreshing...", async () => {
         const metrics = await api("/api/metrics");
-        setResult("overview-metrics", renderKeyValue(metrics));
+        workspaceState.metrics = metrics;
+        setResult("overview-metrics", renderMetricsSummary(metrics, workspaceState.pruneStatus || {}));
+      });
+    }
+
+    async function previewTargetContext(trigger) {
+      return withBusy(trigger, "Previewing...", async () => {
+        try {
+          const target = document.getElementById("tools-context-target").value.trim();
+          if (!target) {
+            setEmpty("tools-context-result", "Pick a target first to preview its routed context.");
+            return;
+          }
+          const maxChars = numericValue("tools-context-max-chars", 700);
+          const data = await api(`/api/portability/context?target=${encodeURIComponent(target)}&smart=true&max_chars=${encodeURIComponent(maxChars)}`);
+          setResult("tools-context-result", renderTargetPreview(data));
+        } catch (err) {
+          setError("tools-context-result", err);
+        }
       });
     }
 
@@ -1058,8 +1593,7 @@ UI_HTML = """<!doctype html>
               <div class="card"><div>Semantic</div><strong>${summary.semantic_changes ?? 0}</strong></div>
             </div>
             <div class="list">${semantic || '<div class="empty">No semantic changes detected.</div>'}</div>
-            <h3>Raw review</h3>
-            ${renderKeyValue(data)}
+            ${renderRawDetails("Raw review payload", data)}
           `);
         } catch (err) {
           setError("review-result", err);
@@ -1081,7 +1615,7 @@ UI_HTML = """<!doctype html>
               limit: numericValue("blame-limit", 20),
             }),
           });
-          setResult("blame-result", `${renderBlameNodes(data.nodes || [])}<h3>Raw blame</h3>${renderKeyValue(data)}`);
+          setResult("blame-result", `${renderBlameNodes(data.nodes || [])}${renderRawDetails("Raw blame payload", data)}`);
         } catch (err) {
           setError("blame-result", err);
         }
@@ -1102,7 +1636,7 @@ UI_HTML = """<!doctype html>
               limit: numericValue("history-limit", 20),
             }),
           });
-          setResult("history-result", `${renderBlameNodes(data.nodes || [])}<h3>Raw history</h3>${renderKeyValue(data)}`);
+          setResult("history-result", `${renderBlameNodes(data.nodes || [])}${renderRawDetails("Raw history payload", data)}`);
         } catch (err) {
           setError("history-result", err);
         }
@@ -1188,7 +1722,7 @@ UI_HTML = """<!doctype html>
               <h4>${escapeHtml(data.allowed ? "ALLOW" : "DENY")}</h4>
               <p>${escapeHtml((data.reasons || []).join(" | ") || "No additional reasons.")}</p>
             </div>
-            ${renderKeyValue(data)}
+            ${renderRawDetails("Raw governance payload", data)}
           `);
         } catch (err) {
           setError("governance-check-result", err);
@@ -1241,7 +1775,7 @@ UI_HTML = """<!doctype html>
           });
           setResult("remote-activity-result", `<div class="item"><h4>Remote added</h4><p>The remote is ready for sync operations.</p></div>`);
           await loadRemotes();
-          await loadOverview();
+          await loadWorkspace();
         } catch (err) {
           setError("remote-activity-result", err);
         }
@@ -1274,8 +1808,8 @@ UI_HTML = """<!doctype html>
               to_branch: document.getElementById("remote-push-target").value.trim(),
             }),
           });
-          setResult("remote-activity-result", `<div class="item"><h4>Pushed</h4><p>${escapeHtml(data.branch)} -> ${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)}</p></div>${renderKeyValue(data)}`);
-          await loadOverview();
+          setResult("remote-activity-result", `<div class="item"><h4>Pushed</h4><p>${escapeHtml(data.branch)} -> ${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)}</p></div>${renderRawDetails("Raw push payload", data)}`);
+          await loadWorkspace();
         } catch (err) {
           setError("remote-activity-result", err);
         }
@@ -1293,8 +1827,8 @@ UI_HTML = """<!doctype html>
               into_branch: document.getElementById("remote-pull-into").value.trim(),
             }),
           });
-          setResult("remote-activity-result", `<div class="item"><h4>Pulled</h4><p>${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)} -> ${escapeHtml(data.branch)}</p></div>${renderKeyValue(data)}`);
-          await loadOverview();
+          setResult("remote-activity-result", `<div class="item"><h4>Pulled</h4><p>${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)} -> ${escapeHtml(data.branch)}</p></div>${renderRawDetails("Raw pull payload", data)}`);
+          await loadWorkspace();
         } catch (err) {
           setError("remote-activity-result", err);
         }
@@ -1312,8 +1846,8 @@ UI_HTML = """<!doctype html>
               remote_branch: document.getElementById("remote-pull-branch").value.trim(),
             }),
           });
-          setResult("remote-activity-result", `<div class="item"><h4>Forked</h4><p>${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)} -> ${escapeHtml(data.branch)}</p></div>${renderKeyValue(data)}`);
-          await loadOverview();
+          setResult("remote-activity-result", `<div class="item"><h4>Forked</h4><p>${escapeHtml(data.remote)}:${escapeHtml(data.remote_branch)} -> ${escapeHtml(data.branch)}</p></div>${renderRawDetails("Raw fork payload", data)}`);
+          await loadWorkspace();
         } catch (err) {
           setError("remote-activity-result", err);
         }
@@ -1343,7 +1877,7 @@ UI_HTML = """<!doctype html>
             }),
           });
           setResult("ops-index-result", renderKeyValue(data));
-          await loadOverview();
+          await loadWorkspace();
         } catch (err) {
           setError("ops-index-result", err);
         }
@@ -1355,6 +1889,7 @@ UI_HTML = """<!doctype html>
         try {
           const retention = numericValue("ops-retention-days", 7);
           const data = await api(`/api/prune/status?retention_days=${encodeURIComponent(retention)}`);
+          workspaceState.pruneStatus = data;
           setResult("ops-prune-result", renderKeyValue(data));
         } catch (err) {
           setError("ops-prune-result", err);
@@ -1374,7 +1909,7 @@ UI_HTML = """<!doctype html>
           });
           setResult("ops-prune-result", renderKeyValue(data));
           await loadPruneAudit();
-          await loadOverview();
+          await loadWorkspace();
         } catch (err) {
           setError("ops-prune-result", err);
         }
@@ -1422,7 +1957,7 @@ UI_HTML = """<!doctype html>
     async function bootstrap() {
       try {
         activatePanel(window.location.hash.replace(/^#/, "") || "overview", false);
-        await loadOverview();
+        await loadWorkspace();
         await Promise.all([
           loadGovernance(),
           loadRemotes(),
@@ -1430,6 +1965,7 @@ UI_HTML = """<!doctype html>
           loadPruneStatus(),
           loadPruneAudit(),
         ]);
+        await previewTargetContext();
       } catch (err) {
         document.getElementById("meta-card").innerHTML = `<span class="danger">${escapeHtml(err.message || err)}</span>`;
       }
@@ -1454,6 +1990,17 @@ def make_handler(backend: MemoryUIBackend):
             return int(raw)
         except ValueError as exc:
             raise ValueError(f"Invalid integer for {key}: {raw}") from exc
+
+    def query_bool(parsed, key: str, default: bool = False) -> bool:
+        raw = query_value(parsed, key, "")
+        if not raw:
+            return default
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"Invalid boolean for {key}: {raw}")
 
     class MemoryUIHandler(BaseHTTPRequestHandler):
         server_version = "CortexUI/1.0"
@@ -1537,6 +2084,41 @@ def make_handler(backend: MemoryUIBackend):
                     return
                 if parsed.path == "/api/metrics":
                     self._send_json(backend.metrics(), request_id=request_id)
+                    return
+                if parsed.path == "/api/portability/scan":
+                    self._send_json(
+                        backend.portability_scan(
+                            project_dir=query_value(parsed, "project_dir", ""),
+                            metadata_only=query_bool(parsed, "metadata_only", False),
+                        ),
+                        request_id=request_id,
+                    )
+                    return
+                if parsed.path == "/api/portability/status":
+                    self._send_json(
+                        backend.portability_status(project_dir=query_value(parsed, "project_dir", "")),
+                        request_id=request_id,
+                    )
+                    return
+                if parsed.path == "/api/portability/audit":
+                    self._send_json(
+                        backend.portability_audit(project_dir=query_value(parsed, "project_dir", "")),
+                        request_id=request_id,
+                    )
+                    return
+                if parsed.path == "/api/portability/context":
+                    target = query_value(parsed, "target", "").strip()
+                    if not target:
+                        raise ValueError("target is required")
+                    self._send_json(
+                        backend.portability_context(
+                            target=target,
+                            project_dir=query_value(parsed, "project_dir", ""),
+                            smart=query_bool(parsed, "smart", True),
+                            max_chars=query_int(parsed, "max_chars", 900),
+                        ),
+                        request_id=request_id,
+                    )
                     return
                 if parsed.path == "/api/governance/rules":
                     self._send_json(backend.list_governance_rules(), request_id=request_id)

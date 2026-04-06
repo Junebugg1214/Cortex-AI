@@ -45,14 +45,17 @@ def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dic
     return handler._status, handler._headers, body
 
 
-def test_webapp_html_mentions_all_major_surfaces():
-    assert "Overview" in UI_HTML
-    assert "Review" in UI_HTML
-    assert "Blame" in UI_HTML
-    assert "History" in UI_HTML
-    assert "Governance" in UI_HTML
-    assert "Remote" in UI_HTML
-    assert "Operations" in UI_HTML
+def test_webapp_html_mentions_current_primary_surfaces():
+    assert "Portable AI context, without the archaeology" in UI_HTML
+    assert "Workspace Overview" in UI_HTML
+    assert "Connected Tools" in UI_HTML
+    assert "Freshness & Gaps" in UI_HTML
+    assert "Review & Trace" in UI_HTML
+    assert "Advanced Controls" in UI_HTML
+    assert "/api/portability/scan" in UI_HTML
+    assert "/api/portability/status" in UI_HTML
+    assert "/api/portability/audit" in UI_HTML
+    assert "/api/portability/context" in UI_HTML
 
 
 def test_webapp_backend_meta_review_and_blame(tmp_path):
@@ -277,10 +280,86 @@ def test_webapp_handler_exposes_operations_endpoints(tmp_path):
     assert html_headers["X-Request-ID"]
     assert meta_headers["X-Request-ID"]
     assert rebuild_headers["X-Request-ID"]
-    assert "Overview" in html
+    assert "Workspace Overview" in html
     assert meta["backend"] == "sqlite"
     assert index["persistent"] is True
     assert rebuild["rebuilt"] == 1
     assert prune_status["status"] == "ok"
     assert audit["entries"] == []
     assert metrics["requests_total"] >= 5
+
+
+def test_webapp_handler_exposes_portability_endpoints(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+
+    def portability_scan(*, project_dir: str = "", metadata_only: bool = False):
+        return {
+            "status": "ok",
+            "graph_path": "portable/context.json",
+            "coverage": 0.5,
+            "known_facts": 3,
+            "total_facts": 6,
+            "tools": [],
+            "adoptable_sources": [],
+            "metadata_only_targets": [],
+            "adoptable_targets": [],
+            "project_dir": project_dir,
+            "metadata_only": metadata_only,
+        }
+
+    def portability_status(*, project_dir: str = ""):
+        return {"status": "ok", "issues": [], "project_dir": project_dir}
+
+    def portability_audit(*, project_dir: str = ""):
+        return {"status": "ok", "issues": [], "project_dir": project_dir}
+
+    def portability_context(
+        *,
+        target: str,
+        project_dir: str = "",
+        smart: bool | None = True,
+        max_chars: int = 900,
+    ):
+        return {
+            "status": "ok",
+            "target": target,
+            "project_dir": project_dir,
+            "smart": smart,
+            "max_chars": max_chars,
+            "context_markdown": "## Shared AI Context",
+        }
+
+    ui_backend.portability_scan = portability_scan
+    ui_backend.portability_status = portability_status
+    ui_backend.portability_audit = portability_audit
+    ui_backend.portability_context = portability_context
+
+    handler_cls = make_handler(ui_backend)
+
+    scan_status, _, scan_body = _invoke_handler(
+        handler_cls, path="/api/portability/scan?metadata_only=true", method="GET"
+    )
+    status_status, _, status_body = _invoke_handler(handler_cls, path="/api/portability/status", method="GET")
+    audit_status, _, audit_body = _invoke_handler(handler_cls, path="/api/portability/audit", method="GET")
+    context_status, _, context_body = _invoke_handler(
+        handler_cls,
+        path="/api/portability/context?target=codex&smart=false&max_chars=333",
+        method="GET",
+    )
+
+    scan = json.loads(scan_body)
+    status = json.loads(status_body)
+    audit = json.loads(audit_body)
+    context = json.loads(context_body)
+
+    assert scan_status == 200
+    assert status_status == 200
+    assert audit_status == 200
+    assert context_status == 200
+    assert scan["metadata_only"] is True
+    assert status["issues"] == []
+    assert audit["issues"] == []
+    assert context["target"] == "codex"
+    assert context["smart"] is False
+    assert context["max_chars"] == 333
