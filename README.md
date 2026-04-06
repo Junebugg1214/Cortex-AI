@@ -106,6 +106,7 @@ Over MCP, `portability_scan` is intentionally metadata-only by default: it repor
 - Messaging runtime integration: OpenClaw, Hermes, Telegram, and WhatsApp design plus the minimum adapter API. See [docs/CHANNEL_INTEGRATIONS.md](docs/CHANNEL_INTEGRATIONS.md).
 - OpenClaw-native plugin package: real `@cortex/openclaw` package scaffold with managed `cortex-mcp`, live prompt injection hooks, and per-user/per-thread memory seeding. See [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md).
 - Portability reference docs: extraction, sync, routing, artifacts, and platform notes. See [docs/PORTABILITY.md](docs/PORTABILITY.md).
+- Brainpacks foundation: compile local source files into a Brainpack wiki, graph, claim candidates, and unknowns, then render routed context from the pack. See [docs/BRAINPACKS.md](docs/BRAINPACKS.md).
 
 ## Uninstall
 

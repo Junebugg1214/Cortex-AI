@@ -20,6 +20,7 @@ from cortex.merge import (
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
+from cortex.packs import compile_pack, list_packs, pack_status, render_pack_context
 from cortex.portable_runtime import (
     audit_portability,
     render_portability_context,
@@ -494,6 +495,56 @@ class MemoryService:
         payload = audit_portability(
             store_dir=self.store_dir,
             project_dir=project_path,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_list(self) -> dict[str, Any]:
+        payload = list_packs(self.store_dir)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_status(self, *, name: str) -> dict[str, Any]:
+        payload = pack_status(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_compile(
+        self,
+        *,
+        name: str,
+        incremental: bool = True,
+        suggest_questions: bool = True,
+        max_summary_chars: int = 1200,
+    ) -> dict[str, Any]:
+        payload = compile_pack(
+            self.store_dir,
+            name,
+            incremental=incremental,
+            suggest_questions=suggest_questions,
+            max_summary_chars=max_summary_chars,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_context(
+        self,
+        *,
+        name: str,
+        target: str,
+        project_dir: str = "",
+        smart: bool = True,
+        policy: str = "technical",
+        max_chars: int = 1500,
+    ) -> dict[str, Any]:
+        payload = render_pack_context(
+            self.store_dir,
+            name,
+            target=target,
+            project_dir=project_dir,
+            smart=smart,
+            policy_name=policy,
+            max_chars=max_chars,
         )
         payload["release"] = self.release()
         return payload

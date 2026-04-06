@@ -287,6 +287,72 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="pack_list",
+                title="List Brainpacks",
+                description="List local Brainpacks compiled and stored inside the Cortex workspace.",
+                method_name="pack_list",
+                input_schema=_object_schema({}, include_namespace=False),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="pack_status",
+                title="Brainpack Status",
+                description="Inspect one Brainpack: source counts, compile status, wiki size, graph size, and unknowns.",
+                method_name="pack_status",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                    },
+                    required=("name",),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="pack_context",
+                title="Brainpack Context",
+                description="Render a routed context slice from a compiled Brainpack for a specific target runtime.",
+                method_name="pack_context",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "target": _string_property(
+                            "Target tool such as hermes, codex, cursor, claude-code, or chatgpt."
+                        ),
+                        "project_dir": _string_property(
+                            "Optional working directory used to focus project-relevant context."
+                        ),
+                        "smart": _boolean_property("When true, use the target's smart routed slice."),
+                        "policy": _string_property("Disclosure policy to use when smart routing is disabled."),
+                        "max_chars": _integer_property("Maximum size of the rendered context markdown."),
+                    },
+                    required=("name", "target"),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="pack_compile",
+                title="Compile Brainpack",
+                description="Compile a Brainpack into wiki pages, a graph, claim candidates, and unknowns.",
+                method_name="pack_compile",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "incremental": _boolean_property("Record this compile as incremental."),
+                        "suggest_questions": _boolean_property("Suggest follow-up unknowns while compiling."),
+                        "max_summary_chars": _integer_property("Summary length cap for generated wiki pages."),
+                    },
+                    required=("name",),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="channel_prepare_turn",
                 title="Prepare Channel Turn",
                 description=(
