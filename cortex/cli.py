@@ -1243,6 +1243,38 @@ def build_parser(*, show_all_commands: bool = False):
     pk_context.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
     pk_context.add_argument("--format", choices=["json", "text"], default="text")
 
+    pk_query = pk_sub.add_parser(
+        "query", help="Search a compiled Brainpack across concepts, claims, wiki, and artifacts"
+    )
+    pk_query.add_argument("name", help="Brainpack name")
+    pk_query.add_argument("query", help="Question or search query")
+    pk_query.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_query.add_argument(
+        "--mode",
+        choices=["hybrid", "concepts", "claims", "wiki", "unknowns", "artifacts"],
+        default="hybrid",
+        help="Limit the search to a specific slice of the pack",
+    )
+    pk_query.add_argument("--limit", type=int, default=8, help="Maximum number of ranked results")
+    pk_query.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_ask = pk_sub.add_parser(
+        "ask", help="Answer a question against a Brainpack and write the result back as an artifact"
+    )
+    pk_ask.add_argument("name", help="Brainpack name")
+    pk_ask.add_argument("question", help="Question to answer")
+    pk_ask.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_ask.add_argument("--output", choices=["note", "report", "slides"], default="note", help="Artifact format")
+    pk_ask.add_argument("--limit", type=int, default=8, help="Maximum number of supporting ranked results to use")
+    pk_ask.add_argument(
+        "--no-write-back",
+        dest="write_back",
+        action="store_false",
+        help="Return the generated answer without saving an artifact",
+    )
+    pk_ask.set_defaults(write_back=True)
+    pk_ask.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -4771,7 +4803,16 @@ def run_portable(args):
 
 
 def run_pack(args):
-    from cortex.packs import compile_pack, ingest_pack, init_pack, list_packs, pack_status, render_pack_context
+    from cortex.packs import (
+        ask_pack,
+        compile_pack,
+        ingest_pack,
+        init_pack,
+        list_packs,
+        pack_status,
+        query_pack,
+        render_pack_context,
+    )
 
     store_dir = Path(args.store_dir)
 
@@ -4895,7 +4936,66 @@ def run_pack(args):
             _echo(payload["message"])
         return 0
 
-    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context")
+    if args.pack_subcommand == "query":
+        try:
+            payload = query_pack(
+                store_dir,
+                args.name,
+                args.query,
+                limit=args.limit,
+                mode=args.mode,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Brainpack `{payload['pack']}` query: {payload['query']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['total_matches']} ranked matches",
+                    f"{payload['counts']['claims']} claims",
+                    f"{payload['counts']['wiki']} source pages",
+                    f"{payload['counts']['artifacts']} artifacts",
+                ]
+            )
+        )
+        if not payload["results"]:
+            _echo("  No strong matches yet. Try compiling more sources or broadening the query.")
+            return 0
+        _echo("")
+        for item in payload["results"]:
+            extra = item.get("path") or item.get("source_path") or ""
+            suffix = f" ({extra})" if extra else ""
+            _echo(f"- [{item['kind']}] {item['title']}: {item.get('summary', '')}{suffix}".rstrip())
+        return 0
+
+    if args.pack_subcommand == "ask":
+        try:
+            payload = ask_pack(
+                store_dir,
+                args.name,
+                args.question,
+                output=args.output,
+                limit=args.limit,
+                write_back=args.write_back,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Brainpack `{payload['pack']}` answered: {payload['question']}")
+        _echo(f"  {payload['summary']}")
+        if payload["artifact_written"]:
+            _echo(f"  saved: {payload['artifact_path']}")
+        elif payload["message"]:
+            _echo(f"  {payload['message']}")
+        _echo("")
+        _echo(payload["answer_markdown"], force=True)
+        return 0
+
+    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask")
 
 
 def run_scan(args):

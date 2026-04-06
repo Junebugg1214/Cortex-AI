@@ -5,12 +5,14 @@ from pathlib import Path
 
 from cortex.cli import main
 from cortex.packs import (
+    ask_pack,
     compile_pack,
     ingest_pack,
     init_pack,
     list_packs,
     load_manifest,
     pack_status,
+    query_pack,
     render_pack_context,
 )
 
@@ -67,6 +69,41 @@ def test_pack_ingest_compile_status_and_context(tmp_path):
     assert context["consume_as"] == "custom_instructions"
     assert context["fact_count"] >= 1
     assert "Identity" in context["context_markdown"] or "Role" in context["context_markdown"]
+
+
+def test_pack_query_and_ask_write_back_artifact(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "memory.md"
+    _seed_source(source)
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+
+    query_payload = query_pack(store_dir, "ai-memory", "portable brain-state infrastructure", limit=5)
+    ask_payload = ask_pack(
+        store_dir,
+        "ai-memory",
+        "What does this Brainpack say about portable brain-state infrastructure?",
+        output="report",
+        limit=6,
+        write_back=True,
+    )
+    refreshed = pack_status(store_dir, "ai-memory")
+
+    assert query_payload["total_matches"] >= 1
+    assert any(item["kind"] in {"concept", "claim", "wiki"} for item in query_payload["results"])
+    assert ask_payload["artifact_written"] is True
+    assert ask_payload["artifact_path"]
+    assert Path(ask_payload["artifact_path"]).exists()
+    assert "Executive Summary" in ask_payload["answer_markdown"]
+    assert refreshed["artifact_count"] >= 1
+
+    artifact_query = query_pack(
+        store_dir, "ai-memory", "portable brain-state infrastructure", mode="artifacts", limit=5
+    )
+    assert artifact_query["counts"]["artifacts"] >= 1
+    assert artifact_query["artifacts"][0]["path"].startswith("artifacts/reports/")
 
 
 def test_cli_pack_round_trip(tmp_path, capsys):
@@ -135,3 +172,42 @@ def test_cli_pack_round_trip(tmp_path, capsys):
     context_payload = json.loads(capsys.readouterr().out)
     assert context_payload["target"] == "hermes"
     assert context_payload["consume_as"] == "hermes_memory"
+
+    assert (
+        main(
+            [
+                "pack",
+                "query",
+                "brain-layer",
+                "portable brain-state",
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    query_payload = json.loads(capsys.readouterr().out)
+    assert query_payload["total_matches"] >= 1
+
+    assert (
+        main(
+            [
+                "pack",
+                "ask",
+                "brain-layer",
+                "What does this pack say about portable brain-state infrastructure?",
+                "--store-dir",
+                str(store_dir),
+                "--output",
+                "note",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    ask_payload = json.loads(capsys.readouterr().out)
+    assert ask_payload["artifact_written"] is True
+    assert ask_payload["artifact_path"]
