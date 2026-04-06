@@ -318,7 +318,9 @@ class CortexMCPServer:
                 input_schema=_object_schema(
                     {
                         "name": _string_property("Brainpack name."),
-                        "target": _string_property("Target tool such as hermes, codex, cursor, claude-code, or chatgpt."),
+                        "target": _string_property(
+                            "Target tool such as hermes, codex, cursor, claude-code, or chatgpt."
+                        ),
                         "project_dir": _string_property(
                             "Optional working directory used to focus project-relevant context."
                         ),

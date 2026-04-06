@@ -312,9 +312,9 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         arguments={"name": "ai-memory", "suggest_questions": True, "max_summary_chars": 240},
         request_id=20,
     )["result"]["structuredContent"]
-    status_payload = _tool_call(server, tool="pack_status", arguments={"name": "ai-memory"}, request_id=21)[
-        "result"
-    ]["structuredContent"]
+    status_payload = _tool_call(server, tool="pack_status", arguments={"name": "ai-memory"}, request_id=21)["result"][
+        "structuredContent"
+    ]
     list_payload = _tool_call(server, tool="pack_list", request_id=22)["result"]["structuredContent"]
     context_payload = _tool_call(
         server,

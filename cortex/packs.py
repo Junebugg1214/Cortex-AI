@@ -168,15 +168,15 @@ def _write_text(path: Path, text: str) -> None:
 
 def _write_manifest(path: Path, manifest: BrainpackManifest) -> None:
     lines = [
-        f'name = {json.dumps(manifest.name)}',
-        f'description = {json.dumps(manifest.description)}',
-        f'owner = {json.dumps(manifest.owner)}',
-        f'default_policy = {json.dumps(manifest.default_policy)}',
+        f"name = {json.dumps(manifest.name)}",
+        f"description = {json.dumps(manifest.description)}",
+        f"owner = {json.dumps(manifest.owner)}",
+        f"default_policy = {json.dumps(manifest.default_policy)}",
         f"auto_backlink = {'true' if manifest.auto_backlink else 'false'}",
         f"auto_promote_claims = {'true' if manifest.auto_promote_claims else 'false'}",
         f"store_outputs = {'true' if manifest.store_outputs else 'false'}",
-        f'created_at = {json.dumps(manifest.created_at)}',
-        f'updated_at = {json.dumps(manifest.updated_at)}',
+        f"created_at = {json.dumps(manifest.created_at)}",
+        f"updated_at = {json.dumps(manifest.updated_at)}",
         "",
         "[sources]",
         "glob = [",
@@ -838,5 +838,7 @@ def render_pack_context(
         "consume_as": consume_as,
         "target_payload": target_payload,
         "graph": filtered.export_v5(),
-        "message": "" if facts else "This Brainpack compiled successfully but did not yield routed facts for this target.",
+        "message": ""
+        if facts
+        else "This Brainpack compiled successfully but did not yield routed facts for this target.",
     }
