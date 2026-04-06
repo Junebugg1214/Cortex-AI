@@ -1,0 +1,842 @@
+from __future__ import annotations
+
+import json
+import mimetypes
+import re
+import shutil
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python <3.11 fallback
+    import tomli as tomllib
+
+from cortex.compat import upgrade_v4_to_v5
+from cortex.extract_memory import AggressiveExtractor
+from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.hermes_integration import build_hermes_documents
+from cortex.hooks import HookConfig, generate_compact_context
+from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
+from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
+from cortex.portable_runtime import _policy_for_target, canonical_target_name, display_name
+from cortex.upai.disclosure import apply_disclosure
+
+PACKS_DIRNAME = "packs"
+PACK_SUBDIRS = (
+    "raw",
+    "wiki",
+    "graph",
+    "claims",
+    "unknowns",
+    "artifacts",
+    "indexes",
+)
+TEXT_EXTENSIONS = {
+    ".c",
+    ".cc",
+    ".cfg",
+    ".cpp",
+    ".css",
+    ".csv",
+    ".go",
+    ".h",
+    ".hpp",
+    ".html",
+    ".java",
+    ".js",
+    ".json",
+    ".jsonl",
+    ".jsx",
+    ".md",
+    ".mdx",
+    ".py",
+    ".rb",
+    ".rs",
+    ".rst",
+    ".sh",
+    ".sql",
+    ".svg",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class BrainpackManifest:
+    name: str
+    description: str
+    owner: str
+    created_at: str
+    updated_at: str
+    default_policy: str = "research"
+    auto_backlink: bool = True
+    auto_promote_claims: bool = False
+    store_outputs: bool = True
+    max_summary_chars: int = 1200
+    suggest_questions: bool = True
+    source_glob: tuple[str, ...] = ("raw/**/*",)
+    default_tags: tuple[str, ...] = (
+        "domain_knowledge",
+        "technical_expertise",
+        "active_priorities",
+        "relationships",
+        "constraints",
+    )
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _packs_root(store_dir: Path) -> Path:
+    return Path(store_dir) / PACKS_DIRNAME
+
+
+def _validate_pack_name(name: str) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Pack name is required.")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{1,63}", cleaned):
+        raise ValueError("Pack names must use letters, numbers, '.', '-', or '_' and start with an alphanumeric.")
+    return cleaned
+
+
+def pack_path(store_dir: Path, name: str) -> Path:
+    return _packs_root(store_dir) / _validate_pack_name(name)
+
+
+def manifest_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "manifest.toml"
+
+
+def source_index_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "indexes" / "sources.json"
+
+
+def compile_meta_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "indexes" / "compile.json"
+
+
+def graph_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "graph" / "brainpack.graph.json"
+
+
+def claims_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "claims" / "claims.json"
+
+
+def unknowns_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "unknowns" / "open_questions.json"
+
+
+def _wiki_root(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "wiki"
+
+
+def _wiki_sources_dir(store_dir: Path, name: str) -> Path:
+    return _wiki_root(store_dir, name) / "sources"
+
+
+def _artifacts_root(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "artifacts"
+
+
+def _read_json(path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
+    if not path.exists():
+        return dict(default)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _write_manifest(path: Path, manifest: BrainpackManifest) -> None:
+    lines = [
+        f'name = {json.dumps(manifest.name)}',
+        f'description = {json.dumps(manifest.description)}',
+        f'owner = {json.dumps(manifest.owner)}',
+        f'default_policy = {json.dumps(manifest.default_policy)}',
+        f"auto_backlink = {'true' if manifest.auto_backlink else 'false'}",
+        f"auto_promote_claims = {'true' if manifest.auto_promote_claims else 'false'}",
+        f"store_outputs = {'true' if manifest.store_outputs else 'false'}",
+        f'created_at = {json.dumps(manifest.created_at)}',
+        f'updated_at = {json.dumps(manifest.updated_at)}',
+        "",
+        "[sources]",
+        "glob = [",
+    ]
+    lines.extend(f"  {json.dumps(item)}," for item in manifest.source_glob)
+    lines.extend(
+        [
+            "]",
+            "",
+            "[compile]",
+            f"max_summary_chars = {manifest.max_summary_chars}",
+            f"suggest_questions = {'true' if manifest.suggest_questions else 'false'}",
+            "",
+            "[mount]",
+            "default_tags = [",
+        ]
+    )
+    lines.extend(f"  {json.dumps(item)}," for item in manifest.default_tags)
+    lines.append("]")
+    _write_text(path, "\n".join(lines) + "\n")
+
+
+def load_manifest(store_dir: Path, name: str) -> BrainpackManifest:
+    path = manifest_path(store_dir, name)
+    if not path.exists():
+        raise FileNotFoundError(f"Brainpack '{name}' does not exist.")
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    return BrainpackManifest(
+        name=str(payload.get("name") or name),
+        description=str(payload.get("description") or ""),
+        owner=str(payload.get("owner") or ""),
+        created_at=str(payload.get("created_at") or ""),
+        updated_at=str(payload.get("updated_at") or ""),
+        default_policy=str(payload.get("default_policy") or "research"),
+        auto_backlink=bool(payload.get("auto_backlink", True)),
+        auto_promote_claims=bool(payload.get("auto_promote_claims", False)),
+        store_outputs=bool(payload.get("store_outputs", True)),
+        max_summary_chars=int(payload.get("compile", {}).get("max_summary_chars", 1200)),
+        suggest_questions=bool(payload.get("compile", {}).get("suggest_questions", True)),
+        source_glob=tuple(str(item) for item in payload.get("sources", {}).get("glob", ["raw/**/*"])),
+        default_tags=tuple(str(item) for item in payload.get("mount", {}).get("default_tags", ())),
+    )
+
+
+def _replace_manifest(store_dir: Path, name: str, *, updated_at: str) -> BrainpackManifest:
+    manifest = load_manifest(store_dir, name)
+    updated = BrainpackManifest(
+        name=manifest.name,
+        description=manifest.description,
+        owner=manifest.owner,
+        created_at=manifest.created_at,
+        updated_at=updated_at,
+        default_policy=manifest.default_policy,
+        auto_backlink=manifest.auto_backlink,
+        auto_promote_claims=manifest.auto_promote_claims,
+        store_outputs=manifest.store_outputs,
+        max_summary_chars=manifest.max_summary_chars,
+        suggest_questions=manifest.suggest_questions,
+        source_glob=manifest.source_glob,
+        default_tags=manifest.default_tags,
+    )
+    _write_manifest(manifest_path(store_dir, name), updated)
+    return updated
+
+
+def init_pack(
+    store_dir: Path,
+    name: str,
+    *,
+    description: str = "",
+    owner: str = "",
+    default_policy: str = "research",
+) -> dict[str, Any]:
+    pack_name = _validate_pack_name(name)
+    root = pack_path(store_dir, pack_name)
+    if root.exists():
+        raise FileExistsError(f"Brainpack '{pack_name}' already exists.")
+    created_at = _iso_now()
+    root.mkdir(parents=True, exist_ok=False)
+    for directory in PACK_SUBDIRS:
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    (_wiki_sources_dir(store_dir, pack_name)).mkdir(parents=True, exist_ok=True)
+    manifest = BrainpackManifest(
+        name=pack_name,
+        description=description.strip(),
+        owner=owner.strip(),
+        created_at=created_at,
+        updated_at=created_at,
+        default_policy=default_policy,
+    )
+    _write_manifest(manifest_path(store_dir, pack_name), manifest)
+    _write_json(source_index_path(store_dir, pack_name), {"pack": pack_name, "sources": []})
+    _write_json(
+        compile_meta_path(store_dir, pack_name),
+        {
+            "pack": pack_name,
+            "compile_status": "idle",
+            "compiled_at": "",
+            "source_count": 0,
+            "text_source_count": 0,
+            "graph_nodes": 0,
+            "graph_edges": 0,
+            "article_count": 0,
+            "claim_count": 0,
+            "unknown_count": 0,
+            "artifact_count": 0,
+        },
+    )
+    return {
+        "status": "ok",
+        "created": True,
+        "pack": pack_name,
+        "path": str(root),
+        "manifest": str(manifest_path(store_dir, pack_name)),
+    }
+
+
+def _safe_stem(path: Path) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", path.stem).strip("-").lower()
+    return stem or "source"
+
+
+def _unique_destination(base_dir: Path, relative_path: Path) -> Path:
+    target = base_dir / relative_path
+    if not target.exists():
+        return target
+    stem = target.stem
+    suffix = target.suffix
+    counter = 2
+    while True:
+        candidate = target.with_name(f"{stem}-{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _iter_source_files(path: Path, *, recurse: bool) -> list[Path]:
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        raise FileNotFoundError(path)
+    if recurse:
+        return sorted(item for item in path.rglob("*") if item.is_file())
+    return sorted(item for item in path.iterdir() if item.is_file())
+
+
+def _source_type_for(path: Path, override: str) -> str:
+    if override != "auto":
+        return override
+    suffix = path.suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+        return "image"
+    if suffix in {".csv", ".tsv", ".parquet"}:
+        return "dataset"
+    if suffix in {".md", ".txt", ".rst"}:
+        return "note"
+    if suffix in {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs"}:
+        return "repo"
+    return "article"
+
+
+def _read_text_if_possible(path: Path) -> tuple[str, bool]:
+    if path.suffix.lower() in TEXT_EXTENSIONS:
+        try:
+            return path.read_text(encoding="utf-8"), True
+        except (OSError, UnicodeDecodeError):
+            return "", False
+    mime, _ = mimetypes.guess_type(path.name)
+    if mime and mime.startswith("text/"):
+        try:
+            return path.read_text(encoding="utf-8"), True
+        except (OSError, UnicodeDecodeError):
+            return "", False
+    return "", False
+
+
+def ingest_pack(
+    store_dir: Path,
+    name: str,
+    paths: list[str],
+    *,
+    mode: str = "copy",
+    source_type: str = "auto",
+    recurse: bool = False,
+) -> dict[str, Any]:
+    pack_name = _validate_pack_name(name)
+    root = pack_path(store_dir, pack_name)
+    if not root.exists():
+        raise FileNotFoundError(f"Brainpack '{pack_name}' does not exist.")
+    raw_root = root / "raw"
+    index_payload = _read_json(source_index_path(store_dir, pack_name), default={"pack": pack_name, "sources": []})
+    existing = {str(item["source_path"]): dict(item) for item in index_payload.get("sources", [])}
+    ingested: list[dict[str, Any]] = []
+    for raw_input in paths:
+        source = Path(raw_input).expanduser().resolve()
+        if not source.exists():
+            raise FileNotFoundError(source)
+        input_root = source if source.is_dir() else source.parent
+        for item in _iter_source_files(source, recurse=recurse):
+            stored_path = ""
+            if mode == "copy":
+                relative = item.relative_to(input_root) if source.is_dir() else Path(item.name)
+                if source.is_dir():
+                    relative = Path(_safe_stem(source)) / relative
+                destination = _unique_destination(raw_root, relative)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, destination)
+                stored_path = str(destination.relative_to(root))
+            text_preview, text_eligible = _read_text_if_possible(item)
+            record = {
+                "id": make_node_id(f"{pack_name}:{item}"),
+                "source_path": str(item),
+                "stored_path": stored_path,
+                "mode": mode,
+                "type": _source_type_for(item, source_type),
+                "mime_type": mimetypes.guess_type(item.name)[0] or "",
+                "size_bytes": item.stat().st_size,
+                "ingested_at": _iso_now(),
+                "text_eligible": text_eligible,
+                "preview": " ".join(text_preview.strip().split())[:240] if text_preview else "",
+            }
+            existing[str(item)] = record
+            ingested.append(record)
+
+    payload = {"pack": pack_name, "sources": sorted(existing.values(), key=lambda item: item["source_path"])}
+    _write_json(source_index_path(store_dir, pack_name), payload)
+    _replace_manifest(store_dir, pack_name, updated_at=_iso_now())
+    return {
+        "status": "ok",
+        "pack": pack_name,
+        "mode": mode,
+        "ingested": ingested,
+        "ingested_count": len(ingested),
+        "source_count": len(payload["sources"]),
+    }
+
+
+def _source_file_path(pack_root: Path, record: dict[str, Any]) -> Path:
+    stored_path = str(record.get("stored_path") or "").strip()
+    if stored_path:
+        return pack_root / stored_path
+    return Path(str(record["source_path"]))
+
+
+def _markdown_title(text: str, fallback: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip() or fallback
+        return stripped[:120]
+    return fallback
+
+
+def _markdown_headings(text: str, *, limit: int = 8) -> list[str]:
+    headings: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            headings.append(stripped.lstrip("#").strip())
+        if len(headings) >= limit:
+            break
+    return headings
+
+
+def _compact_summary(text: str, *, limit: int) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    truncated = normalized[: max(limit - 3, 0)].rstrip()
+    for separator in (". ", "; ", ": "):
+        if separator in truncated:
+            candidate = truncated.rsplit(separator, 1)[0].strip()
+            if candidate:
+                return candidate.rstrip(".;:") + "..."
+    return truncated + "..."
+
+
+def _brainpack_root_node(manifest: BrainpackManifest) -> Node:
+    return Node(
+        id=make_node_id(f"brainpack:{manifest.name}"),
+        label=manifest.name.replace("-", " ").replace("_", " ").title(),
+        tags=["brainpack", "domain_knowledge"],
+        confidence=1.0,
+        brief=manifest.description or f"Brainpack for {manifest.name}",
+        full_description=manifest.description,
+        properties={"brainpack": manifest.name, "owner": manifest.owner},
+    )
+
+
+def _source_node(record: dict[str, Any], *, title: str, summary: str) -> Node:
+    return Node(
+        id=make_node_id(f"brainpack-source:{record['id']}"),
+        label=title,
+        tags=["brainpack_source"],
+        confidence=0.9,
+        brief=summary[:240],
+        full_description=summary,
+        properties={
+            "brainpack_source_id": record["id"],
+            "mode": record["mode"],
+            "type": record["type"],
+            "path": record.get("stored_path") or record["source_path"],
+        },
+    )
+
+
+def _claim_payload(graph: CortexGraph) -> list[dict[str, Any]]:
+    claims: list[dict[str, Any]] = []
+    for node in graph.nodes.values():
+        if "brainpack_source" in node.tags or "brainpack" in node.tags:
+            continue
+        claims.append(
+            {
+                "id": node.id,
+                "label": node.label,
+                "tags": list(node.tags),
+                "confidence": round(node.confidence, 2),
+                "brief": node.brief,
+                "source_quotes": list(node.source_quotes[:3]),
+                "provenance": list(node.provenance[:3]),
+            }
+        )
+    claims.sort(key=lambda item: (-item["confidence"], item["label"].lower()))
+    return claims
+
+
+def _build_unknowns(
+    *,
+    manifest: BrainpackManifest,
+    source_summaries: list[dict[str, Any]],
+    graph: CortexGraph,
+    skipped_sources: list[str],
+    suggest_questions: bool,
+) -> list[dict[str, Any]]:
+    unknowns: list[dict[str, Any]] = []
+    if not source_summaries:
+        unknowns.append(
+            {
+                "id": "no-readable-sources",
+                "question": "Which readable notes, articles, repos, or transcripts should be added to this Brainpack?",
+                "reason": "No readable text sources were available to compile.",
+                "type": "coverage_gap",
+            }
+        )
+    for skipped in skipped_sources[:10]:
+        unknowns.append(
+            {
+                "id": make_node_id(f"unknown:{skipped}"),
+                "question": f"What should Cortex learn from {Path(skipped).name} once it has a readable representation?",
+                "reason": "The source was ingested but could not be compiled as text.",
+                "type": "unreadable_source",
+                "source_path": skipped,
+            }
+        )
+    if suggest_questions and graph.nodes:
+        top_tags: list[str] = []
+        for node in graph.nodes.values():
+            for tag in node.tags:
+                if tag not in {"brainpack", "brainpack_source"} and tag not in top_tags:
+                    top_tags.append(tag)
+        for tag in top_tags[:3]:
+            unknowns.append(
+                {
+                    "id": make_node_id(f"{manifest.name}:{tag}:question"),
+                    "question": f"What are the most important unresolved threads in {tag.replace('_', ' ')} for this pack?",
+                    "reason": "Suggested follow-up question generated from the compiled graph.",
+                    "type": "suggested_question",
+                }
+            )
+    return unknowns
+
+
+def _wiki_index(markdown_articles: list[dict[str, Any]], manifest: BrainpackManifest) -> str:
+    lines = [
+        f"# {manifest.name.replace('-', ' ').replace('_', ' ').title()}",
+        "",
+        manifest.description or "LLM-compiled Brainpack wiki.",
+        "",
+        "## Sources",
+        "",
+    ]
+    for article in markdown_articles:
+        rel_path = article["wiki_path"].replace("\\", "/")
+        lines.append(f"- [{article['title']}]({rel_path})")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _wiki_article(record: dict[str, Any], *, title: str, summary: str, headings: list[str], excerpt: str) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        f"- Type: {record['type']}",
+        f"- Mode: {record['mode']}",
+        f"- Source: `{record['source_path']}`",
+    ]
+    if record.get("stored_path"):
+        lines.append(f"- Stored copy: `{record['stored_path']}`")
+    lines.extend(["", "## Summary", "", summary or "No summary available.", ""])
+    if headings:
+        lines.extend(["## Headings", ""])
+        lines.extend(f"- {heading}" for heading in headings)
+        lines.append("")
+    if excerpt:
+        lines.extend(["## Excerpt", "", excerpt, ""])
+    return "\n".join(lines)
+
+
+def compile_pack(
+    store_dir: Path,
+    name: str,
+    *,
+    incremental: bool = True,
+    suggest_questions: bool = True,
+    max_summary_chars: int | None = None,
+) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    pack_root = pack_path(store_dir, name)
+    source_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
+    source_records = list(source_index.get("sources", []))
+    extractor = AggressiveExtractor()
+    readable_sources: list[dict[str, Any]] = []
+    skipped_sources: list[str] = []
+    wiki_articles: list[dict[str, Any]] = []
+    for record in source_records:
+        source_file = _source_file_path(pack_root, record)
+        if not source_file.exists():
+            skipped_sources.append(str(record["source_path"]))
+            continue
+        text, readable = _read_text_if_possible(source_file)
+        if not readable or not text.strip():
+            skipped_sources.append(str(record["source_path"]))
+            continue
+        title = _markdown_title(text, Path(str(record["source_path"])).name)
+        headings = _markdown_headings(text)
+        summary_limit = max_summary_chars or manifest.max_summary_chars
+        summary = _compact_summary(text, limit=summary_limit)
+        excerpt = "\n".join(text.splitlines()[:12]).strip()
+        article_slug = f"{_safe_stem(Path(str(record['source_path'])))}-{record['id'][:8]}"
+        wiki_path = _wiki_sources_dir(store_dir, name) / f"{article_slug}.md"
+        wiki_rel = str(wiki_path.relative_to(_wiki_root(store_dir, name)))
+        _write_text(wiki_path, _wiki_article(record, title=title, summary=summary, headings=headings, excerpt=excerpt))
+        readable_sources.append(
+            {
+                **record,
+                "title": title,
+                "summary": summary,
+                "headings": headings,
+                "wiki_path": wiki_rel,
+                "char_count": len(text),
+            }
+        )
+        wiki_articles.append({"title": title, "wiki_path": wiki_rel})
+        extractor.extract_from_text(text)
+    extractor.post_process()
+    graph = upgrade_v4_to_v5(extractor.context.export())
+
+    root_node = _brainpack_root_node(manifest)
+    graph.add_node(root_node)
+    for record in readable_sources:
+        source_node = _source_node(record, title=record["title"], summary=record["summary"])
+        graph.add_node(source_node)
+        graph.add_edge(
+            Edge(
+                id=make_edge_id(root_node.id, source_node.id, "contains_source"),
+                source_id=root_node.id,
+                target_id=source_node.id,
+                relation="contains_source",
+                confidence=1.0,
+            )
+        )
+
+    compiled_graph_path = graph_path(store_dir, name)
+    _write_json(compiled_graph_path, graph.export_v5())
+
+    claim_items = _claim_payload(graph)
+    _write_json(claims_path(store_dir, name), {"pack": name, "claims": claim_items})
+
+    unknown_items = _build_unknowns(
+        manifest=manifest,
+        source_summaries=readable_sources,
+        graph=graph,
+        skipped_sources=skipped_sources,
+        suggest_questions=suggest_questions and manifest.suggest_questions,
+    )
+    _write_json(unknowns_path(store_dir, name), {"pack": name, "unknowns": unknown_items})
+    _write_json(
+        pack_root / "indexes" / "source_index.json",
+        {"pack": name, "sources": readable_sources, "skipped_sources": skipped_sources},
+    )
+    _write_text(_wiki_root(store_dir, name) / "index.md", _wiki_index(wiki_articles, manifest))
+
+    artifact_count = sum(1 for path in _artifacts_root(store_dir, name).rglob("*") if path.is_file())
+    compiled_at = _iso_now()
+    compile_payload = {
+        "pack": name,
+        "compile_status": "compiled",
+        "compiled_at": compiled_at,
+        "source_count": len(source_records),
+        "text_source_count": len(readable_sources),
+        "graph_nodes": len(graph.nodes),
+        "graph_edges": len(graph.edges),
+        "article_count": len(wiki_articles) + 1,
+        "claim_count": len(claim_items),
+        "unknown_count": len(unknown_items),
+        "artifact_count": artifact_count,
+        "incremental": incremental,
+        "skipped_sources": skipped_sources,
+    }
+    _write_json(compile_meta_path(store_dir, name), compile_payload)
+    _replace_manifest(store_dir, name, updated_at=compiled_at)
+    return {"status": "ok", **compile_payload, "graph_path": str(compiled_graph_path)}
+
+
+def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    source_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
+    compile_meta = _read_json(
+        compile_meta_path(store_dir, name),
+        default={
+            "pack": name,
+            "compile_status": "idle",
+            "compiled_at": "",
+            "source_count": len(source_index.get("sources", [])),
+            "text_source_count": 0,
+            "graph_nodes": 0,
+            "graph_edges": 0,
+            "article_count": 0,
+            "claim_count": 0,
+            "unknown_count": 0,
+            "artifact_count": 0,
+        },
+    )
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "path": str(pack_path(store_dir, name)),
+        "manifest": {
+            "name": manifest.name,
+            "description": manifest.description,
+            "owner": manifest.owner,
+            "default_policy": manifest.default_policy,
+            "created_at": manifest.created_at,
+            "updated_at": manifest.updated_at,
+        },
+        "source_count": len(source_index.get("sources", [])),
+        "text_source_count": int(compile_meta.get("text_source_count", 0)),
+        "graph_nodes": int(compile_meta.get("graph_nodes", 0)),
+        "graph_edges": int(compile_meta.get("graph_edges", 0)),
+        "article_count": int(compile_meta.get("article_count", 0)),
+        "claim_count": int(compile_meta.get("claim_count", 0)),
+        "unknown_count": int(compile_meta.get("unknown_count", 0)),
+        "artifact_count": int(compile_meta.get("artifact_count", 0)),
+        "compiled_at": str(compile_meta.get("compiled_at") or ""),
+        "compile_status": str(compile_meta.get("compile_status") or "idle"),
+    }
+
+
+def list_packs(store_dir: Path) -> dict[str, Any]:
+    root = _packs_root(store_dir)
+    packs: list[dict[str, Any]] = []
+    if root.exists():
+        for path in sorted(root.iterdir()):
+            if not path.is_dir() or not (path / "manifest.toml").exists():
+                continue
+            packs.append(pack_status(store_dir, path.name))
+    return {
+        "status": "ok",
+        "packs": packs,
+        "count": len(packs),
+    }
+
+
+def render_pack_context(
+    store_dir: Path,
+    name: str,
+    *,
+    target: str,
+    smart: bool = True,
+    policy_name: str = "technical",
+    max_chars: int = 1500,
+    project_dir: str = "",
+) -> dict[str, Any]:
+    graph_payload = _read_json(graph_path(store_dir, name), default={})
+    if not graph_payload:
+        raise FileNotFoundError(f"Brainpack '{name}' has not been compiled yet.")
+    graph = CortexGraph.from_v5_json(graph_payload)
+    canonical_target = canonical_target_name(target)
+    resolved_policy_name = policy_name or load_manifest(store_dir, name).default_policy
+    policy, route_tags = _policy_for_target(canonical_target, smart=smart, policy_name=resolved_policy_name)
+    filtered = apply_disclosure(graph, policy)
+    ctx = NormalizedContext.from_v5(filtered.export_v5())
+    context_markdown = ""
+    consume_as = "instruction_markdown"
+    target_payload: dict[str, Any] = {}
+    resolved_project_dir = Path(project_dir).resolve() if project_dir else None
+    if filtered.nodes:
+        if canonical_target == "hermes":
+            documents = build_hermes_documents(ctx, max_chars=max_chars, min_confidence=policy.min_confidence)
+            context_markdown = documents["memory"]
+            consume_as = "hermes_memory"
+            target_payload = {
+                "user_text": documents["user"],
+                "memory_text": documents["memory"],
+                "agents_text": documents["agents"],
+            }
+        elif canonical_target in PORTABLE_DIRECT_TARGETS:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                temp_graph_path = Path(tmp_dir) / f"{canonical_target}.json"
+                _write_json(temp_graph_path, filtered.export_v5())
+                context_markdown = generate_compact_context(
+                    HookConfig(
+                        graph_path=str(temp_graph_path),
+                        policy="full",
+                        max_chars=max_chars,
+                        include_project=False,
+                    ),
+                    cwd=str(resolved_project_dir) if resolved_project_dir is not None else None,
+                )
+        elif canonical_target == "claude":
+            preferences_text = export_claude_preferences(ctx, min_confidence=policy.min_confidence)
+            memories = export_claude_memories(ctx, min_confidence=policy.min_confidence)
+            context_markdown = preferences_text
+            consume_as = "claude_profile"
+            target_payload = {
+                "preferences_text": preferences_text,
+                "memories": memories,
+            }
+        elif canonical_target in {"chatgpt", "grok"}:
+            pack = build_instruction_pack(ctx, min_confidence=policy.min_confidence)
+            context_markdown = pack.combined
+            consume_as = "custom_instructions"
+            target_payload = {
+                "about": pack.about,
+                "respond": pack.respond,
+                "combined": pack.combined,
+            }
+    facts = [
+        {"id": node.id, "label": node.label, "tags": list(node.tags), "confidence": round(node.confidence, 2)}
+        for node in sorted(filtered.nodes.values(), key=lambda item: (-item.confidence, item.label.lower()))
+        if "brainpack_source" not in node.tags and "brainpack" not in node.tags
+    ]
+    return {
+        "status": "ok",
+        "pack": name,
+        "target": canonical_target,
+        "name": display_name(canonical_target),
+        "mode": "smart" if smart else "full",
+        "policy": resolved_policy_name,
+        "route_tags": route_tags,
+        "fact_count": len(facts),
+        "labels": [item["label"] for item in facts],
+        "facts": facts,
+        "graph_path": str(graph_path(store_dir, name)),
+        "project_dir": str(resolved_project_dir) if resolved_project_dir is not None else "",
+        "context_markdown": context_markdown,
+        "consume_as": consume_as,
+        "target_payload": target_payload,
+        "graph": filtered.export_v5(),
+        "message": "" if facts else "This Brainpack compiled successfully but did not yield routed facts for this target.",
+    }

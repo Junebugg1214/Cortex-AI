@@ -5,6 +5,7 @@ from pathlib import Path
 from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
+from cortex.packs import ingest_pack, init_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
@@ -80,6 +81,10 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_scan",
         "portability_status",
         "portability_audit",
+        "pack_list",
+        "pack_status",
+        "pack_context",
+        "pack_compile",
         "channel_prepare_turn",
         "channel_seed_turn_memory",
     } <= names
@@ -279,6 +284,50 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
     assert chatgpt_payload["consume_as"] == "custom_instructions"
     assert chatgpt_payload["target_payload"]["combined"]
     assert chatgpt_payload["target_payload"]["respond"]
+
+
+def test_mcp_brainpack_tools_round_trip(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    source.write_text(
+        (
+            "# Cortex Brainpacks\n\n"
+            "I am Marc.\n"
+            "I use Python and FastAPI.\n"
+            "I am researching portable AI brain-state layers.\n"
+        ),
+        encoding="utf-8",
+    )
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    compile_payload = _tool_call(
+        server,
+        tool="pack_compile",
+        arguments={"name": "ai-memory", "suggest_questions": True, "max_summary_chars": 240},
+        request_id=20,
+    )["result"]["structuredContent"]
+    status_payload = _tool_call(server, tool="pack_status", arguments={"name": "ai-memory"}, request_id=21)[
+        "result"
+    ]["structuredContent"]
+    list_payload = _tool_call(server, tool="pack_list", request_id=22)["result"]["structuredContent"]
+    context_payload = _tool_call(
+        server,
+        tool="pack_context",
+        arguments={"name": "ai-memory", "target": "chatgpt", "smart": True, "max_chars": 900},
+        request_id=23,
+    )["result"]["structuredContent"]
+
+    assert compile_payload["graph_nodes"] >= 3
+    assert status_payload["compile_status"] == "compiled"
+    assert list_payload["count"] == 1
+    assert context_payload["target"] == "chatgpt"
+    assert context_payload["fact_count"] >= 1
 
 
 def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monkeypatch):

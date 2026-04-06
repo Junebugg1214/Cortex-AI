@@ -1184,6 +1184,65 @@ def build_parser(*, show_all_commands: bool = False):
     doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     doc.add_argument("--format", choices=["json", "text"], default="text")
 
+    # -- pack (Brainpacks) -------------------------------------------------
+    pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
+    pk_sub = pk.add_subparsers(dest="pack_subcommand")
+
+    pk_init = pk_sub.add_parser("init", help="Create a new Brainpack skeleton")
+    pk_init.add_argument("name", help="Brainpack name")
+    pk_init.add_argument("--description", default="", help="Short pack description")
+    pk_init.add_argument("--owner", default="", help="Owner name recorded in the manifest")
+    pk_init.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_init.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_list = pk_sub.add_parser("list", help="List local Brainpacks")
+    pk_list.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_ingest = pk_sub.add_parser("ingest", help="Ingest raw files or folders into a Brainpack")
+    pk_ingest.add_argument("name", help="Brainpack name")
+    pk_ingest.add_argument("paths", nargs="+", help="File or directory paths to ingest")
+    pk_ingest.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_ingest.add_argument("--copy", dest="mode", action="store_const", const="copy", default="copy")
+    pk_ingest.add_argument("--reference", dest="mode", action="store_const", const="reference")
+    pk_ingest.add_argument(
+        "--type",
+        dest="source_type",
+        choices=["auto", "article", "paper", "repo", "dataset", "image", "transcript", "note"],
+        default="auto",
+        help="Override source type classification",
+    )
+    pk_ingest.add_argument("--recurse", action="store_true", help="Recurse into directories")
+    pk_ingest.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_compile = pk_sub.add_parser("compile", help="Compile a Brainpack into wiki, graph, claims, and unknowns")
+    pk_compile.add_argument("name", help="Brainpack name")
+    pk_compile.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_compile.add_argument("--incremental", action="store_true", help="Record this compile as incremental")
+    pk_compile.add_argument("--suggest-questions", action="store_true", help="Suggest follow-up unknowns")
+    pk_compile.add_argument("--max-summary-chars", type=int, default=1200, help="Summary length cap")
+    pk_compile.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_status = pk_sub.add_parser("status", help="Show Brainpack status")
+    pk_status.add_argument("name", help="Brainpack name")
+    pk_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_status.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_context = pk_sub.add_parser("context", help="Render a routed context slice from a compiled Brainpack")
+    pk_context.add_argument("name", help="Brainpack name")
+    pk_context.add_argument("--target", required=True, help="Target tool such as hermes, codex, cursor, or chatgpt")
+    pk_context.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_context.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    pk_context.add_argument("--smart", action="store_true", help="Use smart routing for the target")
+    pk_context.add_argument(
+        "--policy",
+        default="technical",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy when smart routing is disabled",
+    )
+    pk_context.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
+    pk_context.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -4711,6 +4770,134 @@ def run_portable(args):
     return 0
 
 
+def run_pack(args):
+    from cortex.packs import compile_pack, ingest_pack, init_pack, list_packs, pack_status, render_pack_context
+
+    store_dir = Path(args.store_dir)
+
+    if args.pack_subcommand == "init":
+        try:
+            payload = init_pack(
+                store_dir,
+                args.name,
+                description=args.description,
+                owner=args.owner,
+            )
+        except (FileExistsError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Created Brainpack `{payload['pack']}` at {payload['path']}")
+        return 0
+
+    if args.pack_subcommand == "list":
+        payload = list_packs(store_dir)
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not payload["packs"]:
+            _echo("No Brainpacks found yet.")
+            return 0
+        _echo(f"Found {payload['count']} Brainpack(s):\n")
+        for item in payload["packs"]:
+            compiled = item["compiled_at"] or "not compiled yet"
+            _echo(
+                f"  {item['pack']:<18} {item['source_count']:>3} sources  "
+                f"{item['graph_nodes']:>3} nodes  {item['article_count']:>3} wiki pages  {compiled}"
+            )
+        return 0
+
+    if args.pack_subcommand == "ingest":
+        try:
+            payload = ingest_pack(
+                store_dir,
+                args.name,
+                args.paths,
+                mode=args.mode,
+                source_type=args.source_type,
+                recurse=args.recurse,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Ingested {payload['ingested_count']} source(s) into `{payload['pack']}`.")
+        _echo(f"Total indexed sources: {payload['source_count']}")
+        return 0
+
+    if args.pack_subcommand == "compile":
+        try:
+            payload = compile_pack(
+                store_dir,
+                args.name,
+                incremental=args.incremental,
+                suggest_questions=args.suggest_questions,
+                max_summary_chars=args.max_summary_chars,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Compiled `{payload['pack']}`:")
+        _echo(f"  sources: {payload['source_count']} total, {payload['text_source_count']} readable")
+        _echo(f"  graph: {payload['graph_nodes']} nodes / {payload['graph_edges']} edges")
+        _echo(f"  wiki: {payload['article_count']} page(s)")
+        _echo(f"  claims: {payload['claim_count']}")
+        _echo(f"  unknowns: {payload['unknown_count']}")
+        _echo(f"  graph path: {payload['graph_path']}")
+        return 0
+
+    if args.pack_subcommand == "status":
+        try:
+            payload = pack_status(store_dir, args.name)
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Brainpack `{payload['pack']}`")
+        if payload["manifest"]["description"]:
+            _echo(f"  {payload['manifest']['description']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['source_count']} sources",
+                    f"{payload['graph_nodes']} graph nodes",
+                    f"{payload['article_count']} wiki pages",
+                    f"{payload['claim_count']} claims",
+                    f"{payload['unknown_count']} unknowns",
+                ]
+            )
+        )
+        _echo(f"  compiled: {payload['compiled_at'] or 'not compiled yet'}")
+        return 0
+
+    if args.pack_subcommand == "context":
+        try:
+            payload = render_pack_context(
+                store_dir,
+                args.name,
+                target=args.target,
+                smart=args.smart,
+                policy_name=args.policy,
+                max_chars=args.max_chars,
+                project_dir=args.project or "",
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Brainpack `{payload['pack']}` → {payload['name']}")
+        _echo(f"  {payload['fact_count']} routed facts via {payload['mode']} mode")
+        if payload["context_markdown"]:
+            _echo("")
+            _echo(payload["context_markdown"], force=True)
+        elif payload["message"]:
+            _echo(payload["message"])
+        return 0
+
+    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context")
+
+
 def run_scan(args):
     from cortex.portable_runtime import bar, scan_portability
 
@@ -5220,6 +5407,7 @@ def main(argv=None):
         "audit",
         "doctor",
         "ui",
+        "pack",
         "benchmark",
         "server",
         "mcp",
@@ -5368,6 +5556,8 @@ def main(argv=None):
         return run_audit(args)
     elif args.subcommand == "doctor":
         return run_doctor(args)
+    elif args.subcommand == "pack":
+        return run_pack(args)
     elif args.subcommand == "ui":
         return run_ui(args)
     elif args.subcommand == "benchmark":
