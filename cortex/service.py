@@ -27,10 +27,12 @@ from cortex.packs import (
     import_pack_bundle,
     lint_pack,
     list_packs,
+    mount_pack,
     pack_artifacts,
     pack_claims,
     pack_concepts,
     pack_lint_report,
+    pack_mounts,
     pack_sources,
     pack_status,
     pack_unknowns,
@@ -555,6 +557,11 @@ class MemoryService:
         payload["release"] = self.release()
         return payload
 
+    def pack_mounts(self, *, name: str) -> dict[str, Any]:
+        payload = pack_mounts(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
     def pack_compile(
         self,
         *,
@@ -657,6 +664,30 @@ class MemoryService:
             archive,
             self.store_dir,
             as_name=as_name,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_mount(
+        self,
+        *,
+        name: str,
+        targets: list[str],
+        project_dir: str = "",
+        smart: bool = True,
+        policy: str = "technical",
+        max_chars: int = 1500,
+        openclaw_store_dir: str = "",
+    ) -> dict[str, Any]:
+        payload = mount_pack(
+            self.store_dir,
+            name,
+            targets=targets,
+            project_dir=project_dir,
+            smart=smart,
+            policy_name=policy,
+            max_chars=max_chars,
+            openclaw_store_dir=openclaw_store_dir,
         )
         payload["release"] = self.release()
         return payload

@@ -289,11 +289,17 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
     assert chatgpt_payload["target_payload"]["respond"]
 
 
-def test_mcp_brainpack_tools_round_trip(tmp_path):
+def test_mcp_brainpack_tools_round_trip(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     imported_store = tmp_path / ".imported"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store = tmp_path / "openclaw-store"
     source = tmp_path / "brainpack.md"
     bundle = tmp_path / "ai-memory.brainpack.zip"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
     source.write_text(
         (
             "# Cortex Brainpacks\n\n"
@@ -351,11 +357,24 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         arguments={"name": "ai-memory"},
         request_id=26,
     )["result"]["structuredContent"]
+    mount_payload = _tool_call(
+        server,
+        tool="pack_mount",
+        arguments={
+            "name": "ai-memory",
+            "targets": ["hermes", "claude-code", "codex", "cursor", "openclaw"],
+            "project_dir": str(project_dir),
+            "smart": True,
+            "max_chars": 900,
+            "openclaw_store_dir": str(openclaw_store),
+        },
+        request_id=27,
+    )["result"]["structuredContent"]
     export_payload = _tool_call(
         server,
         tool="pack_export",
         arguments={"name": "ai-memory", "output": str(bundle), "verify": True},
-        request_id=27,
+        request_id=28,
     )["result"]["structuredContent"]
 
     imported_backend = build_sqlite_backend(imported_store)
@@ -366,7 +385,7 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         imported_server,
         tool="pack_import",
         arguments={"archive": str(bundle), "as_name": "ai-memory-copy"},
-        request_id=28,
+        request_id=29,
     )["result"]["structuredContent"]
 
     assert compile_payload["graph_nodes"] >= 3
@@ -378,6 +397,17 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
     assert ask_payload["artifact_written"] is True
     assert lint_payload["status"] == "ok"
     assert "summary" in lint_payload
+    assert {item["target"] for item in mount_payload["targets"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+    assert (openclaw_store / "brainpacks.mounted.json").exists()
     assert export_payload["archive"] == str(bundle)
     assert export_payload["verified"] is True
     assert import_payload["pack"] == "ai-memory-copy"
