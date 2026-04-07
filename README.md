@@ -8,105 +8,213 @@ You use multiple AI tools.
 They all think you're a stranger.  
 Cortex fixes that.
 
-Cortex is a CLI and MCP server for portable AI context across Claude, Claude Code, ChatGPT, Codex, Gemini, Grok, Hermes, Windsurf, Cursor, and Copilot. Humans curate context with the CLI. AI tools fetch their live routed slice over MCP.
+Cortex is three things in one local-first system:
+
+1. **Portable AI**: detect, ingest, route, and sync your AI context across Claude, Claude Code, ChatGPT, Codex, Cursor, Copilot, Gemini, Grok, Hermes, and Windsurf.
+2. **Brainpacks**: compile source files into mountable domain packs with a wiki, graph, claims, unknowns, artifacts, and direct runtime mounts.
+3. **Git for AI Memory**: branch, review, diff, merge, blame, and roll back graph-shaped memory instead of treating context like an unversioned blob.
+
+Humans curate context with the CLI. MCP-capable runtimes fetch their live routed slice over `cortex mcp`.
+
+## Install
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
 python3.11 -m pip install -e ".[server]"
-
-cortex portable chatgpt-export.zip --to all --project .
-cortex scan
-cortex sync --smart
+mkdir -p .cortex
+cp docs/examples/config.toml .cortex/config.toml
+cortex scan --project .
 ```
 
-Use `python3.11 -m pip`, not plain `pip`. Cortex requires Python 3.10+, and the full CLI + MCP beta surface in this repo tracks the source install first. If you only want the published core package, use `python3.11 -m pip install cortex-identity`.
+What each command does:
 
-What that looks like:
+| Command | What it does |
+| --- | --- |
+| `git clone https://github.com/Junebugg1214/Cortex-AI.git` | Downloads Cortex from GitHub. |
+| `cd Cortex-AI` | Enters the repo. |
+| `python3.11 -m pip install -e ".[server]"` | Installs the full local CLI, MCP server, UI, and self-hosted server surface. |
+| `mkdir -p .cortex` | Creates the local Cortex state directory. |
+| `cp docs/examples/config.toml .cortex/config.toml` | Copies the starter config for MCP and self-hosted setup. |
+| `cortex scan --project .` | Audits your machine and project for existing AI context, exports, artifacts, and MCP config. |
+
+Use `python3.11 -m pip`, not plain `pip`. Cortex requires Python 3.10+, and the source install is the most complete path.
+
+If you only want the published package instead of the full source tree:
+
+```bash
+python3.11 -m pip install cortex-identity
+```
+
+## Portable AI
+
+Portable AI is the "bring your context with you" layer.
+
+It can:
+- detect existing local AI exports, artifacts, instruction files, and MCP setup
+- build one canonical graph from those sources
+- route the right slice into each target instead of writing one giant blob everywhere
+- keep that graph live over MCP for tools that support it
+
+Typical Portable AI flow:
+
+```bash
+cortex scan --project .
+cortex portable --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --to all --project .
+cortex remember "I prefer concise, implementation-first answers." --smart
+cortex sync --smart --project .
+cortex mcp --config .cortex/config.toml --check
+cortex mcp --config .cortex/config.toml
+```
+
+Portable AI commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex scan --project .` | Detects installed tools, local exports, artifacts, direct instruction files, and MCP config without mutating your graph. |
+| `cortex portable chatgpt-export.zip --to all --project .` | Ingests a raw export or existing graph and writes routed context across supported tools. |
+| `cortex portable --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --to all --project .` | Adopts detected local context with permission, builds the canonical graph, and syncs it everywhere. |
+| `cortex remember "..." --smart` | Adds one new fact or preference to the canonical graph and propagates it across supported tools. |
+| `cortex sync --smart --project .` | Re-routes and re-writes the current canonical graph to local targets without re-ingesting sources. |
+| `cortex status --project .` | Shows stale, missing, or incomplete local context across configured tools. |
+| `cortex mcp --config .cortex/config.toml --check` | Verifies the local MCP configuration before you run it live. |
+| `cortex mcp --config .cortex/config.toml` | Runs the live MCP server so tools can fetch routed context during conversations. |
+
+Portable AI notes:
+- `scan` is read-only by default.
+- `portable --from-detected ...` is permissioned adoption, not silent ingestion.
+- detected local-source adoption redacts common PII by default.
+- over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
+
+## Brainpacks
+
+Brainpacks are local-first domain packs. Raw source files go in, and Cortex compiles them into a small wiki, a graph, claim candidates, open questions, durable artifacts, lint reports, portable bundles, and direct runtime mounts.
+
+Every Brainpack lives under:
 
 ```text
-$ cortex portable chatgpt-export.zip --to all --project .
-Portable context ready:
-  context: portable/context.json
-  source: openai
-  extracted: 43 topics across 8 categories
+.cortex/packs/<name>/
+  manifest.toml
+  raw/
+  wiki/
+  graph/
+  claims/
+  unknowns/
+  artifacts/
+  indexes/
+```
 
-$ cortex scan
-Found 5 AI tools:
-  Claude Code  ████████████░░░░░░░░   24 facts  (CLAUDE.md)
-  Cursor       ████████░░░░░░░░░░░░   16 facts  (.cursor/rules/cortex.mdc)
-  Copilot      ██████░░░░░░░░░░░░░░   12 facts  (copilot-instructions.md)
+Typical Brainpack flow:
+
+```bash
+cortex pack init ai-memory --description "Portable AI memory research" --owner marc
+cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse
+cortex pack compile ai-memory --suggest-questions
+cortex pack query ai-memory "portable agent memory"
+cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report
+cortex pack lint ai-memory
+cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart
+cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip
+```
+
+Brainpack commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex pack init ai-memory --description "Portable AI memory research" --owner marc` | Creates a new Brainpack skeleton and manifest under `.cortex/packs/ai-memory/`. |
+| `cortex pack list` | Lists local Brainpacks in the current Cortex store. |
+| `cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse` | Copies or references local files into the Brainpack source inventory. |
+| `cortex pack compile ai-memory --suggest-questions` | Compiles readable sources into a wiki, graph, claims, and suggested unknowns. |
+| `cortex pack status ai-memory` | Shows source counts, graph size, compile state, artifact counts, lint state, and mount state. |
+| `cortex pack context ai-memory --target hermes --smart` | Renders a routed Brainpack slice for a specific target runtime. |
+| `cortex pack query ai-memory "portable agent memory"` | Searches concepts, claims, wiki pages, unknowns, and existing artifacts. |
+| `cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report` | Answers against the compiled pack and writes the result back as a durable artifact. |
+| `cortex pack lint ai-memory` | Runs integrity checks for contradictions, duplicates, weak claims, thin articles, and graph health. |
+| `cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart` | Mounts the compiled pack directly into Hermes, OpenClaw, Codex, Cursor, and Claude Code. |
+| `cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip` | Exports a portable Brainpack bundle archive. |
+| `cortex pack import ./dist/ai-memory.brainpack.zip --store-dir ~/.cortex --as ai-memory-copy` | Imports a Brainpack bundle into another Cortex store under a chosen name. |
+
+What `pack mount` does today:
+- Hermes gets pack-derived `USER.md`, `MEMORY.md`, and managed MCP wiring.
+- Codex, Cursor, and Claude Code get the routed Brainpack slice installed into their native instruction files.
+- OpenClaw gets a plugin-readable Brainpack mount registry so the OpenClaw Cortex plugin injects the pack live on each turn.
+
+## Git for AI Memory
+
+Cortex can also treat memory like a versioned graph instead of a pile of overwritten files.
+
+That means you can:
+- commit snapshots
+- branch risky experiments
+- review changes before merging
+- diff memory versions
+- merge approved work
+- trace where a claim came from
+- roll back a graph when a bad change slips through
+
+Typical Git-for-memory flow:
+
+```bash
+cortex commit portable/context.json -m "Seed canonical context"
+cortex branch atlas-research --switch
+cortex review --against main
+cortex diff main atlas-research
+cortex merge atlas-research --dry-run
+cortex merge atlas-research
+cortex log --branch main
+```
+
+Git-for-memory commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex commit portable/context.json -m "Seed canonical context"` | Saves a graph snapshot into the local version store with a commit message. |
+| `cortex branch atlas-research --switch` | Creates a new memory branch and switches to it immediately. |
+| `cortex switch main` | Switches the active memory branch. |
+| `cortex review --against main` | Reviews the current branch or graph against a baseline ref and applies review gates. |
+| `cortex diff main atlas-research` | Shows semantic graph differences between two refs or versions. |
+| `cortex merge atlas-research --dry-run` | Previews the merge result before committing it. |
+| `cortex merge atlas-research` | Merges another ref into the current branch. |
+| `cortex log --branch main` | Shows commit history for a branch or the global history view. |
+| `cortex blame portable/context.json --label "Python"` | Traces where a specific fact or node label came from. |
+| `cortex history portable/context.json --label "Python"` | Shows chronological receipts for a fact across stored versions. |
+| `cortex rollback portable/context.json --to <version-id>` | Restores a prior version into a working graph and records the rollback. |
+
+If you want the full versioned-memory surface, run:
+
+```bash
+cortex --help-all
 ```
 
 ## Compatibility Matrix
 
 | Platform | Direct file / artifact support | MCP support now | Best Cortex path |
 | --- | --- | --- | --- |
-| Claude Desktop | No direct file target | Native | `cortex-mcp` |
-| Claude Code | `CLAUDE.md` | Native | `cortex-mcp` + `CLAUDE.md` |
+| Claude Desktop | No direct file target | Native | `cortex mcp` |
+| Claude Code | `CLAUDE.md` | Native | `cortex mcp` + `CLAUDE.md` |
 | Claude.ai | Import-ready artifacts | Partial / workspace-dependent | Artifacts first, MCP where available |
-| Codex | `AGENTS.md` | Native | `cortex-mcp` + `AGENTS.md` |
-| Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex-mcp` + direct rule file |
-| GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex-mcp` + direct instruction file |
-| Gemini CLI | `GEMINI.md` | Native | `cortex-mcp` + `GEMINI.md` |
-| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex portable --to hermes` + `cortex-mcp` |
-| Gemini web app | `GEMINI.md` export path only | No clear consumer MCP path | Direct file output |
-| Windsurf | `.windsurfrules` | Native | `cortex-mcp` + direct rule file |
+| Codex | `AGENTS.md` | Native | `cortex mcp` + `AGENTS.md` |
+| Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex mcp` + direct rule file |
+| GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex mcp` + direct instruction file |
+| Gemini CLI | `GEMINI.md` | Native | `cortex mcp` + `GEMINI.md` |
+| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex portable --to hermes` + `cortex mcp` |
+| Windsurf | `.windsurfrules` | Native | `cortex mcp` + direct rule file |
 | ChatGPT | Import-ready artifacts | Partial / beta / plan-dependent | Artifacts first, MCP where available |
-| Grok API | Import-ready artifacts | Remote MCP via API | Remote MCP or artifacts |
-| Grok consumer app | Import-ready artifacts | No clear consumer MCP path | Artifacts |
+| Grok | Import-ready artifacts | Remote MCP or app-dependent | Artifacts first, MCP where available |
 
-`cortex-mcp` is the live path for MCP-capable clients. Direct files and import-ready artifacts remain the safest universal path for everything else.
+`cortex mcp` is the live path for MCP-capable clients. Direct files and import-ready artifacts remain the safest universal path for everything else.
 
-## The Data Model
+## More Docs
 
-`context.json` is a graph-shaped portable context file. Nodes represent facts like projects, preferences, identity, or tech stack. Edges connect those facts. Tags decide how facts are grouped and routed, which is why the same canonical graph can power Claude Code, Cursor, ChatGPT, and MCP without duplicating the same blob everywhere.
-
-```json
-{
-  "schema_version": "6.0",
-  "nodes": [
-    {"id": "project/cortex", "label": "Cortex-AI", "tags": ["active_priorities"]},
-    {"id": "tech/python", "label": "Python", "tags": ["technical_expertise"]}
-  ],
-  "edges": [
-    {"source_id": "tech/python", "target_id": "project/cortex", "relation": "used_in"}
-  ]
-}
-```
-
-## CLI for Humans, MCP for AI Tools
-
-Use `cortex scan`, `cortex remember`, `cortex portable`, and `cortex sync --smart` to curate your context. Run `cortex-mcp --config .cortex/config.toml` so MCP-capable tools can pull their live routed slice during conversations instead of relying only on local files.
-
-`cortex scan` also auto-detects known local platform files and MCP config definitions from the compatibility matrix, so it can recognize tools you already have installed before Cortex has written anything itself. By default it searches your project plus `~/Downloads`, `~/Desktop`, and `~/Documents` for known export and artifact names, then prefers the newest matching source per platform. It stays read-only by default; use `cortex portable --from-detected ... --to all --project .` to explicitly adopt detected local context and sync it everywhere, or `cortex extract --from-detected ...` if you only want the graph. Detected local-source adoption now redacts common PII by default and only imports managed Cortex marker blocks from direct instruction files unless you add `--include-unmanaged-text`.
-
-Over MCP, `portability_scan` is intentionally metadata-only by default: it reports configuration and detection state without exposing absolute local paths or parsing detected export content.
-
-## Smart Routing Tags
-
-`cortex sync --smart` does not send the same slice everywhere.
-
-| Tool | Default routed categories |
-| --- | --- |
-| Claude Code / Codex | `technical_expertise`, `domain_knowledge`, `active_priorities`, `communication_preferences`, `user_preferences` |
-| Cursor / Windsurf | `technical_expertise`, `active_priorities`, `communication_preferences`, `user_preferences` |
-| Copilot | `technical_expertise`, `communication_preferences`, `user_preferences`, `constraints` |
-| ChatGPT / Grok | identity, professional context, priorities, domain context, values |
-| Gemini | domain context, professional context, priorities, technical context |
-
-## Beyond Portability
-
-- Versioned graph runtime: diff, review, rollback, blame, and history when you need more than sync. Run `cortex --help-all`.
-- Self-hosted API and UI: local REST API, web control plane, metrics, backup/restore, and scoped auth. See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
-- Copy-paste platform onboarding: exact first-run flows for ChatGPT, Claude, Claude Code, Codex, Gemini, Grok, Hermes, Cursor, Copilot, and Windsurf. See [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md).
-- Agent loop integration: Python helpers, TypeScript SDK, and MCP quickstarts. See [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md).
-- OpenClaw quickstart: copy-paste setup for installing Cortex under OpenClaw and getting live cross-channel memory. See [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md).
-- Hermes quickstart: copy-paste setup for wiring Cortex into Hermes memory files and MCP config. See [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md).
-- Messaging runtime integration: OpenClaw, Hermes, Telegram, and WhatsApp design plus the minimum adapter API. See [docs/CHANNEL_INTEGRATIONS.md](docs/CHANNEL_INTEGRATIONS.md).
-- OpenClaw-native plugin package: real `@cortex/openclaw` package scaffold with managed `cortex-mcp`, live prompt injection hooks, and per-user/per-thread memory seeding. See [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md).
-- Portability reference docs: extraction, sync, routing, artifacts, and platform notes. See [docs/PORTABILITY.md](docs/PORTABILITY.md).
-- Brainpacks: compile local source files into a Brainpack wiki, graph, claim candidates, unknowns, durable artifacts, direct runtime mounts, portable bundles, and routed context slices. See [docs/BRAINPACKS.md](docs/BRAINPACKS.md).
+- Platform onboarding: [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md)
+- Portability reference: [docs/PORTABILITY.md](docs/PORTABILITY.md)
+- Brainpacks reference: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
+- OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
+- OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
+- Hermes quickstart: [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
+- Agent quickstarts: [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
+- Self-hosting: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- Threat model: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 
 ## Uninstall
 
