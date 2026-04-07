@@ -867,6 +867,139 @@ def _refresh_artifact_count(store_dir: Path, name: str) -> int:
     return count
 
 
+def pack_lint_report(store_dir: Path, name: str) -> dict[str, Any]:
+    load_manifest(store_dir, name)
+    payload = _read_json(lint_report_path(store_dir, name), default={})
+    if payload:
+        return payload
+    return {
+        "status": "pending",
+        "pack": name,
+        "lint_status": "not_run",
+        "linted_at": "",
+        "summary": {
+            "total_findings": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+        },
+        "findings": [],
+        "suggestions": [],
+        "report_path": str(lint_report_path(store_dir, name)),
+        "message": "Run `cortex pack lint` to generate the first Brainpack integrity report.",
+    }
+
+
+def pack_sources(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    ingest_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
+    compiled_index = _read_json(pack_path(store_dir, name) / "indexes" / "source_index.json", default={"sources": []})
+    compiled_by_source = {
+        str(item.get("source_path") or ""): dict(item)
+        for item in compiled_index.get("sources", [])
+        if item.get("source_path")
+    }
+    skipped = {str(item) for item in compiled_index.get("skipped_sources", [])}
+    sources: list[dict[str, Any]] = []
+    for item in ingest_index.get("sources", []):
+        record = dict(item)
+        compiled = compiled_by_source.get(str(record.get("source_path") or ""), {})
+        source_path_value = str(record.get("source_path") or "")
+        title = str(compiled.get("title") or Path(source_path_value).name or "Source")
+        merged = {
+            **record,
+            "title": title,
+            "summary": str(compiled.get("summary") or record.get("preview") or ""),
+            "headings": list(compiled.get("headings", [])),
+            "wiki_path": str(compiled.get("wiki_path") or ""),
+            "char_count": int(compiled.get("char_count", 0)),
+            "readable": bool(compiled),
+            "compiled": bool(compiled),
+            "skipped": source_path_value in skipped,
+        }
+        sources.append(merged)
+    sources.sort(
+        key=lambda item: (
+            0 if item["readable"] else 1,
+            str(item.get("title") or "").lower(),
+            str(item.get("source_path") or "").lower(),
+        )
+    )
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "source_count": len(sources),
+        "readable_count": sum(1 for item in sources if item["readable"]),
+        "skipped_count": sum(1 for item in sources if item["skipped"]),
+        "sources": sources,
+    }
+
+
+def pack_concepts(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    knowledge_graph = _pack_knowledge_graph(_load_compiled_graph(store_dir, name))
+    degree_map: dict[str, int] = {node_id: 0 for node_id in knowledge_graph.nodes}
+    for edge in knowledge_graph.edges.values():
+        if edge.source_id in degree_map:
+            degree_map[edge.source_id] += 1
+        if edge.target_id in degree_map:
+            degree_map[edge.target_id] += 1
+    concepts = [
+        {
+            "id": node.id,
+            "label": node.label,
+            "tags": list(node.tags),
+            "confidence": round(node.confidence, 2),
+            "brief": node.brief or node.full_description or "",
+            "degree": degree_map.get(node.id, 0),
+            "connected": degree_map.get(node.id, 0) > 0,
+            "source_quote_count": len(node.source_quotes),
+            "provenance_count": len(node.provenance),
+        }
+        for node in knowledge_graph.nodes.values()
+    ]
+    concepts.sort(key=lambda item: (-int(item["degree"]), -float(item["confidence"]), item["label"].lower()))
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "concept_count": len(concepts),
+        "concepts": concepts,
+    }
+
+
+def pack_claims(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    claims = _load_claims(store_dir, name)
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "claim_count": len(claims),
+        "claims": claims,
+    }
+
+
+def pack_unknowns(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    unknowns = _load_unknowns(store_dir, name)
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "unknown_count": len(unknowns),
+        "unknowns": unknowns,
+    }
+
+
+def pack_artifacts(store_dir: Path, name: str) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    artifacts = _list_artifact_records(store_dir, name)
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts,
+    }
+
+
 def query_pack(
     store_dir: Path,
     name: str,
@@ -1464,6 +1597,7 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
             "artifact_count": 0,
         },
     )
+    lint_report = pack_lint_report(store_dir, name)
     return {
         "status": "ok",
         "pack": manifest.name,
@@ -1486,6 +1620,9 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
         "artifact_count": int(compile_meta.get("artifact_count", 0)),
         "compiled_at": str(compile_meta.get("compiled_at") or ""),
         "compile_status": str(compile_meta.get("compile_status") or "idle"),
+        "lint_status": str(lint_report.get("lint_status") or "not_run"),
+        "linted_at": str(lint_report.get("linted_at") or ""),
+        "lint_summary": dict(lint_report.get("summary") or {}),
     }
 
 

@@ -20,7 +20,21 @@ from cortex.merge import (
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
-from cortex.packs import ask_pack, compile_pack, lint_pack, list_packs, pack_status, query_pack, render_pack_context
+from cortex.packs import (
+    ask_pack,
+    compile_pack,
+    lint_pack,
+    list_packs,
+    pack_artifacts,
+    pack_claims,
+    pack_concepts,
+    pack_lint_report,
+    pack_sources,
+    pack_status,
+    pack_unknowns,
+    query_pack,
+    render_pack_context,
+)
 from cortex.portable_runtime import (
     audit_portability,
     render_portability_context,
@@ -506,6 +520,36 @@ class MemoryService:
 
     def pack_status(self, *, name: str) -> dict[str, Any]:
         payload = pack_status(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_sources(self, *, name: str) -> dict[str, Any]:
+        payload = pack_sources(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_concepts(self, *, name: str) -> dict[str, Any]:
+        payload = pack_concepts(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_claims(self, *, name: str) -> dict[str, Any]:
+        payload = pack_claims(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_unknowns(self, *, name: str) -> dict[str, Any]:
+        payload = pack_unknowns(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_artifacts(self, *, name: str) -> dict[str, Any]:
+        payload = pack_artifacts(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def pack_lint_report(self, *, name: str) -> dict[str, Any]:
+        payload = pack_lint_report(self.store_dir, name)
         payload["release"] = self.release()
         return payload
 

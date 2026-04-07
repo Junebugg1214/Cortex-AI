@@ -3,6 +3,7 @@ import json
 
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.graph import CortexGraph, Node
+from cortex.packs import ask_pack, compile_pack, ingest_pack, init_pack, lint_pack
 from cortex.storage import build_sqlite_backend
 from cortex.upai.versioning import VersionStore
 from cortex.webapp import UI_HTML, MemoryUIBackend, make_handler
@@ -52,6 +53,12 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "Remember & sync" in UI_HTML
     assert "Sync all" in UI_HTML
     assert "Connected Tools" in UI_HTML
+    assert "Brainpacks" in UI_HTML
+    assert "Sources" in UI_HTML
+    assert "Concepts" in UI_HTML
+    assert "Claims" in UI_HTML
+    assert "Unknowns" in UI_HTML
+    assert "Artifacts" in UI_HTML
     assert "Freshness & Gaps" in UI_HTML
     assert "Review & Trace" in UI_HTML
     assert "Advanced Controls" in UI_HTML
@@ -61,6 +68,13 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "/api/portability/context" in UI_HTML
     assert "/api/portability/sync" in UI_HTML
     assert "/api/portability/remember" in UI_HTML
+    assert "/api/packs" in UI_HTML
+    assert "/api/packs/status" in UI_HTML
+    assert "/api/packs/sources" in UI_HTML
+    assert "/api/packs/concepts" in UI_HTML
+    assert "/api/packs/claims" in UI_HTML
+    assert "/api/packs/unknowns" in UI_HTML
+    assert "/api/packs/artifacts" in UI_HTML
 
 
 def test_webapp_backend_meta_review_and_blame(tmp_path):
@@ -122,6 +136,39 @@ def test_webapp_backend_meta_review_and_blame(tmp_path):
     assert blame["nodes"][0]["node"]["label"] == "PostgreSQL"
     assert blame["nodes"][0]["claim_lineage"]["event_count"] == 1
     assert history["nodes"][0]["history"]["versions_seen"] == 1
+
+
+def test_webapp_backend_exposes_brainpack_views(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    source.write_text(
+        ("# Brainpack\n\nI am Marc.\nI use Python and Cortex.\nI am building portable brain-state infrastructure.\n"),
+        encoding="utf-8",
+    )
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+    ask_pack(store_dir, "ai-memory", "Summarize this pack", output="note", write_back=True)
+    lint_pack(store_dir, "ai-memory")
+
+    backend = MemoryUIBackend(store_dir=store_dir)
+    packs = backend.pack_list()
+    status = backend.pack_status(name="ai-memory")
+    sources = backend.pack_sources(name="ai-memory")
+    concepts = backend.pack_concepts(name="ai-memory")
+    claims = backend.pack_claims(name="ai-memory")
+    unknowns = backend.pack_unknowns(name="ai-memory")
+    artifacts = backend.pack_artifacts(name="ai-memory")
+
+    assert packs["count"] == 1
+    assert status["pack"] == "ai-memory"
+    assert status["lint_status"] in {"pass", "warn", "fail"}
+    assert sources["source_count"] == 1
+    assert concepts["concept_count"] >= 1
+    assert claims["claim_count"] >= 1
+    assert unknowns["unknown_count"] >= 1
+    assert artifacts["artifact_count"] >= 1
 
 
 def test_webapp_backend_governance_and_remotes(tmp_path):
@@ -427,3 +474,53 @@ def test_webapp_handler_exposes_portability_endpoints(tmp_path):
     assert sync["targets"][0]["target"] == "codex"
     assert sync["max_chars"] == 1200
     assert remember["statement"] == "We use FastAPI."
+
+
+def test_webapp_handler_exposes_brainpack_endpoints(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+
+    ui_backend.pack_list = lambda: {"status": "ok", "packs": [{"pack": "ai-memory"}], "count": 1}
+    ui_backend.pack_status = lambda *, name: {"status": "ok", "pack": name, "source_count": 1, "graph_nodes": 3}
+    ui_backend.pack_sources = lambda *, name: {"status": "ok", "pack": name, "sources": [{"title": "Source A"}]}
+    ui_backend.pack_concepts = lambda *, name: {"status": "ok", "pack": name, "concepts": [{"label": "Python"}]}
+    ui_backend.pack_claims = lambda *, name: {
+        "status": "ok",
+        "pack": name,
+        "claims": [{"label": "Prefers concise answers"}],
+    }
+    ui_backend.pack_unknowns = lambda *, name: {"status": "ok", "pack": name, "unknowns": [{"question": "What next?"}]}
+    ui_backend.pack_artifacts = lambda *, name: {"status": "ok", "pack": name, "artifacts": [{"title": "Report"}]}
+
+    handler_cls = make_handler(ui_backend)
+
+    list_status, _, list_body = _invoke_handler(handler_cls, path="/api/packs", method="GET")
+    status_status, _, status_body = _invoke_handler(handler_cls, path="/api/packs/status?name=ai-memory", method="GET")
+    sources_status, _, sources_body = _invoke_handler(
+        handler_cls, path="/api/packs/sources?name=ai-memory", method="GET"
+    )
+    concepts_status, _, concepts_body = _invoke_handler(
+        handler_cls, path="/api/packs/concepts?name=ai-memory", method="GET"
+    )
+    claims_status, _, claims_body = _invoke_handler(handler_cls, path="/api/packs/claims?name=ai-memory", method="GET")
+    unknowns_status, _, unknowns_body = _invoke_handler(
+        handler_cls, path="/api/packs/unknowns?name=ai-memory", method="GET"
+    )
+    artifacts_status, _, artifacts_body = _invoke_handler(
+        handler_cls, path="/api/packs/artifacts?name=ai-memory", method="GET"
+    )
+
+    assert list_status == 200
+    assert status_status == 200
+    assert sources_status == 200
+    assert concepts_status == 200
+    assert claims_status == 200
+    assert unknowns_status == 200
+    assert artifacts_status == 200
+    assert json.loads(list_body)["count"] == 1
+    assert json.loads(status_body)["pack"] == "ai-memory"
+    assert json.loads(sources_body)["sources"][0]["title"] == "Source A"
+    assert json.loads(concepts_body)["concepts"][0]["label"] == "Python"
+    assert json.loads(claims_body)["claims"][0]["label"] == "Prefers concise answers"
+    assert json.loads(unknowns_body)["unknowns"][0]["question"] == "What next?"
+    assert json.loads(artifacts_body)["artifacts"][0]["title"] == "Report"

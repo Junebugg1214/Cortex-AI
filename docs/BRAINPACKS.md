@@ -2,7 +2,7 @@
 
 Brainpacks are Cortex's local-first domain packs: raw source files go in, and Cortex compiles them into a small wiki, a graph, claim candidates, open questions, durable answer artifacts, and lint reports that any agent can consume.
 
-This release gives you the native pack layout, ingestion, compilation, status, routed context rendering, `pack query`, `pack ask` with artifact write-back, and `pack lint` for ongoing pack integrity checks. It does **not** yet include pack export/import bundles or a dedicated UI surface.
+This release gives you the native pack layout, ingestion, compilation, status, routed context rendering, `pack query`, `pack ask` with artifact write-back, `pack lint` for ongoing pack integrity checks, and a dedicated Brainpacks view inside `cortex ui`. It does **not** yet include pack export/import bundles.
 
 ## What a Brainpack looks like
 
@@ -93,6 +93,21 @@ The first Brainpacks MCP surface is available now:
 
 That means MCP-capable runtimes can already see compiled packs and ask Cortex for a routed Brainpack context slice.
 
+## UI support
+
+Open the local UI with:
+
+```bash
+cortex ui
+```
+
+The Brainpacks panel now exposes:
+- Sources
+- Concepts
+- Claims
+- Unknowns
+- Artifacts
+
 ## What this is good for today
 
 - building a local specialist pack from notes, markdown, repos, and text files
@@ -104,7 +119,6 @@ That means MCP-capable runtimes can already see compiled packs and ask Cortex fo
 
 ## What is next
 
-The current release is the Brainpacks query, artifact, and lint loop. The next major steps are:
+The current release is the Brainpacks query, artifact, lint, and UI loop. The next major steps are:
 - export/import bundles
-- pack-aware UI views
 - richer artifact filing and pack-native Q&A loops
