@@ -17,6 +17,7 @@ from cortex.packs import (
     load_manifest,
     mount_pack,
     openclaw_mount_registry_path,
+    pack_concepts,
     pack_status,
     query_pack,
     render_pack_context,
@@ -122,6 +123,65 @@ def test_pack_query_and_ask_write_back_artifact(tmp_path):
     )
     assert slides_payload["artifact_path"]
     assert "/artifacts/slides/" in slides_payload["artifact_path"]
+
+
+def test_pack_compile_sanitizes_heading_fragments_and_links_concepts(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "notes.md"
+    source.write_text(
+        (
+            "# Product Notes\n\n"
+            "Marc is building Cortex as a portable brain-state layer for agents.\n"
+            "OpenClaw and Hermes should both be able to mount the same Brainpack.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+
+    concepts_payload = pack_concepts(store_dir, "ai-memory")
+    lint_payload = lint_pack(store_dir, "ai-memory")
+    labels = [item["label"] for item in concepts_payload["concepts"]]
+
+    assert labels
+    assert all("\n" not in label for label in labels)
+    assert all("Product Notes" not in label for label in labels)
+    assert any(int(item["degree"]) > 0 for item in concepts_payload["concepts"])
+    assert lint_payload["lint_status"] == "warn"
+    assert not any(item["type"] == "sparse_graph" for item in lint_payload["findings"])
+
+
+def test_pack_ask_filters_noisy_low_confidence_claims_from_report(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    source.write_text(
+        (
+            "# Portable Brain-State Research\n\n"
+            "Cortex Brainpacks compile raw materials into portable domain minds.\n"
+            "Marc is building Cortex as a portable brain-state layer for agents.\n"
+            "OpenClaw and Hermes should both be able to mount the same Brainpack.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    init_pack(store_dir, "brain-layer", description="Portable agent brain-state research", owner="marc")
+    ingest_pack(store_dir, "brain-layer", [str(source)], mode="copy")
+    compile_pack(store_dir, "brain-layer", suggest_questions=True, max_summary_chars=240)
+
+    payload = ask_pack(
+        store_dir,
+        "brain-layer",
+        "How should Cortex position Brainpacks for OpenClaw and Hermes?",
+        output="report",
+        limit=8,
+        write_back=True,
+    )
+
+    assert payload["artifact_written"] is True
+    assert "**Portable Brain-State Research\n\nCortex Brainpacks**" not in payload["answer_markdown"]
+    assert "**Product Notes\n\nMarc**" not in payload["answer_markdown"]
 
 
 def test_pack_lint_reports_integrity_findings_and_persists_report(tmp_path):
