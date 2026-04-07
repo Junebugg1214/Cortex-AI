@@ -394,6 +394,34 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="pack_lint",
+                title="Lint Brainpack",
+                description=(
+                    "Run integrity checks over a compiled Brainpack to surface contradictions, duplicates, "
+                    "orphans, weak claims, and thin source pages, and persist the latest lint report."
+                ),
+                method_name="pack_lint",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "stale_days": _integer_property("Days before a concept is considered stale."),
+                        "duplicate_threshold": _number_property(
+                            "Similarity threshold for duplicate concept candidates."
+                        ),
+                        "weak_claim_confidence": _number_property(
+                            "Confidence threshold below which claims are flagged as weak."
+                        ),
+                        "thin_article_chars": _integer_property(
+                            "Minimum source article size before the page is considered thin."
+                        ),
+                    },
+                    required=("name",),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="channel_prepare_turn",
                 title="Prepare Channel Turn",
                 description=(

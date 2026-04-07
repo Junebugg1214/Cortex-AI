@@ -87,6 +87,7 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "pack_compile",
         "pack_query",
         "pack_ask",
+        "pack_lint",
         "channel_prepare_turn",
         "channel_seed_turn_memory",
     } <= names
@@ -342,6 +343,12 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         },
         request_id=25,
     )["result"]["structuredContent"]
+    lint_payload = _tool_call(
+        server,
+        tool="pack_lint",
+        arguments={"name": "ai-memory"},
+        request_id=26,
+    )["result"]["structuredContent"]
 
     assert compile_payload["graph_nodes"] >= 3
     assert status_payload["compile_status"] == "compiled"
@@ -350,6 +357,8 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
     assert context_payload["fact_count"] >= 1
     assert query_payload["total_matches"] >= 1
     assert ask_payload["artifact_written"] is True
+    assert lint_payload["status"] == "ok"
+    assert "summary" in lint_payload
 
 
 def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monkeypatch):
