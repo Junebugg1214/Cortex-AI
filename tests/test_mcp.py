@@ -291,7 +291,9 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
 
 def test_mcp_brainpack_tools_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
+    imported_store = tmp_path / ".imported"
     source = tmp_path / "brainpack.md"
+    bundle = tmp_path / "ai-memory.brainpack.zip"
     source.write_text(
         (
             "# Cortex Brainpacks\n\n"
@@ -349,6 +351,23 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
         arguments={"name": "ai-memory"},
         request_id=26,
     )["result"]["structuredContent"]
+    export_payload = _tool_call(
+        server,
+        tool="pack_export",
+        arguments={"name": "ai-memory", "output": str(bundle), "verify": True},
+        request_id=27,
+    )["result"]["structuredContent"]
+
+    imported_backend = build_sqlite_backend(imported_store)
+    imported_service = MemoryService(store_dir=imported_store, backend=imported_backend)
+    imported_server = CortexMCPServer(service=imported_service)
+    _initialize(imported_server)
+    import_payload = _tool_call(
+        imported_server,
+        tool="pack_import",
+        arguments={"archive": str(bundle), "as_name": "ai-memory-copy"},
+        request_id=28,
+    )["result"]["structuredContent"]
 
     assert compile_payload["graph_nodes"] >= 3
     assert status_payload["compile_status"] == "compiled"
@@ -359,6 +378,10 @@ def test_mcp_brainpack_tools_round_trip(tmp_path):
     assert ask_payload["artifact_written"] is True
     assert lint_payload["status"] == "ok"
     assert "summary" in lint_payload
+    assert export_payload["archive"] == str(bundle)
+    assert export_payload["verified"] is True
+    assert import_payload["pack"] == "ai-memory-copy"
+    assert import_payload["compile_status"] == "compiled"
 
 
 def test_mcp_portability_context_honors_explicit_policy_override(tmp_path, monkeypatch):
