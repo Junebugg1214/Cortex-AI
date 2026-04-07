@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
+from itertools import combinations
 from pathlib import Path, PurePosixPath
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -1016,6 +1017,90 @@ def _compact_summary(text: str, *, limit: int) -> str:
     return truncated + "..."
 
 
+def _clean_inline_text(text: str, *, limit: int = 0) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip(" \t\r\n-:;|#`*_")
+    if limit and len(cleaned) > limit:
+        return cleaned[: limit - 3].rstrip() + "..."
+    return cleaned
+
+
+def _markdown_extraction_text(text: str) -> str:
+    lines = text.splitlines()
+    body_lines: list[str] = []
+    skipped_leading_title = False
+    for line in lines:
+        stripped = line.strip()
+        if not skipped_leading_title and not stripped:
+            continue
+        if not skipped_leading_title and stripped.startswith("#"):
+            skipped_leading_title = True
+            continue
+        skipped_leading_title = True
+        if stripped.startswith("#"):
+            continue
+        body_lines.append(line)
+    candidate = "\n".join(body_lines).strip()
+    if candidate:
+        return candidate
+    return text.strip()
+
+
+def _normalize_matchable_text(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
+def _sanitize_pack_graph(graph: CortexGraph) -> None:
+    removable: list[str] = []
+    for node in graph.nodes.values():
+        label = _clean_inline_text(node.label, limit=180)
+        if not label or not re.search(r"[A-Za-z0-9]", label):
+            removable.append(node.id)
+            continue
+        node.label = label
+        node.brief = _clean_inline_text(node.brief or node.full_description, limit=280)
+        if node.full_description:
+            node.full_description = _clean_inline_text(node.full_description, limit=1200)
+        node.tags = list(dict.fromkeys(node.tags))
+    if removable:
+        graph.remove_nodes(removable)
+
+
+def _link_cooccurring_pack_nodes(graph: CortexGraph, source_texts: list[str]) -> None:
+    knowledge_nodes = [
+        node
+        for node in graph.nodes.values()
+        if "brainpack" not in node.tags and "brainpack_source" not in node.tags and _clean_inline_text(node.label)
+    ]
+    if len(knowledge_nodes) < 2:
+        return
+
+    normalized_labels = {node.id: _normalize_matchable_text(node.label) for node in knowledge_nodes}
+    for text in source_texts:
+        haystack = _normalize_matchable_text(text)
+        if not haystack:
+            continue
+        mentioned_ids = sorted(
+            node.id
+            for node in knowledge_nodes
+            if normalized_labels[node.id] and f" {normalized_labels[node.id]} " in f" {haystack} "
+        )
+        if len(mentioned_ids) < 2:
+            continue
+        for source_id, target_id in combinations(mentioned_ids[:12], 2):
+            edge_id = make_edge_id(source_id, target_id, "co_occurs")
+            if edge_id in graph.edges:
+                continue
+            graph.add_edge(
+                Edge(
+                    id=edge_id,
+                    source_id=source_id,
+                    target_id=target_id,
+                    relation="co_occurs",
+                    confidence=0.58,
+                )
+            )
+
+
 def _normalize_query_terms(text: str) -> list[str]:
     return [term for term in re.findall(r"[A-Za-z0-9]+", text.lower()) if len(term) >= 2]
 
@@ -1185,6 +1270,7 @@ def compile_pack(
     readable_sources: list[dict[str, Any]] = []
     skipped_sources: list[str] = []
     wiki_articles: list[dict[str, Any]] = []
+    extraction_texts: list[str] = []
     for record in source_records:
         source_file = _source_file_path(pack_root, record)
         if not source_file.exists():
@@ -1214,9 +1300,13 @@ def compile_pack(
             }
         )
         wiki_articles.append({"title": title, "wiki_path": wiki_rel})
-        extractor.extract_from_text(text)
+        extraction_text = _markdown_extraction_text(text)
+        extraction_texts.append(extraction_text or text)
+        extractor.extract_from_text(extraction_text or text)
     extractor.post_process()
     graph = upgrade_v4_to_v5(extractor.context.export())
+    _sanitize_pack_graph(graph)
+    _link_cooccurring_pack_nodes(graph, extraction_texts)
 
     root_summary = readable_sources[0]["summary"] if readable_sources else ""
     root_node = _brainpack_root_node(manifest, fallback_summary=root_summary)
@@ -1725,10 +1815,14 @@ def query_pack(
 
 
 def _artifact_sections_for_query(question: str, query_payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    claims = list(query_payload.get("claims", []))[:5]
+    claims = list(query_payload.get("claims", []))
+    strong_claims = [item for item in claims if float(item.get("confidence", 0.0)) >= 0.55]
+    claims = (strong_claims or claims)[:5]
     wiki = list(query_payload.get("wiki", []))[:4]
     unknowns = list(query_payload.get("unknowns", []))[:4]
-    concepts = list(query_payload.get("concepts", []))[:4]
+    concepts = list(query_payload.get("concepts", []))
+    strong_concepts = [item for item in concepts if float(item.get("confidence", 0.0)) >= 0.55]
+    concepts = (strong_concepts or concepts)[:4]
     artifacts = list(query_payload.get("artifacts", []))[:3]
     combined = list(query_payload.get("results", []))[:6]
     if not claims and combined:
@@ -1981,7 +2075,7 @@ def lint_pack(
                     f"These nodes look similar enough to review for deduplication "
                     f"(similarity {similarity:.2f} >= {duplicate_threshold:.2f})."
                 ),
-                severity=min(0.95, max(0.55, float(similarity))),
+                severity=min(0.79, max(0.55, float(similarity))),
                 node_ids=[source_id, target_id],
                 similarity=round(float(similarity), 2),
             )
