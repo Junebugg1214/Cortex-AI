@@ -369,6 +369,30 @@ class MemoryUIBackend:
         payload["status"] = "ok"
         return payload
 
+    def pack_list(self) -> dict[str, Any]:
+        return self.service.pack_list()
+
+    def pack_status(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_status(name=name)
+
+    def pack_sources(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_sources(name=name)
+
+    def pack_concepts(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_concepts(name=name)
+
+    def pack_claims(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_claims(name=name)
+
+    def pack_unknowns(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_unknowns(name=name)
+
+    def pack_artifacts(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_artifacts(name=name)
+
+    def pack_lint_report(self, *, name: str) -> dict[str, Any]:
+        return self.service.pack_lint_report(name=name)
+
     def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
         return self._safe_index_status(ref=ref)
 
@@ -939,6 +963,26 @@ UI_HTML = """<!doctype html>
       color: var(--muted);
       font-size: 0.88rem;
     }
+    .segmented {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .segmented button {
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+    .segmented button.active {
+      background: #13211b;
+      color: #f5f7f4;
+      border-color: #13211b;
+    }
     .danger { color: var(--danger); }
     .warning { color: var(--warning); }
     .info { color: var(--info); }
@@ -972,6 +1016,7 @@ UI_HTML = """<!doctype html>
       <div class="nav" role="tablist" aria-label="Cortex UI panels">
         <button data-panel="overview" class="active" role="tab" aria-selected="true">Overview</button>
         <button data-panel="tools" role="tab" aria-selected="false">Tools</button>
+        <button data-panel="brainpacks" role="tab" aria-selected="false">Brainpacks</button>
         <button data-panel="audit" role="tab" aria-selected="false">Freshness</button>
         <button data-panel="review" role="tab" aria-selected="false">Review & Trace</button>
         <button data-panel="advanced" role="tab" aria-selected="false">Advanced</button>
@@ -1041,6 +1086,32 @@ UI_HTML = """<!doctype html>
         <div id="tools-summary" class="result empty">Tool coverage and routing details will appear here.</div>
         <div id="tools-list" class="tool-grid"></div>
         <div id="tools-context-result" class="result empty">Select a target to preview the context Cortex would hand it right now.</div>
+      </section>
+
+      <section id="panel-brainpacks" class="panel" role="tabpanel">
+        <h3>Brainpacks</h3>
+        <p class="panel-copy">Browse your compiled domain minds by source material, concepts, claims, open questions, and generated artifacts.</p>
+        <div class="panel-grid">
+          <label>Selected pack
+            <select id="brainpack-select" onchange="loadBrainpackView()"></select>
+          </label>
+          <div>
+            <div class="tiny">Section</div>
+            <div id="brainpack-tabs" class="segmented" role="tablist" aria-label="Brainpack sections">
+              <button data-brainpack-view="sources" class="active" onclick="activateBrainpackView('sources', this)">Sources</button>
+              <button data-brainpack-view="concepts" onclick="activateBrainpackView('concepts', this)">Concepts</button>
+              <button data-brainpack-view="claims" onclick="activateBrainpackView('claims', this)">Claims</button>
+              <button data-brainpack-view="unknowns" onclick="activateBrainpackView('unknowns', this)">Unknowns</button>
+              <button data-brainpack-view="artifacts" onclick="activateBrainpackView('artifacts', this)">Artifacts</button>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="action" onclick="loadBrainpacks(this)">Refresh packs</button>
+          <button class="action subtle" onclick="loadBrainpackView(this)">Refresh section</button>
+        </div>
+        <div id="brainpack-summary" class="result empty">Brainpack summary cards will appear here.</div>
+        <div id="brainpack-content" class="result empty">Select a pack to inspect its sources, concepts, claims, unknowns, and artifacts.</div>
       </section>
 
       <section id="panel-audit" class="panel" role="tabpanel">
@@ -1245,6 +1316,12 @@ UI_HTML = """<!doctype html>
       scan: null,
       status: null,
       audit: null,
+      brainpacks: {
+        list: null,
+        status: null,
+        selected: "",
+        view: "sources",
+      },
     };
 
     function escapeHtml(value) {
@@ -1585,6 +1662,141 @@ UI_HTML = """<!doctype html>
       }).join("");
     }
 
+    function populateBrainpackSelector(data) {
+      const select = document.getElementById("brainpack-select");
+      const packs = data?.packs || [];
+      const previous = workspaceState.brainpacks?.selected || "";
+      if (!packs.length) {
+        select.innerHTML = "";
+        workspaceState.brainpacks.selected = "";
+        return;
+      }
+      const selected = packs.some((pack) => pack.pack === previous) ? previous : packs[0].pack;
+      workspaceState.brainpacks.selected = selected;
+      select.innerHTML = packs.map((pack) => {
+        const isSelected = pack.pack === selected ? ' selected' : '';
+        return `<option value="${escapeHtml(pack.pack)}"${isSelected}>${escapeHtml(pack.pack)}</option>`;
+      }).join("");
+    }
+
+    function brainpackViewEndpoint(view, packName) {
+      const encodedName = encodeURIComponent(packName);
+      if (view === "concepts") return `/api/packs/concepts?name=${encodedName}`;
+      if (view === "claims") return `/api/packs/claims?name=${encodedName}`;
+      if (view === "unknowns") return `/api/packs/unknowns?name=${encodedName}`;
+      if (view === "artifacts") return `/api/packs/artifacts?name=${encodedName}`;
+      return `/api/packs/sources?name=${encodedName}`;
+    }
+
+    function renderBrainpackSummary(status) {
+      const lintSummary = status?.lint_summary || {};
+      return `
+        <div class="cards">
+          <div class="card"><div>Sources</div><strong>${escapeHtml(String(status?.source_count || 0))}</strong><small>${escapeHtml(String(status?.text_source_count || 0))} readable and compiled.</small></div>
+          <div class="card"><div>Concepts</div><strong>${escapeHtml(String(status?.graph_nodes || 0))}</strong><small>${escapeHtml(String(status?.graph_edges || 0))} relationships in the concept graph.</small></div>
+          <div class="card"><div>Claims</div><strong>${escapeHtml(String(status?.claim_count || 0))}</strong><small>Provisional claims extracted from the pack.</small></div>
+          <div class="card"><div>Unknowns</div><strong>${escapeHtml(String(status?.unknown_count || 0))}</strong><small>Open questions or gaps still worth exploring.</small></div>
+          <div class="card"><div>Artifacts</div><strong>${escapeHtml(String(status?.artifact_count || 0))}</strong><small>Generated outputs filed back into the pack.</small></div>
+          <div class="card"><div>Lint</div><strong>${escapeHtml(String(status?.lint_status || "not_run"))}</strong><small>${escapeHtml(String(lintSummary.total_findings || 0))} findings · ${escapeHtml(String(lintSummary.high || 0))} high.</small></div>
+        </div>
+      `;
+    }
+
+    function renderBrainpackSources(data) {
+      if (!(data?.sources || []).length) {
+        return '<div class="empty">No sources ingested into this Brainpack yet.</div>';
+      }
+      return `<div class="list">${(data.sources || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.title || item.source_path || "Source")}</h4>
+          <div class="meta-row">
+            <span class="pill">${escapeHtml(item.type || "source")}</span>
+            <span class="pill">${escapeHtml(item.mode || "copy")}</span>
+            <span class="pill ${item.readable ? "good" : "warn"}">${escapeHtml(item.readable ? "readable" : "not compiled")}</span>
+          </div>
+          <p>${escapeHtml(item.summary || item.preview || "No summary available yet.")}</p>
+          <p class="mono">${escapeHtml(item.source_path || "")}</p>
+          ${item.wiki_path ? `<p><strong>Wiki page:</strong> <span class="mono">${escapeHtml(item.wiki_path)}</span></p>` : ""}
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderBrainpackConcepts(data) {
+      if (!(data?.concepts || []).length) {
+        return '<div class="empty">No compiled concepts yet. Run `cortex pack compile` first.</div>';
+      }
+      return `<div class="list">${(data.concepts || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.label || "(unnamed)")} <span class="mono">${escapeHtml(item.id || "")}</span></h4>
+          <div>${(item.tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}</div>
+          <p>${escapeHtml(item.brief || "No description available.")}</p>
+          <p><strong>Confidence:</strong> ${escapeHtml(String(item.confidence ?? 0))} · <strong>Degree:</strong> ${escapeHtml(String(item.degree ?? 0))} · <strong>Quotes:</strong> ${escapeHtml(String(item.source_quote_count ?? 0))}</p>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderBrainpackClaims(data) {
+      if (!(data?.claims || []).length) {
+        return '<div class="empty">No claim candidates recorded for this Brainpack yet.</div>';
+      }
+      return `<div class="list">${(data.claims || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.label || "(claim)")}</h4>
+          <div>${(item.tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}</div>
+          <p>${escapeHtml(item.brief || "No summary available.")}</p>
+          <p><strong>Confidence:</strong> ${escapeHtml(String(item.confidence ?? 0))} · <strong>Source quotes:</strong> ${escapeHtml(String((item.source_quotes || []).length))}</p>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderBrainpackUnknowns(data) {
+      if (!(data?.unknowns || []).length) {
+        return '<div class="empty">No open questions are recorded for this Brainpack right now.</div>';
+      }
+      return `<div class="list">${(data.unknowns || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.question || item.title || "(unknown)")}</h4>
+          <div class="meta-row">
+            ${item.type ? `<span class="pill">${escapeHtml(item.type)}</span>` : ""}
+            ${item.source_path ? `<span class="pill">${escapeHtml(item.source_path.split("/").slice(-1)[0])}</span>` : ""}
+          </div>
+          <p>${escapeHtml(item.reason || "No reason recorded.")}</p>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderBrainpackArtifacts(data) {
+      if (!(data?.artifacts || []).length) {
+        return '<div class="empty">No artifacts have been filed back into this Brainpack yet.</div>';
+      }
+      return `<div class="list">${(data.artifacts || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.title || "(artifact)")}</h4>
+          <p class="mono">${escapeHtml(item.path || "")}</p>
+          <p>${escapeHtml(item.preview || "No preview available.")}</p>
+          <p><strong>Updated:</strong> ${escapeHtml(item.updated_at || "unknown")} · <strong>Size:</strong> ${escapeHtml(String(item.size_bytes || 0))} bytes</p>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderBrainpackSection(view, data) {
+      if (view === "concepts") return renderBrainpackConcepts(data);
+      if (view === "claims") return renderBrainpackClaims(data);
+      if (view === "unknowns") return renderBrainpackUnknowns(data);
+      if (view === "artifacts") return renderBrainpackArtifacts(data);
+      return renderBrainpackSources(data);
+    }
+
+    function activateBrainpackView(view, trigger) {
+      workspaceState.brainpacks.view = view;
+      document.querySelectorAll("#brainpack-tabs button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.brainpackView === view);
+      });
+      if (trigger) {
+        loadBrainpackView(trigger);
+      }
+    }
+
     function populateContextTargets(scan) {
       const select = document.getElementById("tools-context-target");
       const current = select.value;
@@ -1649,6 +1861,51 @@ UI_HTML = """<!doctype html>
           ${(issue.missing_labels || []).length ? `<p><strong>Missing labels:</strong> ${escapeHtml(issue.missing_labels.join(", "))}</p>` : ""}
         </div>
       `).join("")}</div>`;
+    }
+
+    async function loadBrainpacks(trigger) {
+      return withBusy(trigger, "Refreshing...", async () => {
+        try {
+          const data = await api("/api/packs");
+          workspaceState.brainpacks.list = data;
+          populateBrainpackSelector(data);
+          if (!(data.packs || []).length) {
+            setEmpty("brainpack-summary", "No Brainpacks yet. Create one with `cortex pack init`, ingest sources, then compile it.");
+            setEmpty("brainpack-content", "Once a Brainpack exists, Cortex will show its sources, concepts, claims, unknowns, and artifacts here.");
+            return;
+          }
+          await loadBrainpackView();
+        } catch (err) {
+          setError("brainpack-summary", err);
+          setError("brainpack-content", err);
+        }
+      });
+    }
+
+    async function loadBrainpackView(trigger) {
+      return withBusy(trigger, "Loading...", async () => {
+        try {
+          const select = document.getElementById("brainpack-select");
+          const packName = (select?.value || workspaceState.brainpacks.selected || "").trim();
+          if (!packName) {
+            setEmpty("brainpack-summary", "No Brainpack selected yet.");
+            setEmpty("brainpack-content", "Select a Brainpack first.");
+            return;
+          }
+          workspaceState.brainpacks.selected = packName;
+          const view = workspaceState.brainpacks.view || "sources";
+          const [status, detail] = await Promise.all([
+            api(`/api/packs/status?name=${encodeURIComponent(packName)}`),
+            api(brainpackViewEndpoint(view, packName)),
+          ]);
+          workspaceState.brainpacks.status = status;
+          setResult("brainpack-summary", renderBrainpackSummary(status));
+          setResult("brainpack-content", `${renderBrainpackSection(view, detail)}${renderRawDetails(`Raw ${view} payload`, detail)}`);
+        } catch (err) {
+          setError("brainpack-summary", err);
+          setError("brainpack-content", err);
+        }
+      });
     }
 
     async function loadWorkspace(trigger) {
@@ -2166,6 +2423,7 @@ UI_HTML = """<!doctype html>
         activatePanel(window.location.hash.replace(/^#/, "") || "overview", false);
         await loadWorkspace();
         await Promise.all([
+          loadBrainpacks(),
           loadGovernance(),
           loadRemotes(),
           loadIndexStatus(),
@@ -2326,6 +2584,45 @@ def make_handler(backend: MemoryUIBackend):
                         ),
                         request_id=request_id,
                     )
+                    return
+                if parsed.path == "/api/packs":
+                    self._send_json(backend.pack_list(), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/status":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_status(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/sources":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_sources(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/concepts":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_concepts(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/claims":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_claims(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/unknowns":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_unknowns(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/packs/artifacts":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.pack_artifacts(name=name), request_id=request_id)
                     return
                 if parsed.path == "/api/governance/rules":
                     self._send_json(backend.list_governance_rules(), request_id=request_id)
