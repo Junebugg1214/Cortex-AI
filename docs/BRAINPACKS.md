@@ -2,7 +2,7 @@
 
 Brainpacks are Cortex's local-first domain packs: raw source files go in, and Cortex compiles them into a small wiki, a graph, claim candidates, open questions, durable answer artifacts, and lint reports that any agent can consume.
 
-This release gives you the native pack layout, ingestion, compilation, status, routed context rendering, `pack query`, `pack ask` with artifact write-back, `pack lint` for ongoing pack integrity checks, and a dedicated Brainpacks view inside `cortex ui`. It does **not** yet include pack export/import bundles.
+This release gives you the native pack layout, ingestion, compilation, status, routed context rendering, `pack query`, `pack ask` with artifact write-back, `pack lint` for ongoing pack integrity checks, Brainpack bundle export/import, and a dedicated Brainpacks view inside `cortex ui`.
 
 ## What a Brainpack looks like
 
@@ -80,6 +80,24 @@ Run integrity checks over the pack:
 cortex pack lint ai-memory
 ```
 
+Export a portable bundle:
+
+```bash
+cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip
+```
+
+Import that bundle into another Cortex store:
+
+```bash
+cortex pack import ./dist/ai-memory.brainpack.zip --store-dir ~/.cortex
+```
+
+If the bundle name would collide locally, import it under a new name:
+
+```bash
+cortex pack import ./dist/ai-memory.brainpack.zip --store-dir ~/.cortex --as ai-memory-copy
+```
+
 ## MCP support
 
 The first Brainpacks MCP surface is available now:
@@ -90,6 +108,8 @@ The first Brainpacks MCP surface is available now:
 - `pack_query`
 - `pack_ask`
 - `pack_lint`
+- `pack_export`
+- `pack_import`
 
 That means MCP-capable runtimes can already see compiled packs and ask Cortex for a routed Brainpack context slice.
 
@@ -114,11 +134,13 @@ The Brainpacks panel now exposes:
 - generating a small wiki and graph that persist outside a single chat session
 - querying the compiled pack and turning the answer into durable notes, reports, or slide drafts
 - running integrity checks for contradictions, duplicates, orphan concepts, weak claims, and thin source pages
+- exporting a portable bundle that carries the current pack, compiled outputs, and materialized reference sources when possible
+- importing that bundle into another Cortex store without rebuilding the pack from scratch
 - mounting the compiled pack into Hermes, Codex, Cursor, Claude Code, or other Cortex portability targets
-- creating a durable foundation for future bundle export/import and richer artifact workflows
+- creating a durable foundation for richer artifact workflows
 
 ## What is next
 
-The current release is the Brainpacks query, artifact, lint, and UI loop. The next major steps are:
-- export/import bundles
+The current release is the Brainpacks query, artifact, lint, bundle, and UI loop. The next major steps are:
 - richer artifact filing and pack-native Q&A loops
+- deeper bundle-aware UI flows

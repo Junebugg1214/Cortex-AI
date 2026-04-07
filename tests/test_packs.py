@@ -8,6 +8,8 @@ from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.packs import (
     ask_pack,
     compile_pack,
+    export_pack_bundle,
+    import_pack_bundle,
     ingest_pack,
     init_pack,
     lint_pack,
@@ -16,6 +18,7 @@ from cortex.packs import (
     pack_status,
     query_pack,
     render_pack_context,
+    verify_pack_bundle,
 )
 
 
@@ -185,9 +188,81 @@ def test_pack_lint_reports_integrity_findings_and_persists_report(tmp_path):
     )
 
 
+def test_pack_export_import_bundle_round_trip_materializes_reference_sources(tmp_path):
+    source_store = tmp_path / "source-store"
+    imported_store = tmp_path / "imported-store"
+    source = tmp_path / "portable-memory.md"
+    bundle = tmp_path / "ai-memory.brainpack.zip"
+    _seed_source(source)
+
+    init_pack(source_store, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(source_store, "ai-memory", [str(source)], mode="reference")
+    compile_pack(source_store, "ai-memory", suggest_questions=True, max_summary_chars=240)
+    ask_pack(
+        source_store,
+        "ai-memory",
+        "What does this pack say about portable brain-state infrastructure?",
+        output="note",
+        limit=5,
+        write_back=True,
+    )
+    lint_pack(source_store, "ai-memory")
+
+    export_payload = export_pack_bundle(source_store, "ai-memory", bundle)
+    verify_payload = verify_pack_bundle(bundle)
+    import_payload = import_pack_bundle(bundle, imported_store, as_name="ai-memory-copy")
+
+    assert export_payload["materialized_reference_sources"] == 1
+    assert export_payload["archive"] == str(bundle)
+    assert verify_payload["valid"] is True
+    assert import_payload["pack"] == "ai-memory-copy"
+    assert import_payload["original_pack"] == "ai-memory"
+
+    status = pack_status(imported_store, "ai-memory-copy")
+    assert status["compile_status"] == "compiled"
+    assert status["artifact_count"] >= 1
+    imported_manifest = load_manifest(imported_store, "ai-memory-copy")
+    assert imported_manifest.name == "ai-memory-copy"
+
+    imported_sources = json.loads(
+        (imported_store / "packs" / "ai-memory-copy" / "indexes" / "sources.json").read_text(encoding="utf-8")
+    )
+    assert imported_sources["sources"][0]["stored_path"].startswith("raw/bundled-references/")
+    assert imported_sources["sources"][0]["mode"] == "copy"
+
+    recompiled = compile_pack(imported_store, "ai-memory-copy", suggest_questions=True, max_summary_chars=240)
+    assert recompiled["text_source_count"] == 1
+
+
+def test_pack_import_rejects_path_traversal_bundle(tmp_path):
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    archive = tmp_path / "unsafe.brainpack.zip"
+    manifest = {
+        "format_version": "1",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "pack_name": "unsafe-pack",
+        "manifest": {"name": "unsafe-pack"},
+        "file_count": 1,
+        "files": [{"path": "manifest.toml", "size": 4, "sha256": "e3b0c44298fc1c149afbf4c8996fb924"}],
+    }
+    with ZipFile(archive, "w", compression=ZIP_DEFLATED) as handle:
+        handle.writestr("bundle_manifest.json", json.dumps(manifest))
+        handle.writestr("pack/../../escape.txt", "nope")
+
+    try:
+        import_pack_bundle(archive, tmp_path / "store")
+    except ValueError as exc:
+        assert "unsafe path traversal" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("expected import_pack_bundle to reject traversal entries")
+
+
 def test_cli_pack_round_trip(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
+    imported_store_dir = tmp_path / ".imported"
     source = tmp_path / "brain-state.md"
+    bundle = tmp_path / "brain-layer.brainpack.zip"
     _seed_source(source)
 
     assert main(["pack", "init", "brain-layer", "--store-dir", str(store_dir), "--format", "json"]) == 0
@@ -308,3 +383,43 @@ def test_cli_pack_round_trip(tmp_path, capsys):
     lint_payload = json.loads(capsys.readouterr().out)
     assert lint_payload["status"] == "ok"
     assert "summary" in lint_payload
+
+    assert (
+        main(
+            [
+                "pack",
+                "export",
+                "brain-layer",
+                "--store-dir",
+                str(store_dir),
+                "--output",
+                str(bundle),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    export_payload = json.loads(capsys.readouterr().out)
+    assert export_payload["archive"] == str(bundle)
+    assert export_payload["verified"] is True
+
+    assert (
+        main(
+            [
+                "pack",
+                "import",
+                str(bundle),
+                "--store-dir",
+                str(imported_store_dir),
+                "--as",
+                "brain-layer-copy",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    import_payload = json.loads(capsys.readouterr().out)
+    assert import_payload["pack"] == "brain-layer-copy"
+    assert import_payload["compile_status"] == "compiled"

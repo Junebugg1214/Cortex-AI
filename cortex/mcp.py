@@ -422,6 +422,42 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="pack_export",
+                title="Export Brainpack Bundle",
+                description=(
+                    "Write a portable Brainpack bundle archive that preserves the pack layout, compiled outputs, "
+                    "and materialized reference sources when available."
+                ),
+                method_name="pack_export",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "output": _string_property("Output bundle path or directory."),
+                        "verify": _boolean_property("When true, verify the archive after writing it."),
+                    },
+                    required=("name", "output"),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="pack_import",
+                title="Import Brainpack Bundle",
+                description="Import a Brainpack bundle archive into the local Cortex store.",
+                method_name="pack_import",
+                input_schema=_object_schema(
+                    {
+                        "archive": _string_property("Path to the Brainpack bundle archive."),
+                        "as_name": _string_property("Optional new name for the imported Brainpack."),
+                    },
+                    required=("archive",),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="channel_prepare_turn",
                 title="Prepare Channel Turn",
                 description=(

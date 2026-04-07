@@ -23,6 +23,8 @@ from cortex.openapi import build_openapi_spec
 from cortex.packs import (
     ask_pack,
     compile_pack,
+    export_pack_bundle,
+    import_pack_bundle,
     lint_pack,
     list_packs,
     pack_artifacts,
@@ -625,6 +627,36 @@ class MemoryService:
             duplicate_threshold=duplicate_threshold,
             weak_claim_confidence=weak_claim_confidence,
             thin_article_chars=thin_article_chars,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_export(
+        self,
+        *,
+        name: str,
+        output: str,
+        verify: bool = True,
+    ) -> dict[str, Any]:
+        payload = export_pack_bundle(
+            self.store_dir,
+            name,
+            output,
+            verify=verify,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def pack_import(
+        self,
+        *,
+        archive: str,
+        as_name: str = "",
+    ) -> dict[str, Any]:
+        payload = import_pack_bundle(
+            archive,
+            self.store_dir,
+            as_name=as_name,
         )
         payload["release"] = self.release()
         return payload

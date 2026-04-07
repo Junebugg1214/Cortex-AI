@@ -1299,6 +1299,24 @@ def build_parser(*, show_all_commands: bool = False):
     )
     pk_lint.add_argument("--format", choices=["json", "text"], default="text")
 
+    pk_export = pk_sub.add_parser("export", help="Export a Brainpack as a portable bundle archive")
+    pk_export.add_argument("name", help="Brainpack name")
+    pk_export.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_export.add_argument(
+        "--output",
+        "-o",
+        required=True,
+        help="Output bundle path or directory (for example ./dist/ai-memory.brainpack.zip)",
+    )
+    pk_export.add_argument("--no-verify", action="store_true", help="Skip post-write bundle verification")
+    pk_export.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_import = pk_sub.add_parser("import", help="Import a Brainpack bundle archive into the local store")
+    pk_import.add_argument("archive", help="Path to the Brainpack bundle archive")
+    pk_import.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_import.add_argument("--as", dest="as_name", default="", help="Optional new pack name for the imported bundle")
+    pk_import.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- ui (local web interface) -----------------------------------------
     ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
@@ -4830,6 +4848,8 @@ def run_pack(args):
     from cortex.packs import (
         ask_pack,
         compile_pack,
+        export_pack_bundle,
+        import_pack_bundle,
         ingest_pack,
         init_pack,
         lint_pack,
@@ -5059,7 +5079,65 @@ def run_pack(args):
                 _echo(f"- {suggestion}")
         return 0
 
-    return _error("Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask, lint")
+    if args.pack_subcommand == "export":
+        try:
+            payload = export_pack_bundle(
+                store_dir,
+                args.name,
+                args.output,
+                verify=not args.no_verify,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Exported Brainpack `{payload['pack']}`")
+        _echo(f"  archive: {payload['archive']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['file_count']} files",
+                    f"{payload['materialized_reference_sources']} materialized reference source(s)",
+                    "verified" if payload["verified"] else "not verified",
+                ]
+            )
+        )
+        if payload["missing_reference_sources"]:
+            _echo("  Missing reference sources:")
+            for item in payload["missing_reference_sources"][:8]:
+                _echo(f"  - {item}")
+        return 0
+
+    if args.pack_subcommand == "import":
+        try:
+            payload = import_pack_bundle(
+                args.archive,
+                store_dir,
+                as_name=args.as_name,
+            )
+        except (FileExistsError, FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Imported Brainpack `{payload['pack']}` from {payload['archive']}")
+        if payload["pack"] != payload["original_pack"]:
+            _echo(f"  original pack: {payload['original_pack']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['source_count']} sources",
+                    f"{payload['artifact_count']} artifacts",
+                    payload["compile_status"],
+                ]
+            )
+        )
+        return 0
+
+    return _error(
+        "Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask, lint, export, import"
+    )
 
 
 def run_scan(args):
