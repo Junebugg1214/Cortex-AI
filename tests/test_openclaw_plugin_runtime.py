@@ -55,6 +55,71 @@ def _seed_portability(base: Path) -> tuple[Path, Path]:
     return project_dir, store_dir
 
 
+def _seed_brainpack_and_mount_openclaw(project_dir: Path, store_dir: Path) -> None:
+    source = project_dir / "brainpack.md"
+    source.write_text(
+        (
+            "# Support Brainpack\n\n"
+            "Casey supports Telegram and WhatsApp customers.\n"
+            "Cortex Brainpacks are portable domain minds.\n"
+            "Next.js deployment questions are common.\n"
+        ),
+        encoding="utf-8",
+    )
+    assert main(["pack", "init", "support-pack", "--store-dir", str(store_dir), "--format", "json"]) == 0
+    assert (
+        main(
+            [
+                "pack",
+                "ingest",
+                "support-pack",
+                str(source),
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "pack",
+                "compile",
+                "support-pack",
+                "--store-dir",
+                str(store_dir),
+                "--suggest-questions",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "pack",
+                "mount",
+                "support-pack",
+                "--to",
+                "openclaw",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--openclaw-store-dir",
+                str(store_dir),
+                "--smart",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+
 def test_openclaw_plugin_package_packs_cleanly(tmp_path):
     root = Path(__file__).resolve().parents[1]
     package_dir = root / "examples" / "openclaw-plugin"
@@ -87,6 +152,7 @@ def test_openclaw_plugin_runtime_boots_managed_cortex_and_seeds_memory(tmp_path)
     root = Path(__file__).resolve().parents[1]
     plugin_entry = (root / "examples" / "openclaw-plugin" / "src" / "index.js").resolve()
     project_dir, store_dir = _seed_portability(tmp_path)
+    _seed_brainpack_and_mount_openclaw(project_dir, store_dir)
 
     event = {
         "platform": "telegram",
@@ -172,6 +238,8 @@ process.stdout.write(JSON.stringify({ prompt, logs }));
     assert "prependContext" in prompt
     assert "python" in prompt["prependContext"].lower()
     assert "next.js" in prompt["prependContext"].lower()
+    assert "mounted brainpack (support-pack)" in prompt["prependContext"].lower()
+    assert "portable domain minds" in prompt["prependContext"].lower()
 
     identity = TelegramAdapter().resolve_identity(
         ChannelMessage(

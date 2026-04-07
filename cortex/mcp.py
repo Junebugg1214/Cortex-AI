@@ -335,6 +335,38 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="pack_mount",
+                title="Mount Brainpack",
+                description=(
+                    "Mount a compiled Brainpack directly into Hermes, OpenClaw, Codex, Cursor, Claude Code, "
+                    "or other supported portability targets."
+                ),
+                method_name="pack_mount",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Brainpack name."),
+                        "targets": {
+                            "type": "array",
+                            "description": "Mount targets such as hermes, openclaw, codex, cursor, or claude-code.",
+                            "items": {"type": "string"},
+                        },
+                        "project_dir": _string_property(
+                            "Optional working directory for project-scoped targets like codex, cursor, and claude-code."
+                        ),
+                        "smart": _boolean_property("When true, use smart routing while mounting the pack."),
+                        "policy": _string_property("Disclosure policy to use when smart routing is disabled."),
+                        "max_chars": _integer_property("Maximum size of each mounted context slice."),
+                        "openclaw_store_dir": _string_property(
+                            "Optional OpenClaw Cortex store dir when the plugin does not use ~/.openclaw/cortex."
+                        ),
+                    },
+                    required=("name", "targets"),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="pack_compile",
                 title="Compile Brainpack",
                 description="Compile a Brainpack into wiki pages, a graph, claim candidates, and unknowns.",

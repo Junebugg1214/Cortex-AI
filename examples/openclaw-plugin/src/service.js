@@ -5,6 +5,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const PACKAGE_VERSION = "1.4.1";
+const BRAINPACK_MOUNTS_FILE = "brainpacks.mounted.json";
 const DEFAULT_IDENTITY_FIELDS = Object.freeze({
   canonicalSubjectId: true,
   phoneNumber: true,
@@ -165,6 +166,20 @@ async function _ensureManagedConfig(config) {
   }
   sections.push("");
   await fs.writeFile(config.configPath, sections.join("\n"), "utf-8");
+}
+
+async function _readMountedBrainpacks(config) {
+  const registryPath = path.join(config.storeDir, BRAINPACK_MOUNTS_FILE);
+  try {
+    const payload = JSON.parse(await fs.readFile(registryPath, "utf-8"));
+    const mounts = Array.isArray(payload?.mounts) ? payload.mounts : [];
+    return mounts.filter((item) => _coerceString(item?.name).trim() && item?.enabled !== false);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 export function buildManagedChildCommand(config, options = {}) {
@@ -436,6 +451,14 @@ export class CortexMcpService {
 
   async seedTurnMemory(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
     return this.callTool("channel_seed_turn_memory", payload, timeoutMs);
+  }
+
+  async packContext(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
+    return this.callTool("pack_context", payload, timeoutMs);
+  }
+
+  async listMountedBrainpacks(config = this.lastConfig) {
+    return _readMountedBrainpacks(config);
   }
 
   async stop() {

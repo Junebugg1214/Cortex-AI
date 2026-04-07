@@ -18,6 +18,19 @@ function _formatPortableContext(turnPayload) {
   return `Cortex portable context:\n\n${markdown}`;
 }
 
+function _formatMountedBrainpacks(packPayloads) {
+  const sections = [];
+  for (const payload of packPayloads) {
+    const markdown = _firstString(payload?.context_markdown, payload?.context);
+    const packName = _firstString(payload?.pack, payload?.name);
+    if (!markdown || !packName) {
+      continue;
+    }
+    sections.push(`Mounted Brainpack (${packName}):\n\n${markdown}`);
+  }
+  return sections.join("\n\n");
+}
+
 export function handleMessageReceived(runtime, event, ctx = {}) {
   const config = runtime.resolveConfig(ctx);
   const message = toChannelMessage(event, ctx, config);
@@ -44,7 +57,34 @@ export async function handleBeforePromptBuild(runtime, event, ctx = {}) {
     if (turnKey) {
       runtime.turnCache.set(turnKey, payload.turn);
     }
-    const injected = _formatPortableContext(payload);
+    const mountedPacks = await runtime.service.listMountedBrainpacks(config);
+    const mountedPayloads = [];
+    for (const pack of mountedPacks) {
+      try {
+        const packSmart = typeof pack.smart === "boolean" ? pack.smart : config.smartRouting;
+        mountedPayloads.push(
+          await runtime.service.packContext({
+            name: pack.name,
+            target: config.defaultTarget,
+            smart: packSmart,
+            policy: _firstString(pack.policy, packSmart ? "" : "technical"),
+            max_chars: Number.isFinite(Number(pack.max_chars))
+              ? Number(pack.max_chars)
+              : config.maxContextChars,
+            project_dir: _firstString(pack.project_dir, message.project_dir),
+          }),
+        );
+      } catch (error) {
+        runtime.logger().warn?.(
+          `[cortex] mounted brainpack degraded (${pack.name}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    const injected = [_formatPortableContext(payload), _formatMountedBrainpacks(mountedPayloads)]
+      .filter(Boolean)
+      .join("\n\n");
     if (!injected) {
       return {};
     }
@@ -86,4 +126,3 @@ export async function handleAgentEnd(runtime, event, ctx = {}) {
   }
   return {};
 }
-

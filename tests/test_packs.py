@@ -15,6 +15,8 @@ from cortex.packs import (
     lint_pack,
     list_packs,
     load_manifest,
+    mount_pack,
+    openclaw_mount_registry_path,
     pack_status,
     query_pack,
     render_pack_context,
@@ -188,6 +190,48 @@ def test_pack_lint_reports_integrity_findings_and_persists_report(tmp_path):
     )
 
 
+def test_pack_mount_writes_direct_targets_and_openclaw_registry(tmp_path, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "memory.md"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+
+    payload = mount_pack(
+        store_dir,
+        "ai-memory",
+        targets=["hermes", "claude-code", "codex", "cursor", "openclaw"],
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+        openclaw_store_dir=str(openclaw_store_dir),
+    )
+    status = pack_status(store_dir, "ai-memory")
+    registry = json.loads(openclaw_mount_registry_path(openclaw_store_dir).read_text(encoding="utf-8"))
+
+    assert payload["mount_count"] == 5
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (home_dir / ".hermes" / "memories" / "MEMORY.md").exists()
+    assert (home_dir / ".hermes" / "config.yaml").exists()
+    assert (home_dir / ".claude" / "CLAUDE.md").exists()
+    assert (project_dir / "CLAUDE.md").exists()
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+    assert status["mount_count"] == 5
+    assert set(status["mounted_targets"]) == {"hermes", "claude-code", "codex", "cursor", "openclaw"}
+    assert registry["mount_count"] == 1
+    assert registry["mounts"][0]["name"] == "ai-memory"
+    assert registry["mounts"][0]["smart"] is True
+
+
 def test_pack_export_import_bundle_round_trip_materializes_reference_sources(tmp_path):
     source_store = tmp_path / "source-store"
     imported_store = tmp_path / "imported-store"
@@ -258,11 +302,17 @@ def test_pack_import_rejects_path_traversal_bundle(tmp_path):
         raise AssertionError("expected import_pack_bundle to reject traversal entries")
 
 
-def test_cli_pack_round_trip(tmp_path, capsys):
+def test_cli_pack_round_trip(tmp_path, capsys, monkeypatch):
     store_dir = tmp_path / ".cortex"
     imported_store_dir = tmp_path / ".imported"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
     source = tmp_path / "brain-state.md"
     bundle = tmp_path / "brain-layer.brainpack.zip"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
     _seed_source(source)
 
     assert main(["pack", "init", "brain-layer", "--store-dir", str(store_dir), "--format", "json"]) == 0
@@ -383,6 +433,44 @@ def test_cli_pack_round_trip(tmp_path, capsys):
     lint_payload = json.loads(capsys.readouterr().out)
     assert lint_payload["status"] == "ok"
     assert "summary" in lint_payload
+
+    assert (
+        main(
+            [
+                "pack",
+                "mount",
+                "brain-layer",
+                "--to",
+                "hermes",
+                "claude-code",
+                "codex",
+                "cursor",
+                "openclaw",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--openclaw-store-dir",
+                str(openclaw_store_dir),
+                "--smart",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    mount_payload = json.loads(capsys.readouterr().out)
+    assert {item["target"] for item in mount_payload["targets"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+    assert openclaw_mount_registry_path(openclaw_store_dir).exists()
 
     assert (
         main(

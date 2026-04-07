@@ -26,13 +26,21 @@ from cortex.hermes_integration import build_hermes_documents
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
 from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
-from cortex.portable_runtime import _policy_for_target, canonical_target_name, display_name
+from cortex.portable_runtime import (
+    _policy_for_target,
+    canonical_target_name,
+    default_output_dir,
+    display_name,
+    sync_targets,
+)
 from cortex.upai.disclosure import apply_disclosure
 
 PACKS_DIRNAME = "packs"
 BRAINPACK_BUNDLE_FORMAT_VERSION = "1"
 BRAINPACK_BUNDLE_MANIFEST = "bundle_manifest.json"
 BRAINPACK_BUNDLE_PREFIX = "pack/"
+OPENCLAW_MOUNT_TARGET = "openclaw"
+OPENCLAW_MOUNT_REGISTRY = "brainpacks.mounted.json"
 PACK_SUBDIRS = (
     "raw",
     "wiki",
@@ -43,6 +51,19 @@ PACK_SUBDIRS = (
     "indexes",
 )
 SKIP_NAMES = {".DS_Store"}
+SUPPORTED_PACK_MOUNT_TARGETS = (
+    "claude",
+    "claude-code",
+    "chatgpt",
+    "codex",
+    "copilot",
+    "cursor",
+    "gemini",
+    "grok",
+    "hermes",
+    "windsurf",
+    OPENCLAW_MOUNT_TARGET,
+)
 TEXT_EXTENSIONS = {
     ".c",
     ".cc",
@@ -150,6 +171,10 @@ def unknowns_path(store_dir: Path, name: str) -> Path:
     return pack_path(store_dir, name) / "unknowns" / "open_questions.json"
 
 
+def pack_mounts_path(store_dir: Path, name: str) -> Path:
+    return pack_path(store_dir, name) / "indexes" / "mounts.json"
+
+
 def _wiki_root(store_dir: Path, name: str) -> Path:
     return pack_path(store_dir, name) / "wiki"
 
@@ -165,6 +190,15 @@ def _artifacts_root(store_dir: Path, name: str) -> Path:
 def _artifact_bucket_root(store_dir: Path, name: str, output: str) -> Path:
     bucket = {"note": "notes", "report": "reports", "slides": "slides"}.get(output, f"{output}s")
     return _artifacts_root(store_dir, name) / bucket
+
+
+def _default_openclaw_store_dir() -> Path:
+    return Path.home() / ".openclaw" / "cortex"
+
+
+def openclaw_mount_registry_path(openclaw_store_dir: Path | None = None) -> Path:
+    root = Path(openclaw_store_dir) if openclaw_store_dir is not None else _default_openclaw_store_dir()
+    return root / OPENCLAW_MOUNT_REGISTRY
 
 
 def _read_json(path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
@@ -794,6 +828,152 @@ def import_pack_bundle(
     }
 
 
+def pack_mounts(store_dir: Path, name: str) -> dict[str, Any]:
+    load_manifest(store_dir, name)
+    payload = _read_json(pack_mounts_path(store_dir, name), default={})
+    if payload:
+        return payload
+    return {
+        "status": "ok",
+        "pack": name,
+        "mount_count": 0,
+        "mounts": [],
+    }
+
+
+def _load_openclaw_mount_registry(openclaw_store_dir: Path) -> dict[str, Any]:
+    return _read_json(
+        openclaw_mount_registry_path(openclaw_store_dir),
+        default={"status": "ok", "mount_count": 0, "mounts": []},
+    )
+
+
+def _write_openclaw_mount_registry(openclaw_store_dir: Path, payload: dict[str, Any]) -> Path:
+    path = openclaw_mount_registry_path(openclaw_store_dir)
+    _write_json(path, payload)
+    return path
+
+
+def _record_pack_mounts(store_dir: Path, name: str, mounts: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = {
+        "status": "ok",
+        "pack": name,
+        "mount_count": len(mounts),
+        "mounts": mounts,
+    }
+    _write_json(pack_mounts_path(store_dir, name), payload)
+    return payload
+
+
+def mount_pack(
+    store_dir: Path,
+    name: str,
+    *,
+    targets: list[str],
+    project_dir: str = "",
+    smart: bool = True,
+    policy_name: str = "technical",
+    max_chars: int = 1500,
+    openclaw_store_dir: str = "",
+) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    graph = _load_compiled_graph(store_dir, name)
+    if not targets:
+        raise ValueError("Specify at least one mount target.")
+
+    resolved: list[str] = []
+    for raw_target in targets:
+        lowered = raw_target.strip().lower()
+        target = lowered if lowered == OPENCLAW_MOUNT_TARGET else canonical_target_name(lowered)
+        if target not in SUPPORTED_PACK_MOUNT_TARGETS:
+            raise ValueError(f"Unsupported Brainpack mount target: {raw_target}")
+        if target not in resolved:
+            resolved.append(target)
+
+    project_path = str(Path(project_dir).resolve()) if project_dir else ""
+    output_dir = default_output_dir(store_dir) / "packs" / manifest.name
+    graph_file = graph_path(store_dir, name)
+    mount_results: list[dict[str, Any]] = []
+
+    file_targets = [target for target in resolved if target != OPENCLAW_MOUNT_TARGET]
+    if file_targets:
+        sync_payload = sync_targets(
+            graph,
+            targets=file_targets,
+            store_dir=store_dir,
+            project_dir=project_path,
+            output_dir=output_dir,
+            graph_path=graph_file,
+            policy_name=policy_name,
+            smart=smart,
+            max_chars=max_chars,
+            persist_state=False,
+        )
+        mount_results.extend(
+            {
+                "target": str(item["target"]),
+                "status": str(item["status"]),
+                "paths": list(item.get("paths", [])),
+                "note": str(item.get("note", "")),
+                "mode": str(item.get("mode", "smart" if smart else "full")),
+                "route_tags": list(item.get("route_tags", [])),
+                "mounted_at": _iso_now(),
+            }
+            for item in sync_payload.get("targets", [])
+        )
+
+    if OPENCLAW_MOUNT_TARGET in resolved:
+        openclaw_root = (
+            Path(openclaw_store_dir).expanduser().resolve()
+            if openclaw_store_dir
+            else _default_openclaw_store_dir().resolve()
+        )
+        registry = _load_openclaw_mount_registry(openclaw_root)
+        mounts = [
+            dict(item)
+            for item in registry.get("mounts", [])
+            if str(item.get("name") or "").strip() and str(item.get("name")) != manifest.name
+        ]
+        pack_entry = {
+            "name": manifest.name,
+            "smart": smart,
+            "policy": policy_name,
+            "max_chars": max_chars,
+            "project_dir": project_path,
+            "source_graph_path": str(graph_file),
+            "mounted_at": _iso_now(),
+            "enabled": True,
+        }
+        mounts.append(pack_entry)
+        registry_payload = {
+            "status": "ok",
+            "mount_count": len(mounts),
+            "mounts": mounts,
+        }
+        registry_path = _write_openclaw_mount_registry(openclaw_root, registry_payload)
+        mount_results.append(
+            {
+                "target": OPENCLAW_MOUNT_TARGET,
+                "status": "ok",
+                "paths": [str(registry_path)],
+                "note": f"Registered Brainpack `{manifest.name}` for OpenClaw plugin runtime injection.",
+                "mode": "smart" if smart else "full",
+                "route_tags": [],
+                "mounted_at": pack_entry["mounted_at"],
+            }
+        )
+
+    mounts_payload = _record_pack_mounts(store_dir, name, mount_results)
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "targets": mount_results,
+        "mount_count": len(mount_results),
+        "mounts_path": str(pack_mounts_path(store_dir, name)),
+        "mounts": mounts_payload["mounts"],
+    }
+
+
 def _source_file_path(pack_root: Path, record: dict[str, Any]) -> Path:
     stored_path = str(record.get("stored_path") or "").strip()
     if stored_path:
@@ -857,14 +1037,15 @@ def _score_fields(query: str, terms: list[str], *weighted_fields: tuple[str, flo
     return round(score, 2)
 
 
-def _brainpack_root_node(manifest: BrainpackManifest) -> Node:
+def _brainpack_root_node(manifest: BrainpackManifest, *, fallback_summary: str = "") -> Node:
+    brief = manifest.description or fallback_summary or f"Brainpack for {manifest.name}"
     return Node(
         id=make_node_id(f"brainpack:{manifest.name}"),
         label=manifest.name.replace("-", " ").replace("_", " ").title(),
         tags=["brainpack", "domain_knowledge"],
         confidence=1.0,
-        brief=manifest.description or f"Brainpack for {manifest.name}",
-        full_description=manifest.description,
+        brief=brief,
+        full_description=manifest.description or fallback_summary,
         properties={"brainpack": manifest.name, "owner": manifest.owner},
     )
 
@@ -1037,7 +1218,8 @@ def compile_pack(
     extractor.post_process()
     graph = upgrade_v4_to_v5(extractor.context.export())
 
-    root_node = _brainpack_root_node(manifest)
+    root_summary = readable_sources[0]["summary"] if readable_sources else ""
+    root_node = _brainpack_root_node(manifest, fallback_summary=root_summary)
     graph.add_node(root_node)
     for record in readable_sources:
         source_node = _source_node(record, title=record["title"], summary=record["summary"])
@@ -1962,6 +2144,7 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
         },
     )
     lint_report = pack_lint_report(store_dir, name)
+    mount_report = pack_mounts(store_dir, name)
     return {
         "status": "ok",
         "pack": manifest.name,
@@ -1987,6 +2170,8 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
         "lint_status": str(lint_report.get("lint_status") or "not_run"),
         "linted_at": str(lint_report.get("linted_at") or ""),
         "lint_summary": dict(lint_report.get("summary") or {}),
+        "mount_count": int(mount_report.get("mount_count") or 0),
+        "mounted_targets": [str(item.get("target") or "") for item in mount_report.get("mounts", [])],
     }
 
 

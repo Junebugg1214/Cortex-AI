@@ -59,6 +59,14 @@ That keeps the runtime aligned with the broader Cortex loop:
 - OpenClaw consumes and updates that context through the native plugin
 - other AI runtimes can still consume Cortex over MCP directly
 
+If you want OpenClaw to consume a compiled Brainpack directly, mount it into the plugin store with:
+
+```bash
+cortex pack mount ai-memory --to openclaw --project . --smart
+```
+
+That writes a Brainpack mount registry into the OpenClaw Cortex store so the plugin injects the pack live on each turn alongside the normal routed portability context.
+
 ## Config Schema
 
 Important config fields:

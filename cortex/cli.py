@@ -1243,6 +1243,44 @@ def build_parser(*, show_all_commands: bool = False):
     pk_context.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
     pk_context.add_argument("--format", choices=["json", "text"], default="text")
 
+    pk_mount = pk_sub.add_parser("mount", help="Mount a compiled Brainpack directly into AI runtimes and tools")
+    pk_mount.add_argument("name", help="Brainpack name")
+    pk_mount.add_argument(
+        "--to",
+        nargs="+",
+        required=True,
+        choices=[
+            "claude",
+            "claude-code",
+            "chatgpt",
+            "codex",
+            "copilot",
+            "cursor",
+            "gemini",
+            "grok",
+            "hermes",
+            "windsurf",
+            "openclaw",
+        ],
+        help="Mount target(s)",
+    )
+    pk_mount.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    pk_mount.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    pk_mount.add_argument("--smart", action="store_true", help="Use smart routing when mounting")
+    pk_mount.add_argument(
+        "--policy",
+        default="technical",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Disclosure policy when smart routing is disabled",
+    )
+    pk_mount.add_argument("--max-chars", type=int, default=1500, help="Max characters per mounted context slice")
+    pk_mount.add_argument(
+        "--openclaw-store-dir",
+        default="",
+        help="Optional OpenClaw Cortex store dir if the plugin does not use ~/.openclaw/cortex",
+    )
+    pk_mount.add_argument("--format", choices=["json", "text"], default="text")
+
     pk_query = pk_sub.add_parser(
         "query", help="Search a compiled Brainpack across concepts, claims, wiki, and artifacts"
     )
@@ -4854,6 +4892,7 @@ def run_pack(args):
         init_pack,
         lint_pack,
         list_packs,
+        mount_pack,
         pack_status,
         query_pack,
         render_pack_context,
@@ -4979,6 +5018,30 @@ def run_pack(args):
             _echo(payload["context_markdown"], force=True)
         elif payload["message"]:
             _echo(payload["message"])
+        return 0
+
+    if args.pack_subcommand == "mount":
+        try:
+            payload = mount_pack(
+                store_dir,
+                args.name,
+                targets=args.to,
+                project_dir=args.project or "",
+                smart=args.smart,
+                policy_name=args.policy,
+                max_chars=args.max_chars,
+                openclaw_store_dir=args.openclaw_store_dir,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mounted Brainpack `{payload['pack']}`:")
+        for item in payload["targets"]:
+            note = f"  {item['note']}" if item.get("note") else ""
+            _echo(f"  {item['target']:<12} {item['status']}{note}")
+            for path in item.get("paths", []):
+                _echo(f"    → {path}")
         return 0
 
     if args.pack_subcommand == "query":
@@ -5136,7 +5199,7 @@ def run_pack(args):
         return 0
 
     return _error(
-        "Specify a pack subcommand: init, list, ingest, compile, status, context, query, ask, lint, export, import"
+        "Specify a pack subcommand: init, list, ingest, compile, status, context, mount, query, ask, lint, export, import"
     )
 
 

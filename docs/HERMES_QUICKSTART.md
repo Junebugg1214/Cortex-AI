@@ -116,6 +116,12 @@ cortex sync --to hermes --smart --project .
 
 That keeps `USER.md`, `MEMORY.md`, and the Cortex MCP link up to date with the same canonical graph your other tools can also consume. If you also sync `codex`, Cortex will keep a shared project `AGENTS.md` in step too.
 
+If you want to mount a compiled Brainpack directly into Hermes instead of syncing the whole canonical graph, use:
+
+```bash
+cortex pack mount ai-memory --to hermes --project . --smart
+```
+
 ## 6. Example End State
 
 At the end of setup:
