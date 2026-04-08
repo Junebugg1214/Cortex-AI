@@ -1216,6 +1216,34 @@ def build_parser(*, show_all_commands: bool = False):
     mind_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_status.add_argument("--format", choices=["json", "text"], default="text")
 
+    mind_attach = mind_sub.add_parser("attach-pack", help="Attach an existing Brainpack to a Cortex Mind")
+    mind_attach.add_argument("name", help="Mind id")
+    mind_attach.add_argument("pack", help="Brainpack name")
+    mind_attach.add_argument("--priority", type=int, default=100, help="Composition priority for the attachment")
+    mind_attach.add_argument(
+        "--always-on", action="store_true", help="Always include this Brainpack during composition"
+    )
+    mind_attach.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        help="Optional target filter for this Brainpack attachment. Repeat for multiple targets.",
+    )
+    mind_attach.add_argument(
+        "--task-term",
+        action="append",
+        default=[],
+        help="Optional task-term activator for this Brainpack attachment. Repeat for multiple terms.",
+    )
+    mind_attach.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_attach.add_argument("--format", choices=["json", "text"], default="text")
+
+    mind_detach = mind_sub.add_parser("detach-pack", help="Detach a Brainpack from a Cortex Mind")
+    mind_detach.add_argument("name", help="Mind id")
+    mind_detach.add_argument("pack", help="Brainpack name")
+    mind_detach.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_detach.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- pack (Brainpacks) -------------------------------------------------
     pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
     pk_sub = pk.add_subparsers(dest="pack_subcommand")
@@ -5236,7 +5264,7 @@ def run_pack(args):
 
 
 def run_mind(args):
-    from cortex.minds import init_mind, list_minds, mind_status
+    from cortex.minds import attach_pack_to_mind, detach_pack_from_mind, init_mind, list_minds, mind_status
 
     if args.mind_subcommand == "init":
         store_dir = Path(args.store_dir)
@@ -5289,15 +5317,65 @@ def run_mind(args):
                 [
                     f"branch {payload['manifest']['current_branch']}",
                     f"{payload['attachment_count']} attached Brainpacks",
-                    f"{payload['mount_count']} mounts",
+                    f"{payload['attached_mount_count']} attached pack mounts",
+                    f"{payload['mount_count']} direct mind mounts",
                     payload["default_disclosure"],
                 ]
             )
         )
         _echo(f"  graph ref: {payload['graph_ref']}")
+        if payload["attached_brainpacks"]:
+            _echo("  attached packs:")
+            for item in payload["attached_brainpacks"]:
+                extra = []
+                if item["activation"]["always_on"]:
+                    extra.append("always-on")
+                if item["activation"]["targets"]:
+                    extra.append("targets=" + ",".join(item["activation"]["targets"]))
+                if item["mounted_targets"]:
+                    extra.append("mounted=" + ",".join(item["mounted_targets"]))
+                suffix = f" ({'; '.join(extra)})" if extra else ""
+                _echo(f"    - {item['pack']} · {item['compile_status']} · priority {item['priority']}{suffix}")
         return 0
 
-    return _error("Specify a mind subcommand: init, list, status")
+    if args.mind_subcommand == "attach-pack":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = attach_pack_to_mind(
+                store_dir,
+                args.name,
+                args.pack,
+                priority=args.priority,
+                always_on=args.always_on,
+                targets=args.target,
+                task_terms=args.task_term,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        verb = "Updated" if payload["updated"] else "Attached"
+        _echo(f"{verb} Brainpack `{payload['pack']}` on Mind `{payload['mind']}`")
+        _echo(f"  total attachments: {payload['attachment_count']}")
+        return 0
+
+    if args.mind_subcommand == "detach-pack":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = detach_pack_from_mind(
+                store_dir,
+                args.name,
+                args.pack,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Detached Brainpack `{payload['pack']}` from Mind `{payload['mind']}`")
+        _echo(f"  total attachments: {payload['attachment_count']}")
+        return 0
+
+    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack")
 
 
 def run_scan(args):

@@ -5,7 +5,7 @@ from pathlib import Path
 from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
-from cortex.minds import init_mind
+from cortex.minds import attach_pack_to_mind, init_mind
 from cortex.packs import ingest_pack, init_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
@@ -228,6 +228,8 @@ def test_mcp_node_round_trip_and_query_search(tmp_path):
 def test_mcp_mind_tools_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
     init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    attach_pack_to_mind(store_dir, "marc", "ai-memory", always_on=True, targets=["chatgpt"])
 
     backend = build_sqlite_backend(store_dir)
     service = MemoryService(store_dir=store_dir, backend=backend)
@@ -244,6 +246,8 @@ def test_mcp_mind_tools_round_trip(tmp_path):
     assert status_payload["mind"] == "marc"
     assert status_payload["manifest"]["kind"] == "person"
     assert status_payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert status_payload["attachment_count"] == 1
+    assert status_payload["attached_brainpacks"][0]["pack"] == "ai-memory"
 
 
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):
