@@ -209,6 +209,7 @@ cortex --help-all
 - Platform onboarding: [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md)
 - Portability reference: [docs/PORTABILITY.md](docs/PORTABILITY.md)
 - Brainpacks reference: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
+- Cortex Mind PRD: [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
 - OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
 - OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
 - Hermes quickstart: [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
