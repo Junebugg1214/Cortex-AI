@@ -6,6 +6,7 @@ import readline from "node:readline";
 
 const PACKAGE_VERSION = "1.4.1";
 const BRAINPACK_MOUNTS_FILE = "brainpacks.mounted.json";
+const MIND_MOUNTS_FILE = "minds.mounted.json";
 const DEFAULT_IDENTITY_FIELDS = Object.freeze({
   canonicalSubjectId: true,
   phoneNumber: true,
@@ -170,6 +171,20 @@ async function _ensureManagedConfig(config) {
 
 async function _readMountedBrainpacks(config) {
   const registryPath = path.join(config.storeDir, BRAINPACK_MOUNTS_FILE);
+  try {
+    const payload = JSON.parse(await fs.readFile(registryPath, "utf-8"));
+    const mounts = Array.isArray(payload?.mounts) ? payload.mounts : [];
+    return mounts.filter((item) => _coerceString(item?.name).trim() && item?.enabled !== false);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function _readMountedMinds(config) {
+  const registryPath = path.join(config.storeDir, MIND_MOUNTS_FILE);
   try {
     const payload = JSON.parse(await fs.readFile(registryPath, "utf-8"));
     const mounts = Array.isArray(payload?.mounts) ? payload.mounts : [];
@@ -457,8 +472,16 @@ export class CortexMcpService {
     return this.callTool("pack_context", payload, timeoutMs);
   }
 
+  async mindCompose(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
+    return this.callTool("mind_compose", payload, timeoutMs);
+  }
+
   async listMountedBrainpacks(config = this.lastConfig) {
     return _readMountedBrainpacks(config);
+  }
+
+  async listMountedMinds(config = this.lastConfig) {
+    return _readMountedMinds(config);
   }
 
   async stop() {

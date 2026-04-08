@@ -1259,8 +1259,45 @@ def build_parser(*, show_all_commands: bool = False):
         help="Optional disclosure policy override",
     )
     mind_compose.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
+    mind_compose.add_argument(
+        "--activation-target",
+        default="",
+        help="Optional runtime target used only for Brainpack activation selection (for example: openclaw)",
+    )
     mind_compose.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_compose.add_argument("--format", choices=["json", "text"], default="text")
+
+    mind_mount = mind_sub.add_parser("mount", help="Mount a Cortex Mind into supported runtimes and tools")
+    mind_mount.add_argument("name", help="Mind id")
+    mind_mount.add_argument(
+        "--to",
+        nargs="+",
+        required=True,
+        choices=["claude-code", "codex", "cursor", "hermes", "openclaw"],
+        help="Mount target(s)",
+    )
+    mind_mount.add_argument("--task", default="", help="Optional task hint used during Mind composition")
+    mind_mount.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_mount.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    mind_mount.add_argument("--smart", action="store_true", help="Use smart routing when mounting")
+    mind_mount.add_argument(
+        "--policy",
+        default="",
+        choices=[""] + list(BUILTIN_POLICIES.keys()),
+        help="Optional disclosure policy override",
+    )
+    mind_mount.add_argument("--max-chars", type=int, default=1500, help="Max characters per mounted context slice")
+    mind_mount.add_argument(
+        "--openclaw-store-dir",
+        default="",
+        help="Optional OpenClaw Cortex store dir if the plugin does not use ~/.openclaw/cortex",
+    )
+    mind_mount.add_argument("--format", choices=["json", "text"], default="text")
+
+    mind_mounts = mind_sub.add_parser("mounts", help="List persisted mount records for a Cortex Mind")
+    mind_mounts.add_argument("name", help="Mind id")
+    mind_mounts.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_mounts.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- pack (Brainpacks) -------------------------------------------------
     pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
@@ -5287,8 +5324,10 @@ def run_mind(args):
         compose_mind,
         detach_pack_from_mind,
         init_mind,
+        list_mind_mounts,
         list_minds,
         mind_status,
+        mount_mind,
     )
 
     if args.mind_subcommand == "init":
@@ -5412,6 +5451,7 @@ def run_mind(args):
                 smart=args.smart,
                 policy_name=args.policy,
                 max_chars=args.max_chars,
+                activation_target=args.activation_target,
             )
         except (FileNotFoundError, ValueError) as exc:
             return _error(str(exc))
@@ -5438,7 +5478,58 @@ def run_mind(args):
             _echo(payload["message"])
         return 0
 
-    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack, compose")
+    if args.mind_subcommand == "mount":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = mount_mind(
+                store_dir,
+                args.name,
+                targets=args.to,
+                task=args.task,
+                project_dir=args.project or "",
+                smart=args.smart,
+                policy_name=args.policy,
+                max_chars=args.max_chars,
+                openclaw_store_dir=args.openclaw_store_dir,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mounted Mind `{payload['mind']}`:")
+        for item in payload["targets"]:
+            note = f"  {item['note']}" if item.get("note") else ""
+            _echo(f"  {item['target']:<12} {item['status']}{note}")
+            for path in item.get("paths", []):
+                _echo(f"    → {path}")
+        _echo(f"  total persisted mounts: {payload['mount_count']}")
+        return 0
+
+    if args.mind_subcommand == "mounts":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = list_mind_mounts(store_dir, args.name)
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mind `{payload['mind']}` mount records")
+        if not payload["mounts"]:
+            _echo("  No persisted mounts yet.")
+            return 0
+        for item in payload["mounts"]:
+            extra = []
+            if item.get("task"):
+                extra.append(f"task={item['task']}")
+            if item.get("activation_target") and item["activation_target"] != item["target"]:
+                extra.append(f"activation={item['activation_target']}")
+            suffix = f" ({'; '.join(extra)})" if extra else ""
+            _echo(f"  {item['target']:<12} {item.get('status', 'ok')}{suffix}")
+            for path in item.get("paths", []):
+                _echo(f"    → {path}")
+        return 0
+
+    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack, compose, mount, mounts")
 
 
 def run_scan(args):

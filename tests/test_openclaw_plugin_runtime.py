@@ -120,6 +120,110 @@ def _seed_brainpack_and_mount_openclaw(project_dir: Path, store_dir: Path) -> No
     )
 
 
+def _seed_mind_and_mount_openclaw(project_dir: Path, store_dir: Path) -> None:
+    source = project_dir / "mind-brainpack.md"
+    source.write_text(
+        (
+            "# Support Mind\n\n"
+            "Casey is building a portable support mind for OpenClaw.\n"
+            "OpenClaw support threads should inherit persistent support context.\n"
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "mind",
+                "init",
+                "support-mind",
+                "--kind",
+                "agent",
+                "--owner",
+                "cortex",
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert main(["pack", "init", "support-mind-pack", "--store-dir", str(store_dir), "--format", "json"]) == 0
+    assert (
+        main(
+            [
+                "pack",
+                "ingest",
+                "support-mind-pack",
+                str(source),
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "pack",
+                "compile",
+                "support-mind-pack",
+                "--store-dir",
+                str(store_dir),
+                "--suggest-questions",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "mind",
+                "attach-pack",
+                "support-mind",
+                "support-mind-pack",
+                "--always-on",
+                "--target",
+                "openclaw",
+                "--target",
+                "chatgpt",
+                "--store-dir",
+                str(store_dir),
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "mind",
+                "mount",
+                "support-mind",
+                "--to",
+                "openclaw",
+                "--task",
+                "support",
+                "--project",
+                str(project_dir),
+                "--store-dir",
+                str(store_dir),
+                "--openclaw-store-dir",
+                str(store_dir),
+                "--smart",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+
 def test_openclaw_plugin_package_packs_cleanly(tmp_path):
     root = Path(__file__).resolve().parents[1]
     package_dir = root / "examples" / "openclaw-plugin"
@@ -268,3 +372,92 @@ process.stdout.write(JSON.stringify({ prompt, logs }));
 
     assert subject_node["node"]["label"] == "Casey"
     assert thread_node["node"]["label"] == "Telegram thread chat-42"
+
+
+def test_openclaw_plugin_runtime_injects_mounted_mind_context(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    plugin_entry = (root / "examples" / "openclaw-plugin" / "src" / "index.js").resolve()
+    project_dir, store_dir = _seed_portability(tmp_path)
+    _seed_mind_and_mount_openclaw(project_dir, store_dir)
+
+    event = {
+        "platform": "telegram",
+        "workspaceId": "support-bot",
+        "conversationId": "chat-77",
+        "userId": "tg-321",
+        "phoneNumber": "+1 555 0102",
+        "displayName": "Casey",
+        "text": "Can this support agent keep context across threads?",
+        "messageId": "msg-2",
+    }
+    script = tmp_path / "run_openclaw_plugin_mind_test.mjs"
+    script.write_text(
+        """
+const { default: plugin } = await import(process.env.CORTEX_PLUGIN_ENTRY);
+
+const hooks = new Map();
+let serviceDef = null;
+
+const api = {
+  logger: {
+    info() {},
+    warn() {},
+    error() {},
+  },
+  getConfig() {
+    return JSON.parse(process.env.CORTEX_PLUGIN_CONFIG);
+  },
+  registerService(definition) {
+    serviceDef = definition;
+  },
+  on(name, handler) {
+    hooks.set(name, handler);
+  },
+};
+
+plugin.register(api);
+await serviceDef.start();
+
+const event = JSON.parse(process.env.CORTEX_PLUGIN_EVENT);
+const ctx = { agent: { workspaceDir: process.env.CORTEX_PROJECT_DIR } };
+
+await hooks.get("message_received")(event, ctx);
+const prompt = await hooks.get("before_prompt_build")(event, ctx);
+await serviceDef.stop();
+
+process.stdout.write(JSON.stringify({ prompt }));
+""",
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env["CORTEX_PLUGIN_ENTRY"] = plugin_entry.as_uri()
+    env["CORTEX_PROJECT_DIR"] = str(project_dir)
+    env["CORTEX_PLUGIN_EVENT"] = json.dumps(event)
+    env["CORTEX_PLUGIN_CONFIG"] = json.dumps(
+        {
+            "storeDir": str(store_dir),
+            "configPath": str(store_dir / "config.toml"),
+            "transport": "managed-child",
+            "mcpCommand": sys.executable,
+            "mcpArgs": ["-m", "cortex.mcp"],
+            "defaultTarget": "chatgpt",
+            "smartRouting": True,
+            "autoSeedThreads": True,
+            "maxContextChars": 1200,
+            "failOpen": False,
+        }
+    )
+    result = subprocess.run(  # noqa: S603
+        ["node", str(script)],
+        cwd=root,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    prepend = payload["prompt"]["prependContext"]
+
+    assert "mounted mind (support-mind)" in prepend.lower()
+    assert "portable support mind" in prepend.lower() or "support mind" in prepend.lower()

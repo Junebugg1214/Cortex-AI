@@ -18,7 +18,7 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
-from cortex.minds import compose_mind, list_minds, mind_status
+from cortex.minds import compose_mind, list_mind_mounts, list_minds, mind_status, mount_mind
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
 from cortex.packs import (
@@ -538,6 +538,7 @@ class MemoryService:
         smart: bool = True,
         policy: str = "",
         max_chars: int = 1500,
+        activation_target: str = "",
     ) -> dict[str, Any]:
         payload = compose_mind(
             self.store_dir,
@@ -548,6 +549,38 @@ class MemoryService:
             smart=smart,
             policy_name=policy,
             max_chars=max_chars,
+            activation_target=activation_target,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def mind_mounts(self, *, name: str) -> dict[str, Any]:
+        payload = list_mind_mounts(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def mind_mount(
+        self,
+        *,
+        name: str,
+        targets: list[str],
+        task: str = "",
+        project_dir: str = "",
+        smart: bool = True,
+        policy: str = "",
+        max_chars: int = 1500,
+        openclaw_store_dir: str = "",
+    ) -> dict[str, Any]:
+        payload = mount_mind(
+            self.store_dir,
+            name,
+            targets=targets,
+            task=task,
+            project_dir=project_dir,
+            smart=smart,
+            policy_name=policy,
+            max_chars=max_chars,
+            openclaw_store_dir=openclaw_store_dir,
         )
         payload["release"] = self.release()
         return payload
