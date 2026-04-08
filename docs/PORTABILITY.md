@@ -1,78 +1,48 @@
-# Portability
+# Portable AI
 
-Portability is the product front door in Cortex.
+Portable AI is the **ingest and sync subsystem** for a Cortex Mind.
 
-The promise is simple:
+It is how a Mind learns what already exists on disk, adopts that context into its core graph, and materializes the right slice into each runtime or tool.
 
-**One command. All your AI context. Every tool.**
+If you already use the older portability commands directly, that still works. The important change is the model:
+
+- without a default Mind, classic portability commands still operate on the standalone portability graph
+- with a default Mind, those same commands route through that Mind's branch-backed core graph
 
 ## Start Here
 
+Recommended Mind-first flow:
+
+```bash
+cortex mind init marc --kind person --owner marc
+cortex mind default marc
+cortex scan --project .
+cortex mind ingest marc --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --project .
+cortex mind remember marc "We use Vitest now."
+cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
+```
+
+Compatibility flow:
+
 ```bash
 cortex portable chatgpt-export.zip --to all --project .
+cortex scan --project .
+cortex remember "We use Vitest now." --smart
+cortex sync --smart
 ```
 
 If you want copy-paste first-run flows by platform, see [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md).
 
-That one command:
+## What Portable AI Does
 
-1. loads an existing Cortex graph or extracts one from a raw export
-2. saves a portable graph-shaped `context.json` in the current v5-style format
-3. writes or generates target-specific context for the tools you selected
+Portable AI is responsible for four things:
 
-## Portability Control Plane
+1. **detect** local AI exports, artifacts, instruction files, and MCP setup
+2. **adopt** that context into a Mind or canonical portability graph
+3. **route** the right slice into each target instead of writing one giant blob everywhere
+4. **serve** live context over MCP for runtimes that can fetch it during conversations
 
-Once you have a canonical portable context graph, these commands become the day-to-day workflow:
-
-```bash
-# audit what each tool knows
-cortex scan
-
-# teach once and propagate
-cortex remember "We use Vitest now"
-
-# route the right slice to each tool
-cortex sync --smart
-
-# show stale or missing context
-cortex status
-
-# build context from repos, manifests, and git history
-cortex build --from package.json --from git-history --from github --sync --smart
-
-# detect cross-tool drift or contradictions
-cortex audit
-
-# switch platforms with target-aware output
-cortex switch --from chatgpt-export.zip --to claude
-```
-
-## Target Model
-
-Cortex is explicit about how each target works.
-
-- **Direct installs** write into local instruction files the tool already understands.
-- **Import-ready artifacts** generate files you can paste or import into chat apps that do not expose a stable local file path.
-
-## Supported Targets
-
-| Target | Delivery | Output |
-|---|---|---|
-| `claude-code` | Direct install | `~/.claude/CLAUDE.md` and `./CLAUDE.md` |
-| `codex` | Direct install | `./AGENTS.md` |
-| `cursor` | Direct install | `./.cursor/rules/cortex.mdc` |
-| `copilot` | Direct install | `./.github/copilot-instructions.md` |
-| `gemini` | Direct install | `./GEMINI.md` |
-| `hermes` | Direct install | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` |
-| `windsurf` | Direct install | `./.windsurfrules` |
-| `claude` | Import-ready artifacts | `portable/claude/claude_preferences.txt`, `portable/claude/claude_memories.json` |
-| `chatgpt` | Import-ready artifacts | `portable/chatgpt/custom_instructions.md`, `portable/chatgpt/custom_instructions.json` |
-| `grok` | Import-ready artifacts | `portable/grok/context_prompt.md`, `portable/grok/context_prompt.json` |
-
-For a sample generated Claude Code file, see [`docs/examples/CLAUDE.generated.md`](examples/CLAUDE.generated.md).
-That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a contributor guide for working on Cortex itself.
-
-## What The New Commands Do
+## Commands
 
 ### `cortex scan`
 
@@ -80,25 +50,49 @@ Audits the current machine and portability state to show what each supported too
 
 It also auto-detects known local instruction files, artifacts, and MCP config definitions from the compatibility matrix, so already-installed tools can show up even before Cortex has synced them. By default it searches the current project plus `~/Downloads`, `~/Desktop`, and `~/Documents` recursively for known export and artifact names, and it prefers the newest match when multiple candidates exist.
 
-Detection is permissioned. `scan` does not mutate the canonical graph. If you want to adopt detected local context into Cortex and sync it in one step, run `cortex portable --from-detected ... --to all --project .`. If you only want the graph, use `cortex extract --from-detected ...`. MCP config files stay metadata-only unless you explicitly opt into `--include-config-metadata`.
+Detection is permissioned. `scan` does not mutate the graph.
 
-Detected local-source adoption now redacts common PII by default. For direct instruction files like `AGENTS.md`, `CLAUDE.md`, Cursor rules, and similar project-scoped targets, Cortex imports only the managed Cortex marker block by default. Add `--include-unmanaged-text` only if you explicitly want to ingest surrounding human-authored instruction text too.
+### `cortex mind ingest`
 
-Over MCP, `portability_scan` is metadata-only by default. It reports whether tools and MCP definitions are present, but it does not expose absolute file paths or parse detected export content.
+Adopts detected local platform sources directly into a Mind's core graph:
+
+```bash
+cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
+```
+
+This is the recommended path when you are already working Mind-first.
+
+### `cortex portable`
+
+Loads an existing Cortex graph or extracts one from a raw export, then writes or generates target-specific context for the tools you selected.
+
+Examples:
+
+```bash
+cortex portable chatgpt-export.zip --to all --project .
+cortex portable context.json --to codex cursor claude-code hermes --project .
+cortex portable --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --to all --project .
+```
+
+### `cortex mind remember`
+
+Updates a Mind's core state directly:
+
+```bash
+cortex mind remember marc "We migrated from PostgreSQL to CockroachDB in January."
+```
 
 ### `cortex remember`
 
-Updates the canonical portable context graph once, then propagates that new fact across all supported portability targets by default.
+Updates the classic portability graph once, then propagates that new fact across supported portability targets.
 
-Example:
-
-```bash
-cortex remember "We migrated from PostgreSQL to CockroachDB in January"
-```
+If a default Mind is configured with `cortex mind default <name>`, this command routes through that Mind behind the scenes.
 
 ### `cortex sync --smart`
 
 Routes different slices of context to different tools instead of copying the same blob everywhere.
+
+If a default Mind is configured, `sync --smart` re-materializes that Mind's current branch-backed core state into the relevant targets.
 
 Typical routing shape:
 
@@ -119,7 +113,7 @@ Current smart-routing defaults:
 
 ### `cortex status`
 
-Shows which configured tools are stale or missing facts compared to the canonical context graph.
+Shows which configured tools are stale or missing facts compared to the current routed state.
 
 ### `cortex build`
 
@@ -146,45 +140,38 @@ Example:
 cortex switch --from chatgpt-export.zip --to claude
 ```
 
-## Examples
+## Target Model
 
-Import a ChatGPT export and install everywhere:
+Cortex is explicit about how each target works.
 
-```bash
-cortex portable chatgpt-export.zip --to all --project .
-```
+- **direct installs** write into local instruction files the tool already understands
+- **import-ready artifacts** generate files you can paste or import into chat apps that do not expose a stable local file path
+- **Mind mounts** materialize the composed Mind into a supported runtime or tool
 
-Start from an existing graph and only target coding tools:
+## Supported Targets
 
-```bash
-cortex portable context.json --to claude-code codex cursor copilot gemini hermes windsurf --project .
-```
+| Target | Delivery | Output |
+| --- | --- | --- |
+| `claude-code` | Direct install | `~/.claude/CLAUDE.md` and `./CLAUDE.md` |
+| `codex` | Direct install | `./AGENTS.md` |
+| `cursor` | Direct install | `./.cursor/rules/cortex.mdc` |
+| `copilot` | Direct install | `./.github/copilot-instructions.md` |
+| `gemini` | Direct install | `./GEMINI.md` |
+| `hermes` | Direct install | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` |
+| `windsurf` | Direct install | `./.windsurfrules` |
+| `claude` | Import-ready artifacts | `portable/claude/claude_preferences.txt`, `portable/claude/claude_memories.json` |
+| `chatgpt` | Import-ready artifacts | `portable/chatgpt/custom_instructions.md`, `portable/chatgpt/custom_instructions.json` |
+| `grok` | Import-ready artifacts | `portable/grok/context_prompt.md`, `portable/grok/context_prompt.json` |
 
-Generate only ChatGPT and Grok artifacts:
-
-```bash
-cortex portable context.json --to chatgpt grok -o ./portable
-```
-
-Dry run without writing files:
-
-```bash
-cortex portable chatgpt-export.zip --to all --project . --dry-run
-```
-
-Build from existing project files and immediately sync smart slices:
-
-```bash
-cortex build --from package.json --from git-history --from github --sync --smart
-```
-
-For a fuller onboarding guide with per-platform import and sync commands, see [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md).
+For a sample generated Claude Code file, see [`docs/examples/CLAUDE.generated.md`](examples/CLAUDE.generated.md).
+That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a contributor guide for working on Cortex itself.
 
 ## Notes
 
-- `claude-code` installs both a global user file and a project file.
-- `hermes` installs Hermes-native `USER.md`, `MEMORY.md`, and `config.yaml`. If you also want a shared project `AGENTS.md`, sync the `codex` target alongside Hermes.
-- `gemini-cli` is still accepted as an alias for `gemini`.
-- `remember` now updates all supported portability targets by default, including import-ready artifacts for chat tools.
-- The portability layer keeps storage user-owned. It does not upload memory anywhere.
-- Lower-level commands like `extract`, `import`, `context-write`, and adapter `sync` still exist if you want finer control.
+- `scan` is read-only by default.
+- `portable --from-detected ...` is explicit adoption, not silent ingestion.
+- detected local-source adoption redacts common PII by default.
+- direct instruction files import only the managed Cortex block by default unless you opt into `--include-unmanaged-text`.
+- over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
+- the portability layer keeps storage user-owned. It does not upload memory anywhere.
+- lower-level commands like `extract`, `import`, `context-write`, and adapter `sync` still exist if you want finer control.

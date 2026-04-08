@@ -6,51 +6,22 @@
 
 You use multiple AI tools.  
 They all think you're a stranger.  
-Cortex fixes that.
+Cortex gives them the same Mind.
 
-Cortex is three things in one local-first system:
+Cortex is not three unrelated products.
 
-1. **Portable AI**: detect, ingest, route, and sync your AI context across Claude, Claude Code, ChatGPT, Codex, Cursor, Copilot, Gemini, Grok, Hermes, and Windsurf.
-2. **Brainpacks**: compile source files into mountable domain packs with a wiki, graph, claims, unknowns, artifacts, and direct runtime mounts.
-3. **Git for AI Memory**: branch, review, diff, merge, blame, and roll back graph-shaped memory instead of treating context like an unversioned blob.
+**Cortex is one local-first system for building, versioning, and mounting a portable Mind.**
 
-Humans curate context with the CLI. MCP-capable runtimes fetch their live routed slice over `cortex mcp`.
+That Mind has four layers:
+- **core state**: identity, preferences, relationships, technical context, and durable memory
+- **attached Brainpacks**: specialist domain cognition that can be composed in when relevant
+- **version history**: review, diff, blame, merge, rollback, and governance over the graph
+- **runtime mounts**: Hermes, OpenClaw, Codex, Cursor, Claude Code, ChatGPT, and other targets
 
-## Cortex Mind (Preview)
-
-`cortex mind` is the new top-level object that will unify Portable AI, Brainpacks, and Git for AI Memory under one portable, versioned, composable mind.
-
-The first implementation slice ships the foundation:
-
-```bash
-cortex mind init marc --kind person --owner marc
-cortex mind default marc
-cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
-cortex mind remember marc "I prefer concise, implementation-first responses."
-cortex mind attach-pack marc ai-memory --always-on
-cortex mind compose marc --to chatgpt --task "memory routing"
-cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
-cortex mind mounts marc
-cortex mind list
-cortex mind status marc
-cortex mind detach-pack marc ai-memory
-```
-
-Mind foundation commands:
-
-| Command | What it does |
-| --- | --- |
-| `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, policy, branch, mount, and attachment scaffolding. |
-| `cortex mind default marc` | Marks one Mind as the default compatibility target so classic commands like `portable`, `remember`, and `sync --smart` can route through that Mind behind the scenes. |
-| `cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch instead of the shared portability canonical graph. |
-| `cortex mind remember marc "I prefer concise, implementation-first responses."` | Adds one new fact or preference directly to the Mind's core graph, commits it onto the current Mind branch, and refreshes any persisted Mind mounts from that updated state. |
-| `cortex mind attach-pack marc ai-memory --always-on` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
-| `cortex mind compose marc --to chatgpt --task "memory routing"` | Composes a target-aware runtime slice from the Mind's current base graph plus any attached Brainpacks that match the target/task. |
-| `cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"` | Materializes the composed Mind into direct targets like Hermes/Codex/Cursor/Claude Code and registers it for live OpenClaw runtime composition. |
-| `cortex mind mounts marc` | Lists the persisted mount records for a Mind, including runtime-target metadata and file paths. |
-| `cortex mind list` | Lists local Minds in the current Cortex store. |
-| `cortex mind status marc` | Shows the Mind manifest, graph reference, branch, disclosure policy, attached Brainpacks, and current pack-derived mount metadata. |
-| `cortex mind detach-pack marc ai-memory` | Detaches a Brainpack from a Mind without deleting the Brainpack itself. |
+The old product surfaces still matter. They just fit into one model now:
+- **Portable AI** feeds and syncs a Mind's core state
+- **Brainpacks** are attached specialist modules on a Mind
+- **Git for AI Memory** is the version and review layer for a Mind
 
 ## Install
 
@@ -82,17 +53,67 @@ If you only want the published package instead of the full source tree:
 python3.11 -m pip install cortex-identity
 ```
 
+## Cortex Mind
+
+**A Mind is the top-level object in Cortex.**
+
+It is the thing that persists across tools, composes attached Brainpacks, and gets mounted into runtimes.
+
+Typical Mind-first flow:
+
+```bash
+cortex mind init marc --kind person --owner marc
+cortex mind default marc
+cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
+cortex mind remember marc "I prefer concise, implementation-first responses."
+cortex pack init ai-memory --description "Portable AI memory research" --owner marc
+cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse
+cortex pack compile ai-memory --suggest-questions
+cortex mind attach-pack marc ai-memory --always-on --target hermes --target codex --task-term memory
+cortex mind compose marc --to chatgpt --task "memory routing"
+cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
+cortex mind mounts marc
+cortex mind status marc
+```
+
+Mind commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, branch, policy, attachment, and mount scaffolding. |
+| `cortex mind default marc` | Marks one Mind as the default compatibility target so classic commands like `portable`, `remember`, and `sync --smart` can route through that Mind behind the scenes. |
+| `cortex mind list` | Lists local Minds in the current Cortex store. |
+| `cortex mind status marc` | Shows the Mind manifest, core-state ref, branch status, policy state, attached Brainpacks, and persisted mounts. |
+| `cortex mind ingest marc --from-detected ... --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch. |
+| `cortex mind remember marc "..."` | Adds one new fact or preference directly to the Mind's core graph and refreshes persisted mounts from the updated state. |
+| `cortex mind attach-pack marc ai-memory --always-on --target hermes --task-term memory` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
+| `cortex mind detach-pack marc ai-memory` | Detaches a Brainpack from a Mind without deleting the Brainpack itself. |
+| `cortex mind compose marc --to chatgpt --task "memory routing"` | Composes a target-aware runtime slice from the Mind's current base graph plus any attached Brainpacks that match the target and task. |
+| `cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"` | Materializes the composed Mind into direct targets like Hermes, Codex, Cursor, Claude Code, and OpenClaw. |
+| `cortex mind mounts marc` | Lists the persisted mount records for a Mind, including runtime-target metadata and file paths. |
+
 ## Portable AI
 
-Portable AI is the "bring your context with you" layer.
+Portable AI is the **ingest and sync subsystem** for a Mind's core state.
 
-It can:
-- detect existing local AI exports, artifacts, instruction files, and MCP setup
-- build one canonical graph from those sources
-- route the right slice into each target instead of writing one giant blob everywhere
-- keep that graph live over MCP for tools that support it
+Use it when you want to:
+- detect existing context already on disk
+- adopt that context into a Mind or canonical graph
+- route different slices into different targets
+- keep live runtime context available over MCP
 
-Typical Portable AI flow:
+Recommended Mind-first flow:
+
+```bash
+cortex mind default marc
+cortex scan --project .
+cortex mind ingest marc --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --project .
+cortex mind remember marc "We prefer concise, implementation-first answers."
+cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
+cortex mcp --config .cortex/config.toml
+```
+
+Compatibility flow:
 
 ```bash
 cortex scan --project .
@@ -108,24 +129,29 @@ Portable AI commands:
 | Command | What it does |
 | --- | --- |
 | `cortex scan --project .` | Detects installed tools, local exports, artifacts, direct instruction files, and MCP config without mutating your graph. |
+| `cortex mind ingest marc --from-detected ... --project .` | Adopts detected local context directly into the selected Mind's core graph. |
 | `cortex portable chatgpt-export.zip --to all --project .` | Ingests a raw export or existing graph and writes routed context across supported tools. |
-| `cortex portable --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --to all --project .` | Adopts detected local context with permission, builds the canonical graph, and syncs it everywhere. |
-| `cortex remember "..." --smart` | Adds one new fact or preference to the canonical graph and propagates it across supported tools. |
-| `cortex sync --smart --project .` | Re-routes and re-writes the current canonical graph to local targets without re-ingesting sources. |
+| `cortex portable --from-detected ... --to all --project .` | Adopts detected local context with permission, builds the canonical graph, and syncs it everywhere. |
+| `cortex mind remember marc "..."` | Adds one new fact or preference directly to a Mind's core graph. |
+| `cortex remember "..." --smart` | Adds one new fact or preference through the classic portability flow. If a default Mind is configured, this routes through that Mind. |
+| `cortex sync --smart --project .` | Re-routes and re-writes the current portability graph to local targets. If a default Mind is configured, this routes through that Mind. |
 | `cortex status --project .` | Shows stale, missing, or incomplete local context across configured tools. |
+| `cortex build --from package.json --from git-history --from github --sync --smart` | Builds portable context from project files and git history, then syncs it. |
 | `cortex mcp --config .cortex/config.toml --check` | Verifies the local MCP configuration before you run it live. |
 | `cortex mcp --config .cortex/config.toml` | Runs the live MCP server so tools can fetch routed context during conversations. |
 
 Portable AI notes:
 - `scan` is read-only by default.
 - `portable --from-detected ...` is permissioned adoption, not silent ingestion.
-- if a default Mind is configured with `cortex mind default <name>`, classic `portable`, `remember`, and `sync --smart` route through that Mind's branch-backed graph instead of the standalone canonical portability graph.
+- if a default Mind is configured with `cortex mind default <name>`, classic `portable`, `remember`, and `sync --smart` route through that Mind's branch-backed graph instead of a separate standalone portability graph.
 - detected local-source adoption redacts common PII by default.
 - over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
 
 ## Brainpacks
 
-Brainpacks are local-first domain packs. Raw source files go in, and Cortex compiles them into a small wiki, a graph, claim candidates, open questions, durable artifacts, lint reports, portable bundles, and direct runtime mounts.
+Brainpacks are the **specialist cognition subsystem** for a Mind.
+
+They are not a second top-level identity object. They are attachable domain modules that Cortex can compile, query, lint, bundle, and mount on their own or compose into a Mind.
 
 Every Brainpack lives under:
 
@@ -150,7 +176,9 @@ cortex pack compile ai-memory --suggest-questions
 cortex pack query ai-memory "portable agent memory"
 cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report
 cortex pack lint ai-memory
-cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart
+cortex mind attach-pack marc ai-memory --always-on --target hermes --target codex --task-term memory
+cortex mind compose marc --to hermes --task "memory support"
+cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
 cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip
 ```
 
@@ -167,9 +195,11 @@ Brainpack commands:
 | `cortex pack query ai-memory "portable agent memory"` | Searches concepts, claims, wiki pages, unknowns, and existing artifacts. |
 | `cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report` | Answers against the compiled pack and writes the result back as a durable artifact. |
 | `cortex pack lint ai-memory` | Runs integrity checks for contradictions, duplicates, weak claims, thin articles, and graph health. |
-| `cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart` | Mounts the compiled pack directly into Hermes, OpenClaw, Codex, Cursor, and Claude Code. |
+| `cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart` | Mounts the compiled Brainpack directly into supported runtimes and tools. |
 | `cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip` | Exports a portable Brainpack bundle archive. |
 | `cortex pack import ./dist/ai-memory.brainpack.zip --store-dir ~/.cortex --as ai-memory-copy` | Imports a Brainpack bundle into another Cortex store under a chosen name. |
+| `cortex mind attach-pack marc ai-memory ...` | Attaches the Brainpack to a Mind so it can be composed selectively or always-on at runtime. |
+| `cortex mind compose marc --to hermes --task "memory support"` | Shows what the Mind plus attached Brainpacks will actually look like for a given runtime and task. |
 
 What `pack mount` does today:
 - Hermes gets pack-derived `USER.md`, `MEMORY.md`, and managed MCP wiring.
@@ -178,7 +208,9 @@ What `pack mount` does today:
 
 ## Git for AI Memory
 
-Cortex can also treat memory like a versioned graph instead of a pile of overwritten files.
+Git for AI Memory is the **version history and governance subsystem** for a Mind.
+
+Today the low-level graph commands still operate directly on refs and branches, but the Mind model is what gives those refs a durable identity, mounted targets, and attached specialist cognition.
 
 That means you can:
 - commit snapshots
@@ -234,7 +266,7 @@ cortex --help-all
 | Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex mcp` + direct rule file |
 | GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex mcp` + direct instruction file |
 | Gemini CLI | `GEMINI.md` | Native | `cortex mcp` + `GEMINI.md` |
-| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex portable --to hermes` + `cortex mcp` |
+| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex mind mount` or `cortex portable --to hermes` + `cortex mcp` |
 | Windsurf | `.windsurfrules` | Native | `cortex mcp` + direct rule file |
 | ChatGPT | Import-ready artifacts | Partial / beta / plan-dependent | Artifacts first, MCP where available |
 | Grok | Import-ready artifacts | Remote MCP or app-dependent | Artifacts first, MCP where available |
@@ -243,9 +275,10 @@ cortex --help-all
 
 ## More Docs
 
+- Mind guide: [docs/MINDS.md](docs/MINDS.md)
 - Platform onboarding: [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md)
-- Portability reference: [docs/PORTABILITY.md](docs/PORTABILITY.md)
-- Brainpacks reference: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
+- Portable AI subsystem: [docs/PORTABILITY.md](docs/PORTABILITY.md)
+- Brainpacks subsystem: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
 - Cortex Mind PRD: [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
 - OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
 - OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
