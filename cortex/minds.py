@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cortex.graph import CortexGraph
 
 MINDS_DIRNAME = "minds"
 MIND_KINDS = ("person", "agent", "project", "team")
@@ -281,6 +284,8 @@ def attach_pack_to_mind(
     targets: list[str] | None = None,
     task_terms: list[str] | None = None,
 ) -> dict[str, Any]:
+    from cortex.portable_runtime import canonical_target_name
+
     normalized_mind_id = _validate_mind_id(mind_id)
     load_mind_manifest(store_dir, normalized_mind_id)
 
@@ -291,6 +296,7 @@ def attach_pack_to_mind(
     records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
     now = _iso_now()
     updated = False
+    normalized_targets = [canonical_target_name(item) for item in _clean_strings(targets)]
 
     attachment_record = {
         "id": pack_manifest.name,
@@ -299,7 +305,7 @@ def attach_pack_to_mind(
         "scope": ATTACHMENT_SCOPE,
         "priority": int(priority),
         "activation": {
-            "targets": _clean_strings(targets),
+            "targets": normalized_targets,
             "task_terms": _clean_strings(task_terms),
             "always_on": bool(always_on),
         },
@@ -404,6 +410,260 @@ def _attachment_details(store_dir: Path, records: list[dict[str, Any]]) -> tuple
             aggregate_targets.update(detail["mounted_targets"])
         details.append(detail)
     return details, sorted(aggregate_targets)
+
+
+def _load_policies(store_dir: Path, mind_id: str, manifest: MindManifest) -> dict[str, Any]:
+    return _read_json(
+        mind_policies_path(store_dir, mind_id),
+        default={"default_disclosure": manifest.default_policy, "target_overrides": {}, "approval_rules": {}},
+    )
+
+
+def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str, str]:
+    from cortex.portable_runtime import load_canonical_graph, load_portability_state
+    from cortex.storage import get_storage_backend
+
+    core_state = _read_json(
+        mind_core_state_path(store_dir, mind_id),
+        default={"graph_ref": "", "categories": list(DEFAULT_CATEGORIES)},
+    )
+    declared_ref = str(core_state.get("graph_ref") or "").strip()
+    backend = get_storage_backend(store_dir)
+    if declared_ref:
+        resolved = backend.versions.resolve_ref(declared_ref)
+        if resolved is not None:
+            return backend.versions.checkout(resolved), declared_ref, "version_ref"
+
+    portability_state = load_portability_state(store_dir)
+    canonical_graph, canonical_path = load_canonical_graph(store_dir, portability_state)
+    if canonical_graph.nodes:
+        return canonical_graph, str(canonical_path), "portable_canonical_graph"
+
+    head = backend.versions.resolve_ref("HEAD")
+    if head is not None:
+        return backend.versions.checkout(head), "HEAD", "version_head"
+
+    return CortexGraph(), declared_ref, "empty_graph"
+
+
+def _evaluate_attachment_match(record: dict[str, Any], *, target: str, task: str) -> tuple[bool, str]:
+    activation = dict(record.get("activation") or {})
+    always_on = bool(activation.get("always_on", False))
+    raw_targets = [str(item).strip() for item in activation.get("targets", [])]
+    raw_terms = [str(item).strip().lower() for item in activation.get("task_terms", []) if str(item).strip()]
+    if always_on:
+        return True, "always_on"
+
+    target_matches = not raw_targets or target in raw_targets
+    task_lower = task.lower().strip()
+    task_matches = not raw_terms or any(term in task_lower for term in raw_terms)
+
+    if target_matches and task_matches:
+        if raw_targets and raw_terms:
+            return True, "target_and_task_match"
+        if raw_targets:
+            return True, "target_match"
+        if raw_terms:
+            return True, "task_match"
+        return True, "default_attached"
+    if not target_matches:
+        return False, "target_mismatch"
+    return False, "task_mismatch"
+
+
+def _select_brainpacks_for_compose(
+    store_dir: Path, mind_id: str, *, target: str, task: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from cortex.portable_runtime import canonical_target_name
+
+    attachments = _load_attachments(store_dir, mind_id)
+    attachment_details, _ = _attachment_details(store_dir, [dict(item) for item in attachments.get("brainpacks", [])])
+    canonical_target = canonical_target_name(target)
+    included: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for item in attachment_details:
+        evaluated = dict(item)
+        evaluated["activation"]["targets"] = [
+            canonical_target_name(name) for name in evaluated["activation"].get("targets", [])
+        ]
+        include, reason = _evaluate_attachment_match(evaluated, target=canonical_target, task=task)
+        evaluated["selection_reason"] = reason
+        if not evaluated.get("pack_exists", False):
+            evaluated["selection_reason"] = "pack_missing"
+            skipped.append(evaluated)
+            continue
+        if str(evaluated.get("compile_status") or "") != "compiled":
+            evaluated["selection_reason"] = "pack_not_compiled"
+            skipped.append(evaluated)
+            continue
+        if include:
+            included.append(evaluated)
+        else:
+            skipped.append(evaluated)
+    included.sort(key=lambda item: (-int(item.get("priority", 0)), str(item.get("pack") or "").lower()))
+    return included, skipped
+
+
+def _render_graph_for_target(
+    graph: CortexGraph,
+    *,
+    target: str,
+    smart: bool,
+    policy_name: str,
+    max_chars: int,
+    project_dir: str = "",
+) -> dict[str, Any]:
+    from cortex.hermes_integration import build_hermes_documents
+    from cortex.hooks import HookConfig, generate_compact_context
+    from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
+    from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
+    from cortex.portable_runtime import _policy_for_target, canonical_target_name, display_name
+    from cortex.upai.disclosure import apply_disclosure
+
+    canonical_target = canonical_target_name(target)
+    policy, route_tags = _policy_for_target(canonical_target, smart=smart, policy_name=policy_name)
+    filtered = apply_disclosure(graph, policy)
+    ctx = NormalizedContext.from_v5(filtered.export_v5())
+    facts = [
+        {"id": node.id, "label": node.label, "tags": list(node.tags), "confidence": round(node.confidence, 2)}
+        for node in sorted(filtered.nodes.values(), key=lambda item: (-item.confidence, item.label.lower()))
+    ]
+    resolved_project_dir = Path(project_dir).resolve() if project_dir else None
+
+    context_markdown = ""
+    consume_as = "instruction_markdown"
+    target_payload: dict[str, Any] = {}
+
+    if filtered.nodes:
+        if canonical_target == "hermes":
+            documents = build_hermes_documents(ctx, max_chars=max_chars, min_confidence=policy.min_confidence)
+            context_markdown = documents["memory"]
+            consume_as = "hermes_memory"
+            target_payload = {
+                "user_text": documents["user"],
+                "memory_text": documents["memory"],
+                "agents_text": documents["agents"],
+            }
+        elif canonical_target in PORTABLE_DIRECT_TARGETS:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                filtered_path = Path(tmp_dir) / f"{canonical_target}.json"
+                filtered_path.write_text(
+                    json.dumps(filtered.export_v5(), indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                context_markdown = generate_compact_context(
+                    HookConfig(
+                        graph_path=str(filtered_path),
+                        policy="full",
+                        max_chars=max_chars,
+                        include_project=False,
+                    ),
+                    cwd=str(resolved_project_dir) if resolved_project_dir is not None else None,
+                )
+        elif canonical_target == "claude":
+            preferences_text = export_claude_preferences(ctx, min_confidence=policy.min_confidence)
+            memories = export_claude_memories(ctx, min_confidence=policy.min_confidence)
+            context_markdown = preferences_text
+            consume_as = "claude_profile"
+            target_payload = {
+                "preferences_text": preferences_text,
+                "memories": memories,
+            }
+        elif canonical_target in {"chatgpt", "grok"}:
+            pack = build_instruction_pack(ctx, min_confidence=policy.min_confidence)
+            context_markdown = pack.combined
+            consume_as = "custom_instructions"
+            target_payload = {
+                "about": pack.about,
+                "respond": pack.respond,
+                "combined": pack.combined,
+            }
+
+    return {
+        "target": canonical_target,
+        "name": display_name(canonical_target),
+        "mode": "smart" if smart else "full",
+        "policy": policy_name,
+        "route_tags": route_tags,
+        "fact_count": len(facts),
+        "labels": [item["label"] for item in facts],
+        "facts": facts,
+        "project_dir": str(resolved_project_dir) if resolved_project_dir is not None else "",
+        "context_markdown": context_markdown,
+        "consume_as": consume_as,
+        "target_payload": target_payload,
+        "graph": filtered.export_v5(),
+        "message": "" if facts else "This Mind did not yield routed facts for this target.",
+    }
+
+
+def compose_mind(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    target: str,
+    task: str = "",
+    project_dir: str = "",
+    smart: bool = True,
+    policy_name: str = "",
+    max_chars: int = 1500,
+) -> dict[str, Any]:
+    from cortex.packs import graph_path as pack_graph_path
+    from cortex.portable_runtime import canonical_target_name, merge_graphs
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    policies = _load_policies(store_dir, mind_id, manifest)
+    canonical_target = canonical_target_name(target)
+    effective_policy = (
+        policy_name.strip()
+        or str((policies.get("target_overrides") or {}).get(canonical_target) or "").strip()
+        or str(policies.get("default_disclosure") or manifest.default_policy)
+    )
+
+    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+    included_brainpacks, skipped_brainpacks = _select_brainpacks_for_compose(
+        store_dir,
+        mind_id,
+        target=canonical_target,
+        task=task,
+    )
+
+    composed_graph = CortexGraph.from_v5_json(base_graph.export_v5())
+    realized_brainpacks: list[dict[str, Any]] = []
+    for item in included_brainpacks:
+        pack_graph_file = pack_graph_path(store_dir, item["pack"])
+        if not pack_graph_file.exists():
+            skipped_item = dict(item)
+            skipped_item["selection_reason"] = "pack_graph_missing"
+            skipped_brainpacks.append(skipped_item)
+            continue
+        pack_graph = CortexGraph.from_v5_json(json.loads(pack_graph_file.read_text(encoding="utf-8")))
+        composed_graph = merge_graphs(composed_graph, pack_graph)
+        realized_brainpacks.append(item)
+
+    render_payload = _render_graph_for_target(
+        composed_graph,
+        target=canonical_target,
+        smart=smart,
+        policy_name=effective_policy,
+        max_chars=max_chars,
+        project_dir=project_dir,
+    )
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "branch": manifest.current_branch,
+        "task": task,
+        "base_graph_ref": base_graph_ref,
+        "base_graph_source": base_graph_source,
+        "base_graph_node_count": len(base_graph.nodes),
+        "base_graph_edge_count": len(base_graph.edges),
+        "included_brainpacks": realized_brainpacks,
+        "skipped_brainpacks": skipped_brainpacks,
+        "included_brainpack_count": len(realized_brainpacks),
+        "composed_graph_node_count": len(composed_graph.nodes),
+        "composed_graph_edge_count": len(composed_graph.edges),
+        **render_payload,
+    }
 
 
 def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:

@@ -311,6 +311,31 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="mind_compose",
+                title="Compose Mind",
+                description="Compose a target-aware runtime slice from a Cortex Mind using its base graph and attached Brainpacks.",
+                method_name="mind_compose",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                        "target": _string_property(
+                            "Target tool such as hermes, openclaw, codex, cursor, claude-code, or chatgpt."
+                        ),
+                        "task": _string_property("Optional task hint used to activate attached Brainpacks."),
+                        "project_dir": _string_property(
+                            "Optional working directory used to focus project-scoped targets."
+                        ),
+                        "smart": _boolean_property("When true, use the target's smart routed slice."),
+                        "policy": _string_property("Optional disclosure policy override."),
+                        "max_chars": _integer_property("Maximum size of the rendered context markdown."),
+                    },
+                    required=("name", "target"),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="pack_list",
                 title="List Brainpacks",
                 description="List local Brainpacks compiled and stored inside the Cortex workspace.",
