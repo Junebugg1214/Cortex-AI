@@ -9,9 +9,12 @@ from cortex.minds import (
     compose_mind,
     detach_pack_from_mind,
     init_mind,
+    list_mind_mounts,
     list_minds,
     load_mind_manifest,
+    mind_openclaw_mount_registry_path,
     mind_status,
+    mount_mind,
 )
 from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph
@@ -204,9 +207,77 @@ def test_mind_compose_merges_core_graph_and_selected_brainpacks(tmp_path, monkey
     assert payload["composed_graph_node_count"] >= payload["base_graph_node_count"]
 
 
-def test_cli_mind_round_trip_json(tmp_path, capsys):
+def test_mind_mount_materializes_targets_and_persists_mount_records(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n-marc", label="Marc", tags=["identity"], confidence=0.96, brief="Name: Marc"))
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_pack(store_dir, "support-pack", description="Support pack", owner="marc")
+    ingest_pack(store_dir, "support-pack", [str(source)], mode="copy")
+    compile_pack(store_dir, "support-pack", suggest_questions=True, max_summary_chars=240)
+    attach_pack_to_mind(
+        store_dir,
+        "marc",
+        "support-pack",
+        always_on=True,
+        targets=["claude-code", "codex", "cursor", "hermes", "openclaw"],
+    )
+
+    payload = mount_mind(
+        store_dir,
+        "marc",
+        targets=["hermes", "claude-code", "codex", "cursor", "openclaw"],
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+        openclaw_store_dir=str(openclaw_store_dir),
+    )
+    mounts_payload = list_mind_mounts(store_dir, "marc")
+    status = mind_status(store_dir, "marc")
+    registry = json.loads(mind_openclaw_mount_registry_path(openclaw_store_dir).read_text(encoding="utf-8"))
+
+    assert payload["mounted_count"] == 5
+    assert payload["mount_count"] == 5
+    assert {item["target"] for item in payload["targets"]} == {"hermes", "claude-code", "codex", "cursor", "openclaw"}
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (home_dir / ".hermes" / "memories" / "MEMORY.md").exists()
+    assert (home_dir / ".hermes" / "config.yaml").exists()
+    assert (home_dir / ".claude" / "CLAUDE.md").exists()
+    assert (project_dir / "CLAUDE.md").exists()
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+    assert mounts_payload["mount_count"] == 5
+    assert set(mounts_payload["mounted_targets"]) == {"hermes", "claude-code", "codex", "cursor", "openclaw"}
+    assert status["mount_count"] == 5
+    assert set(status["mounted_targets"]) == {"hermes", "claude-code", "codex", "cursor", "openclaw"}
+    assert registry["mount_count"] == 1
+    assert registry["mounts"][0]["name"] == "marc"
+    assert registry["mounts"][0]["activation_target"] == "openclaw"
+    assert registry["mounts"][0]["task"] == "support"
+
+
+def test_cli_mind_round_trip_json(tmp_path, capsys, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
     _seed_source(source)
 
     init_rc = main(
@@ -258,6 +329,34 @@ def test_cli_mind_round_trip_json(tmp_path, capsys):
     )
     compose_payload = json.loads(capsys.readouterr().out)
 
+    mount_rc = main(
+        [
+            "mind",
+            "mount",
+            "marc",
+            "--to",
+            "hermes",
+            "claude-code",
+            "codex",
+            "cursor",
+            "openclaw",
+            "--task",
+            "memory routing",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--openclaw-store-dir",
+            str(openclaw_store_dir),
+            "--smart",
+            "--json",
+        ]
+    )
+    mount_payload = json.loads(capsys.readouterr().out)
+
+    mounts_rc = main(["mind", "mounts", "marc", "--store-dir", str(store_dir), "--json"])
+    mounts_payload = json.loads(capsys.readouterr().out)
+
     detach_rc = main(["mind", "detach-pack", "marc", "ai-memory", "--store-dir", str(store_dir), "--json"])
     detach_payload = json.loads(capsys.readouterr().out)
 
@@ -278,5 +377,16 @@ def test_cli_mind_round_trip_json(tmp_path, capsys):
     assert compose_payload["mind"] == "marc"
     assert compose_payload["included_brainpack_count"] == 1
     assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
+    assert mount_rc == 0
+    assert mount_payload["mounted_count"] == 5
+    assert {item["target"] for item in mount_payload["targets"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
+    assert mounts_rc == 0
+    assert mounts_payload["mount_count"] == 5
     assert detach_rc == 0
     assert detach_payload["attachment_count"] == 0

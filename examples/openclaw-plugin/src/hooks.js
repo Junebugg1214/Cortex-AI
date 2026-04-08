@@ -31,6 +31,19 @@ function _formatMountedBrainpacks(packPayloads) {
   return sections.join("\n\n");
 }
 
+function _formatMountedMinds(mindPayloads) {
+  const sections = [];
+  for (const payload of mindPayloads) {
+    const markdown = _firstString(payload?.context_markdown, payload?.context);
+    const mindName = _firstString(payload?.mind, payload?.name);
+    if (!markdown || !mindName) {
+      continue;
+    }
+    sections.push(`Mounted Mind (${mindName}):\n\n${markdown}`);
+  }
+  return sections.join("\n\n");
+}
+
 export function handleMessageReceived(runtime, event, ctx = {}) {
   const config = runtime.resolveConfig(ctx);
   const message = toChannelMessage(event, ctx, config);
@@ -57,6 +70,33 @@ export async function handleBeforePromptBuild(runtime, event, ctx = {}) {
     if (turnKey) {
       runtime.turnCache.set(turnKey, payload.turn);
     }
+    const mountedMinds = await runtime.service.listMountedMinds(config);
+    const mountedMindPayloads = [];
+    for (const mind of mountedMinds) {
+      try {
+        const mindSmart = typeof mind.smart === "boolean" ? mind.smart : config.smartRouting;
+        mountedMindPayloads.push(
+          await runtime.service.mindCompose({
+            name: mind.name,
+            target: config.defaultTarget,
+            activation_target: _firstString(mind.activation_target, "openclaw"),
+            task: _firstString(mind.task),
+            smart: mindSmart,
+            policy: _firstString(mind.policy, mindSmart ? "" : "professional"),
+            max_chars: Number.isFinite(Number(mind.max_chars))
+              ? Number(mind.max_chars)
+              : config.maxContextChars,
+            project_dir: _firstString(mind.project_dir, message.project_dir),
+          }),
+        );
+      } catch (error) {
+        runtime.logger().warn?.(
+          `[cortex] mounted mind degraded (${mind.name}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
     const mountedPacks = await runtime.service.listMountedBrainpacks(config);
     const mountedPayloads = [];
     for (const pack of mountedPacks) {
@@ -82,7 +122,11 @@ export async function handleBeforePromptBuild(runtime, event, ctx = {}) {
         );
       }
     }
-    const injected = [_formatPortableContext(payload), _formatMountedBrainpacks(mountedPayloads)]
+    const injected = [
+      _formatPortableContext(payload),
+      _formatMountedMinds(mountedMindPayloads),
+      _formatMountedBrainpacks(mountedPayloads),
+    ]
       .filter(Boolean)
       .join("\n\n");
     if (!injected) {

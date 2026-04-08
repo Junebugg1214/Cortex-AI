@@ -85,6 +85,8 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "mind_list",
         "mind_status",
         "mind_compose",
+        "mind_mounts",
+        "mind_mount",
         "pack_list",
         "pack_status",
         "pack_context",
@@ -226,9 +228,14 @@ def test_mcp_node_round_trip_and_query_search(tmp_path):
     assert search["result"]["structuredContent"]["results"][0]["node"]["label"] == "Project Atlas"
 
 
-def test_mcp_mind_tools_round_trip(tmp_path):
+def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store = tmp_path / "openclaw-store"
+    home_dir.mkdir()
+    project_dir.mkdir()
     source.write_text(
         (
             "# Portable AI Memory\n\n"
@@ -237,6 +244,7 @@ def test_mcp_mind_tools_round_trip(tmp_path):
         ),
         encoding="utf-8",
     )
+    monkeypatch.setenv("HOME", str(home_dir))
     base_graph = CortexGraph()
     base_graph.add_node(Node(id="n1", label="Marc", tags=["identity"], confidence=0.96))
     state = load_portability_state(store_dir)
@@ -245,7 +253,13 @@ def test_mcp_mind_tools_round_trip(tmp_path):
     init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
     ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
     compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
-    attach_pack_to_mind(store_dir, "marc", "ai-memory", always_on=True, targets=["chatgpt"])
+    attach_pack_to_mind(
+        store_dir,
+        "marc",
+        "ai-memory",
+        always_on=True,
+        targets=["chatgpt", "claude-code", "codex", "cursor", "hermes", "openclaw"],
+    )
 
     backend = build_sqlite_backend(store_dir)
     service = MemoryService(store_dir=store_dir, backend=backend)
@@ -262,6 +276,26 @@ def test_mcp_mind_tools_round_trip(tmp_path):
         arguments={"name": "marc", "target": "chatgpt", "task": "memory strategy", "smart": True, "max_chars": 900},
         request_id=11,
     )["result"]["structuredContent"]
+    mount_payload = _tool_call(
+        server,
+        tool="mind_mount",
+        arguments={
+            "name": "marc",
+            "targets": ["hermes", "claude-code", "codex", "cursor", "openclaw"],
+            "task": "support",
+            "project_dir": str(project_dir),
+            "smart": True,
+            "max_chars": 900,
+            "openclaw_store_dir": str(openclaw_store),
+        },
+        request_id=12,
+    )["result"]["structuredContent"]
+    mounts_payload = _tool_call(
+        server,
+        tool="mind_mounts",
+        arguments={"name": "marc"},
+        request_id=13,
+    )["result"]["structuredContent"]
 
     assert list_payload["count"] == 1
     assert list_payload["minds"][0]["mind"] == "marc"
@@ -274,6 +308,19 @@ def test_mcp_mind_tools_round_trip(tmp_path):
     assert compose_payload["included_brainpack_count"] == 1
     assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
     assert compose_payload["target"] == "chatgpt"
+    assert mount_payload["mounted_count"] == 5
+    assert mounts_payload["mount_count"] == 5
+    assert {item["target"] for item in mounts_payload["mounts"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
+    assert (home_dir / ".hermes" / "memories" / "USER.md").exists()
+    assert (project_dir / "AGENTS.md").exists()
+    assert (project_dir / ".cursor" / "rules" / "cortex.mdc").exists()
+    assert (openclaw_store / "minds.mounted.json").exists()
 
 
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):

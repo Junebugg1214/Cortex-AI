@@ -325,6 +325,9 @@ class CortexMCPServer:
                         "project_dir": _string_property(
                             "Optional working directory used to focus project-scoped targets."
                         ),
+                        "activation_target": _string_property(
+                            "Optional runtime target used only for Brainpack activation selection, such as openclaw."
+                        ),
                         "smart": _boolean_property("When true, use the target's smart routed slice."),
                         "policy": _string_property("Optional disclosure policy override."),
                         "max_chars": _integer_property("Maximum size of the rendered context markdown."),
@@ -333,6 +336,54 @@ class CortexMCPServer:
                     include_namespace=False,
                 ),
                 read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="mind_mounts",
+                title="Mind Mounts",
+                description="List persisted mount records for one Cortex Mind.",
+                method_name="mind_mounts",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                    },
+                    required=("name",),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="mind_mount",
+                title="Mount Mind",
+                description=(
+                    "Mount a Cortex Mind directly into Hermes, OpenClaw, Codex, Cursor, Claude Code, "
+                    "or other supported runtime targets."
+                ),
+                method_name="mind_mount",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                        "targets": {
+                            "type": "array",
+                            "description": "Mount targets such as hermes, openclaw, codex, cursor, or claude-code.",
+                            "items": {"type": "string"},
+                        },
+                        "task": _string_property("Optional task hint used during Mind composition."),
+                        "project_dir": _string_property(
+                            "Optional working directory for project-scoped targets like codex, cursor, and claude-code."
+                        ),
+                        "smart": _boolean_property("When true, use smart routing while mounting the Mind."),
+                        "policy": _string_property("Optional disclosure policy override."),
+                        "max_chars": _integer_property("Maximum size of each mounted context slice."),
+                        "openclaw_store_dir": _string_property(
+                            "Optional OpenClaw Cortex store dir when the plugin does not use ~/.openclaw/cortex."
+                        ),
+                    },
+                    required=("name", "targets"),
+                    include_namespace=False,
+                ),
+                read_only=False,
                 namespace_param=False,
             ),
             self._service_tool(

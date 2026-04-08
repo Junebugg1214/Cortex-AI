@@ -16,6 +16,14 @@ DEFAULT_BRANCH = "main"
 DEFAULT_POLICY = "professional"
 ATTACHMENT_MODE = "attached"
 ATTACHMENT_SCOPE = "specialist"
+OPENCLAW_MIND_MOUNTS_FILE = "minds.mounted.json"
+SUPPORTED_MIND_MOUNT_TARGETS = (
+    "claude-code",
+    "codex",
+    "cursor",
+    "hermes",
+    "openclaw",
+)
 DEFAULT_CATEGORIES = (
     "identity",
     "professional_context",
@@ -122,6 +130,15 @@ def mind_policies_path(store_dir: Path, mind_id: str) -> Path:
 
 def mind_mounts_path(store_dir: Path, mind_id: str) -> Path:
     return mind_path(store_dir, mind_id) / "mounts.json"
+
+
+def _default_openclaw_store_dir() -> Path:
+    return Path.home() / ".openclaw" / "cortex"
+
+
+def mind_openclaw_mount_registry_path(openclaw_store_dir: Path | None = None) -> Path:
+    root = Path(openclaw_store_dir) if openclaw_store_dir is not None else _default_openclaw_store_dir()
+    return root / OPENCLAW_MIND_MOUNTS_FILE
 
 
 def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
@@ -272,6 +289,34 @@ def _attachment_pack_name(record: dict[str, Any]) -> str:
 
 def _load_attachments(store_dir: Path, mind_id: str) -> dict[str, Any]:
     return _read_json(mind_attachments_path(store_dir, mind_id), default={"mind": mind_id, "brainpacks": []})
+
+
+def _load_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    return _read_json(mind_mounts_path(store_dir, mind_id), default={"mind": mind_id, "mounts": []})
+
+
+def _write_mounts(store_dir: Path, mind_id: str, mounts: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = {
+        "status": "ok",
+        "mind": mind_id,
+        "mount_count": len(mounts),
+        "mounts": mounts,
+    }
+    _write_json(mind_mounts_path(store_dir, mind_id), payload)
+    return payload
+
+
+def _load_openclaw_mind_mount_registry(openclaw_store_dir: Path) -> dict[str, Any]:
+    return _read_json(
+        mind_openclaw_mount_registry_path(openclaw_store_dir),
+        default={"status": "ok", "mount_count": 0, "mounts": []},
+    )
+
+
+def _write_openclaw_mind_mount_registry(openclaw_store_dir: Path, payload: dict[str, Any]) -> Path:
+    path = mind_openclaw_mount_registry_path(openclaw_store_dir)
+    _write_json(path, payload)
+    return path
 
 
 def attach_pack_to_mind(
@@ -446,6 +491,20 @@ def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str
     return CortexGraph(), declared_ref, "empty_graph"
 
 
+def _resolve_effective_policy(
+    policies: dict[str, Any],
+    manifest: MindManifest,
+    *,
+    target: str,
+    policy_name: str,
+) -> str:
+    return (
+        policy_name.strip()
+        or str((policies.get("target_overrides") or {}).get(target) or "").strip()
+        or str(policies.get("default_disclosure") or manifest.default_policy)
+    )
+
+
 def _evaluate_attachment_match(record: dict[str, Any], *, target: str, task: str) -> tuple[bool, str]:
     activation = dict(record.get("activation") or {})
     always_on = bool(activation.get("always_on", False))
@@ -502,6 +561,67 @@ def _select_brainpacks_for_compose(
             skipped.append(evaluated)
     included.sort(key=lambda item: (-int(item.get("priority", 0)), str(item.get("pack") or "").lower()))
     return included, skipped
+
+
+def _compose_graph_for_target(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    target: str,
+    task: str,
+    policy_name: str,
+    activation_target: str = "",
+) -> dict[str, Any]:
+    from cortex.packs import graph_path as pack_graph_path
+    from cortex.portable_runtime import canonical_target_name, merge_graphs
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    policies = _load_policies(store_dir, mind_id, manifest)
+    canonical_target = canonical_target_name(target)
+    canonical_activation_target = canonical_target_name(activation_target.strip()) if activation_target.strip() else ""
+    selection_target = canonical_activation_target or canonical_target
+    effective_policy = _resolve_effective_policy(
+        policies,
+        manifest,
+        target=canonical_target,
+        policy_name=policy_name,
+    )
+
+    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+    included_brainpacks, skipped_brainpacks = _select_brainpacks_for_compose(
+        store_dir,
+        mind_id,
+        target=selection_target,
+        task=task,
+    )
+
+    composed_graph = CortexGraph.from_v5_json(base_graph.export_v5())
+    realized_brainpacks: list[dict[str, Any]] = []
+    for item in included_brainpacks:
+        pack_graph_file = pack_graph_path(store_dir, item["pack"])
+        if not pack_graph_file.exists():
+            skipped_item = dict(item)
+            skipped_item["selection_reason"] = "pack_graph_missing"
+            skipped_brainpacks.append(skipped_item)
+            continue
+        pack_graph = CortexGraph.from_v5_json(json.loads(pack_graph_file.read_text(encoding="utf-8")))
+        composed_graph = merge_graphs(composed_graph, pack_graph)
+        realized_brainpacks.append(item)
+
+    return {
+        "manifest": manifest,
+        "policies": policies,
+        "target": canonical_target,
+        "activation_target": selection_target,
+        "effective_policy": effective_policy,
+        "task": task,
+        "base_graph": base_graph,
+        "base_graph_ref": base_graph_ref,
+        "base_graph_source": base_graph_source,
+        "included_brainpacks": realized_brainpacks,
+        "skipped_brainpacks": skipped_brainpacks,
+        "composed_graph": composed_graph,
+    }
 
 
 def _render_graph_for_target(
@@ -606,63 +726,197 @@ def compose_mind(
     smart: bool = True,
     policy_name: str = "",
     max_chars: int = 1500,
+    activation_target: str = "",
 ) -> dict[str, Any]:
-    from cortex.packs import graph_path as pack_graph_path
-    from cortex.portable_runtime import canonical_target_name, merge_graphs
-
-    manifest = load_mind_manifest(store_dir, mind_id)
-    policies = _load_policies(store_dir, mind_id, manifest)
-    canonical_target = canonical_target_name(target)
-    effective_policy = (
-        policy_name.strip()
-        or str((policies.get("target_overrides") or {}).get(canonical_target) or "").strip()
-        or str(policies.get("default_disclosure") or manifest.default_policy)
-    )
-
-    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
-    included_brainpacks, skipped_brainpacks = _select_brainpacks_for_compose(
+    composed = _compose_graph_for_target(
         store_dir,
         mind_id,
-        target=canonical_target,
+        target=target,
         task=task,
+        policy_name=policy_name,
+        activation_target=activation_target,
     )
 
-    composed_graph = CortexGraph.from_v5_json(base_graph.export_v5())
-    realized_brainpacks: list[dict[str, Any]] = []
-    for item in included_brainpacks:
-        pack_graph_file = pack_graph_path(store_dir, item["pack"])
-        if not pack_graph_file.exists():
-            skipped_item = dict(item)
-            skipped_item["selection_reason"] = "pack_graph_missing"
-            skipped_brainpacks.append(skipped_item)
-            continue
-        pack_graph = CortexGraph.from_v5_json(json.loads(pack_graph_file.read_text(encoding="utf-8")))
-        composed_graph = merge_graphs(composed_graph, pack_graph)
-        realized_brainpacks.append(item)
-
     render_payload = _render_graph_for_target(
-        composed_graph,
-        target=canonical_target,
+        composed["composed_graph"],
+        target=composed["target"],
         smart=smart,
-        policy_name=effective_policy,
+        policy_name=composed["effective_policy"],
         max_chars=max_chars,
         project_dir=project_dir,
     )
     return {
         "status": "ok",
-        "mind": manifest.id,
-        "branch": manifest.current_branch,
+        "mind": composed["manifest"].id,
+        "branch": composed["manifest"].current_branch,
         "task": task,
-        "base_graph_ref": base_graph_ref,
-        "base_graph_source": base_graph_source,
-        "base_graph_node_count": len(base_graph.nodes),
-        "base_graph_edge_count": len(base_graph.edges),
-        "included_brainpacks": realized_brainpacks,
-        "skipped_brainpacks": skipped_brainpacks,
-        "included_brainpack_count": len(realized_brainpacks),
-        "composed_graph_node_count": len(composed_graph.nodes),
-        "composed_graph_edge_count": len(composed_graph.edges),
+        "activation_target": composed["activation_target"],
+        "base_graph_ref": composed["base_graph_ref"],
+        "base_graph_source": composed["base_graph_source"],
+        "base_graph_node_count": len(composed["base_graph"].nodes),
+        "base_graph_edge_count": len(composed["base_graph"].edges),
+        "included_brainpacks": composed["included_brainpacks"],
+        "skipped_brainpacks": composed["skipped_brainpacks"],
+        "included_brainpack_count": len(composed["included_brainpacks"]),
+        "composed_graph_node_count": len(composed["composed_graph"].nodes),
+        "composed_graph_edge_count": len(composed["composed_graph"].edges),
         **render_payload,
+    }
+
+
+def mount_mind(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    targets: list[str],
+    task: str = "",
+    project_dir: str = "",
+    smart: bool = True,
+    policy_name: str = "",
+    max_chars: int = 1500,
+    openclaw_store_dir: str = "",
+) -> dict[str, Any]:
+    from cortex.packs import default_output_dir
+    from cortex.portable_runtime import canonical_target_name, sync_targets
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    if not targets:
+        raise ValueError("Specify at least one mount target.")
+
+    resolved_targets: list[str] = []
+    for raw_target in targets:
+        canonical = canonical_target_name(str(raw_target).strip().lower())
+        if canonical not in SUPPORTED_MIND_MOUNT_TARGETS:
+            raise ValueError(f"Unsupported Mind mount target: {raw_target}")
+        if canonical not in resolved_targets:
+            resolved_targets.append(canonical)
+
+    project_path = str(Path(project_dir).resolve()) if project_dir else ""
+    output_dir = default_output_dir(store_dir) / "minds" / manifest.id
+    mount_results: list[dict[str, Any]] = []
+
+    for target in resolved_targets:
+        mounted_at = _iso_now()
+        if target == "openclaw":
+            openclaw_root = (
+                Path(openclaw_store_dir).expanduser().resolve()
+                if openclaw_store_dir
+                else _default_openclaw_store_dir().resolve()
+            )
+            registry = _load_openclaw_mind_mount_registry(openclaw_root)
+            mounts = [
+                dict(item)
+                for item in registry.get("mounts", [])
+                if str(item.get("name") or "").strip() and str(item.get("name")) != manifest.id
+            ]
+            entry = {
+                "name": manifest.id,
+                "smart": smart,
+                "policy": policy_name,
+                "max_chars": max_chars,
+                "task": task,
+                "project_dir": project_path,
+                "activation_target": "openclaw",
+                "mounted_at": mounted_at,
+                "enabled": True,
+            }
+            mounts.append(entry)
+            registry_payload = {
+                "status": "ok",
+                "mount_count": len(mounts),
+                "mounts": mounts,
+            }
+            registry_path = _write_openclaw_mind_mount_registry(openclaw_root, registry_payload)
+            mount_results.append(
+                {
+                    "target": "openclaw",
+                    "status": "ok",
+                    "paths": [str(registry_path)],
+                    "note": f"Registered Mind `{manifest.id}` for OpenClaw runtime composition.",
+                    "mode": "smart" if smart else "full",
+                    "route_tags": [],
+                    "consume_as": "runtime_compose",
+                    "project_dir": project_path,
+                    "task": task,
+                    "activation_target": "openclaw",
+                    "mounted_at": mounted_at,
+                }
+            )
+            continue
+
+        composed = compose_mind(
+            store_dir,
+            manifest.id,
+            target=target,
+            task=task,
+            project_dir=project_path,
+            smart=smart,
+            policy_name=policy_name,
+            max_chars=max_chars,
+        )
+        graph = CortexGraph.from_v5_json(dict(composed["graph"]))
+        sync_payload = sync_targets(
+            graph,
+            targets=[target],
+            store_dir=store_dir,
+            project_dir=project_path,
+            output_dir=output_dir,
+            graph_path=mind_core_state_path(store_dir, manifest.id),
+            policy_name="full",
+            smart=False,
+            max_chars=max_chars,
+            persist_state=False,
+        )
+        target_result = dict(sync_payload.get("targets", [{}])[0])
+        mount_results.append(
+            {
+                "target": target,
+                "status": str(target_result.get("status") or "ok"),
+                "paths": list(target_result.get("paths", [])),
+                "note": str(target_result.get("note") or composed.get("message") or ""),
+                "mode": str(composed.get("mode") or ("smart" if smart else "full")),
+                "route_tags": list(composed.get("route_tags", [])),
+                "fact_count": int(composed.get("fact_count") or 0),
+                "consume_as": str(composed.get("consume_as") or ""),
+                "project_dir": project_path,
+                "task": task,
+                "activation_target": str(composed.get("activation_target") or target),
+                "mounted_at": mounted_at,
+            }
+        )
+
+    persisted = [
+        dict(item)
+        for item in _load_mounts(store_dir, manifest.id).get("mounts", [])
+        if str(item.get("target") or "").strip() not in set(resolved_targets)
+    ]
+    persisted.extend(mount_results)
+    persisted.sort(key=lambda item: str(item.get("target") or "").lower())
+    mounts_payload = _write_mounts(store_dir, manifest.id, persisted)
+    _replace_manifest(store_dir, manifest.id, updated_at=_iso_now())
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "mounted_count": len(mount_results),
+        "mount_count": mounts_payload["mount_count"],
+        "targets": mount_results,
+        "mounts": mounts_payload["mounts"],
+        "mounts_path": str(mind_mounts_path(store_dir, manifest.id)),
+    }
+
+
+def list_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    load_mind_manifest(store_dir, mind_id)
+    payload = _load_mounts(store_dir, mind_id)
+    mounts = [dict(item) for item in payload.get("mounts", [])]
+    mounts.sort(key=lambda item: str(item.get("target") or "").lower())
+    return {
+        "status": "ok",
+        "mind": mind_id,
+        "mount_count": len(mounts),
+        "mounted_targets": [str(item.get("target") or "") for item in mounts if str(item.get("target") or "").strip()],
+        "mounts": mounts,
+        "mounts_path": str(mind_mounts_path(store_dir, mind_id)),
     }
 
 
@@ -696,6 +950,9 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
         "branch_count": len(branches.get("branches", {})),
         "mount_count": len(mounts.get("mounts", [])),
         "mounts": [dict(item) for item in mounts.get("mounts", [])],
+        "mounted_targets": [
+            str(item.get("target") or "") for item in mounts.get("mounts", []) if str(item.get("target") or "").strip()
+        ],
         "default_disclosure": str(policies.get("default_disclosure") or manifest.default_policy),
     }
 
