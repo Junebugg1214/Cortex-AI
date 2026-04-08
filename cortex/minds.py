@@ -11,6 +11,8 @@ MINDS_DIRNAME = "minds"
 MIND_KINDS = ("person", "agent", "project", "team")
 DEFAULT_BRANCH = "main"
 DEFAULT_POLICY = "professional"
+ATTACHMENT_MODE = "attached"
+ATTACHMENT_SCOPE = "specialist"
 DEFAULT_CATEGORIES = (
     "identity",
     "professional_context",
@@ -87,6 +89,10 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _write_manifest(store_dir: Path, manifest: MindManifest) -> None:
+    _write_json(mind_manifest_path(store_dir, manifest.id), asdict(manifest))
+
+
 def mind_path(store_dir: Path, mind_id: str) -> Path:
     return _minds_root(store_dir) / _validate_mind_id(mind_id)
 
@@ -133,6 +139,23 @@ def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
     )
 
 
+def _replace_manifest(store_dir: Path, mind_id: str, *, updated_at: str) -> MindManifest:
+    manifest = load_mind_manifest(store_dir, mind_id)
+    updated = MindManifest(
+        id=manifest.id,
+        label=manifest.label,
+        kind=manifest.kind,
+        owner=manifest.owner,
+        created_at=manifest.created_at,
+        updated_at=updated_at,
+        default_branch=manifest.default_branch,
+        current_branch=manifest.current_branch,
+        default_policy=manifest.default_policy,
+    )
+    _write_manifest(store_dir, updated)
+    return updated
+
+
 def init_mind(
     store_dir: Path,
     mind_id: str,
@@ -161,7 +184,7 @@ def init_mind(
     root.mkdir(parents=True, exist_ok=False)
     (root / "compositions").mkdir(parents=True, exist_ok=True)
     (root / "refs").mkdir(parents=True, exist_ok=True)
-    _write_json(mind_manifest_path(store_dir, normalized_id), asdict(manifest))
+    _write_manifest(store_dir, manifest)
     _write_json(
         mind_core_state_path(store_dir, normalized_id),
         {
@@ -217,12 +240,180 @@ def init_mind(
     }
 
 
+def _clean_strings(values: list[str] | tuple[str, ...] | None) -> list[str]:
+    if not values:
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value).strip()
+        if not item:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(item)
+    return cleaned
+
+
+def _attachment_pack_name(record: dict[str, Any]) -> str:
+    pack_name = str(record.get("id") or "").strip()
+    if pack_name:
+        return pack_name
+    pack_ref = str(record.get("pack_ref") or "").strip()
+    if pack_ref.startswith("packs/"):
+        return pack_ref.split("/", 1)[1]
+    return pack_ref
+
+
+def _load_attachments(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    return _read_json(mind_attachments_path(store_dir, mind_id), default={"mind": mind_id, "brainpacks": []})
+
+
+def attach_pack_to_mind(
+    store_dir: Path,
+    mind_id: str,
+    pack_name: str,
+    *,
+    priority: int = 100,
+    always_on: bool = False,
+    targets: list[str] | None = None,
+    task_terms: list[str] | None = None,
+) -> dict[str, Any]:
+    normalized_mind_id = _validate_mind_id(mind_id)
+    load_mind_manifest(store_dir, normalized_mind_id)
+
+    from cortex.packs import load_manifest as load_pack_manifest
+
+    pack_manifest = load_pack_manifest(store_dir, pack_name)
+    attachments_payload = _load_attachments(store_dir, normalized_mind_id)
+    records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
+    now = _iso_now()
+    updated = False
+
+    attachment_record = {
+        "id": pack_manifest.name,
+        "pack_ref": f"packs/{pack_manifest.name}",
+        "mode": ATTACHMENT_MODE,
+        "scope": ATTACHMENT_SCOPE,
+        "priority": int(priority),
+        "activation": {
+            "targets": _clean_strings(targets),
+            "task_terms": _clean_strings(task_terms),
+            "always_on": bool(always_on),
+        },
+        "attached_at": now,
+        "updated_at": now,
+    }
+
+    for index, existing in enumerate(records):
+        if _attachment_pack_name(existing) != pack_manifest.name:
+            continue
+        attachment_record["attached_at"] = str(existing.get("attached_at") or now)
+        records[index] = attachment_record
+        updated = True
+        break
+    else:
+        records.append(attachment_record)
+
+    records.sort(key=lambda item: (-int(item.get("priority", 0)), _attachment_pack_name(item).lower()))
+    attachments_payload["mind"] = normalized_mind_id
+    attachments_payload["brainpacks"] = records
+    _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
+    _replace_manifest(store_dir, normalized_mind_id, updated_at=now)
+
+    return {
+        "status": "ok",
+        "mind": normalized_mind_id,
+        "pack": pack_manifest.name,
+        "attached": not updated,
+        "updated": updated,
+        "attachment_count": len(records),
+        "attachment": attachment_record,
+    }
+
+
+def detach_pack_from_mind(store_dir: Path, mind_id: str, pack_name: str) -> dict[str, Any]:
+    normalized_mind_id = _validate_mind_id(mind_id)
+    load_mind_manifest(store_dir, normalized_mind_id)
+
+    target = str(pack_name).strip()
+    if not target:
+        raise ValueError("Pack name is required.")
+
+    attachments_payload = _load_attachments(store_dir, normalized_mind_id)
+    records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
+    remaining = [item for item in records if _attachment_pack_name(item) != target]
+    if len(remaining) == len(records):
+        raise ValueError(f"Brainpack '{target}' is not attached to Mind '{normalized_mind_id}'.")
+
+    attachments_payload["mind"] = normalized_mind_id
+    attachments_payload["brainpacks"] = remaining
+    _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
+    _replace_manifest(store_dir, normalized_mind_id, updated_at=_iso_now())
+    return {
+        "status": "ok",
+        "mind": normalized_mind_id,
+        "pack": target,
+        "detached": True,
+        "attachment_count": len(remaining),
+    }
+
+
+def _attachment_details(store_dir: Path, records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    from cortex.packs import pack_status
+
+    details: list[dict[str, Any]] = []
+    aggregate_targets: set[str] = set()
+    for record in records:
+        pack_name = _attachment_pack_name(record)
+        activation = dict(record.get("activation") or {})
+        detail = {
+            "id": str(record.get("id") or pack_name),
+            "pack": pack_name,
+            "pack_ref": str(record.get("pack_ref") or f"packs/{pack_name}"),
+            "mode": str(record.get("mode") or ATTACHMENT_MODE),
+            "scope": str(record.get("scope") or ATTACHMENT_SCOPE),
+            "priority": int(record.get("priority") or 0),
+            "activation": {
+                "targets": _clean_strings(list(activation.get("targets") or [])),
+                "task_terms": _clean_strings(list(activation.get("task_terms") or [])),
+                "always_on": bool(activation.get("always_on", False)),
+            },
+            "attached_at": str(record.get("attached_at") or ""),
+            "updated_at": str(record.get("updated_at") or ""),
+            "pack_exists": False,
+            "pack_description": "",
+            "pack_owner": "",
+            "compile_status": "missing",
+            "pack_mount_count": 0,
+            "mounted_targets": [],
+        }
+        try:
+            status = pack_status(store_dir, pack_name)
+        except FileNotFoundError:
+            status = None
+        if status is not None:
+            detail["pack_exists"] = True
+            detail["pack_description"] = str(status["manifest"].get("description") or "")
+            detail["pack_owner"] = str(status["manifest"].get("owner") or "")
+            detail["compile_status"] = str(status.get("compile_status") or "idle")
+            detail["pack_mount_count"] = int(status.get("mount_count") or 0)
+            detail["mounted_targets"] = [str(item) for item in status.get("mounted_targets", []) if str(item).strip()]
+            aggregate_targets.update(detail["mounted_targets"])
+        details.append(detail)
+    return details, sorted(aggregate_targets)
+
+
 def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
     core_state = _read_json(
         mind_core_state_path(store_dir, manifest.id),
         default={"graph_ref": "", "categories": list(DEFAULT_CATEGORIES)},
     )
     attachments = _read_json(mind_attachments_path(store_dir, manifest.id), default={"brainpacks": []})
+    attachment_records = [dict(item) for item in attachments.get("brainpacks", [])]
+    attachment_details, attached_targets = _attachment_details(store_dir, attachment_records)
     branches = _read_json(
         mind_branches_path(store_dir, manifest.id),
         default={"branches": {manifest.default_branch: {"head": "", "created_at": manifest.created_at}}},
@@ -238,9 +429,13 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
         "path": str(mind_path(store_dir, manifest.id)),
         "graph_ref": str(core_state.get("graph_ref") or ""),
         "categories": [str(item) for item in core_state.get("categories", [])],
-        "attachment_count": len(attachments.get("brainpacks", [])),
+        "attachment_count": len(attachment_records),
+        "attached_brainpacks": attachment_details,
+        "attached_mount_count": sum(int(item.get("pack_mount_count") or 0) for item in attachment_details),
+        "attached_mounted_targets": attached_targets,
         "branch_count": len(branches.get("branches", {})),
         "mount_count": len(mounts.get("mounts", [])),
+        "mounts": [dict(item) for item in mounts.get("mounts", [])],
         "default_disclosure": str(policies.get("default_disclosure") or manifest.default_policy),
     }
 
