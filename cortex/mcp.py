@@ -287,6 +287,30 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="mind_list",
+                title="List Minds",
+                description="List local Cortex Minds stored inside the workspace.",
+                method_name="mind_list",
+                input_schema=_object_schema({}, include_namespace=False),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
+                name="mind_status",
+                title="Mind Status",
+                description="Inspect one Cortex Mind: manifest, graph reference, attachments, branches, and mounts.",
+                method_name="mind_status",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                    },
+                    required=("name",),
+                    include_namespace=False,
+                ),
+                read_only=True,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="pack_list",
                 title="List Brainpacks",
                 description="List local Brainpacks compiled and stored inside the Cortex workspace.",

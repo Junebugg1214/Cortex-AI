@@ -18,6 +18,7 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
+from cortex.minds import list_minds, mind_status
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
 from cortex.packs import (
@@ -514,6 +515,16 @@ class MemoryService:
             store_dir=self.store_dir,
             project_dir=project_path,
         )
+        payload["release"] = self.release()
+        return payload
+
+    def mind_list(self) -> dict[str, Any]:
+        payload = list_minds(self.store_dir)
+        payload["release"] = self.release()
+        return payload
+
+    def mind_status(self, *, name: str) -> dict[str, Any]:
+        payload = mind_status(self.store_dir, name)
         payload["release"] = self.release()
         return payload
 

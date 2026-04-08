@@ -1184,6 +1184,38 @@ def build_parser(*, show_all_commands: bool = False):
     doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     doc.add_argument("--format", choices=["json", "text"], default="text")
 
+    # -- mind (top-level portable minds) ----------------------------------
+    mind = sub.add_parser("mind", help="Manage Cortex Minds: portable, versioned, composable agent minds")
+    mind_sub = mind.add_subparsers(dest="mind_subcommand")
+
+    mind_init = mind_sub.add_parser("init", help="Create a new Cortex Mind")
+    mind_init.add_argument("name", help="Mind id")
+    mind_init.add_argument(
+        "--kind",
+        choices=["person", "agent", "project", "team"],
+        default="person",
+        help="Mind kind (default: person)",
+    )
+    mind_init.add_argument("--label", default="", help="Display label for the Mind")
+    mind_init.add_argument("--owner", default="", help="Owner label recorded in the manifest")
+    mind_init.add_argument(
+        "--default-policy",
+        default="professional",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Default disclosure policy for the Mind",
+    )
+    mind_init.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_init.add_argument("--format", choices=["json", "text"], default="text")
+
+    mind_list = mind_sub.add_parser("list", help="List local Cortex Minds")
+    mind_list.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    mind_status = mind_sub.add_parser("status", help="Show Cortex Mind status")
+    mind_status.add_argument("name", help="Mind id")
+    mind_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_status.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- pack (Brainpacks) -------------------------------------------------
     pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
     pk_sub = pk.add_subparsers(dest="pack_subcommand")
@@ -5203,6 +5235,71 @@ def run_pack(args):
     )
 
 
+def run_mind(args):
+    from cortex.minds import init_mind, list_minds, mind_status
+
+    if args.mind_subcommand == "init":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = init_mind(
+                store_dir,
+                args.name,
+                kind=args.kind,
+                label=args.label,
+                owner=args.owner,
+                default_policy=args.default_policy,
+            )
+        except (FileExistsError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Created Mind `{payload['mind']}` at {payload['path']}")
+        return 0
+
+    if args.mind_subcommand == "list":
+        store_dir = Path(args.store_dir)
+        payload = list_minds(store_dir)
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if not payload["minds"]:
+            _echo("No Cortex Minds found yet.")
+            return 0
+        _echo(f"Found {payload['count']} Mind(s):\n")
+        for item in payload["minds"]:
+            _echo(
+                f"  {item['mind']:<18} {item['kind']:<8} "
+                f"{item['attachment_count']:>2} packs  {item['mount_count']:>2} mounts  "
+                f"{item['current_branch']}"
+            )
+        return 0
+
+    if args.mind_subcommand == "status":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = mind_status(store_dir, args.name)
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mind `{payload['mind']}`")
+        _echo(f"  {payload['manifest']['label']} · {payload['manifest']['kind']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"branch {payload['manifest']['current_branch']}",
+                    f"{payload['attachment_count']} attached Brainpacks",
+                    f"{payload['mount_count']} mounts",
+                    payload["default_disclosure"],
+                ]
+            )
+        )
+        _echo(f"  graph ref: {payload['graph_ref']}")
+        return 0
+
+    return _error("Specify a mind subcommand: init, list, status")
+
+
 def run_scan(args):
     from cortex.portable_runtime import bar, scan_portability
 
@@ -5711,6 +5808,7 @@ def main(argv=None):
         "build",
         "audit",
         "doctor",
+        "mind",
         "ui",
         "pack",
         "benchmark",
@@ -5861,6 +5959,8 @@ def main(argv=None):
         return run_audit(args)
     elif args.subcommand == "doctor":
         return run_doctor(args)
+    elif args.subcommand == "mind":
+        return run_mind(args)
     elif args.subcommand == "pack":
         return run_pack(args)
     elif args.subcommand == "ui":

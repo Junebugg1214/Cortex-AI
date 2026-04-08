@@ -16,6 +16,26 @@ Cortex is three things in one local-first system:
 
 Humans curate context with the CLI. MCP-capable runtimes fetch their live routed slice over `cortex mcp`.
 
+## Cortex Mind (Preview)
+
+`cortex mind` is the new top-level object that will unify Portable AI, Brainpacks, and Git for AI Memory under one portable, versioned, composable mind.
+
+The first implementation slice ships the foundation:
+
+```bash
+cortex mind init marc --kind person --owner marc
+cortex mind list
+cortex mind status marc
+```
+
+Mind foundation commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, policy, branch, mount, and attachment scaffolding. |
+| `cortex mind list` | Lists local Minds in the current Cortex store. |
+| `cortex mind status marc` | Shows the Mind manifest, graph reference, branch, disclosure policy, attachment count, and mount count. |
+
 ## Install
 
 ```bash
