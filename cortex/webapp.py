@@ -398,6 +398,38 @@ class MemoryUIBackend:
         payload["status"] = "ok"
         return payload
 
+    def mind_list(self) -> dict[str, Any]:
+        return self.service.mind_list()
+
+    def mind_status(self, *, name: str) -> dict[str, Any]:
+        return self.service.mind_status(name=name)
+
+    def mind_mounts(self, *, name: str) -> dict[str, Any]:
+        return self.service.mind_mounts(name=name)
+
+    def mind_compose(
+        self,
+        *,
+        name: str,
+        target: str,
+        task: str = "",
+        project_dir: str = "",
+        smart: bool = True,
+        policy_name: str = "",
+        max_chars: int = 1200,
+        activation_target: str = "",
+    ) -> dict[str, Any]:
+        return self.service.mind_compose(
+            name=name,
+            target=target,
+            task=task,
+            project_dir=project_dir,
+            smart=smart,
+            policy=policy_name,
+            max_chars=max_chars,
+            activation_target=activation_target,
+        )
+
     def pack_list(self) -> dict[str, Any]:
         return self.service.pack_list()
 
@@ -1045,6 +1077,7 @@ UI_HTML = """<!doctype html>
       <div class="nav" role="tablist" aria-label="Cortex UI panels">
         <button data-panel="overview" class="active" role="tab" aria-selected="true">Overview</button>
         <button data-panel="tools" role="tab" aria-selected="false">Tools</button>
+        <button data-panel="minds" role="tab" aria-selected="false">Minds</button>
         <button data-panel="brainpacks" role="tab" aria-selected="false">Brainpacks</button>
         <button data-panel="audit" role="tab" aria-selected="false">Freshness</button>
         <button data-panel="review" role="tab" aria-selected="false">Review & Trace</button>
@@ -1115,6 +1148,39 @@ UI_HTML = """<!doctype html>
         <div id="tools-summary" class="result empty">Tool coverage and routing details will appear here.</div>
         <div id="tools-list" class="tool-grid"></div>
         <div id="tools-context-result" class="result empty">Select a target to preview the context Cortex would hand it right now.</div>
+      </section>
+
+      <section id="panel-minds" class="panel" role="tabpanel">
+        <h3>Minds</h3>
+        <p class="panel-copy">A Mind is the top-level portable brain-state object in Cortex: core state, attached Brainpacks, mounted targets, and runtime composition in one place.</p>
+        <div class="panel-grid">
+          <label>Selected Mind
+            <select id="mind-select" onchange="loadMindView()"></select>
+          </label>
+          <label>Compose target
+            <select id="mind-compose-target"></select>
+          </label>
+          <label>Compose task
+            <input id="mind-compose-task" placeholder="support, investor update, memory routing">
+          </label>
+          <label>Compose max chars
+            <input id="mind-compose-max-chars" type="number" value="900" min="150">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="action" onclick="loadMinds(this)">Refresh Minds</button>
+          <button class="action subtle" onclick="previewMindCompose(this)">Refresh compose preview</button>
+        </div>
+        <div id="mind-summary" class="result empty">Mind summary cards will appear here.</div>
+        <div class="split-results">
+          <div id="mind-core" class="result empty">Core state will appear here.</div>
+          <div id="mind-attachments" class="result empty">Attached Brainpacks will appear here.</div>
+        </div>
+        <div class="split-results">
+          <div id="mind-branch-policy" class="result empty">Branch and policy status will appear here.</div>
+          <div id="mind-mounts" class="result empty">Mounted targets will appear here.</div>
+        </div>
+        <div id="mind-compose" class="result empty">Compose preview will appear here.</div>
       </section>
 
       <section id="panel-brainpacks" class="panel" role="tabpanel">
@@ -1345,6 +1411,13 @@ UI_HTML = """<!doctype html>
       scan: null,
       status: null,
       audit: null,
+      minds: {
+        list: null,
+        status: null,
+        mounts: null,
+        compose: null,
+        selected: "",
+      },
       brainpacks: {
         list: null,
         status: null,
@@ -1689,6 +1762,302 @@ UI_HTML = """<!doctype html>
           </article>
         `;
       }).join("");
+    }
+
+    function populateMindSelector(data) {
+      const select = document.getElementById("mind-select");
+      const minds = data?.minds || [];
+      const previous = workspaceState.minds?.selected || "";
+      if (!minds.length) {
+        select.innerHTML = "";
+        workspaceState.minds.selected = "";
+        return;
+      }
+      const selected = minds.some((mind) => mind.mind === previous)
+        ? previous
+        : (minds.find((mind) => mind.is_default)?.mind || minds[0].mind);
+      workspaceState.minds.selected = selected;
+      select.innerHTML = minds.map((mind) => {
+        const isSelected = mind.mind === selected ? ' selected' : '';
+        const label = mind.is_default ? `${mind.mind} (default)` : mind.mind;
+        return `<option value="${escapeHtml(mind.mind)}"${isSelected}>${escapeHtml(label)}</option>`;
+      }).join("");
+    }
+
+    function preferredMindTargets(status, mounts) {
+      const ordered = [];
+      const seen = new Set();
+      function add(target) {
+        const value = String(target || "").trim();
+        if (!value || seen.has(value)) return;
+        seen.add(value);
+        ordered.push(value);
+      }
+      ["chatgpt", "claude-code", "codex", "cursor", "hermes", "openclaw"].forEach(add);
+      (status?.mounted_targets || []).forEach(add);
+      (status?.attached_mounted_targets || []).forEach(add);
+      (mounts?.mounted_targets || []).forEach(add);
+      (status?.attached_brainpacks || []).forEach((pack) => {
+        (pack?.activation?.targets || []).forEach(add);
+      });
+      return ordered;
+    }
+
+    function populateMindTargetSelector(status, mounts) {
+      const select = document.getElementById("mind-compose-target");
+      const options = preferredMindTargets(status, mounts);
+      const current = (select.value || workspaceState.minds.compose?.target || "").trim();
+      const selected = options.includes(current) ? current : (options[0] || "chatgpt");
+      select.innerHTML = options.map((target) => {
+        const isSelected = target === selected ? ' selected' : '';
+        return `<option value="${escapeHtml(target)}"${isSelected}>${escapeHtml(target)}</option>`;
+      }).join("");
+      workspaceState.minds.compose = { ...(workspaceState.minds.compose || {}), target: selected };
+    }
+
+    function renderMindSummary(status, mounts) {
+      const policies = status?.policies || {};
+      const branches = status?.branches || {};
+      return `
+        <div class="cards">
+          <div class="card"><div>Mind</div><strong>${escapeHtml(status?.manifest?.label || status?.mind || "(unknown)")}</strong><small>${escapeHtml(status?.manifest?.kind || "mind")} · ${escapeHtml(status?.is_default ? "default" : "named")}</small></div>
+          <div class="card"><div>Core facts</div><strong>${escapeHtml(String(status?.core_state?.fact_count || 0))}</strong><small>${escapeHtml(String(status?.core_state?.edge_count || 0))} graph edges in the active core state.</small></div>
+          <div class="card"><div>Brainpacks</div><strong>${escapeHtml(String(status?.attachment_count || 0))}</strong><small>${escapeHtml(String(status?.attached_mount_count || 0))} attached pack mounts across specialist modules.</small></div>
+          <div class="card"><div>Mounted targets</div><strong>${escapeHtml(String(mounts?.mount_count || status?.mount_count || 0))}</strong><small>${escapeHtml(((mounts?.mounted_targets || status?.mounted_targets || []).join(", ")) || "No persisted mounts yet.")}</small></div>
+          <div class="card"><div>Branch</div><strong>${escapeHtml(branches?.current_branch || status?.manifest?.current_branch || "main")}</strong><small>default: ${escapeHtml(branches?.default_branch || status?.manifest?.default_branch || "main")}</small></div>
+          <div class="card"><div>Policy</div><strong>${escapeHtml(policies?.default_disclosure || status?.default_disclosure || "professional")}</strong><small>${escapeHtml(String(Object.keys(policies?.target_overrides || {}).length))} target override(s).</small></div>
+        </div>
+      `;
+    }
+
+    function renderMindCoreState(status) {
+      const core = status?.core_state || {};
+      const previewNodes = core.preview_nodes || [];
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Core state</h4>
+            <p><strong>Graph ref:</strong> <span class="mono">${escapeHtml(core.graph_ref || status?.graph_ref || "(none)")}</span></p>
+            <p><strong>Source:</strong> ${escapeHtml(core.graph_source || "unknown")}</p>
+            <p><strong>Categories:</strong> ${escapeHtml((core.categories || []).join(", ") || "No categories recorded.")}</p>
+          </div>
+          <div class="item">
+            <h4>Preview facts</h4>
+            ${
+              previewNodes.length
+                ? `<div class="list">${previewNodes.map((node) => `
+                    <div class="item">
+                      <h4>${escapeHtml(node.label || "(unnamed)")} <span class="mono">${escapeHtml(node.id || "")}</span></h4>
+                      <div>${(node.tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}</div>
+                      <p>${escapeHtml(node.brief || "No summary available.")}</p>
+                      <p><strong>Confidence:</strong> ${escapeHtml(String(node.confidence ?? 0))}</p>
+                    </div>
+                  `).join("")}</div>`
+                : '<div class="empty">No core-state facts yet. Ingest or remember something into this Mind first.</div>'
+            }
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMindAttachments(status) {
+      const attachments = status?.attached_brainpacks || [];
+      if (!attachments.length) {
+        return '<div class="empty">No Brainpacks are attached to this Mind yet.</div>';
+      }
+      return `<div class="list">${attachments.map((pack) => `
+        <div class="item">
+          <h4>${escapeHtml(pack.pack || pack.id || "(pack)")} <span class="mono">${escapeHtml(pack.pack_ref || "")}</span></h4>
+          <div class="meta-row">
+            <span class="pill">${escapeHtml(pack.compile_status || "idle")}</span>
+            <span class="pill">${escapeHtml(String(pack.priority ?? 0))} priority</span>
+            <span class="pill ${pack.activation?.always_on ? "good" : "info"}">${escapeHtml(pack.activation?.always_on ? "always on" : "selective")}</span>
+          </div>
+          <p>${escapeHtml(pack.pack_description || "No description recorded.")}</p>
+          <p><strong>Activation targets:</strong> ${escapeHtml((pack.activation?.targets || []).join(", ") || "all compatible targets")}</p>
+          <p><strong>Task terms:</strong> ${escapeHtml((pack.activation?.task_terms || []).join(", ") || "none")}</p>
+          <p><strong>Mounted targets:</strong> ${escapeHtml((pack.mounted_targets || []).join(", ") || "none")}</p>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderMindBranchPolicy(status) {
+      const branches = status?.branches || {};
+      const branchRecords = branches.branch_records || {};
+      const policies = status?.policies || {};
+      const branchItems = Object.entries(branchRecords);
+      const policyOverrides = Object.entries(policies.target_overrides || {});
+      const approvalRules = Object.entries(policies.approval_rules || {});
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Branch status</h4>
+            <p><strong>Current:</strong> <span class="mono">${escapeHtml(branches.current_branch || status?.manifest?.current_branch || "main")}</span></p>
+            <p><strong>Default:</strong> <span class="mono">${escapeHtml(branches.default_branch || status?.manifest?.default_branch || "main")}</span></p>
+            <p><strong>Current head:</strong> <span class="mono">${escapeHtml(shortRef(branches.current_branch_head || ""))}</span></p>
+            ${
+              branchItems.length
+                ? `<div class="path-list">${branchItems.map(([name, record]) => `
+                    <div><strong>${escapeHtml(name)}</strong><br><span class="mono">${escapeHtml(shortRef(record.head || ""))}</span><br><span class="tiny">${escapeHtml(record.created_at || "")}</span></div>
+                  `).join("")}</div>`
+                : '<div class="empty">No branch records yet.</div>'
+            }
+          </div>
+          <div class="item">
+            <h4>Policy status</h4>
+            <p><strong>Default disclosure:</strong> ${escapeHtml(policies.default_disclosure || status?.default_disclosure || "professional")}</p>
+            <p><strong>Target overrides:</strong> ${escapeHtml(String(policyOverrides.length))}</p>
+            ${policyOverrides.length ? `<div class="path-list">${policyOverrides.map(([name, value]) => `<div><strong>${escapeHtml(name)}</strong><br>${escapeHtml(value)}</div>`).join("")}</div>` : '<p class="tiny">No target-specific disclosure overrides.</p>'}
+            <p><strong>Approval rules:</strong> ${escapeHtml(String(approvalRules.length))}</p>
+            ${approvalRules.length ? `<div class="path-list">${approvalRules.map(([name, value]) => `<div><strong>${escapeHtml(name)}</strong><br>${escapeHtml(String(value))}</div>`).join("")}</div>` : '<p class="tiny">No explicit approval rules recorded.</p>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMindMounts(mounts) {
+      if (!(mounts?.mounts || []).length) {
+        return '<div class="empty">This Mind has not been mounted into any targets yet.</div>';
+      }
+      return `<div class="list">${(mounts.mounts || []).map((item) => `
+        <div class="item">
+          <h4>${escapeHtml(item.target || "(target)")}</h4>
+          <div class="meta-row">
+            <span class="pill">${escapeHtml(item.mode || (item.smart ? "smart" : "full"))}</span>
+            <span class="pill">${escapeHtml(item.policy || "default policy")}</span>
+            <span class="pill">${escapeHtml(item.consume_as || "context")}</span>
+          </div>
+          <p><strong>Task:</strong> ${escapeHtml(item.task || "none")}</p>
+          <p><strong>Mounted:</strong> ${escapeHtml(item.mounted_at || "unknown")}</p>
+          <p><strong>Project dir:</strong> <span class="mono">${escapeHtml(item.project_dir || "")}</span></p>
+          ${
+            (item.paths || []).length
+              ? `<details class="raw"><summary>Paths</summary><div class="path-list">${item.paths.map((path) => `<div class="mono">${escapeHtml(path)}</div>`).join("")}</div></details>`
+              : ""
+          }
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function renderMindComposePreview(data) {
+      const included = data?.included_brainpacks || [];
+      const skipped = data?.skipped_brainpacks || [];
+      const markdown = data?.context_markdown || JSON.stringify(data?.target_payload || {}, null, 2);
+      return `
+        <div class="list">
+          <div class="item">
+            <h4>Compose summary</h4>
+            <p><strong>Target:</strong> ${escapeHtml(data?.target || "(unknown)")}</p>
+            <p><strong>Task:</strong> ${escapeHtml(data?.task || "none")}</p>
+            <p><strong>Base graph:</strong> <span class="mono">${escapeHtml(data?.base_graph_ref || "(none)")}</span> · ${escapeHtml(data?.base_graph_source || "unknown")}</p>
+            <p><strong>Included Brainpacks:</strong> ${escapeHtml(included.map((item) => item.pack).join(", ") || "none")}</p>
+            <p><strong>Skipped Brainpacks:</strong> ${escapeHtml(skipped.map((item) => `${item.pack}:${item.selection_reason}`).join(", ") || "none")}</p>
+            <div class="meta-row">
+              <span class="pill">${escapeHtml(String(data?.fact_count || 0))} routed facts</span>
+              ${(data?.route_tags || []).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}
+            </div>
+          </div>
+          <div class="item">
+            <h4>Rendered preview</h4>
+            <pre>${escapeHtml(markdown)}</pre>
+          </div>
+        </div>
+      `;
+    }
+
+    async function loadMinds(trigger) {
+      return withBusy(trigger, "Refreshing...", async () => {
+        try {
+          const data = await api("/api/minds");
+          workspaceState.minds.list = data;
+          populateMindSelector(data);
+          if (!(data.minds || []).length) {
+            setEmpty("mind-summary", "No Minds yet. Create one with `cortex mind init`.");
+            setEmpty("mind-core", "Once a Mind exists, Cortex will show its base brain-state here.");
+            setEmpty("mind-attachments", "Attached Brainpacks will appear here.");
+            setEmpty("mind-branch-policy", "Branch and policy status will appear here.");
+            setEmpty("mind-mounts", "Mounted targets will appear here.");
+            setEmpty("mind-compose", "Compose preview will appear here.");
+            return;
+          }
+          await loadMindView();
+        } catch (err) {
+          setError("mind-summary", err);
+          setError("mind-core", err);
+          setError("mind-attachments", err);
+          setError("mind-branch-policy", err);
+          setError("mind-mounts", err);
+          setError("mind-compose", err);
+        }
+      });
+    }
+
+    async function loadMindView(trigger) {
+      return withBusy(trigger, "Loading...", async () => {
+        try {
+          const select = document.getElementById("mind-select");
+          const mindName = (select?.value || workspaceState.minds.selected || "").trim();
+          if (!mindName) {
+            setEmpty("mind-summary", "No Mind selected yet.");
+            setEmpty("mind-core", "Select a Mind first.");
+            setEmpty("mind-attachments", "Select a Mind first.");
+            setEmpty("mind-branch-policy", "Select a Mind first.");
+            setEmpty("mind-mounts", "Select a Mind first.");
+            setEmpty("mind-compose", "Select a Mind first.");
+            return;
+          }
+          workspaceState.minds.selected = mindName;
+          const [status, mounts] = await Promise.all([
+            api(`/api/minds/status?name=${encodeURIComponent(mindName)}`),
+            api(`/api/minds/mounts?name=${encodeURIComponent(mindName)}`),
+          ]);
+          workspaceState.minds.status = status;
+          workspaceState.minds.mounts = mounts;
+          populateMindTargetSelector(status, mounts);
+          setResult("mind-summary", renderMindSummary(status, mounts));
+          setResult("mind-core", `${renderMindCoreState(status)}${renderRawDetails("Raw core-state payload", status.core_state || {})}`);
+          setResult("mind-attachments", `${renderMindAttachments(status)}${renderRawDetails("Raw attachment payload", { attached_brainpacks: status.attached_brainpacks || [] })}`);
+          setResult("mind-branch-policy", `${renderMindBranchPolicy(status)}${renderRawDetails("Raw branch/policy payload", { branches: status.branches || {}, policies: status.policies || {} })}`);
+          setResult("mind-mounts", `${renderMindMounts(mounts)}${renderRawDetails("Raw mounts payload", mounts)}`);
+          await previewMindCompose();
+        } catch (err) {
+          setError("mind-summary", err);
+          setError("mind-core", err);
+          setError("mind-attachments", err);
+          setError("mind-branch-policy", err);
+          setError("mind-mounts", err);
+          setError("mind-compose", err);
+        }
+      });
+    }
+
+    async function previewMindCompose(trigger) {
+      return withBusy(trigger, "Composing...", async () => {
+        try {
+          const mindName = (document.getElementById("mind-select")?.value || workspaceState.minds.selected || "").trim();
+          if (!mindName) {
+            setEmpty("mind-compose", "Select a Mind first.");
+            return;
+          }
+          const target = document.getElementById("mind-compose-target")?.value?.trim() || "chatgpt";
+          const task = document.getElementById("mind-compose-task")?.value?.trim() || "";
+          const maxChars = numericValue("mind-compose-max-chars", 900);
+          const data = await api("/api/minds/compose", {
+            method: "POST",
+            body: JSON.stringify({
+              name: mindName,
+              target,
+              task,
+              max_chars: maxChars,
+              smart: true,
+            }),
+          });
+          workspaceState.minds.compose = data;
+          setResult("mind-compose", `${renderMindComposePreview(data)}${renderRawDetails("Raw compose payload", data)}`);
+        } catch (err) {
+          setError("mind-compose", err);
+        }
+      });
     }
 
     function populateBrainpackSelector(data) {
@@ -2452,6 +2821,7 @@ UI_HTML = """<!doctype html>
         activatePanel(window.location.hash.replace(/^#/, "") || "overview", false);
         await loadWorkspace();
         await Promise.all([
+          loadMinds(),
           loadBrainpacks(),
           loadGovernance(),
           loadRemotes(),
@@ -2614,6 +2984,21 @@ def make_handler(backend: MemoryUIBackend):
                         request_id=request_id,
                     )
                     return
+                if parsed.path == "/api/minds":
+                    self._send_json(backend.mind_list(), request_id=request_id)
+                    return
+                if parsed.path == "/api/minds/status":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.mind_status(name=name), request_id=request_id)
+                    return
+                if parsed.path == "/api/minds/mounts":
+                    name = query_value(parsed, "name", "").strip()
+                    if not name:
+                        raise ValueError("name is required")
+                    self._send_json(backend.mind_mounts(name=name), request_id=request_id)
+                    return
                 if parsed.path == "/api/packs":
                     self._send_json(backend.pack_list(), request_id=request_id)
                     return
@@ -2718,6 +3103,9 @@ def make_handler(backend: MemoryUIBackend):
                     return
                 if path == "/api/portability/remember":
                     self._send_json(backend.portability_remember(**payload), request_id=request_id)
+                    return
+                if path == "/api/minds/compose":
+                    self._send_json(backend.mind_compose(**payload), request_id=request_id)
                     return
                 if path == "/api/blame":
                     self._send_json(backend.blame(**payload), request_id=request_id)

@@ -3,6 +3,7 @@ import json
 
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.graph import CortexGraph, Node
+from cortex.minds import attach_pack_to_mind, init_mind, mount_mind, remember_on_mind, set_default_mind
 from cortex.packs import ask_pack, compile_pack, ingest_pack, init_pack, lint_pack
 from cortex.storage import build_sqlite_backend
 from cortex.upai.versioning import VersionStore
@@ -53,6 +54,12 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "Remember & sync" in UI_HTML
     assert "Sync all" in UI_HTML
     assert "Connected Tools" in UI_HTML
+    assert "Minds" in UI_HTML
+    assert "Compose preview" in UI_HTML
+    assert "Core state" in UI_HTML
+    assert "Attached Brainpacks" in UI_HTML
+    assert "Branch and policy status" in UI_HTML
+    assert "Mounted targets" in UI_HTML
     assert "Brainpacks" in UI_HTML
     assert "Sources" in UI_HTML
     assert "Concepts" in UI_HTML
@@ -68,6 +75,10 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "/api/portability/context" in UI_HTML
     assert "/api/portability/sync" in UI_HTML
     assert "/api/portability/remember" in UI_HTML
+    assert "/api/minds" in UI_HTML
+    assert "/api/minds/status" in UI_HTML
+    assert "/api/minds/mounts" in UI_HTML
+    assert "/api/minds/compose" in UI_HTML
     assert "/api/packs" in UI_HTML
     assert "/api/packs/status" in UI_HTML
     assert "/api/packs/sources" in UI_HTML
@@ -169,6 +180,46 @@ def test_webapp_backend_exposes_brainpack_views(tmp_path):
     assert claims["claim_count"] >= 1
     assert unknowns["unknown_count"] >= 1
     assert artifacts["artifact_count"] >= 1
+
+
+def test_webapp_backend_exposes_mind_views(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    project_dir = tmp_path / "project"
+    source = tmp_path / "brainpack.md"
+    project_dir.mkdir()
+    source.write_text(
+        ("# Portable Mind\n\nI am Marc.\nI use Python and Cortex.\nI care about portable brain-state systems.\n"),
+        encoding="utf-8",
+    )
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    set_default_mind(store_dir, "marc")
+    remember_on_mind(store_dir, "marc", statement="I prefer concise, implementation-first responses.")
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+    attach_pack_to_mind(store_dir, "marc", "ai-memory", always_on=True, targets=["codex", "chatgpt"])
+    mount_mind(store_dir, "marc", targets=["codex"], task="support", project_dir=str(project_dir), smart=True)
+
+    backend = MemoryUIBackend(store_dir=store_dir)
+    minds = backend.mind_list()
+    status = backend.mind_status(name="marc")
+    mounts = backend.mind_mounts(name="marc")
+    compose = backend.mind_compose(name="marc", target="chatgpt", task="memory routing", max_chars=900)
+
+    assert minds["count"] == 1
+    assert minds["minds"][0]["is_default"] is True
+    assert status["mind"] == "marc"
+    assert status["core_state"]["fact_count"] >= 1
+    assert status["attached_brainpacks"][0]["pack"] == "ai-memory"
+    assert status["branches"]["current_branch"] == "main"
+    assert status["policies"]["default_disclosure"] == "professional"
+    assert mounts["mount_count"] == 1
+    assert mounts["mounted_targets"] == ["codex"]
+    assert compose["mind"] == "marc"
+    assert compose["target"] == "chatgpt"
+    assert compose["included_brainpack_count"] == 1
+    assert compose["fact_count"] >= 1
 
 
 def test_webapp_backend_governance_and_remotes(tmp_path):
@@ -524,3 +575,52 @@ def test_webapp_handler_exposes_brainpack_endpoints(tmp_path):
     assert json.loads(claims_body)["claims"][0]["label"] == "Prefers concise answers"
     assert json.loads(unknowns_body)["unknowns"][0]["question"] == "What next?"
     assert json.loads(artifacts_body)["artifacts"][0]["title"] == "Report"
+
+
+def test_webapp_handler_exposes_mind_endpoints(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+
+    ui_backend.mind_list = lambda: {"status": "ok", "minds": [{"mind": "marc", "is_default": True}], "count": 1}
+    ui_backend.mind_status = lambda *, name: {
+        "status": "ok",
+        "mind": name,
+        "core_state": {"fact_count": 3, "graph_ref": "refs/minds/marc/branches/main"},
+        "attached_brainpacks": [{"pack": "ai-memory"}],
+        "branches": {"current_branch": "main"},
+        "policies": {"default_disclosure": "professional"},
+    }
+    ui_backend.mind_mounts = lambda *, name: {
+        "status": "ok",
+        "mind": name,
+        "mount_count": 1,
+        "mounted_targets": ["codex"],
+    }
+    ui_backend.mind_compose = lambda **payload: {
+        "status": "ok",
+        "mind": payload["name"],
+        "target": payload["target"],
+        "fact_count": 4,
+        "included_brainpack_count": 1,
+    }
+
+    handler_cls = make_handler(ui_backend)
+
+    list_status, _, list_body = _invoke_handler(handler_cls, path="/api/minds", method="GET")
+    status_status, _, status_body = _invoke_handler(handler_cls, path="/api/minds/status?name=marc", method="GET")
+    mounts_status, _, mounts_body = _invoke_handler(handler_cls, path="/api/minds/mounts?name=marc", method="GET")
+    compose_status, _, compose_body = _invoke_handler(
+        handler_cls,
+        path="/api/minds/compose",
+        method="POST",
+        payload={"name": "marc", "target": "chatgpt", "task": "memory routing"},
+    )
+
+    assert list_status == 200
+    assert status_status == 200
+    assert mounts_status == 200
+    assert compose_status == 200
+    assert json.loads(list_body)["minds"][0]["mind"] == "marc"
+    assert json.loads(status_body)["core_state"]["fact_count"] == 3
+    assert json.loads(mounts_body)["mounted_targets"] == ["codex"]
+    assert json.loads(compose_body)["target"] == "chatgpt"

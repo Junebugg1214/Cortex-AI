@@ -105,6 +105,12 @@ def test_mind_list_and_status_round_trip(tmp_path):
     assert status["branch_count"] == 1
     assert status["mount_count"] == 0
     assert status["attached_mounted_targets"] == []
+    assert status["core_state"]["graph_ref"] == "refs/minds/atlas-agent/branches/main"
+    assert status["core_state"]["graph_source"] == "empty_graph"
+    assert status["branches"]["current_branch"] == "main"
+    assert status["branches"]["default_branch"] == "main"
+    assert status["policies"]["default_disclosure"] == "professional"
+    assert status["policies"]["approval_rules"]["merge_to_main_requires_review"] is True
     assert "manifest.json" in status["layout"]["files"]
     assert "refs" in status["layout"]["directories"]
 
