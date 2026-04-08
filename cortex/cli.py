@@ -1244,6 +1244,24 @@ def build_parser(*, show_all_commands: bool = False):
     mind_detach.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_detach.add_argument("--format", choices=["json", "text"], default="text")
 
+    mind_compose = mind_sub.add_parser("compose", help="Compose a target-aware runtime slice from a Cortex Mind")
+    mind_compose.add_argument("name", help="Mind id")
+    mind_compose.add_argument(
+        "--to", required=True, help="Target tool such as hermes, openclaw, codex, cursor, claude-code, or chatgpt"
+    )
+    mind_compose.add_argument("--task", default="", help="Optional task hint used to activate attached Brainpacks")
+    mind_compose.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    mind_compose.add_argument("--smart", action="store_true", help="Use smart routing for the target")
+    mind_compose.add_argument(
+        "--policy",
+        default="",
+        choices=[""] + list(BUILTIN_POLICIES.keys()),
+        help="Optional disclosure policy override",
+    )
+    mind_compose.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
+    mind_compose.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_compose.add_argument("--format", choices=["json", "text"], default="text")
+
     # -- pack (Brainpacks) -------------------------------------------------
     pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
     pk_sub = pk.add_subparsers(dest="pack_subcommand")
@@ -5264,7 +5282,14 @@ def run_pack(args):
 
 
 def run_mind(args):
-    from cortex.minds import attach_pack_to_mind, detach_pack_from_mind, init_mind, list_minds, mind_status
+    from cortex.minds import (
+        attach_pack_to_mind,
+        compose_mind,
+        detach_pack_from_mind,
+        init_mind,
+        list_minds,
+        mind_status,
+    )
 
     if args.mind_subcommand == "init":
         store_dir = Path(args.store_dir)
@@ -5375,7 +5400,45 @@ def run_mind(args):
         _echo(f"  total attachments: {payload['attachment_count']}")
         return 0
 
-    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack")
+    if args.mind_subcommand == "compose":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = compose_mind(
+                store_dir,
+                args.name,
+                target=args.to,
+                task=args.task,
+                project_dir=args.project or "",
+                smart=args.smart,
+                policy_name=args.policy,
+                max_chars=args.max_chars,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mind `{payload['mind']}` → {payload['name']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"branch {payload['branch']}",
+                    f"{payload['fact_count']} routed facts",
+                    f"{payload['included_brainpack_count']} attached packs included",
+                    payload["policy"],
+                ]
+            )
+        )
+        if payload["included_brainpacks"]:
+            _echo("  included packs: " + ", ".join(item["pack"] for item in payload["included_brainpacks"]))
+        if payload["context_markdown"]:
+            _echo("")
+            _echo(payload["context_markdown"], force=True)
+        elif payload["message"]:
+            _echo(payload["message"])
+        return 0
+
+    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack, compose")
 
 
 def run_scan(args):

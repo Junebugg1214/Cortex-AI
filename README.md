@@ -25,6 +25,7 @@ The first implementation slice ships the foundation:
 ```bash
 cortex mind init marc --kind person --owner marc
 cortex mind attach-pack marc ai-memory --always-on
+cortex mind compose marc --to chatgpt --task "memory routing"
 cortex mind list
 cortex mind status marc
 cortex mind detach-pack marc ai-memory
@@ -36,6 +37,7 @@ Mind foundation commands:
 | --- | --- |
 | `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, policy, branch, mount, and attachment scaffolding. |
 | `cortex mind attach-pack marc ai-memory --always-on` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
+| `cortex mind compose marc --to chatgpt --task "memory routing"` | Composes a target-aware runtime slice from the Mind's current base graph plus any attached Brainpacks that match the target/task. |
 | `cortex mind list` | Lists local Minds in the current Cortex store. |
 | `cortex mind status marc` | Shows the Mind manifest, graph reference, branch, disclosure policy, attached Brainpacks, and current pack-derived mount metadata. |
 | `cortex mind detach-pack marc ai-memory` | Detaches a Brainpack from a Mind without deleting the Brainpack itself. |

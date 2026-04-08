@@ -6,7 +6,7 @@ from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
 from cortex.minds import attach_pack_to_mind, init_mind
-from cortex.packs import ingest_pack, init_pack
+from cortex.packs import compile_pack, ingest_pack, init_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
@@ -84,6 +84,7 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_audit",
         "mind_list",
         "mind_status",
+        "mind_compose",
         "pack_list",
         "pack_status",
         "pack_context",
@@ -227,8 +228,23 @@ def test_mcp_node_round_trip_and_query_search(tmp_path):
 
 def test_mcp_mind_tools_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    source.write_text(
+        (
+            "# Portable AI Memory\n\n"
+            "I am Marc Saint-Jour.\n"
+            "I am building portable brain-state infrastructure for agents.\n"
+        ),
+        encoding="utf-8",
+    )
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Marc", tags=["identity"], confidence=0.96))
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
     init_mind(store_dir, "marc", kind="person", owner="marc")
     init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
     attach_pack_to_mind(store_dir, "marc", "ai-memory", always_on=True, targets=["chatgpt"])
 
     backend = build_sqlite_backend(store_dir)
@@ -240,6 +256,12 @@ def test_mcp_mind_tools_round_trip(tmp_path):
     status_payload = _tool_call(server, tool="mind_status", arguments={"name": "marc"}, request_id=10)["result"][
         "structuredContent"
     ]
+    compose_payload = _tool_call(
+        server,
+        tool="mind_compose",
+        arguments={"name": "marc", "target": "chatgpt", "task": "memory strategy", "smart": True, "max_chars": 900},
+        request_id=11,
+    )["result"]["structuredContent"]
 
     assert list_payload["count"] == 1
     assert list_payload["minds"][0]["mind"] == "marc"
@@ -248,6 +270,10 @@ def test_mcp_mind_tools_round_trip(tmp_path):
     assert status_payload["graph_ref"] == "refs/minds/marc/branches/main"
     assert status_payload["attachment_count"] == 1
     assert status_payload["attached_brainpacks"][0]["pack"] == "ai-memory"
+    assert compose_payload["mind"] == "marc"
+    assert compose_payload["included_brainpack_count"] == 1
+    assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
+    assert compose_payload["target"] == "chatgpt"
 
 
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):

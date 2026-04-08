@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 
 from cortex.cli import main
+from cortex.graph import CortexGraph, Node
 from cortex.minds import (
     attach_pack_to_mind,
+    compose_mind,
     detach_pack_from_mind,
     init_mind,
     list_minds,
@@ -12,6 +14,7 @@ from cortex.minds import (
     mind_status,
 )
 from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
+from cortex.portable_runtime import load_portability_state, save_canonical_graph
 
 
 def _seed_source(path):
@@ -134,6 +137,73 @@ def test_mind_attach_and_detach_pack_updates_status_metadata(tmp_path, monkeypat
     assert detached["attached_mounted_targets"] == []
 
 
+def test_mind_compose_merges_core_graph_and_selected_brainpacks(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    fundraising_source = tmp_path / "fundraising.md"
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+    fundraising_source.write_text(
+        (
+            "# Fundraising Notes\n\n"
+            "Cortex is preparing investor materials.\n"
+            "The fundraising pack should only activate for investor work.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n-marc", label="Marc", tags=["identity"], confidence=0.96, brief="Name: Marc"))
+    base_graph.add_node(
+        Node(
+            id="n-preference",
+            label="Concise answers",
+            tags=["communication_preferences"],
+            confidence=0.91,
+            brief="Prefers concise answers",
+        )
+    )
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
+
+    init_pack(store_dir, "fundraising", description="Fundraising strategy", owner="marc")
+    ingest_pack(store_dir, "fundraising", [str(fundraising_source)], mode="copy")
+    compile_pack(store_dir, "fundraising", suggest_questions=True, max_summary_chars=240)
+
+    attach_pack_to_mind(store_dir, "marc", "ai-memory", targets=["chatgpt"], task_terms=["memory"])
+    attach_pack_to_mind(store_dir, "marc", "fundraising", targets=["openclaw"], task_terms=["investor"])
+
+    payload = compose_mind(
+        store_dir,
+        "marc",
+        target="chatgpt",
+        task="memory strategy for portable agents",
+        smart=True,
+        max_chars=900,
+    )
+
+    assert payload["mind"] == "marc"
+    assert payload["base_graph_source"] == "portable_canonical_graph"
+    assert payload["included_brainpack_count"] == 1
+    assert [item["pack"] for item in payload["included_brainpacks"]] == ["ai-memory"]
+    assert any(
+        item["pack"] == "fundraising" and item["selection_reason"] == "target_mismatch"
+        for item in payload["skipped_brainpacks"]
+    )
+    assert payload["fact_count"] >= 2
+    assert "Marc" in payload["labels"]
+    assert "Portable AI Memory" in payload["context_markdown"] or payload["target_payload"]["combined"]
+    assert payload["consume_as"] == "custom_instructions"
+    assert payload["composed_graph_node_count"] >= payload["base_graph_node_count"]
+
+
 def test_cli_mind_round_trip_json(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"
@@ -146,6 +216,7 @@ def test_cli_mind_round_trip_json(tmp_path, capsys):
 
     init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
     ingest_pack(store_dir, "ai-memory", [str(source)], mode="copy")
+    compile_pack(store_dir, "ai-memory", suggest_questions=True, max_summary_chars=240)
 
     attach_rc = main(
         [
@@ -171,6 +242,22 @@ def test_cli_mind_round_trip_json(tmp_path, capsys):
     status_rc = main(["mind", "status", "marc", "--store-dir", str(store_dir), "--json"])
     status_payload = json.loads(capsys.readouterr().out)
 
+    compose_rc = main(
+        [
+            "mind",
+            "compose",
+            "marc",
+            "--to",
+            "chatgpt",
+            "--task",
+            "memory routing",
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    compose_payload = json.loads(capsys.readouterr().out)
+
     detach_rc = main(["mind", "detach-pack", "marc", "ai-memory", "--store-dir", str(store_dir), "--json"])
     detach_payload = json.loads(capsys.readouterr().out)
 
@@ -187,5 +274,9 @@ def test_cli_mind_round_trip_json(tmp_path, capsys):
     assert status_payload["attachment_count"] == 1
     assert status_payload["attached_brainpacks"][0]["activation"]["always_on"] is True
     assert status_payload["attached_brainpacks"][0]["activation"]["targets"] == ["chatgpt"]
+    assert compose_rc == 0
+    assert compose_payload["mind"] == "marc"
+    assert compose_payload["included_brainpack_count"] == 1
+    assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
     assert detach_rc == 0
     assert detach_payload["attachment_count"] == 0
