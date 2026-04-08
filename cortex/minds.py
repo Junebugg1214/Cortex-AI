@@ -372,6 +372,29 @@ def _clean_strings(values: list[str] | tuple[str, ...] | None) -> list[str]:
     return cleaned
 
 
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    cleaned = str(value).strip().lower()
+    if not cleaned:
+        return default
+    if cleaned in {"1", "true", "yes", "on"}:
+        return True
+    if cleaned in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _coerce_positive_int(value: Any, *, default: int) -> int:
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return default
+    return coerced if coerced > 0 else default
+
+
 def _attachment_pack_name(record: dict[str, Any]) -> str:
     pack_name = str(record.get("id") or "").strip()
     if pack_name:
@@ -805,42 +828,82 @@ def remember_and_sync_default_mind(
         "branch_name": remembered["branch_name"],
         "mount_count": remembered["mount_count"],
         "refreshed_mount_count": remembered["refreshed_mount_count"],
+        "stale_mount_count": remembered["stale_mount_count"],
+        "stale_mounts": remembered["stale_mounts"],
+        "refresh_error_count": remembered["refresh_error_count"],
+        "refresh_errors": remembered["refresh_errors"],
         "mount_targets": remembered["targets"],
     }
 
 
 def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    from cortex.portable_runtime import canonical_target_name
+
     persisted = [dict(item) for item in _load_mounts(store_dir, mind_id).get("mounts", [])]
     if not persisted:
         return {
             "mount_count": 0,
             "refreshed_count": 0,
             "targets": [],
+            "stale_mount_count": 0,
+            "stale_mounts": [],
+            "refresh_error_count": 0,
+            "refresh_errors": [],
         }
 
-    refreshed_targets: list[dict[str, Any]] = []
+    retained_mounts: list[dict[str, Any]] = []
+    stale_mounts: list[dict[str, Any]] = []
+    seen_targets: set[str] = set()
     for item in persisted:
-        target = str(item.get("target") or "").strip()
-        if not target:
+        raw_target = str(item.get("target") or "").strip()
+        if not raw_target:
+            stale_mounts.append({"target": "", "reason": "missing_target"})
             continue
-        payload = mount_mind(
-            store_dir,
-            mind_id,
-            targets=[target],
-            task=str(item.get("task") or ""),
-            project_dir=str(item.get("project_dir") or ""),
-            smart=bool(item.get("smart", str(item.get("mode") or "smart") == "smart")),
-            policy_name=str(item.get("policy") or ""),
-            max_chars=int(item.get("max_chars") or 1500),
-            openclaw_store_dir=str(item.get("openclaw_store_dir") or ""),
-        )
+        canonical_target = canonical_target_name(raw_target.lower())
+        if canonical_target not in SUPPORTED_MIND_MOUNT_TARGETS:
+            stale_mounts.append({"target": raw_target, "reason": "unsupported_target"})
+            continue
+        if canonical_target in seen_targets:
+            stale_mounts.append({"target": raw_target, "reason": "duplicate_target"})
+            continue
+        normalized = dict(item)
+        normalized["target"] = canonical_target
+        retained_mounts.append(normalized)
+        seen_targets.add(canonical_target)
+
+    if len(retained_mounts) != len(persisted):
+        _write_mounts(store_dir, mind_id, retained_mounts)
+
+    refreshed_targets: list[dict[str, Any]] = []
+    refresh_errors: list[dict[str, Any]] = []
+    for item in retained_mounts:
+        target = str(item.get("target") or "").strip()
+        try:
+            payload = mount_mind(
+                store_dir,
+                mind_id,
+                targets=[target],
+                task=str(item.get("task") or ""),
+                project_dir=str(item.get("project_dir") or ""),
+                smart=_coerce_bool(item.get("smart"), default=str(item.get("mode") or "smart") == "smart"),
+                policy_name=str(item.get("policy") or ""),
+                max_chars=_coerce_positive_int(item.get("max_chars"), default=1500),
+                openclaw_store_dir=str(item.get("openclaw_store_dir") or ""),
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            refresh_errors.append({"target": target, "error": str(exc)})
+            continue
         refreshed_targets.extend(dict(target_payload) for target_payload in payload.get("targets", []))
 
     refreshed_targets.sort(key=lambda item: str(item.get("target") or "").lower())
     return {
-        "mount_count": len(persisted),
+        "mount_count": len(retained_mounts),
         "refreshed_count": len(refreshed_targets),
         "targets": refreshed_targets,
+        "stale_mount_count": len(stale_mounts),
+        "stale_mounts": stale_mounts,
+        "refresh_error_count": len(refresh_errors),
+        "refresh_errors": refresh_errors,
     }
 
 
@@ -927,6 +990,10 @@ def remember_on_mind(
         "statement": cleaned,
         "mount_count": refresh_payload["mount_count"],
         "refreshed_mount_count": refresh_payload["refreshed_count"],
+        "stale_mount_count": refresh_payload["stale_mount_count"],
+        "stale_mounts": refresh_payload["stale_mounts"],
+        "refresh_error_count": refresh_payload["refresh_error_count"],
+        "refresh_errors": refresh_payload["refresh_errors"],
         "targets": refresh_payload["targets"],
     }
 
@@ -1220,6 +1287,7 @@ def mount_mind(
     from cortex.portable_runtime import canonical_target_name, sync_targets
 
     manifest = load_mind_manifest(store_dir, mind_id)
+    policies = _load_policies(store_dir, manifest.id, manifest)
     if not targets:
         raise ValueError("Specify at least one mount target.")
 
@@ -1237,6 +1305,7 @@ def mount_mind(
 
     for target in resolved_targets:
         mounted_at = _iso_now()
+        effective_policy = _resolve_effective_policy(policies, manifest, target=target, policy_name=policy_name)
         if target == "openclaw":
             openclaw_root = (
                 Path(openclaw_store_dir).expanduser().resolve()
@@ -1253,6 +1322,7 @@ def mount_mind(
                 "name": manifest.id,
                 "smart": smart,
                 "policy": policy_name,
+                "effective_policy": effective_policy,
                 "max_chars": max_chars,
                 "task": task,
                 "project_dir": project_path,
@@ -1281,6 +1351,7 @@ def mount_mind(
                     "activation_target": "openclaw",
                     "smart": smart,
                     "policy": policy_name,
+                    "effective_policy": effective_policy,
                     "max_chars": max_chars,
                     "openclaw_store_dir": str(openclaw_root),
                     "mounted_at": mounted_at,
@@ -1327,6 +1398,7 @@ def mount_mind(
                 "activation_target": str(composed.get("activation_target") or target),
                 "smart": smart,
                 "policy": policy_name,
+                "effective_policy": str(composed.get("policy") or effective_policy),
                 "max_chars": max_chars,
                 "mounted_at": mounted_at,
             }

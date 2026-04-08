@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
@@ -16,14 +17,16 @@ from cortex.minds import (
     list_minds,
     load_mind_manifest,
     mind_branch_name,
+    mind_mounts_path,
     mind_openclaw_mount_registry_path,
+    mind_policies_path,
     mind_status,
     mount_mind,
     remember_on_mind,
     resolve_default_mind,
     set_default_mind,
 )
-from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
+from cortex.packs import compile_pack, graph_path, ingest_pack, init_pack, mount_pack, pack_path
 from cortex.portable_runtime import load_portability_state, save_canonical_graph
 from cortex.storage import get_storage_backend
 
@@ -422,6 +425,234 @@ def test_mind_remember_updates_core_graph_and_refreshes_mounts(tmp_path, monkeyp
     assert compose_payload["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
     assert compose_payload["base_graph_node_count"] == 2
     assert all(after_mounts[target] != before_mounts[target] for target in before_mounts)
+
+
+def test_mind_production_smoke_compose_mount_ingest_remember_and_policy_overrides(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    support_source = tmp_path / "support-pack.md"
+    investor_source = tmp_path / "investor-pack.md"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_detected_chatgpt_artifact(home_dir, know="I use Python, FastAPI, and Cortex.")
+    _seed_source(support_source)
+    investor_source.write_text(
+        (
+            "# Investor Notes\n\n"
+            "Cortex is preparing investor materials.\n"
+            "This pack should only activate for OpenClaw investor conversations.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_pack(store_dir, "support-pack", description="Support pack", owner="marc")
+    ingest_pack(store_dir, "support-pack", [str(support_source)], mode="copy")
+    compile_pack(store_dir, "support-pack", suggest_questions=True, max_summary_chars=240)
+    init_pack(store_dir, "investor-pack", description="Investor pack", owner="marc")
+    ingest_pack(store_dir, "investor-pack", [str(investor_source)], mode="copy")
+    compile_pack(store_dir, "investor-pack", suggest_questions=True, max_summary_chars=240)
+
+    attach_pack_to_mind(
+        store_dir,
+        "marc",
+        "support-pack",
+        always_on=True,
+        targets=["chatgpt", "claude-code", "codex", "cursor", "hermes", "openclaw"],
+        task_terms=["support", "memory"],
+    )
+    attach_pack_to_mind(
+        store_dir,
+        "marc",
+        "investor-pack",
+        targets=["openclaw"],
+        task_terms=["investor"],
+    )
+    policies_path = mind_policies_path(store_dir, "marc")
+    policies_payload = json.loads(policies_path.read_text(encoding="utf-8"))
+    policies_payload["target_overrides"] = {"codex": "technical"}
+    policies_path.write_text(json.dumps(policies_payload, indent=2), encoding="utf-8")
+
+    ingest_payload = ingest_detected_sources_into_mind(
+        store_dir,
+        "marc",
+        targets=["chatgpt"],
+        project_dir=project_dir,
+    )
+    compose_payload = compose_mind(
+        store_dir,
+        "marc",
+        target="codex",
+        task="memory support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+    )
+    mount_payload = mount_mind(
+        store_dir,
+        "marc",
+        targets=["hermes", "claude-code", "codex", "cursor", "openclaw"],
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+        openclaw_store_dir=str(openclaw_store_dir),
+    )
+    remember_payload = remember_on_mind(store_dir, "marc", statement="We use CockroachDB now.")
+    refreshed_compose = compose_mind(
+        store_dir,
+        "marc",
+        target="codex",
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+    )
+    mounts_payload = list_mind_mounts(store_dir, "marc")
+
+    assert ingest_payload["ingested_source_count"] == 1
+    assert ingest_payload["base_graph_source"] == "empty_graph"
+    assert compose_payload["policy"] == "technical"
+    assert compose_payload["included_brainpack_count"] == 1
+    assert compose_payload["included_brainpacks"][0]["pack"] == "support-pack"
+    assert any(
+        item["pack"] == "investor-pack" and item["selection_reason"] == "target_mismatch"
+        for item in compose_payload["skipped_brainpacks"]
+    )
+    assert "Python" in compose_payload["labels"]
+    assert mount_payload["mounted_count"] == 5
+    assert {item["target"] for item in mount_payload["targets"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
+    persisted_mounts = {item["target"]: item for item in mounts_payload["mounts"]}
+    assert persisted_mounts["codex"]["policy"] == ""
+    assert persisted_mounts["codex"]["effective_policy"] == "technical"
+    assert remember_payload["graph_node_count"] > ingest_payload["graph_node_count"]
+    assert remember_payload["refreshed_mount_count"] == 5
+    assert remember_payload["stale_mount_count"] == 0
+    assert remember_payload["refresh_error_count"] == 0
+    assert refreshed_compose["composed_graph_node_count"] >= compose_payload["composed_graph_node_count"]
+
+
+def test_mind_remember_prunes_stale_mount_records_without_failing(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    remember_on_mind(store_dir, "marc", statement="I am Marc Saint-Jour.")
+    mount_mind(
+        store_dir,
+        "marc",
+        targets=["codex"],
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+    )
+    mounts_path = mind_mounts_path(store_dir, "marc")
+    mounts_payload = json.loads(mounts_path.read_text(encoding="utf-8"))
+    mounts_payload["mounts"].extend(
+        [
+            {"target": "not-a-target", "task": "support", "project_dir": str(project_dir)},
+            {"target": "", "task": "support", "project_dir": str(project_dir)},
+        ]
+    )
+    mounts_path.write_text(json.dumps(mounts_payload, indent=2), encoding="utf-8")
+
+    payload = remember_on_mind(store_dir, "marc", statement="I prefer concise updates.")
+    refreshed_mounts = list_mind_mounts(store_dir, "marc")
+
+    assert payload["refreshed_mount_count"] == 1
+    assert payload["stale_mount_count"] == 2
+    assert payload["refresh_error_count"] == 0
+    assert {item["reason"] for item in payload["stale_mounts"]} == {"missing_target", "unsupported_target"}
+    assert refreshed_mounts["mount_count"] == 1
+    assert refreshed_mounts["mounted_targets"] == ["codex"]
+
+
+def test_mind_compose_handles_missing_pack_and_missing_pack_graph(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    source = tmp_path / "brainpack.md"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    remember_on_mind(store_dir, "marc", statement="I am Marc Saint-Jour.")
+
+    init_pack(store_dir, "missing-pack", description="Missing pack", owner="marc")
+    ingest_pack(store_dir, "missing-pack", [str(source)], mode="copy")
+    compile_pack(store_dir, "missing-pack", suggest_questions=True, max_summary_chars=240)
+    attach_pack_to_mind(store_dir, "marc", "missing-pack", always_on=True, targets=["codex"])
+
+    init_pack(store_dir, "graphless-pack", description="Graphless pack", owner="marc")
+    ingest_pack(store_dir, "graphless-pack", [str(source)], mode="copy")
+    compile_pack(store_dir, "graphless-pack", suggest_questions=True, max_summary_chars=240)
+    attach_pack_to_mind(store_dir, "marc", "graphless-pack", always_on=True, targets=["codex"])
+
+    graph_path(store_dir, "graphless-pack").unlink()
+    shutil.rmtree(pack_path(store_dir, "missing-pack"))
+
+    payload = compose_mind(store_dir, "marc", target="codex", task="support", smart=True, max_chars=900)
+
+    assert payload["included_brainpack_count"] == 0
+    assert any(
+        item["pack"] == "missing-pack" and item["selection_reason"] == "pack_missing"
+        for item in payload["skipped_brainpacks"]
+    )
+    assert any(
+        item["pack"] == "graphless-pack" and item["selection_reason"] == "pack_graph_missing"
+        for item in payload["skipped_brainpacks"]
+    )
+
+
+def test_empty_mind_compose_and_mount_are_non_fatal(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+
+    compose_payload = compose_mind(
+        store_dir,
+        "marc",
+        target="codex",
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+    )
+    mount_payload = mount_mind(
+        store_dir,
+        "marc",
+        targets=["codex"],
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+    )
+
+    assert compose_payload["base_graph_source"] == "empty_graph"
+    assert compose_payload["fact_count"] == 0
+    assert compose_payload["message"] == "This Mind did not yield routed facts for this target."
+    assert mount_payload["mounted_count"] == 1
+    assert mount_payload["targets"][0]["target"] == "codex"
+    assert mount_payload["targets"][0]["fact_count"] == 0
 
 
 def test_cli_mind_round_trip_json(tmp_path, capsys, monkeypatch):
