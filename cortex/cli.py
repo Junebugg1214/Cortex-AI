@@ -1256,6 +1256,17 @@ def build_parser(*, show_all_commands: bool = False):
     mind_ingest.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_ingest.add_argument("--format", choices=["json", "text"], default="text")
 
+    mind_remember = mind_sub.add_parser("remember", help="Teach a Cortex Mind one new fact or preference directly")
+    mind_remember.add_argument("name", help="Mind id")
+    mind_remember.add_argument("statement", help="Plain-language fact or preference to add to the Mind")
+    mind_remember.add_argument(
+        "--message",
+        default="",
+        help="Optional commit message for the Mind graph update",
+    )
+    mind_remember.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_remember.add_argument("--format", choices=["json", "text"], default="text")
+
     mind_attach = mind_sub.add_parser("attach-pack", help="Attach an existing Brainpack to a Cortex Mind")
     mind_attach.add_argument("name", help="Mind id")
     mind_attach.add_argument("pack", help="Brainpack name")
@@ -5369,6 +5380,7 @@ def run_mind(args):
         list_minds,
         mind_status,
         mount_mind,
+        remember_on_mind,
     )
 
     if args.mind_subcommand == "init":
@@ -5489,6 +5501,40 @@ def run_mind(args):
                     extra.append("mounted=" + ",".join(item["mounted_targets"]))
                 suffix = f" ({'; '.join(extra)})" if extra else ""
                 _echo(f"    - {item['pack']} · {item['compile_status']} · priority {item['priority']}{suffix}")
+        return 0
+
+    if args.mind_subcommand == "remember":
+        store_dir = Path(args.store_dir)
+        try:
+            payload = remember_on_mind(
+                store_dir,
+                args.name,
+                statement=args.statement,
+                message=args.message,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(f"Mind `{payload['mind']}` remembered:")
+        _echo(f"  {payload['statement']}")
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"branch {payload['branch']}",
+                    f"{payload['graph_node_count']} nodes",
+                    f"{payload['graph_edge_count']} edges",
+                ]
+            )
+        )
+        if payload["targets"]:
+            _echo("  refreshed mounts:")
+            for item in payload["targets"]:
+                note = f"  {item['note']}" if item.get("note") else ""
+                _echo(f"    {item['target']:<12} {item.get('status', 'ok')}{note}")
+        else:
+            _echo("  no persisted mounts to refresh.")
         return 0
 
     if args.mind_subcommand == "attach-pack":
@@ -5619,7 +5665,7 @@ def run_mind(args):
         return 0
 
     return _error(
-        "Specify a mind subcommand: init, list, status, ingest, attach-pack, detach-pack, compose, mount, mounts"
+        "Specify a mind subcommand: init, list, status, ingest, remember, attach-pack, detach-pack, compose, mount, mounts"
     )
 
 

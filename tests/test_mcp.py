@@ -86,6 +86,7 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "mind_status",
         "mind_ingest",
         "mind_compose",
+        "mind_remember",
         "mind_mounts",
         "mind_mount",
         "pack_list",
@@ -309,11 +310,17 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
         },
         request_id=13,
     )["result"]["structuredContent"]
+    remember_payload = _tool_call(
+        server,
+        tool="mind_remember",
+        arguments={"name": "marc", "statement": "We use CockroachDB now."},
+        request_id=14,
+    )["result"]["structuredContent"]
     mounts_payload = _tool_call(
         server,
         tool="mind_mounts",
         arguments={"name": "marc"},
-        request_id=14,
+        request_id=15,
     )["result"]["structuredContent"]
 
     assert list_payload["count"] == 1
@@ -331,6 +338,15 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     assert compose_payload["target"] == "chatgpt"
     assert "Python" in compose_payload["labels"]
     assert mount_payload["mounted_count"] == 5
+    assert remember_payload["mind"] == "marc"
+    assert remember_payload["refreshed_mount_count"] == 5
+    assert {item["target"] for item in remember_payload["targets"]} == {
+        "hermes",
+        "claude-code",
+        "codex",
+        "cursor",
+        "openclaw",
+    }
     assert mounts_payload["mount_count"] == 5
     assert {item["target"] for item in mounts_payload["mounts"]} == {
         "hermes",

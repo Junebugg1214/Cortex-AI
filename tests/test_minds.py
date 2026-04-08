@@ -17,6 +17,7 @@ from cortex.minds import (
     mind_openclaw_mount_registry_path,
     mind_status,
     mount_mind,
+    remember_on_mind,
 )
 from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph
@@ -326,6 +327,72 @@ def test_mind_mount_materializes_targets_and_persists_mount_records(tmp_path, mo
     assert registry["mounts"][0]["task"] == "support"
 
 
+def test_mind_remember_updates_core_graph_and_refreshes_mounts(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n-marc", label="Marc", tags=["identity"], confidence=0.96, brief="Name: Marc"))
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_pack(store_dir, "support-pack", description="Support pack", owner="marc")
+    ingest_pack(store_dir, "support-pack", [str(source)], mode="copy")
+    compile_pack(store_dir, "support-pack", suggest_questions=True, max_summary_chars=240)
+    attach_pack_to_mind(
+        store_dir,
+        "marc",
+        "support-pack",
+        always_on=True,
+        targets=["codex", "hermes", "openclaw"],
+    )
+    mount_mind(
+        store_dir,
+        "marc",
+        targets=["codex", "hermes", "openclaw"],
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+        max_chars=900,
+        openclaw_store_dir=str(openclaw_store_dir),
+    )
+    before_mounts = {item["target"]: item["mounted_at"] for item in list_mind_mounts(store_dir, "marc")["mounts"]}
+
+    payload = remember_on_mind(
+        store_dir,
+        "marc",
+        statement="I prefer concise, implementation-first responses.",
+    )
+    compose_payload = compose_mind(
+        store_dir,
+        "marc",
+        target="codex",
+        task="support",
+        project_dir=str(project_dir),
+        smart=True,
+    )
+    after_mounts = {item["target"]: item["mounted_at"] for item in list_mind_mounts(store_dir, "marc")["mounts"]}
+    backend = get_storage_backend(store_dir)
+
+    assert payload["mind"] == "marc"
+    assert payload["statement"] == "I prefer concise, implementation-first responses."
+    assert payload["refreshed_mount_count"] == 3
+    assert {item["target"] for item in payload["targets"]} == {"codex", "hermes", "openclaw"}
+    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert backend.versions.resolve_ref(mind_branch_name("marc", "main")) == payload["version_id"]
+    assert compose_payload["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
+    assert compose_payload["base_graph_node_count"] == 2
+    assert all(after_mounts[target] != before_mounts[target] for target in before_mounts)
+
+
 def test_cli_mind_round_trip_json(tmp_path, capsys, monkeypatch):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"
@@ -503,3 +570,108 @@ def test_cli_mind_ingest_from_detected_json(tmp_path, capsys, monkeypatch):
     assert ingest_payload["selected_sources"][0]["target"] == "chatgpt"
     assert compose_rc == 0
     assert "Python" in compose_payload["labels"]
+
+
+def test_cli_mind_remember_refreshes_mounts_json(tmp_path, capsys, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    source = tmp_path / "brainpack.md"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    openclaw_store_dir = tmp_path / "openclaw-store"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_source(source)
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n1", label="Marc", tags=["identity"], confidence=0.96))
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
+
+    main(["mind", "init", "marc", "--owner", "marc", "--store-dir", str(store_dir), "--json"])
+    capsys.readouterr()
+    init_pack(store_dir, "support-pack", description="Support pack", owner="marc")
+    ingest_pack(store_dir, "support-pack", [str(source)], mode="copy")
+    compile_pack(store_dir, "support-pack", suggest_questions=True, max_summary_chars=240)
+    main(
+        [
+            "mind",
+            "attach-pack",
+            "marc",
+            "support-pack",
+            "--always-on",
+            "--target",
+            "codex",
+            "--target",
+            "hermes",
+            "--target",
+            "openclaw",
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    capsys.readouterr()
+    main(
+        [
+            "mind",
+            "mount",
+            "marc",
+            "--to",
+            "codex",
+            "hermes",
+            "openclaw",
+            "--task",
+            "support",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--openclaw-store-dir",
+            str(openclaw_store_dir),
+            "--smart",
+            "--json",
+        ]
+    )
+    capsys.readouterr()
+    before_mounts = {item["target"]: item["mounted_at"] for item in list_mind_mounts(store_dir, "marc")["mounts"]}
+
+    remember_rc = main(
+        [
+            "mind",
+            "remember",
+            "marc",
+            "I prefer concise, implementation-first responses.",
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    remember_payload = json.loads(capsys.readouterr().out)
+
+    compose_rc = main(
+        [
+            "mind",
+            "compose",
+            "marc",
+            "--to",
+            "codex",
+            "--task",
+            "support",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    compose_payload = json.loads(capsys.readouterr().out)
+    after_mounts = {item["target"]: item["mounted_at"] for item in list_mind_mounts(store_dir, "marc")["mounts"]}
+
+    assert remember_rc == 0
+    assert remember_payload["mind"] == "marc"
+    assert remember_payload["refreshed_mount_count"] == 3
+    assert {item["target"] for item in remember_payload["targets"]} == {"codex", "hermes", "openclaw"}
+    assert compose_rc == 0
+    assert compose_payload["base_graph_node_count"] == 2
+    assert all(after_mounts[target] != before_mounts[target] for target in before_mounts)

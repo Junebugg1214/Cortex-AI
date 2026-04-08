@@ -581,6 +581,41 @@ def _persist_mind_core_graph(
     }
 
 
+def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    persisted = [dict(item) for item in _load_mounts(store_dir, mind_id).get("mounts", [])]
+    if not persisted:
+        return {
+            "mount_count": 0,
+            "refreshed_count": 0,
+            "targets": [],
+        }
+
+    refreshed_targets: list[dict[str, Any]] = []
+    for item in persisted:
+        target = str(item.get("target") or "").strip()
+        if not target:
+            continue
+        payload = mount_mind(
+            store_dir,
+            mind_id,
+            targets=[target],
+            task=str(item.get("task") or ""),
+            project_dir=str(item.get("project_dir") or ""),
+            smart=bool(item.get("smart", str(item.get("mode") or "smart") == "smart")),
+            policy_name=str(item.get("policy") or ""),
+            max_chars=int(item.get("max_chars") or 1500),
+            openclaw_store_dir=str(item.get("openclaw_store_dir") or ""),
+        )
+        refreshed_targets.extend(dict(target_payload) for target_payload in payload.get("targets", []))
+
+    refreshed_targets.sort(key=lambda item: str(item.get("target") or "").lower())
+    return {
+        "mount_count": len(persisted),
+        "refreshed_count": len(refreshed_targets),
+        "targets": refreshed_targets,
+    }
+
+
 def ingest_detected_sources_into_mind(
     store_dir: Path,
     mind_id: str,
@@ -648,6 +683,49 @@ def ingest_detected_sources_into_mind(
         "graph_node_count": persisted["node_count"],
         "graph_edge_count": persisted["edge_count"],
         "categories": _graph_categories(merged_graph),
+    }
+
+
+def remember_on_mind(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    statement: str,
+    message: str = "",
+) -> dict[str, Any]:
+    from cortex.portable_runtime import extract_graph_from_statement, merge_graphs
+
+    cleaned = " ".join(str(statement).split()).strip()
+    if not cleaned:
+        raise ValueError("Statement is required.")
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+    merged_graph = merge_graphs(base_graph, extract_graph_from_statement(cleaned))
+    persisted = _persist_mind_core_graph(
+        store_dir,
+        mind_id,
+        merged_graph,
+        message=message.strip() or f"Remember on Mind `{manifest.id}`",
+        source="mind.remember",
+    )
+    refresh_payload = _refresh_mind_mounts(store_dir, mind_id)
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "statement": cleaned,
+        "base_graph_ref": base_graph_ref,
+        "base_graph_source": base_graph_source,
+        "branch": persisted["branch"],
+        "branch_name": persisted["branch_name"],
+        "graph_ref": persisted["graph_ref"],
+        "version_id": persisted["version_id"],
+        "graph_node_count": persisted["node_count"],
+        "graph_edge_count": persisted["edge_count"],
+        "categories": _graph_categories(merged_graph),
+        "mount_count": refresh_payload["mount_count"],
+        "refreshed_mount_count": refresh_payload["refreshed_count"],
+        "targets": refresh_payload["targets"],
     }
 
 
@@ -999,6 +1077,10 @@ def mount_mind(
                     "project_dir": project_path,
                     "task": task,
                     "activation_target": "openclaw",
+                    "smart": smart,
+                    "policy": policy_name,
+                    "max_chars": max_chars,
+                    "openclaw_store_dir": str(openclaw_root),
                     "mounted_at": mounted_at,
                 }
             )
@@ -1041,6 +1123,9 @@ def mount_mind(
                 "project_dir": project_path,
                 "task": task,
                 "activation_target": str(composed.get("activation_target") or target),
+                "smart": smart,
+                "policy": policy_name,
+                "max_chars": max_chars,
                 "mounted_at": mounted_at,
             }
         )

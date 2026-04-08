@@ -385,6 +385,26 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="mind_remember",
+                title="Remember On Mind",
+                description=(
+                    "Teach a Cortex Mind one new fact or preference directly, commit it onto the Mind's current branch, "
+                    "and refresh any persisted mounts for that Mind."
+                ),
+                method_name="mind_remember",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                        "statement": _string_property("Plain-language fact or preference to remember on the Mind."),
+                        "message": _string_property("Optional commit message for the Mind graph update."),
+                    },
+                    required=("name", "statement"),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="mind_mounts",
                 title="Mind Mounts",
                 description="List persisted mount records for one Cortex Mind.",
