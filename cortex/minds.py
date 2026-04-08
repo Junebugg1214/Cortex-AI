@@ -1445,11 +1445,69 @@ def list_minds(store_dir: Path) -> dict[str, Any]:
     return {"status": "ok", "count": len(minds), "minds": minds}
 
 
+def _mind_preview_nodes(graph: CortexGraph, *, limit: int = 8) -> list[dict[str, Any]]:
+    ranked = sorted(
+        graph.nodes.values(),
+        key=lambda node: (
+            -(float(node.confidence or 0)),
+            -(len(node.tags or [])),
+            node.label.lower(),
+        ),
+    )
+    preview: list[dict[str, Any]] = []
+    for node in ranked[:limit]:
+        preview.append(
+            {
+                "id": node.id,
+                "label": node.label,
+                "tags": list(node.tags or []),
+                "confidence": float(node.confidence or 0),
+                "brief": node.brief or "",
+            }
+        )
+    return preview
+
+
 def mind_status(store_dir: Path, mind_id: str) -> dict[str, Any]:
     manifest = load_mind_manifest(store_dir, mind_id)
     payload = _mind_summary(store_dir, manifest)
+    core_graph_payload = load_mind_core_graph(store_dir, mind_id)
+    core_graph = core_graph_payload["graph"]
+    branches_payload = _load_branches(store_dir, mind_id, manifest)
+    policies_payload = _load_policies(store_dir, mind_id, manifest)
+    current_branch = manifest.current_branch or manifest.default_branch
+    current_branch_record = dict(branches_payload.get("branches", {}).get(current_branch) or {})
     payload["layout"] = {
         "files": list(MIND_LAYOUT_FILES),
         "directories": ["compositions", "refs"],
+    }
+    payload["core_state"] = {
+        "graph_ref": payload["graph_ref"],
+        "graph_source": str(core_graph_payload.get("graph_source") or ""),
+        "fact_count": len(core_graph.nodes),
+        "edge_count": len(core_graph.edges),
+        "categories": [str(item) for item in payload.get("categories", [])],
+        "preview_nodes": _mind_preview_nodes(core_graph),
+    }
+    payload["branches"] = {
+        "current_branch": current_branch,
+        "default_branch": manifest.default_branch,
+        "current_branch_head": str(current_branch_record.get("head") or ""),
+        "branch_records": {
+            str(name): {
+                "head": str((record or {}).get("head") or ""),
+                "created_at": str((record or {}).get("created_at") or ""),
+            }
+            for name, record in sorted((branches_payload.get("branches") or {}).items())
+        },
+    }
+    payload["policies"] = {
+        "default_disclosure": str(policies_payload.get("default_disclosure") or manifest.default_policy),
+        "target_overrides": {
+            str(name): str(value) for name, value in sorted((policies_payload.get("target_overrides") or {}).items())
+        },
+        "approval_rules": {
+            str(name): bool(value) for name, value in sorted((policies_payload.get("approval_rules") or {}).items())
+        },
     }
     return {"status": "ok", **payload}
