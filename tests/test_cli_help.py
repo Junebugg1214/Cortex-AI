@@ -19,7 +19,7 @@ def test_default_help_is_portability_first():
     commands = _listed_commands(help_text)
 
     assert set(CORE_PORTABILITY_COMMANDS).issubset(commands)
-    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory"}.isdisjoint(commands)
+    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "mind"}.isdisjoint(commands)
     assert ADVANCED_HELP_NOTE in help_text
 
 
@@ -30,5 +30,7 @@ def test_help_all_shows_full_command_list(capsys):
 
     assert rc == 0
     assert set(CORE_PORTABILITY_COMMANDS).issubset(commands)
-    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "doctor", "pack"}.issubset(commands)
+    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "doctor", "mind", "pack"}.issubset(
+        commands
+    )
     assert ADVANCED_HELP_NOTE not in out

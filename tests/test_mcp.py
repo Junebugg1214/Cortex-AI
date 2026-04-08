@@ -5,6 +5,7 @@ from pathlib import Path
 from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
+from cortex.minds import init_mind
 from cortex.packs import ingest_pack, init_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
@@ -81,6 +82,8 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_scan",
         "portability_status",
         "portability_audit",
+        "mind_list",
+        "mind_status",
         "pack_list",
         "pack_status",
         "pack_context",
@@ -220,6 +223,27 @@ def test_mcp_node_round_trip_and_query_search(tmp_path):
     assert payload["commit"]["message"] == "add atlas via mcp"
     assert node_get["result"]["structuredContent"]["node"]["label"] == "Project Atlas"
     assert search["result"]["structuredContent"]["results"][0]["node"]["label"] == "Project Atlas"
+
+
+def test_mcp_mind_tools_round_trip(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    list_payload = _tool_call(server, tool="mind_list", request_id=9)["result"]["structuredContent"]
+    status_payload = _tool_call(server, tool="mind_status", arguments={"name": "marc"}, request_id=10)["result"][
+        "structuredContent"
+    ]
+
+    assert list_payload["count"] == 1
+    assert list_payload["minds"][0]["mind"] == "marc"
+    assert status_payload["mind"] == "marc"
+    assert status_payload["manifest"]["kind"] == "person"
+    assert status_payload["graph_ref"] == "refs/minds/marc/branches/main"
 
 
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):
