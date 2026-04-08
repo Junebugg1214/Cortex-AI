@@ -25,6 +25,7 @@ from cortex.minds import (
     list_minds,
     mind_status,
     mount_mind,
+    remember_on_mind,
 )
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
@@ -587,6 +588,22 @@ class MemoryService:
             policy_name=policy,
             max_chars=max_chars,
             activation_target=activation_target,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def mind_remember(
+        self,
+        *,
+        name: str,
+        statement: str,
+        message: str = "",
+    ) -> dict[str, Any]:
+        payload = remember_on_mind(
+            self.store_dir,
+            name,
+            statement=statement,
+            message=message,
         )
         payload["release"] = self.release()
         return payload
