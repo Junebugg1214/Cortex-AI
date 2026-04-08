@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from dataclasses import asdict, dataclass
@@ -17,6 +18,7 @@ DEFAULT_POLICY = "professional"
 ATTACHMENT_MODE = "attached"
 ATTACHMENT_SCOPE = "specialist"
 OPENCLAW_MIND_MOUNTS_FILE = "minds.mounted.json"
+DEFAULT_MIND_CONFIG_FILE = "default.json"
 SUPPORTED_MIND_MOUNT_TARGETS = (
     "claude-code",
     "codex",
@@ -156,6 +158,10 @@ def mind_openclaw_mount_registry_path(openclaw_store_dir: Path | None = None) ->
     return root / OPENCLAW_MIND_MOUNTS_FILE
 
 
+def default_mind_config_path(store_dir: Path) -> Path:
+    return _minds_root(store_dir) / DEFAULT_MIND_CONFIG_FILE
+
+
 def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
     path = mind_manifest_path(store_dir, mind_id)
     if not path.exists():
@@ -189,6 +195,80 @@ def _replace_manifest(store_dir: Path, mind_id: str, *, updated_at: str) -> Mind
     )
     _write_manifest(store_dir, updated)
     return updated
+
+
+def default_mind_status(store_dir: Path) -> dict[str, Any]:
+    env_value = os.getenv("CORTEX_DEFAULT_MIND", "").strip()
+    if env_value:
+        normalized = _validate_mind_id(env_value)
+        load_mind_manifest(store_dir, normalized)
+        return {
+            "status": "ok",
+            "configured": True,
+            "mind": normalized,
+            "source": "env",
+            "path": "",
+        }
+
+    path = default_mind_config_path(store_dir)
+    payload = _read_json(path, default={"mind": "", "configured_at": ""})
+    configured_mind = str(payload.get("mind") or "").strip()
+    if not configured_mind:
+        return {
+            "status": "ok",
+            "configured": False,
+            "mind": "",
+            "source": "config",
+            "path": str(path),
+        }
+    normalized = _validate_mind_id(configured_mind)
+    load_mind_manifest(store_dir, normalized)
+    return {
+        "status": "ok",
+        "configured": True,
+        "mind": normalized,
+        "source": "config",
+        "path": str(path),
+    }
+
+
+def resolve_default_mind(store_dir: Path) -> str | None:
+    payload = default_mind_status(store_dir)
+    if not payload["configured"]:
+        return None
+    return str(payload["mind"])
+
+
+def set_default_mind(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    manifest = load_mind_manifest(store_dir, mind_id)
+    path = default_mind_config_path(store_dir)
+    payload = {
+        "mind": manifest.id,
+        "configured_at": _iso_now(),
+    }
+    _write_json(path, payload)
+    return {
+        "status": "ok",
+        "configured": True,
+        "mind": manifest.id,
+        "source": "config",
+        "path": str(path),
+    }
+
+
+def clear_default_mind(store_dir: Path) -> dict[str, Any]:
+    path = default_mind_config_path(store_dir)
+    existed = path.exists()
+    if existed:
+        path.unlink()
+    return {
+        "status": "ok",
+        "configured": False,
+        "cleared": existed,
+        "mind": "",
+        "source": "config",
+        "path": str(path),
+    }
 
 
 def init_mind(
@@ -537,6 +617,23 @@ def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str
     return CortexGraph(), declared_ref, "empty_graph"
 
 
+def load_mind_core_graph(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    manifest = load_mind_manifest(store_dir, mind_id)
+    graph, graph_ref, graph_source = _resolve_core_graph(store_dir, mind_id)
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "graph": graph,
+        "graph_ref": graph_ref,
+        "graph_source": graph_source,
+        "fact_count": len(graph.nodes),
+    }
+
+
+def mind_graph_snapshot_path(store_dir: Path, mind_id: str) -> Path:
+    return mind_path(store_dir, mind_id) / "refs" / "current.graph.json"
+
+
 def _persist_mind_core_graph(
     store_dir: Path,
     mind_id: str,
@@ -578,6 +675,137 @@ def _persist_mind_core_graph(
         "version_id": commit.version_id,
         "node_count": len(graph.nodes),
         "edge_count": len(graph.edges),
+    }
+
+
+def adopt_graph_into_mind(
+    store_dir: Path,
+    mind_id: str,
+    graph: CortexGraph,
+    *,
+    message: str = "",
+    source: str = "mind.adopt_graph",
+) -> dict[str, Any]:
+    from cortex.portable_runtime import merge_graphs
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+    merged_graph = merge_graphs(base_graph, graph)
+    persisted = _persist_mind_core_graph(
+        store_dir,
+        mind_id,
+        merged_graph,
+        message=message.strip() or f"Adopt context into Mind `{manifest.id}`",
+        source=source,
+    )
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "base_graph_ref": base_graph_ref,
+        "base_graph_source": base_graph_source,
+        "branch": persisted["branch"],
+        "branch_name": persisted["branch_name"],
+        "graph_ref": persisted["graph_ref"],
+        "version_id": persisted["version_id"],
+        "graph_node_count": persisted["node_count"],
+        "graph_edge_count": persisted["edge_count"],
+        "categories": _graph_categories(merged_graph),
+    }
+
+
+def sync_mind_compatibility_targets(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    targets: list[str],
+    project_dir: Path,
+    smart: bool,
+    policy_name: str,
+    max_chars: int,
+    output_dir: Path | None = None,
+    persist_state: bool = True,
+    graph: CortexGraph | None = None,
+    graph_ref: str = "",
+    graph_source: str = "",
+) -> dict[str, Any]:
+    from cortex.portable_runtime import canonical_target_name, default_output_dir, load_portability_state, sync_targets
+    from cortex.upai.identity import UPAIIdentity
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    resolved_targets = [canonical_target_name(target) for target in targets if str(target).strip()]
+    if not resolved_targets:
+        raise ValueError("Specify at least one compatibility target.")
+
+    if graph is None:
+        resolved_graph, resolved_graph_ref, resolved_graph_source = _resolve_core_graph(store_dir, mind_id)
+    else:
+        resolved_graph = graph
+        resolved_graph_ref = graph_ref or mind_branch_ref(manifest.id, manifest.current_branch)
+        resolved_graph_source = graph_source or "mind_branch"
+    state = load_portability_state(store_dir)
+    chosen_output_dir = output_dir or (Path(state.output_dir) if state.output_dir else default_output_dir(store_dir))
+    snapshot_path = mind_graph_snapshot_path(store_dir, manifest.id)
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(json.dumps(resolved_graph.export_v5(), indent=2, ensure_ascii=False), encoding="utf-8")
+    identity_path = store_dir / "identity.json"
+    identity = UPAIIdentity.load(store_dir) if identity_path.exists() else None
+    sync_payload = sync_targets(
+        resolved_graph,
+        targets=resolved_targets,
+        store_dir=store_dir,
+        project_dir=str(project_dir),
+        output_dir=chosen_output_dir,
+        graph_path=snapshot_path,
+        policy_name=policy_name,
+        smart=smart,
+        max_chars=max_chars,
+        state=state,
+        identity=identity,
+        persist_state=persist_state,
+    )
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "graph_ref": resolved_graph_ref,
+        "graph_source": resolved_graph_source,
+        "graph_path": str(snapshot_path),
+        "fact_count": len(resolved_graph.nodes),
+        "compatibility_mode": "default_mind",
+        **sync_payload,
+    }
+
+
+def remember_and_sync_default_mind(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    statement: str,
+    project_dir: Path,
+    targets: list[str],
+    smart: bool,
+    policy_name: str,
+    max_chars: int,
+    message: str = "",
+) -> dict[str, Any]:
+    remembered = remember_on_mind(store_dir, mind_id, statement=statement, message=message)
+    sync_payload = sync_mind_compatibility_targets(
+        store_dir,
+        mind_id,
+        targets=targets,
+        project_dir=project_dir,
+        smart=smart,
+        policy_name=policy_name,
+        max_chars=max_chars,
+    )
+    return {
+        **sync_payload,
+        "statement": remembered["statement"],
+        "version_id": remembered["version_id"],
+        "branch": remembered["branch"],
+        "branch_name": remembered["branch_name"],
+        "mount_count": remembered["mount_count"],
+        "refreshed_mount_count": remembered["refreshed_mount_count"],
+        "mount_targets": remembered["targets"],
     }
 
 
@@ -628,9 +856,8 @@ def ingest_detected_sources_into_mind(
     redactor: Any | None = None,
     message: str = "",
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import extract_graph_from_detected_sources, merge_graphs
+    from cortex.portable_runtime import extract_graph_from_detected_sources
 
-    manifest = load_mind_manifest(store_dir, mind_id)
     detected_payload = extract_graph_from_detected_sources(
         targets=targets,
         store_dir=store_dir,
@@ -658,31 +885,19 @@ def ingest_detected_sources_into_mind(
             f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}{unmanaged_hint}"
         )
 
-    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
-    merged_graph = merge_graphs(base_graph, detected_payload["graph"])
-    persisted = _persist_mind_core_graph(
+    adopted = adopt_graph_into_mind(
         store_dir,
         mind_id,
-        merged_graph,
-        message=message.strip() or f"Adopt detected local context into Mind `{manifest.id}`",
+        detected_payload["graph"],
+        message=message.strip() or f"Adopt detected local context into Mind `{mind_id}`",
         source="mind.ingest_detected",
     )
     return {
-        "status": "ok",
-        "mind": manifest.id,
+        **adopted,
         "selected_sources": selected_sources,
         "skipped_sources": detected_payload["skipped_sources"],
         "detected_source_count": len(detected_payload["detected_sources"]),
         "ingested_source_count": len(selected_sources),
-        "base_graph_ref": base_graph_ref,
-        "base_graph_source": base_graph_source,
-        "branch": persisted["branch"],
-        "branch_name": persisted["branch_name"],
-        "graph_ref": persisted["graph_ref"],
-        "version_id": persisted["version_id"],
-        "graph_node_count": persisted["node_count"],
-        "graph_edge_count": persisted["edge_count"],
-        "categories": _graph_categories(merged_graph),
     }
 
 
@@ -693,36 +908,23 @@ def remember_on_mind(
     statement: str,
     message: str = "",
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import extract_graph_from_statement, merge_graphs
+    from cortex.portable_runtime import extract_graph_from_statement
 
     cleaned = " ".join(str(statement).split()).strip()
     if not cleaned:
         raise ValueError("Statement is required.")
 
-    manifest = load_mind_manifest(store_dir, mind_id)
-    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
-    merged_graph = merge_graphs(base_graph, extract_graph_from_statement(cleaned))
-    persisted = _persist_mind_core_graph(
+    adopted = adopt_graph_into_mind(
         store_dir,
         mind_id,
-        merged_graph,
-        message=message.strip() or f"Remember on Mind `{manifest.id}`",
+        extract_graph_from_statement(cleaned),
+        message=message.strip() or f"Remember on Mind `{mind_id}`",
         source="mind.remember",
     )
     refresh_payload = _refresh_mind_mounts(store_dir, mind_id)
     return {
-        "status": "ok",
-        "mind": manifest.id,
+        **adopted,
         "statement": cleaned,
-        "base_graph_ref": base_graph_ref,
-        "base_graph_source": base_graph_source,
-        "branch": persisted["branch"],
-        "branch_name": persisted["branch_name"],
-        "graph_ref": persisted["graph_ref"],
-        "version_id": persisted["version_id"],
-        "graph_node_count": persisted["node_count"],
-        "graph_edge_count": persisted["edge_count"],
-        "categories": _graph_categories(merged_graph),
         "mount_count": refresh_payload["mount_count"],
         "refreshed_mount_count": refresh_payload["refreshed_count"],
         "targets": refresh_payload["targets"],
@@ -1166,6 +1368,11 @@ def list_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
 
 
 def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
+    configured_default = None
+    try:
+        configured_default = resolve_default_mind(store_dir)
+    except (FileNotFoundError, ValueError):
+        configured_default = None
     core_state = _read_json(
         mind_core_state_path(store_dir, manifest.id),
         default={"graph_ref": "", "categories": list(DEFAULT_CATEGORIES)},
@@ -1199,6 +1406,7 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
             str(item.get("target") or "") for item in mounts.get("mounts", []) if str(item.get("target") or "").strip()
         ],
         "default_disclosure": str(policies.get("default_disclosure") or manifest.default_policy),
+        "is_default": manifest.id == configured_default,
     }
 
 
@@ -1231,6 +1439,7 @@ def list_minds(store_dir: Path) -> dict[str, Any]:
                 "attachment_count": summary["attachment_count"],
                 "mount_count": summary["mount_count"],
                 "updated_at": summary["manifest"]["updated_at"],
+                "is_default": summary["is_default"],
             }
         )
     return {"status": "ok", "count": len(minds), "minds": minds}

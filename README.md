@@ -24,6 +24,7 @@ The first implementation slice ships the foundation:
 
 ```bash
 cortex mind init marc --kind person --owner marc
+cortex mind default marc
 cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
 cortex mind remember marc "I prefer concise, implementation-first responses."
 cortex mind attach-pack marc ai-memory --always-on
@@ -40,6 +41,7 @@ Mind foundation commands:
 | Command | What it does |
 | --- | --- |
 | `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, policy, branch, mount, and attachment scaffolding. |
+| `cortex mind default marc` | Marks one Mind as the default compatibility target so classic commands like `portable`, `remember`, and `sync --smart` can route through that Mind behind the scenes. |
 | `cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch instead of the shared portability canonical graph. |
 | `cortex mind remember marc "I prefer concise, implementation-first responses."` | Adds one new fact or preference directly to the Mind's core graph, commits it onto the current Mind branch, and refreshes any persisted Mind mounts from that updated state. |
 | `cortex mind attach-pack marc ai-memory --always-on` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
@@ -117,6 +119,7 @@ Portable AI commands:
 Portable AI notes:
 - `scan` is read-only by default.
 - `portable --from-detected ...` is permissioned adoption, not silent ingestion.
+- if a default Mind is configured with `cortex mind default <name>`, classic `portable`, `remember`, and `sync --smart` route through that Mind's branch-backed graph instead of the standalone canonical portability graph.
 - detected local-source adoption redacts common PII by default.
 - over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
 
