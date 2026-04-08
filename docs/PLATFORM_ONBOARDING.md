@@ -4,10 +4,11 @@ Use this guide when you want a copy-paste setup flow for Cortex by platform.
 
 The safest mental model is:
 
-1. pull context into Cortex from the platform that already knows you best
-2. let Cortex become the canonical graph in `.cortex/` and `portable/context.json`
-3. sync that graph back out to the rest of your tools
-4. run `cortex-mcp` for tools that can fetch live context during conversations
+1. create or select a Mind
+2. pull context into that Mind from the platform that already knows you best
+3. attach Brainpacks only if you need specialist domain cognition
+4. mount or sync that Mind back out to the rest of your tools
+5. run `cortex mcp` for tools that can fetch live context during conversations
 
 ## Setup Once
 
@@ -25,6 +26,15 @@ cp docs/examples/config.toml .cortex/config.toml
 
 Use `python3.11 -m pip`, not plain `pip`.
 
+Create a Mind once:
+
+```bash
+cortex mind init marc --kind person --owner marc
+cortex mind default marc
+```
+
+If you prefer the older portability-first workflow, you can skip this and still use `portable`, `remember`, and `sync` directly. If a default Mind is configured, those classic commands route through it behind the scenes.
+
 ## Quick Start By Situation
 
 ### I already have a rich chat export
@@ -37,6 +47,8 @@ cortex scan
 cortex sync --smart
 ```
 
+If you already set a default Mind with `cortex mind default <name>`, that flow updates the Mind-backed graph instead of a separate standalone portability graph.
+
 If you want live MCP context after that:
 
 ```bash
@@ -48,7 +60,7 @@ cortex-mcp --config .cortex/config.toml
 Seed Cortex directly, then grow from there:
 
 ```bash
-cortex remember "We migrated from PostgreSQL to CockroachDB in January" --smart
+cortex mind remember marc "We migrated from PostgreSQL to CockroachDB in January"
 cortex scan
 ```
 
@@ -207,7 +219,13 @@ Output:
 
 Hermes is now a first-class Cortex target.
 
-Sync Cortex into Hermes:
+Mount the current Mind into Hermes:
+
+```bash
+cortex mind mount marc --to hermes --task "support" --project .
+```
+
+Or sync Cortex into Hermes with the portability layer:
 
 ```bash
 cortex portable context.json --to hermes --project .
