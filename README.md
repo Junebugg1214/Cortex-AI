@@ -24,6 +24,7 @@ The first implementation slice ships the foundation:
 
 ```bash
 cortex mind init marc --kind person --owner marc
+cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
 cortex mind attach-pack marc ai-memory --always-on
 cortex mind compose marc --to chatgpt --task "memory routing"
 cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
@@ -38,6 +39,7 @@ Mind foundation commands:
 | Command | What it does |
 | --- | --- |
 | `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, policy, branch, mount, and attachment scaffolding. |
+| `cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch instead of the shared portability canonical graph. |
 | `cortex mind attach-pack marc ai-memory --always-on` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
 | `cortex mind compose marc --to chatgpt --task "memory routing"` | Composes a target-aware runtime slice from the Mind's current base graph plus any attached Brainpacks that match the target/task. |
 | `cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"` | Materializes the composed Mind into direct targets like Hermes/Codex/Cursor/Claude Code and registers it for live OpenClaw runtime composition. |

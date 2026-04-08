@@ -132,6 +132,21 @@ def mind_mounts_path(store_dir: Path, mind_id: str) -> Path:
     return mind_path(store_dir, mind_id) / "mounts.json"
 
 
+def mind_branch_name(mind_id: str, branch: str = DEFAULT_BRANCH) -> str:
+    return f"minds/{_validate_mind_id(mind_id)}/{branch.strip() or DEFAULT_BRANCH}"
+
+
+def mind_branch_ref(mind_id: str, branch: str = DEFAULT_BRANCH) -> str:
+    return f"refs/minds/{_validate_mind_id(mind_id)}/branches/{branch.strip() or DEFAULT_BRANCH}"
+
+
+def _branch_from_mind_ref(mind_id: str, ref: str) -> str | None:
+    prefix = f"refs/minds/{_validate_mind_id(mind_id)}/branches/"
+    if ref.startswith(prefix):
+        return ref[len(prefix) :] or DEFAULT_BRANCH
+    return None
+
+
 def _default_openclaw_store_dir() -> Path:
     return Path.home() / ".openclaw" / "cortex"
 
@@ -293,6 +308,29 @@ def _load_attachments(store_dir: Path, mind_id: str) -> dict[str, Any]:
 
 def _load_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
     return _read_json(mind_mounts_path(store_dir, mind_id), default={"mind": mind_id, "mounts": []})
+
+
+def _load_core_state(store_dir: Path, mind_id: str) -> dict[str, Any]:
+    return _read_json(
+        mind_core_state_path(store_dir, mind_id),
+        default={"mind": mind_id, "graph_ref": "", "categories": list(DEFAULT_CATEGORIES)},
+    )
+
+
+def _load_branches(store_dir: Path, mind_id: str, manifest: MindManifest) -> dict[str, Any]:
+    return _read_json(
+        mind_branches_path(store_dir, mind_id),
+        default={
+            "mind": mind_id,
+            "branches": {manifest.default_branch: {"head": "", "created_at": manifest.created_at}},
+        },
+    )
+
+
+def _graph_categories(graph: CortexGraph) -> list[str]:
+    categories = graph.export_v4().get("categories", {})
+    names = [str(name) for name, items in categories.items() if items]
+    return names or list(DEFAULT_CATEGORIES)
 
 
 def _write_mounts(store_dir: Path, mind_id: str, mounts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -468,16 +506,24 @@ def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str
     from cortex.portable_runtime import load_canonical_graph, load_portability_state
     from cortex.storage import get_storage_backend
 
-    core_state = _read_json(
-        mind_core_state_path(store_dir, mind_id),
-        default={"graph_ref": "", "categories": list(DEFAULT_CATEGORIES)},
-    )
+    manifest = load_mind_manifest(store_dir, mind_id)
+    core_state = _load_core_state(store_dir, mind_id)
     declared_ref = str(core_state.get("graph_ref") or "").strip()
     backend = get_storage_backend(store_dir)
     if declared_ref:
         resolved = backend.versions.resolve_ref(declared_ref)
         if resolved is not None:
             return backend.versions.checkout(resolved), declared_ref, "version_ref"
+        branch = _branch_from_mind_ref(mind_id, declared_ref)
+        if branch is not None:
+            branch_name = mind_branch_name(mind_id, branch)
+            resolved = backend.versions.resolve_ref(branch_name)
+            if resolved is not None:
+                return backend.versions.checkout(resolved), declared_ref, "mind_branch_ref"
+    branch_name = mind_branch_name(mind_id, manifest.current_branch)
+    branch_head = backend.versions.resolve_ref(branch_name)
+    if branch_head is not None:
+        return backend.versions.checkout(branch_head), mind_branch_ref(mind_id, manifest.current_branch), "mind_branch"
 
     portability_state = load_portability_state(store_dir)
     canonical_graph, canonical_path = load_canonical_graph(store_dir, portability_state)
@@ -489,6 +535,120 @@ def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str
         return backend.versions.checkout(head), "HEAD", "version_head"
 
     return CortexGraph(), declared_ref, "empty_graph"
+
+
+def _persist_mind_core_graph(
+    store_dir: Path,
+    mind_id: str,
+    graph: CortexGraph,
+    *,
+    message: str,
+    source: str,
+) -> dict[str, Any]:
+    from cortex.storage import get_storage_backend
+    from cortex.upai.identity import UPAIIdentity
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    backend = get_storage_backend(store_dir)
+    branch = manifest.current_branch or manifest.default_branch
+    branch_name = mind_branch_name(mind_id, branch)
+    identity_path = store_dir / "identity.json"
+    identity = UPAIIdentity.load(store_dir) if identity_path.exists() else None
+    commit = backend.versions.commit(graph, message, source=source, identity=identity, branch=branch_name)
+
+    branches_payload = _load_branches(store_dir, mind_id, manifest)
+    branch_record = dict(branches_payload.get("branches", {}).get(branch) or {})
+    branch_record["head"] = commit.version_id
+    branch_record["created_at"] = str(branch_record.get("created_at") or manifest.created_at)
+    branches_payload["mind"] = mind_id
+    branches_payload.setdefault("branches", {})
+    branches_payload["branches"][branch] = branch_record
+    _write_json(mind_branches_path(store_dir, mind_id), branches_payload)
+
+    core_state = _load_core_state(store_dir, mind_id)
+    core_state["mind"] = mind_id
+    core_state["graph_ref"] = mind_branch_ref(mind_id, branch)
+    core_state["categories"] = _graph_categories(graph)
+    _write_json(mind_core_state_path(store_dir, mind_id), core_state)
+    _replace_manifest(store_dir, mind_id, updated_at=_iso_now())
+    return {
+        "branch": branch,
+        "branch_name": branch_name,
+        "graph_ref": core_state["graph_ref"],
+        "version_id": commit.version_id,
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+    }
+
+
+def ingest_detected_sources_into_mind(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    targets: list[str],
+    project_dir: Path,
+    extra_roots: list[Path] | None = None,
+    include_config_metadata: bool = False,
+    include_unmanaged_text: bool = False,
+    redactor: Any | None = None,
+    message: str = "",
+) -> dict[str, Any]:
+    from cortex.portable_runtime import extract_graph_from_detected_sources, merge_graphs
+
+    manifest = load_mind_manifest(store_dir, mind_id)
+    detected_payload = extract_graph_from_detected_sources(
+        targets=targets,
+        store_dir=store_dir,
+        project_dir=project_dir,
+        extra_roots=extra_roots,
+        include_config_metadata=include_config_metadata,
+        include_unmanaged_text=include_unmanaged_text,
+        redactor=redactor,
+    )
+    selected_sources = list(detected_payload["selected_sources"])
+    if not selected_sources:
+        skipped = detected_payload["skipped_sources"]
+        metadata_hint = (
+            " Add `--include-config-metadata` if you want MCP setup metadata too."
+            if any(item.get("reason") == "metadata_only" for item in skipped)
+            else ""
+        )
+        unmanaged_hint = (
+            " Add `--include-unmanaged-text` if you want to ingest text outside Cortex markers from instruction files."
+            if any(item.get("reason") == "unmanaged_only" for item in skipped)
+            else ""
+        )
+        raise ValueError(
+            "No detected sources were approved for Mind ingest.\n"
+            f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}{unmanaged_hint}"
+        )
+
+    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+    merged_graph = merge_graphs(base_graph, detected_payload["graph"])
+    persisted = _persist_mind_core_graph(
+        store_dir,
+        mind_id,
+        merged_graph,
+        message=message.strip() or f"Adopt detected local context into Mind `{manifest.id}`",
+        source="mind.ingest_detected",
+    )
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "selected_sources": selected_sources,
+        "skipped_sources": detected_payload["skipped_sources"],
+        "detected_source_count": len(detected_payload["detected_sources"]),
+        "ingested_source_count": len(selected_sources),
+        "base_graph_ref": base_graph_ref,
+        "base_graph_source": base_graph_source,
+        "branch": persisted["branch"],
+        "branch_name": persisted["branch_name"],
+        "graph_ref": persisted["graph_ref"],
+        "version_id": persisted["version_id"],
+        "graph_node_count": persisted["node_count"],
+        "graph_edge_count": persisted["edge_count"],
+        "categories": _graph_categories(merged_graph),
+    }
 
 
 def _resolve_effective_policy(

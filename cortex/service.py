@@ -18,7 +18,14 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
-from cortex.minds import compose_mind, list_mind_mounts, list_minds, mind_status, mount_mind
+from cortex.minds import (
+    compose_mind,
+    ingest_detected_sources_into_mind,
+    list_mind_mounts,
+    list_minds,
+    mind_status,
+    mount_mind,
+)
 from cortex.observability import CortexObservability
 from cortex.openapi import build_openapi_spec
 from cortex.packs import (
@@ -525,6 +532,36 @@ class MemoryService:
 
     def mind_status(self, *, name: str) -> dict[str, Any]:
         payload = mind_status(self.store_dir, name)
+        payload["release"] = self.release()
+        return payload
+
+    def mind_ingest(
+        self,
+        *,
+        name: str,
+        targets: list[str],
+        project_dir: str = "",
+        search_roots: list[str] | None = None,
+        include_config_metadata: bool = False,
+        include_unmanaged_text: bool = False,
+        redact_detected: bool = True,
+        redact_patterns: dict[str, Any] | None = None,
+        message: str = "",
+    ) -> dict[str, Any]:
+        from cortex.extract_memory import PIIRedactor
+
+        redactor = PIIRedactor(redact_patterns) if redact_detected else None
+        payload = ingest_detected_sources_into_mind(
+            self.store_dir,
+            name,
+            targets=targets,
+            project_dir=Path(project_dir).resolve() if project_dir else Path.cwd(),
+            extra_roots=[Path(root).resolve() for root in (search_roots or [])],
+            include_config_metadata=include_config_metadata,
+            include_unmanaged_text=include_unmanaged_text,
+            redactor=redactor,
+            message=message,
+        )
         payload["release"] = self.release()
         return payload
 

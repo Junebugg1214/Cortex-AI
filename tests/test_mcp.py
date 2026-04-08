@@ -84,6 +84,7 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_audit",
         "mind_list",
         "mind_status",
+        "mind_ingest",
         "mind_compose",
         "mind_mounts",
         "mind_mount",
@@ -236,6 +237,18 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     openclaw_store = tmp_path / "openclaw-store"
     home_dir.mkdir()
     project_dir.mkdir()
+    downloads_dir = home_dir / "Downloads" / "Exports" / "ChatGPT"
+    downloads_dir.mkdir(parents=True)
+    (downloads_dir / "custom_instructions.json").write_text(
+        json.dumps(
+            {
+                "what_chatgpt_should_know_about_you": "I use Python and FastAPI.",
+                "how_chatgpt_should_respond": "Be concise.",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     source.write_text(
         (
             "# Portable AI Memory\n\n"
@@ -270,11 +283,17 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     status_payload = _tool_call(server, tool="mind_status", arguments={"name": "marc"}, request_id=10)["result"][
         "structuredContent"
     ]
+    ingest_payload = _tool_call(
+        server,
+        tool="mind_ingest",
+        arguments={"name": "marc", "targets": ["chatgpt"], "project_dir": str(project_dir), "redact_detected": True},
+        request_id=11,
+    )["result"]["structuredContent"]
     compose_payload = _tool_call(
         server,
         tool="mind_compose",
         arguments={"name": "marc", "target": "chatgpt", "task": "memory strategy", "smart": True, "max_chars": 900},
-        request_id=11,
+        request_id=12,
     )["result"]["structuredContent"]
     mount_payload = _tool_call(
         server,
@@ -288,13 +307,13 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
             "max_chars": 900,
             "openclaw_store_dir": str(openclaw_store),
         },
-        request_id=12,
+        request_id=13,
     )["result"]["structuredContent"]
     mounts_payload = _tool_call(
         server,
         tool="mind_mounts",
         arguments={"name": "marc"},
-        request_id=13,
+        request_id=14,
     )["result"]["structuredContent"]
 
     assert list_payload["count"] == 1
@@ -304,10 +323,13 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     assert status_payload["graph_ref"] == "refs/minds/marc/branches/main"
     assert status_payload["attachment_count"] == 1
     assert status_payload["attached_brainpacks"][0]["pack"] == "ai-memory"
+    assert ingest_payload["ingested_source_count"] == 1
+    assert ingest_payload["selected_sources"][0]["target"] == "chatgpt"
     assert compose_payload["mind"] == "marc"
     assert compose_payload["included_brainpack_count"] == 1
     assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
     assert compose_payload["target"] == "chatgpt"
+    assert "Python" in compose_payload["labels"]
     assert mount_payload["mounted_count"] == 5
     assert mounts_payload["mount_count"] == 5
     assert {item["target"] for item in mounts_payload["mounts"]} == {

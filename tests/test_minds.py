@@ -8,16 +8,19 @@ from cortex.minds import (
     attach_pack_to_mind,
     compose_mind,
     detach_pack_from_mind,
+    ingest_detected_sources_into_mind,
     init_mind,
     list_mind_mounts,
     list_minds,
     load_mind_manifest,
+    mind_branch_name,
     mind_openclaw_mount_registry_path,
     mind_status,
     mount_mind,
 )
 from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph
+from cortex.storage import get_storage_backend
 
 
 def _seed_source(path):
@@ -30,6 +33,23 @@ def _seed_source(path):
         ),
         encoding="utf-8",
     )
+
+
+def _seed_detected_chatgpt_artifact(home_dir, *, know="I use Python and FastAPI.", respond="Be concise."):
+    downloads_dir = home_dir / "Downloads" / "Exports" / "ChatGPT"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    artifact = downloads_dir / "custom_instructions.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "what_chatgpt_should_know_about_you": know,
+                "how_chatgpt_should_respond": respond,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return artifact
 
 
 def test_mind_init_creates_manifest_and_layout(tmp_path):
@@ -138,6 +158,43 @@ def test_mind_attach_and_detach_pack_updates_status_metadata(tmp_path, monkeypat
     assert detached["attachment_count"] == 0
     assert detached["attached_brainpacks"] == []
     assert detached["attached_mounted_targets"] == []
+
+
+def test_mind_ingest_detected_sources_commits_to_mind_branch(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_detected_chatgpt_artifact(home_dir)
+
+    base_graph = CortexGraph()
+    base_graph.add_node(Node(id="n-marc", label="Marc", tags=["identity"], confidence=0.96, brief="Name: Marc"))
+    state = load_portability_state(store_dir)
+    save_canonical_graph(store_dir, base_graph, state=state)
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    payload = ingest_detected_sources_into_mind(
+        store_dir,
+        "marc",
+        targets=["chatgpt"],
+        project_dir=project_dir,
+    )
+    status = mind_status(store_dir, "marc")
+    compose_payload = compose_mind(store_dir, "marc", target="chatgpt", smart=True, max_chars=900)
+    branch_head = get_storage_backend(store_dir).versions.resolve_ref(mind_branch_name("marc", "main"))
+
+    assert payload["mind"] == "marc"
+    assert payload["ingested_source_count"] == 1
+    assert payload["selected_sources"][0]["target"] == "chatgpt"
+    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert payload["base_graph_source"] == "portable_canonical_graph"
+    assert branch_head == payload["version_id"]
+    assert status["graph_ref"] == "refs/minds/marc/branches/main"
+    assert compose_payload["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
+    assert "Marc" in compose_payload["labels"]
+    assert "Python" in compose_payload["labels"]
 
 
 def test_mind_compose_merges_core_graph_and_selected_brainpacks(tmp_path, monkeypatch):
@@ -390,3 +447,59 @@ def test_cli_mind_round_trip_json(tmp_path, capsys, monkeypatch):
     assert mounts_payload["mount_count"] == 5
     assert detach_rc == 0
     assert detach_payload["attachment_count"] == 0
+
+
+def test_cli_mind_ingest_from_detected_json(tmp_path, capsys, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    _seed_detected_chatgpt_artifact(home_dir)
+
+    init_rc = main(
+        ["mind", "init", "marc", "--kind", "person", "--owner", "marc", "--store-dir", str(store_dir), "--json"]
+    )
+    init_payload = json.loads(capsys.readouterr().out)
+
+    ingest_rc = main(
+        [
+            "mind",
+            "ingest",
+            "marc",
+            "--from-detected",
+            "chatgpt",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    ingest_payload = json.loads(capsys.readouterr().out)
+
+    compose_rc = main(
+        [
+            "mind",
+            "compose",
+            "marc",
+            "--to",
+            "chatgpt",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--json",
+        ]
+    )
+    compose_payload = json.loads(capsys.readouterr().out)
+
+    assert init_rc == 0
+    assert init_payload["mind"] == "marc"
+    assert ingest_rc == 0
+    assert ingest_payload["mind"] == "marc"
+    assert ingest_payload["ingested_source_count"] == 1
+    assert ingest_payload["selected_sources"][0]["target"] == "chatgpt"
+    assert compose_rc == 0
+    assert "Python" in compose_payload["labels"]
