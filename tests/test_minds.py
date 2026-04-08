@@ -6,7 +6,9 @@ from cortex.cli import main
 from cortex.graph import CortexGraph, Node
 from cortex.minds import (
     attach_pack_to_mind,
+    clear_default_mind,
     compose_mind,
+    default_mind_status,
     detach_pack_from_mind,
     ingest_detected_sources_into_mind,
     init_mind,
@@ -18,6 +20,8 @@ from cortex.minds import (
     mind_status,
     mount_mind,
     remember_on_mind,
+    resolve_default_mind,
+    set_default_mind,
 )
 from cortex.packs import compile_pack, ingest_pack, init_pack, mount_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph
@@ -103,6 +107,27 @@ def test_mind_list_and_status_round_trip(tmp_path):
     assert status["attached_mounted_targets"] == []
     assert "manifest.json" in status["layout"]["files"]
     assert "refs" in status["layout"]["directories"]
+
+
+def test_default_mind_round_trip(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+
+    set_payload = set_default_mind(store_dir, "marc")
+    status_payload = default_mind_status(store_dir)
+    list_payload = list_minds(store_dir)
+    mind_payload = mind_status(store_dir, "marc")
+
+    assert set_payload["configured"] is True
+    assert status_payload["mind"] == "marc"
+    assert resolve_default_mind(store_dir) == "marc"
+    assert list_payload["minds"][0]["is_default"] is True
+    assert mind_payload["is_default"] is True
+
+    clear_payload = clear_default_mind(store_dir)
+    assert clear_payload["configured"] is False
+    assert resolve_default_mind(store_dir) is None
 
 
 def test_mind_attach_and_detach_pack_updates_status_metadata(tmp_path, monkeypatch):
@@ -514,6 +539,34 @@ def test_cli_mind_round_trip_json(tmp_path, capsys, monkeypatch):
     assert mounts_payload["mount_count"] == 5
     assert detach_rc == 0
     assert detach_payload["attachment_count"] == 0
+
+
+def test_cli_mind_default_round_trip_json(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    init_rc = main(
+        ["mind", "init", "marc", "--kind", "person", "--owner", "marc", "--store-dir", str(store_dir), "--json"]
+    )
+    init_payload = json.loads(capsys.readouterr().out)
+
+    set_rc = main(["mind", "default", "marc", "--store-dir", str(store_dir), "--json"])
+    set_payload = json.loads(capsys.readouterr().out)
+
+    status_rc = main(["mind", "default", "--store-dir", str(store_dir), "--json"])
+    status_payload = json.loads(capsys.readouterr().out)
+
+    clear_rc = main(["mind", "default", "--clear", "--store-dir", str(store_dir), "--json"])
+    clear_payload = json.loads(capsys.readouterr().out)
+
+    assert init_rc == 0
+    assert init_payload["mind"] == "marc"
+    assert set_rc == 0
+    assert set_payload["mind"] == "marc"
+    assert status_rc == 0
+    assert status_payload["configured"] is True
+    assert status_payload["mind"] == "marc"
+    assert clear_rc == 0
+    assert clear_payload["configured"] is False
 
 
 def test_cli_mind_ingest_from_detected_json(tmp_path, capsys, monkeypatch):

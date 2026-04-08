@@ -1216,6 +1216,12 @@ def build_parser(*, show_all_commands: bool = False):
     mind_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_status.add_argument("--format", choices=["json", "text"], default="text")
 
+    mind_default = mind_sub.add_parser("default", help="Show, set, or clear the default Cortex Mind")
+    mind_default.add_argument("name", nargs="?", help="Mind id to set as the default")
+    mind_default.add_argument("--clear", action="store_true", help="Clear the configured default Mind")
+    mind_default.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_default.add_argument("--format", choices=["json", "text"], default="text")
+
     mind_ingest = mind_sub.add_parser("ingest", help="Adopt detected local context directly into a Cortex Mind")
     mind_ingest.add_argument("name", help="Mind id")
     mind_ingest.add_argument(
@@ -4243,6 +4249,7 @@ def run_remote(args):
 def run_sync(args):
     """Disclosure-filtered export via platform adapters or smart portability sync."""
     if getattr(args, "smart", False):
+        from cortex.minds import resolve_default_mind, sync_mind_compatibility_targets
         from cortex.portable_runtime import (
             ALL_PORTABLE_TARGETS,
             default_output_dir,
@@ -4252,6 +4259,32 @@ def run_sync(args):
         )
 
         store_dir = Path(args.store_dir)
+        try:
+            default_mind = resolve_default_mind(store_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if default_mind:
+            project_dir = Path(args.project) if args.project else Path.cwd()
+            try:
+                payload = sync_mind_compatibility_targets(
+                    store_dir,
+                    default_mind,
+                    targets=ALL_PORTABLE_TARGETS,
+                    project_dir=project_dir,
+                    smart=True,
+                    policy_name=args.policy,
+                    max_chars=args.max_chars,
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                return _error(str(exc))
+            if _emit_result(payload, args.format) == 0:
+                return 0
+            _echo(f"Smart context sync complete via default Mind `{default_mind}`:")
+            for target in payload["targets"]:
+                label = target["target"]
+                _echo(f"  {label:<12} → {', '.join(target['route_tags']) or 'default route'}")
+            return 0
+
         state = load_portability_state(store_dir)
         graph, graph_path = load_canonical_graph(store_dir, state)
         if not graph.nodes:
@@ -4883,8 +4916,15 @@ def run_context_write(args):
 def run_portable(args):
     """One-command portability flow: load or extract context, then install it across tools."""
     from cortex.hooks import _load_graph as load_graph_optional
+    from cortex.minds import (
+        adopt_graph_into_mind,
+        load_mind_core_graph,
+        resolve_default_mind,
+        sync_mind_compatibility_targets,
+    )
     from cortex.portability import resolve_portable_targets
     from cortex.portable_runtime import (
+        merge_graphs,
         save_canonical_graph,
         sync_targets,
     )
@@ -4963,6 +5003,10 @@ def run_portable(args):
 
     output_dir = Path(args.output)
     store_dir = Path(args.store_dir)
+    try:
+        default_mind = resolve_default_mind(store_dir)
+    except (FileNotFoundError, ValueError) as exc:
+        return _error(str(exc))
 
     identity = None
     identity_path = store_dir / "identity.json"
@@ -4972,48 +5016,93 @@ def run_portable(args):
         identity = UPAIIdentity.load(store_dir)
 
     graph_path_for_installs = output_dir / "context.json"
-    if not args.dry_run:
+    if default_mind:
         try:
-            state, graph_path_for_installs = save_canonical_graph(
-                store_dir, graph, graph_path=output_dir / "context.json"
-            )
-            payload = sync_targets(
-                graph,
-                targets=targets,
-                store_dir=store_dir,
-                project_dir=str(project_dir),
-                output_dir=output_dir,
-                graph_path=graph_path_for_installs,
-                policy_name=args.policy,
-                smart=False,
-                max_chars=args.max_chars,
-                dry_run=False,
-                state=state,
-                identity=identity,
-            )
+            if args.dry_run:
+                base_payload = load_mind_core_graph(store_dir, default_mind)
+                payload = sync_mind_compatibility_targets(
+                    store_dir,
+                    default_mind,
+                    targets=targets,
+                    project_dir=project_dir,
+                    smart=False,
+                    policy_name=args.policy,
+                    max_chars=args.max_chars,
+                    output_dir=output_dir,
+                    persist_state=False,
+                    graph=merge_graphs(base_payload["graph"], graph),
+                    graph_ref=str(base_payload["graph_ref"]),
+                    graph_source="default_mind_preview",
+                )
+            else:
+                adopted = adopt_graph_into_mind(
+                    store_dir,
+                    default_mind,
+                    graph,
+                    message=f"Portable adoption into default Mind `{default_mind}`",
+                    source="compat.portable",
+                )
+                payload = sync_mind_compatibility_targets(
+                    store_dir,
+                    default_mind,
+                    targets=targets,
+                    project_dir=project_dir,
+                    smart=False,
+                    policy_name=args.policy,
+                    max_chars=args.max_chars,
+                    output_dir=output_dir,
+                )
+                payload["branch"] = adopted["branch"]
+                payload["branch_name"] = adopted["branch_name"]
+                payload["version_id"] = adopted["version_id"]
+            graph_path_for_installs = Path(payload["graph_path"])
         except PermissionError:
             return _permission_error(output_dir, action="write portability files")
         except OSError as exc:
             return _error(f"Could not write portability files into {output_dir}: {exc}")
     else:
-        payload = {
-            "source": detected_kind,
-            "input_path": str(input_path),
-            "graph_path": str(output_dir / "context.json"),
-            "targets": sync_targets(
-                graph,
-                targets=targets,
-                store_dir=store_dir,
-                project_dir=str(project_dir),
-                output_dir=output_dir,
-                graph_path=output_dir / "context.json",
-                policy_name=args.policy,
-                smart=False,
-                max_chars=args.max_chars,
-                dry_run=True,
-                identity=identity,
-            )["targets"],
-        }
+        if not args.dry_run:
+            try:
+                state, graph_path_for_installs = save_canonical_graph(
+                    store_dir, graph, graph_path=output_dir / "context.json"
+                )
+                payload = sync_targets(
+                    graph,
+                    targets=targets,
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=graph_path_for_installs,
+                    policy_name=args.policy,
+                    smart=False,
+                    max_chars=args.max_chars,
+                    dry_run=False,
+                    state=state,
+                    identity=identity,
+                )
+            except PermissionError:
+                return _permission_error(output_dir, action="write portability files")
+            except OSError as exc:
+                return _error(f"Could not write portability files into {output_dir}: {exc}")
+        else:
+            payload = {
+                "source": detected_kind,
+                "input_path": str(input_path),
+                "graph_path": str(output_dir / "context.json"),
+                "targets": sync_targets(
+                    graph,
+                    targets=targets,
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=output_dir / "context.json",
+                    policy_name=args.policy,
+                    smart=False,
+                    max_chars=args.max_chars,
+                    dry_run=True,
+                    identity=identity,
+                )["targets"],
+            }
 
     payload = {
         **payload,
@@ -5022,6 +5111,9 @@ def run_portable(args):
         "context_path": str(graph_path_for_installs),
         "target_count": len(payload.get("targets", [])),
     }
+    if default_mind:
+        payload["mind"] = default_mind
+        payload["compatibility_mode"] = "default_mind"
     if extracted_stats is not None:
         payload["extracted"] = extracted_stats
     if detected_payload is not None:
@@ -5032,6 +5124,8 @@ def run_portable(args):
         return 0
 
     _echo("Portable context ready:")
+    if default_mind:
+        _echo(f"  default Mind: {default_mind}")
     _echo(f"  context: {graph_path_for_installs}" + (" (dry-run)" if args.dry_run else ""))
     _echo(f"  source: {detected_kind}")
     if extracted_stats is not None and (args.verbose or True):
@@ -5372,7 +5466,9 @@ def run_pack(args):
 def run_mind(args):
     from cortex.minds import (
         attach_pack_to_mind,
+        clear_default_mind,
         compose_mind,
+        default_mind_status,
         detach_pack_from_mind,
         ingest_detected_sources_into_mind,
         init_mind,
@@ -5381,6 +5477,7 @@ def run_mind(args):
         mind_status,
         mount_mind,
         remember_on_mind,
+        set_default_mind,
     )
 
     if args.mind_subcommand == "init":
@@ -5411,11 +5508,31 @@ def run_mind(args):
             return 0
         _echo(f"Found {payload['count']} Mind(s):\n")
         for item in payload["minds"]:
+            suffix = "  default" if item.get("is_default") else ""
             _echo(
                 f"  {item['mind']:<18} {item['kind']:<8} "
                 f"{item['attachment_count']:>2} packs  {item['mount_count']:>2} mounts  "
-                f"{item['current_branch']}"
+                f"{item['current_branch']}{suffix}"
             )
+        return 0
+
+    if args.mind_subcommand == "default":
+        store_dir = Path(args.store_dir)
+        try:
+            if args.clear:
+                payload = clear_default_mind(store_dir)
+            elif args.name:
+                payload = set_default_mind(store_dir, args.name)
+            else:
+                payload = default_mind_status(store_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            return _error(str(exc))
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        if payload["configured"]:
+            _echo(f"Default Mind: `{payload['mind']}` ({payload['source']})")
+        else:
+            _echo("No default Mind configured.")
         return 0
 
     if args.mind_subcommand == "ingest":
@@ -5485,6 +5602,7 @@ def run_mind(args):
                     f"{payload['attached_mount_count']} attached pack mounts",
                     f"{payload['mount_count']} direct mind mounts",
                     payload["default_disclosure"],
+                    "default" if payload.get("is_default") else "non-default",
                 ]
             )
         )
@@ -5665,7 +5783,7 @@ def run_mind(args):
         return 0
 
     return _error(
-        "Specify a mind subcommand: init, list, status, ingest, remember, attach-pack, detach-pack, compose, mount, mounts"
+        "Specify a mind subcommand: init, list, status, default, ingest, remember, attach-pack, detach-pack, compose, mount, mounts"
     )
 
 
@@ -5706,21 +5824,44 @@ def run_scan(args):
 
 
 def run_remember(args):
-    from cortex.portable_runtime import remember_and_sync
+    from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
+    from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
-    payload = remember_and_sync(
-        args.statement,
-        store_dir=Path(args.store_dir),
-        project_dir=Path(args.project) if args.project else Path.cwd(),
-        targets=args.to,
-        smart=args.smart,
-        policy_name=args.policy,
-        max_chars=args.max_chars,
-        dry_run=args.dry_run,
-    )
+    store_dir = Path(args.store_dir)
+    project_dir = Path(args.project) if args.project else Path.cwd()
+    try:
+        default_mind = resolve_default_mind(store_dir)
+    except (FileNotFoundError, ValueError) as exc:
+        return _error(str(exc))
+
+    if default_mind and not args.dry_run:
+        payload = remember_and_sync_default_mind(
+            store_dir,
+            default_mind,
+            statement=args.statement,
+            project_dir=project_dir,
+            targets=list(args.to or ALL_PORTABLE_TARGETS),
+            smart=args.smart,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+        )
+    else:
+        payload = remember_and_sync(
+            args.statement,
+            store_dir=store_dir,
+            project_dir=project_dir,
+            targets=args.to,
+            smart=args.smart,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+            dry_run=args.dry_run,
+        )
     if _emit_result(payload, args.format) == 0:
         return 0
-    _echo("Remembered once. Updated:")
+    if default_mind and not args.dry_run:
+        _echo(f"Remembered once via default Mind `{default_mind}`. Updated:")
+    else:
+        _echo("Remembered once. Updated:")
     for target in payload["targets"]:
         joined = ", ".join(target["paths"]) if target["paths"] else "(no files)"
         _echo(f"  {target['target']:<12} → {joined}")

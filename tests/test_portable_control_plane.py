@@ -10,6 +10,7 @@ from cortex.cli import main
 from cortex.context import CORTEX_END, CORTEX_START
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.hermes_integration import HERMES_CONFIG_END, HERMES_CONFIG_START
+from cortex.minds import compose_mind, init_mind, set_default_mind
 
 
 def _write_graph(path: Path, rows: list[tuple[str, str, str]]) -> None:
@@ -205,6 +206,163 @@ def test_build_and_smart_sync_cover_github_manifest_and_git_history(tmp_path, ca
     assert "chatgpt" in sync_targets
     assert "copilot" in sync_targets
     assert "grok" in sync_targets
+
+
+def test_default_mind_remember_routes_through_mind_and_updates_targets(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    set_default_mind(store_dir, "marc")
+
+    rc = main(
+        [
+            "remember",
+            "I prefer concise, implementation-first responses.",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    composed = compose_mind(
+        store_dir,
+        "marc",
+        target="chatgpt",
+        project_dir=str(project_dir),
+        smart=True,
+    )
+
+    assert rc == 0
+    assert payload["mind"] == "marc"
+    assert payload["compatibility_mode"] == "default_mind"
+    assert payload["statement"] == "I prefer concise, implementation-first responses."
+    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert {item["target"] for item in payload["targets"]} == {
+        "claude",
+        "claude-code",
+        "chatgpt",
+        "codex",
+        "cursor",
+        "copilot",
+        "grok",
+        "hermes",
+        "windsurf",
+        "gemini",
+    }
+    assert composed["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
+    assert "Concise" in json.dumps(composed)
+
+
+def test_default_mind_smart_sync_uses_mind_graph(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    set_default_mind(store_dir, "marc")
+    main(
+        [
+            "mind",
+            "remember",
+            "marc",
+            "I prefer concise, implementation-first responses.",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "sync",
+            "--smart",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["mind"] == "marc"
+    assert payload["compatibility_mode"] == "default_mind"
+    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert payload["fact_count"] > 0
+    assert {item["target"] for item in payload["targets"]} >= {"chatgpt", "codex", "cursor", "hermes"}
+
+
+def test_default_mind_portable_detected_adopts_into_mind(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    chatgpt_dir = home_dir / "Downloads" / "Exports" / "ChatGPT"
+    chatgpt_dir.mkdir(parents=True)
+    (chatgpt_dir / "custom_instructions.json").write_text(
+        json.dumps(
+            {
+                "what_chatgpt_should_know_about_you": "I use Python and FastAPI.",
+                "how_chatgpt_should_respond": "Be concise.",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    set_default_mind(store_dir, "marc")
+
+    rc = main(
+        [
+            "portable",
+            "--from-detected",
+            "chatgpt",
+            "--to",
+            "all",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    composed = compose_mind(
+        store_dir,
+        "marc",
+        target="chatgpt",
+        project_dir=str(project_dir),
+        smart=True,
+    )
+
+    assert rc == 0
+    assert payload["mind"] == "marc"
+    assert payload["compatibility_mode"] == "default_mind"
+    assert payload["detected_source_count"] == 1
+    assert payload["selected_sources"][0]["target"] == "chatgpt"
+    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
+    assert composed["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
+    assert "Python" in composed["labels"]
 
 
 def test_scan_sync_scan_core_loop(tmp_path, capsys, monkeypatch):

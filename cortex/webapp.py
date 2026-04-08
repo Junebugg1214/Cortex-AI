@@ -304,6 +304,7 @@ class MemoryUIBackend:
         policy_name: str = "full",
         max_chars: int = 1500,
     ) -> dict[str, Any]:
+        from cortex.minds import resolve_default_mind, sync_mind_compatibility_targets
         from cortex.portable_runtime import (
             ALL_PORTABLE_TARGETS,
             canonical_target_name,
@@ -314,6 +315,20 @@ class MemoryUIBackend:
         )
 
         project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        default_mind = resolve_default_mind(self.store_dir)
+        if default_mind:
+            payload = sync_mind_compatibility_targets(
+                self.store_dir,
+                default_mind,
+                targets=[canonical_target_name(target) for target in (targets or ALL_PORTABLE_TARGETS)],
+                project_dir=project_path,
+                smart=smart,
+                policy_name=policy_name,
+                max_chars=max_chars,
+            )
+            payload["status"] = "ok"
+            return payload
+
         state = load_portability_state(self.store_dir)
         canonical_graph, graph_path = load_canonical_graph(self.store_dir, state)
         if not canonical_graph.nodes:
@@ -352,20 +367,34 @@ class MemoryUIBackend:
         policy_name: str = "full",
         max_chars: int = 1500,
     ) -> dict[str, Any]:
-        from cortex.portable_runtime import remember_and_sync
+        from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
+        from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
         if not statement.strip():
             raise ValueError("statement is required")
         project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
-        payload = remember_and_sync(
-            statement.strip(),
-            store_dir=self.store_dir,
-            project_dir=project_path,
-            targets=targets,
-            smart=smart,
-            policy_name=policy_name,
-            max_chars=max_chars,
-        )
+        default_mind = resolve_default_mind(self.store_dir)
+        if default_mind:
+            payload = remember_and_sync_default_mind(
+                self.store_dir,
+                default_mind,
+                statement=statement.strip(),
+                project_dir=project_path,
+                targets=list(targets or ALL_PORTABLE_TARGETS),
+                smart=smart,
+                policy_name=policy_name,
+                max_chars=max_chars,
+            )
+        else:
+            payload = remember_and_sync(
+                statement.strip(),
+                store_dir=self.store_dir,
+                project_dir=project_path,
+                targets=targets,
+                smart=smart,
+                policy_name=policy_name,
+                max_chars=max_chars,
+            )
         payload["status"] = "ok"
         return payload
 
