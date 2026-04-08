@@ -1216,6 +1216,46 @@ def build_parser(*, show_all_commands: bool = False):
     mind_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_status.add_argument("--format", choices=["json", "text"], default="text")
 
+    mind_ingest = mind_sub.add_parser("ingest", help="Adopt detected local context directly into a Cortex Mind")
+    mind_ingest.add_argument("name", help="Mind id")
+    mind_ingest.add_argument(
+        "--from-detected",
+        nargs="+",
+        required=True,
+        help="Explicitly adopt detected local platform sources into the Mind's core graph",
+    )
+    mind_ingest.add_argument("--project", "-d", help="Project directory for detected local sources (default: cwd)")
+    mind_ingest.add_argument(
+        "--search-root",
+        action="append",
+        default=[],
+        help="Extra directory to search for detected exports (repeatable)",
+    )
+    mind_ingest.add_argument(
+        "--include-config-metadata",
+        action="store_true",
+        help="Also ingest detected MCP config metadata; config files are metadata-only by default",
+    )
+    mind_ingest.add_argument(
+        "--include-unmanaged-text",
+        action="store_true",
+        help="Also ingest unmanaged text outside Cortex markers from detected instruction files",
+    )
+    mind_ingest.add_argument("--redact", action="store_true", help="Enable PII redaction for detected local sources")
+    mind_ingest.add_argument("--redact-patterns", help="Custom redaction patterns JSON file")
+    mind_ingest.add_argument(
+        "--no-redact-detected",
+        action="store_true",
+        help="Disable the default PII redaction applied to detected local source adoption",
+    )
+    mind_ingest.add_argument(
+        "--message",
+        default="",
+        help="Optional commit message for the Mind graph update",
+    )
+    mind_ingest.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    mind_ingest.add_argument("--format", choices=["json", "text"], default="text")
+
     mind_attach = mind_sub.add_parser("attach-pack", help="Attach an existing Brainpack to a Cortex Mind")
     mind_attach.add_argument("name", help="Mind id")
     mind_attach.add_argument("pack", help="Brainpack name")
@@ -5323,6 +5363,7 @@ def run_mind(args):
         attach_pack_to_mind,
         compose_mind,
         detach_pack_from_mind,
+        ingest_detected_sources_into_mind,
         init_mind,
         list_mind_mounts,
         list_minds,
@@ -5363,6 +5404,54 @@ def run_mind(args):
                 f"{item['attachment_count']:>2} packs  {item['mount_count']:>2} mounts  "
                 f"{item['current_branch']}"
             )
+        return 0
+
+    if args.mind_subcommand == "ingest":
+        store_dir = Path(args.store_dir)
+        project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
+        try:
+            redactor = _build_pii_redactor(
+                args,
+                default_enabled=not getattr(args, "no_redact_detected", False),
+            )
+        except FileNotFoundError as exc:
+            return _missing_path_error(Path(exc.args[0]), label="Redaction patterns file")
+        if redactor is not None and args.format != "json":
+            if not args.redact:
+                _echo("PII redaction enabled for detected local sources")
+            else:
+                _echo("PII redaction enabled")
+        try:
+            payload = ingest_detected_sources_into_mind(
+                store_dir,
+                args.name,
+                targets=list(getattr(args, "from_detected", []) or []),
+                project_dir=project_dir,
+                extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
+                include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
+                include_unmanaged_text=bool(getattr(args, "include_unmanaged_text", False)),
+                redactor=redactor,
+                message=args.message,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            lines = str(exc).splitlines()
+            return _error(lines[0], hint="\n".join(lines[1:]) or None)
+        if _emit_result(payload, args.format) == 0:
+            return 0
+        _echo(
+            f"Mind `{payload['mind']}` adopted {payload['ingested_source_count']} detected source(s)"
+            f" into branch `{payload['branch']}`"
+        )
+        _echo(
+            "  "
+            + " · ".join(
+                [
+                    f"{payload['graph_node_count']} nodes",
+                    f"{payload['graph_edge_count']} edges",
+                    payload["graph_ref"],
+                ]
+            )
+        )
         return 0
 
     if args.mind_subcommand == "status":
@@ -5529,7 +5618,9 @@ def run_mind(args):
                 _echo(f"    → {path}")
         return 0
 
-    return _error("Specify a mind subcommand: init, list, status, attach-pack, detach-pack, compose, mount, mounts")
+    return _error(
+        "Specify a mind subcommand: init, list, status, ingest, attach-pack, detach-pack, compose, mount, mounts"
+    )
 
 
 def run_scan(args):

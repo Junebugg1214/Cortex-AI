@@ -311,6 +311,52 @@ class CortexMCPServer:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="mind_ingest",
+                title="Ingest Into Mind",
+                description=(
+                    "Adopt detected local platform context directly into a Cortex Mind's core graph "
+                    "instead of the shared portability canonical graph."
+                ),
+                method_name="mind_ingest",
+                input_schema=_object_schema(
+                    {
+                        "name": _string_property("Mind id."),
+                        "targets": {
+                            "type": "array",
+                            "description": "Detected local targets to adopt, such as chatgpt, claude-code, codex, cursor, or hermes.",
+                            "items": {"type": "string"},
+                        },
+                        "project_dir": _string_property(
+                            "Project directory to inspect for detected local sources. Defaults to the current working directory."
+                        ),
+                        "search_roots": {
+                            "type": "array",
+                            "description": "Extra directories to search for detected exports.",
+                            "items": {"type": "string"},
+                        },
+                        "include_config_metadata": _boolean_property(
+                            "When true, include metadata-only MCP config sources."
+                        ),
+                        "include_unmanaged_text": _boolean_property(
+                            "When true, also ingest unmanaged text outside Cortex markers from detected instruction files."
+                        ),
+                        "redact_detected": _boolean_property(
+                            "When true, redact common PII from detected local sources before ingest."
+                        ),
+                        "redact_patterns": {
+                            "type": "object",
+                            "description": "Optional custom PII redaction patterns payload.",
+                            "additionalProperties": True,
+                        },
+                        "message": _string_property("Optional commit message for the Mind graph update."),
+                    },
+                    required=("name", "targets"),
+                    include_namespace=False,
+                ),
+                read_only=False,
+                namespace_param=False,
+            ),
+            self._service_tool(
                 name="mind_compose",
                 title="Compose Mind",
                 description="Compose a target-aware runtime slice from a Cortex Mind using its base graph and attached Brainpacks.",
