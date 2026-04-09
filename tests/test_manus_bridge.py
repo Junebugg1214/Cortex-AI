@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from cortex.config import APIKeyConfig
-from cortex.manus_bridge import configure_manus_toolset, dispatch_manus_request, main, start_manus_bridge_server
+from cortex.manus_bridge import (
+    DEFAULT_MANUS_PROTOCOL_VERSION,
+    configure_manus_toolset,
+    dispatch_manus_request,
+    main,
+    start_manus_bridge_server,
+)
 from cortex.mcp import CortexMCPServer
 from cortex.minds import init_mind, remember_on_mind
 from cortex.packs import compile_pack, ingest_pack, init_pack
@@ -70,6 +76,7 @@ def test_manus_bridge_default_toolset_supports_initialize_list_and_compose(tmp_p
 
     assert initialize_status == 200
     assert initialize_payload["result"]["serverInfo"]["name"] == "Cortex"
+    assert initialize_payload["result"]["protocolVersion"] == DEFAULT_MANUS_PROTOCOL_VERSION
     assert list_status == 200
     tool_names = [tool["name"] for tool in list_payload["result"]["tools"]]
     assert "mind_compose" in tool_names
@@ -78,6 +85,49 @@ def test_manus_bridge_default_toolset_supports_initialize_list_and_compose(tmp_p
     structured = compose_payload["result"]["structuredContent"]
     assert structured["mind"] == "marc"
     assert structured["base_graph_node_count"] >= 1
+
+
+def test_manus_bridge_auto_initializes_before_tools_list(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    list_status, list_payload = dispatch_manus_request(server, payload=_jsonrpc("tools/list", request_id=21))
+
+    assert list_status == 200
+    assert "tools" in list_payload["result"]
+    assert server._initialize_seen is True
+
+
+def test_manus_bridge_auto_initializes_before_tools_call(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    remember_on_mind(store_dir, "marc", statement="I am Marc Saint-Jour.")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    compose_status, compose_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc(
+            "tools/call",
+            request_id=22,
+            params={
+                "name": "mind_compose",
+                "arguments": {
+                    "name": "marc",
+                    "target": "codex",
+                    "task": "support",
+                    "smart": True,
+                    "max_chars": 900,
+                },
+            },
+        ),
+    )
+
+    assert compose_status == 200
+    assert compose_payload["result"]["structuredContent"]["mind"] == "marc"
+    assert server._initialize_seen is True
 
 
 def test_manus_bridge_supports_2024_protocol_clients(tmp_path):
@@ -93,6 +143,36 @@ def test_manus_bridge_supports_2024_protocol_clients(tmp_path):
 
     assert initialize_status == 200
     assert initialize_payload["result"]["protocolVersion"] == "2024-11-05"
+
+
+def test_manus_bridge_pins_newer_protocol_clients_to_2024_revision(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    initialize_status, initialize_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("initialize", request_id=12, params={"protocolVersion": "2025-11-25"}),
+    )
+
+    assert initialize_status == 200
+    assert initialize_payload["result"]["protocolVersion"] == DEFAULT_MANUS_PROTOCOL_VERSION
+
+
+def test_manus_bridge_pins_unknown_protocol_clients_to_2024_revision(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    initialize_status, initialize_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("initialize", request_id=13, params={"protocolVersion": "2024-10-07"}),
+    )
+
+    assert initialize_status == 200
+    assert initialize_payload["result"]["protocolVersion"] == DEFAULT_MANUS_PROTOCOL_VERSION
 
 
 def test_manus_bridge_can_expose_write_tools_explicitly(tmp_path):
@@ -250,6 +330,7 @@ def test_manus_bridge_http_server_supports_auth_and_round_trip(tmp_path):
         with urllib.request.urlopen(initialize, timeout=2.0) as response:
             initialize_payload = json.loads(response.read().decode("utf-8"))
         assert initialize_payload["result"]["serverInfo"]["name"] == "Cortex"
+        assert initialize_payload["result"]["protocolVersion"] == DEFAULT_MANUS_PROTOCOL_VERSION
 
         tool_call = urllib.request.Request(
             url,
@@ -324,6 +405,7 @@ def test_manus_bridge_check_outputs_mcp_path_and_tool_count(tmp_path, capsys):
     assert rc == 0
     assert "Bridge:    Manus custom MCP over HTTP" in captured
     assert "MCP path:  /mcp" in captured
+    assert f"Protocol:  {DEFAULT_MANUS_PROTOCOL_VERSION}" in captured
     assert "Tool count:" in captured
 
 

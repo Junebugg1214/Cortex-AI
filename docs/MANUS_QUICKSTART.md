@@ -4,7 +4,9 @@ Cortex can work with Manus through a hosted custom MCP server.
 
 The key constraint is that Manus expects a custom MCP server reachable over **HTTPS**, while `cortex-mcp` is a local stdio server. The `cortex-manus` bridge solves that by exposing a Manus-friendly HTTP MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
 
-The bridge now negotiates both the current Cortex MCP protocol revisions and the older `2024-11-05` revision that some hosted MCP clients still use, including Manus tooling that has not yet upgraded to the latest MCP spec.
+The bridge now defaults to the older `2024-11-05` MCP revision for Manus compatibility, even if a client asks for a newer Cortex-supported revision. You can override that with `--protocol-version`, but the default is intentionally conservative because some Manus runtimes still reject newer MCP revisions.
+
+The bridge also auto-initializes the Cortex MCP session before Manus tool calls if the client skips or loses the normal MCP initialize handshake. That keeps stateless or reconnecting Manus sessions from failing with `Cortex MCP server must be initialized before calling tools`.
 
 The bridge is intentionally safer by default than a quick local demo:
 
@@ -57,6 +59,12 @@ Run it locally:
 
 ```bash
 cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
+```
+
+If you need to override the pinned Manus protocol explicitly:
+
+```bash
+cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790 --protocol-version 2024-11-05
 ```
 
 You will see an MCP endpoint like:
