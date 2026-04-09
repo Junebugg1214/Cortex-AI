@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -124,6 +126,61 @@ def test_manus_bridge_can_expose_write_tools_explicitly(tmp_path):
     assert compose_payload["result"]["structuredContent"]["base_graph_node_count"] >= 1
 
 
+def test_manus_bridge_read_only_auth_blocks_write_tool(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    server._initialize_seen = True
+    configure_manus_toolset(server, include_write_tools=True)
+
+    remember_status, remember_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc(
+            "tools/call",
+            request_id=6,
+            params={
+                "name": "mind_remember",
+                "arguments": {
+                    "name": "marc",
+                    "statement": "I prefer concise updates.",
+                },
+            },
+        ),
+        api_keys=(APIKeyConfig(name="reader", token="reader-token", scopes=("read",), namespaces=("*",)),),
+        headers={"Authorization": "Bearer reader-token"},
+    )
+
+    assert remember_status == 403
+    assert remember_payload["error"]["code"] == -32001
+    assert "does not allow scope 'write'" in remember_payload["error"]["message"]
+
+
+def test_manus_bridge_batch_namespace_conflict_returns_structured_error(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    server = CortexMCPServer(store_dir=store_dir)
+
+    status, payload = dispatch_manus_request(
+        server,
+        payload=[
+            _jsonrpc(
+                "tools/call",
+                request_id=7,
+                params={"name": "mind_status", "arguments": {"name": "marc", "namespace": "team-a"}},
+            ),
+            _jsonrpc(
+                "tools/call",
+                request_id=8,
+                params={"name": "mind_status", "arguments": {"name": "marc", "namespace": "team-b"}},
+            ),
+        ],
+    )
+
+    assert status == 400
+    assert [item["id"] for item in payload] == [7, 8]
+    assert all(item["error"]["code"] == -32602 for item in payload)
+    assert "must not span multiple namespaces" in payload[0]["error"]["message"]
+
+
 def test_manus_bridge_http_server_supports_auth_and_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"
@@ -212,6 +269,38 @@ def test_manus_bridge_http_server_supports_auth_and_round_trip(tmp_path):
         thread.join(timeout=5)
 
 
+def test_manus_bridge_unknown_get_path_returns_404(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+
+    try:
+        httpd, url, _ = start_manus_bridge_server(
+            host="127.0.0.1",
+            port=0,
+            store_dir=store_dir,
+        )
+    except PermissionError as exc:
+        pytest.skip(f"local socket binding is not available in this environment: {exc}")
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        invalid_url = url.removesuffix("/mcp") + "/unknown"
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(invalid_url, timeout=2.0)
+        assert exc_info.value.code == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def test_manus_bridge_rejects_non_loopback_without_auth(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    with pytest.raises(ValueError, match="Refusing to bind the Manus bridge to a non-loopback host without API keys"):
+        start_manus_bridge_server(host="0.0.0.0", port=0, store_dir=store_dir)
+
+
 def test_manus_bridge_check_outputs_mcp_path_and_tool_count(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     rc = main(["--store-dir", str(store_dir), "--check"])
@@ -221,3 +310,39 @@ def test_manus_bridge_check_outputs_mcp_path_and_tool_count(tmp_path, capsys):
     assert "Bridge:    Manus custom MCP over HTTP" in captured
     assert "MCP path:  /mcp" in captured
     assert "Tool count:" in captured
+
+
+def test_manus_bridge_check_rejects_non_loopback_without_auth(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    rc = main(["--store-dir", str(store_dir), "--host", "0.0.0.0", "--check"])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert "Refusing to bind the Manus bridge to a non-loopback host without API keys" in captured.err
+
+
+def test_manus_bridge_check_allows_explicit_insecure_override(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    rc = main(["--store-dir", str(store_dir), "--host", "0.0.0.0", "--check", "--allow-insecure-no-auth"])
+    captured = capsys.readouterr().out
+
+    assert rc == 0
+    assert "Bridge:    Manus custom MCP over HTTP" in captured
+
+
+def test_manus_bridge_module_cli_check_outputs_diagnostics(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "cortex.manus_bridge", "--store-dir", str(store_dir), "--check"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Bridge:    Manus custom MCP over HTTP" in result.stdout
+    assert "MCP path:  /mcp" in result.stdout
