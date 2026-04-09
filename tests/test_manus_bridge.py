@@ -80,6 +80,21 @@ def test_manus_bridge_default_toolset_supports_initialize_list_and_compose(tmp_p
     assert structured["base_graph_node_count"] >= 1
 
 
+def test_manus_bridge_supports_2024_protocol_clients(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    initialize_status, initialize_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("initialize", request_id=11, params={"protocolVersion": "2024-11-05"}),
+    )
+
+    assert initialize_status == 200
+    assert initialize_payload["result"]["protocolVersion"] == "2024-11-05"
+
+
 def test_manus_bridge_can_expose_write_tools_explicitly(tmp_path):
     store_dir = tmp_path / ".cortex"
     init_mind(store_dir, "marc", kind="person", owner="marc")

@@ -4,6 +4,8 @@ Cortex can work with Manus through a hosted custom MCP server.
 
 The key constraint is that Manus expects a custom MCP server reachable over **HTTPS**, while `cortex-mcp` is a local stdio server. The `cortex-manus` bridge solves that by exposing a Manus-friendly HTTP MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
 
+The bridge now negotiates both the current Cortex MCP protocol revisions and the older `2024-11-05` revision that some hosted MCP clients still use, including Manus tooling that has not yet upgraded to the latest MCP spec.
+
 The bridge is intentionally safer by default than a quick local demo:
 
 - loopback binds like `127.0.0.1` can run without API keys for local development

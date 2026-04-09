@@ -12,7 +12,7 @@ from cortex.release import API_VERSION, MCP_SERVER_NAME, OPENAPI_VERSION, PROJEC
 from cortex.service import MemoryService
 
 JSONRPC_VERSION = "2.0"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-11-05", "2025-11-25")
+SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05", "2025-11-05", "2025-11-25")
 
 _JSON_OBJECT_SCHEMA: dict[str, Any] = {
     "type": "object",
