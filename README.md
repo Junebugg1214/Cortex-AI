@@ -147,6 +147,24 @@ Portable AI notes:
 - detected local-source adoption redacts common PII by default.
 - over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
 
+## Manus Bridge
+
+`cortex-manus` exposes a Manus-friendly hosted MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
+
+Use it when you want Manus to:
+- compose a Cortex Mind at runtime
+- query Brainpacks as specialist cognition
+- inspect portable AI context without starting from zero
+- optionally write back into a Mind when you explicitly expose write tools
+
+Manus bridge commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex-manus --config .cortex/config.toml --check` | Prints bridge diagnostics, exposed tools, and the Manus MCP path before you deploy it. |
+| `cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790` | Runs the hosted Manus bridge locally at `/mcp`. Put it behind HTTPS before connecting it to Manus. |
+| `cortex-manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
+
 ## Brainpacks
 
 Brainpacks are the **specialist cognition subsystem** for a Mind.
@@ -280,6 +298,7 @@ cortex --help-all
 - Portable AI subsystem: [docs/PORTABILITY.md](docs/PORTABILITY.md)
 - Brainpacks subsystem: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
 - Cortex Mind PRD: [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
+- Manus quickstart: [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md)
 - OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
 - OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
 - Hermes quickstart: [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)

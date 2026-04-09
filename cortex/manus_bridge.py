@@ -1,0 +1,410 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+from cortex.auth import authorize_api_key
+from cortex.config import APIKeyConfig, format_startup_diagnostics, load_selfhost_config
+from cortex.mcp import CortexMCPServer, JsonRpcError, ToolDefinition
+
+MANUS_BRIDGE_NAME = "cortex-manus"
+DEFAULT_MANUS_HOST = "127.0.0.1"
+DEFAULT_MANUS_PORT = 8790
+MANUS_MCP_PATHS = ("/", "/mcp")
+MANUS_HEALTH_PATHS = ("/health", "/healthz")
+DEFAULT_MANUS_TOOLS = (
+    "health",
+    "meta",
+    "portability_context",
+    "portability_scan",
+    "portability_status",
+    "portability_audit",
+    "mind_list",
+    "mind_status",
+    "mind_compose",
+    "mind_mounts",
+    "pack_list",
+    "pack_status",
+    "pack_context",
+    "pack_query",
+    "query_search",
+)
+OPTIONAL_MANUS_WRITE_TOOLS = (
+    "mind_ingest",
+    "mind_remember",
+    "mind_mount",
+    "pack_compile",
+    "pack_ask",
+    "pack_lint",
+    "pack_mount",
+)
+
+
+def _json_bytes(payload: Any) -> bytes:
+    return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def _tool_scope(tool: ToolDefinition | None) -> str:
+    if tool is None:
+        return "read"
+    annotations = tool.annotations or {}
+    return "read" if annotations.get("readOnlyHint", False) else "write"
+
+
+def _requested_tool_names(message: Any) -> list[str]:
+    if isinstance(message, list):
+        names: list[str] = []
+        for item in message:
+            names.extend(_requested_tool_names(item))
+        return names
+    if not isinstance(message, dict):
+        return []
+    if str(message.get("method") or "") != "tools/call":
+        return []
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return []
+    tool_name = str(params.get("name") or "").strip()
+    return [tool_name] if tool_name else []
+
+
+def _requested_namespace(server: CortexMCPServer, message: Any) -> str | None:
+    if server.namespace:
+        return server.namespace
+    if isinstance(message, list):
+        namespaces = {
+            namespace for item in message for namespace in [_requested_namespace(server, item)] if namespace is not None
+        }
+        if len(namespaces) > 1:
+            raise ValueError("Batch Manus bridge requests must not span multiple namespaces.")
+        return next(iter(namespaces), None)
+    if not isinstance(message, dict):
+        return None
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return None
+    arguments = params.get("arguments")
+    if isinstance(arguments, dict):
+        namespace = str(arguments.get("namespace") or "").strip()
+        if namespace:
+            return namespace
+    namespace = str(params.get("namespace") or "").strip()
+    return namespace or None
+
+
+def _required_scope(server: CortexMCPServer, message: Any) -> str:
+    scopes = [_tool_scope(server._tools.get(name)) for name in _requested_tool_names(message)]
+    return "write" if "write" in scopes else "read"
+
+
+def _inject_namespace(server: CortexMCPServer, message: Any, namespace: str | None) -> Any:
+    if not namespace or server.namespace or not isinstance(message, dict):
+        return message
+    if str(message.get("method") or "") != "tools/call":
+        return message
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return message
+    tool_name = str(params.get("name") or "").strip()
+    tool = server._tools.get(tool_name)
+    if tool is None:
+        return message
+    properties = dict(tool.input_schema.get("properties") or {})
+    if "namespace" not in properties:
+        return message
+    arguments = params.get("arguments")
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        return message
+    if str(arguments.get("namespace") or "").strip():
+        return message
+    return {
+        **message,
+        "params": {
+            **params,
+            "arguments": {
+                **arguments,
+                "namespace": namespace,
+            },
+        },
+    }
+
+
+def _auth_error_payload(server: CortexMCPServer, message: Any, error: str) -> Any:
+    rpc_error = JsonRpcError(-32001, error)
+    if isinstance(message, list):
+        responses: list[dict[str, Any]] = []
+        for item in message:
+            if isinstance(item, dict):
+                responses.append(server._error_response(item.get("id"), rpc_error))
+        return responses or server._error_response(None, rpc_error)
+    if isinstance(message, dict):
+        return server._error_response(message.get("id"), rpc_error)
+    return server._error_response(None, rpc_error)
+
+
+def select_manus_tools(
+    server: CortexMCPServer,
+    *,
+    include_write_tools: bool = False,
+    extra_tools: list[str] | tuple[str, ...] | None = None,
+) -> tuple[str, ...]:
+    requested: list[str] = list(DEFAULT_MANUS_TOOLS)
+    if include_write_tools:
+        requested.extend(OPTIONAL_MANUS_WRITE_TOOLS)
+    requested.extend(str(item).strip() for item in (extra_tools or []) if str(item).strip())
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    unknown: list[str] = []
+    for name in requested:
+        if name in seen:
+            continue
+        if name not in server._tools:
+            unknown.append(name)
+            continue
+        seen.add(name)
+        ordered.append(name)
+    if unknown:
+        joined = ", ".join(sorted(unknown))
+        raise ValueError(f"Unknown Manus bridge tool(s): {joined}")
+    return tuple(ordered)
+
+
+def configure_manus_toolset(
+    server: CortexMCPServer,
+    *,
+    include_write_tools: bool = False,
+    extra_tools: list[str] | tuple[str, ...] | None = None,
+) -> tuple[str, ...]:
+    allowed = set(
+        select_manus_tools(
+            server,
+            include_write_tools=include_write_tools,
+            extra_tools=extra_tools,
+        )
+    )
+    server._tools = {name: tool for name, tool in server._tools.items() if name in allowed}
+    return tuple(server._tools.keys())
+
+
+def dispatch_manus_request(
+    server: CortexMCPServer,
+    *,
+    payload: Any,
+    headers: dict[str, str] | None = None,
+    api_keys: tuple[APIKeyConfig, ...] = (),
+) -> tuple[int, Any]:
+    headers = headers or {}
+    request_namespace = _requested_namespace(server, payload)
+    decision = authorize_api_key(
+        keys=api_keys,
+        headers=headers,
+        required_scope=_required_scope(server, payload),
+        namespace=request_namespace,
+        namespace_required=request_namespace is not None or server.namespace is not None,
+    )
+    if not decision.allowed:
+        return decision.status_code, _auth_error_payload(server, payload, decision.error)
+
+    effective_payload = payload
+    if decision.namespace:
+        if isinstance(payload, list):
+            effective_payload = [_inject_namespace(server, item, decision.namespace) for item in payload]
+        else:
+            effective_payload = _inject_namespace(server, payload, decision.namespace)
+
+    response = server.handle_message(effective_payload)
+    if response is None:
+        return 202, {}
+    return 200, response
+
+
+def make_manus_handler(
+    server: CortexMCPServer,
+    *,
+    api_keys: tuple[APIKeyConfig, ...] = (),
+) -> type[BaseHTTPRequestHandler]:
+    class ManusBridgeHandler(BaseHTTPRequestHandler):
+        def _write_json(self, status: int, payload: Any) -> None:
+            body = _json_bytes(payload)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path not in MANUS_HEALTH_PATHS:
+                self._write_json(
+                    200,
+                    {
+                        "status": "ok",
+                        "service": MANUS_BRIDGE_NAME,
+                        "mcp_path": "/mcp",
+                        "namespace": server.namespace or "",
+                        "tool_count": len(server._tools),
+                    },
+                )
+                return
+            self._write_json(
+                200,
+                {
+                    "status": "ok",
+                    "service": MANUS_BRIDGE_NAME,
+                    "namespace": server.namespace or "",
+                    "tool_count": len(server._tools),
+                    "auth_required": bool(api_keys),
+                },
+            )
+
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path not in MANUS_MCP_PATHS:
+                self._write_json(404, {"status": "error", "error": "Not found"})
+                return
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_body = self.rfile.read(length) if length > 0 else b""
+            try:
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except json.JSONDecodeError as exc:
+                response = server._error_response(None, JsonRpcError(-32700, f"Parse error: {exc.msg}"))
+                self._write_json(400, response)
+                return
+            status, response = dispatch_manus_request(
+                server,
+                payload=payload,
+                headers={key: value for key, value in self.headers.items()},
+                api_keys=api_keys,
+            )
+            self._write_json(status, response)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+            return
+
+    return ManusBridgeHandler
+
+
+def start_manus_bridge_server(
+    *,
+    host: str,
+    port: int,
+    store_dir: str | Path = ".cortex",
+    context_file: str | Path | None = None,
+    namespace: str | None = None,
+    api_keys: tuple[APIKeyConfig, ...] = (),
+    include_write_tools: bool = False,
+    extra_tools: list[str] | tuple[str, ...] | None = None,
+) -> tuple[ThreadingHTTPServer, str, tuple[str, ...]]:
+    server = CortexMCPServer(store_dir=store_dir, context_file=context_file, namespace=namespace)
+    exposed_tools = configure_manus_toolset(
+        server,
+        include_write_tools=include_write_tools,
+        extra_tools=extra_tools,
+    )
+    httpd = ThreadingHTTPServer((host, port), make_manus_handler(server, api_keys=api_keys))
+    actual_host, actual_port = httpd.server_address
+    return httpd, f"http://{actual_host}:{actual_port}/mcp", exposed_tools
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="cortex-manus",
+        description="Run a Manus-friendly hosted MCP bridge on top of Cortex Minds, Brainpacks, and portable context.",
+    )
+    parser.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
+    parser.add_argument("--context-file", help="Optional default context graph file")
+    parser.add_argument("--namespace", help="Optional namespace to pin the Manus bridge session to")
+    parser.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    parser.add_argument("--host", default=None, help=f"Bind host (default {DEFAULT_MANUS_HOST})")
+    parser.add_argument("--port", type=int, default=None, help=f"Bind port (default {DEFAULT_MANUS_PORT})")
+    parser.add_argument(
+        "--tool",
+        action="append",
+        default=[],
+        help="Expose an additional Cortex MCP tool by name. Repeatable.",
+    )
+    parser.add_argument(
+        "--allow-write-tools",
+        action="store_true",
+        help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
+    )
+    parser.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        config = load_selfhost_config(
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            server_host=args.host or DEFAULT_MANUS_HOST,
+            server_port=args.port if args.port is not None else DEFAULT_MANUS_PORT,
+            mcp_namespace=args.namespace,
+        )
+        preview_server = CortexMCPServer(
+            store_dir=config.store_dir,
+            context_file=config.context_file,
+            namespace=config.mcp_namespace,
+        )
+        exposed_tools = select_manus_tools(
+            preview_server,
+            include_write_tools=args.allow_write_tools,
+            extra_tools=args.tool,
+        )
+    except ValueError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 1
+
+    diagnostics = format_startup_diagnostics(config, mode="server")
+    tool_lines = "\n".join(f"    - {name}" for name in exposed_tools)
+    if args.check:
+        print(
+            diagnostics
+            + "\n  Bridge:    Manus custom MCP over HTTP (deploy behind HTTPS)\n"
+            + f"  MCP path:  /mcp\n  Tool count: {len(exposed_tools)}\n  Tools:\n{tool_lines}"
+        )
+        return 0
+
+    httpd, url, _ = start_manus_bridge_server(
+        host=config.server_host,
+        port=config.server_port,
+        store_dir=config.store_dir,
+        context_file=config.context_file,
+        namespace=config.mcp_namespace,
+        api_keys=config.api_keys,
+        include_write_tools=args.allow_write_tools,
+        extra_tools=args.tool,
+    )
+    print(f"Cortex Manus bridge running at {url}")
+    print("Expose this endpoint over HTTPS before adding it to Manus.")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        httpd.server_close()
+    return 0
+
+
+__all__ = [
+    "DEFAULT_MANUS_TOOLS",
+    "OPTIONAL_MANUS_WRITE_TOOLS",
+    "MANUS_BRIDGE_NAME",
+    "build_parser",
+    "configure_manus_toolset",
+    "dispatch_manus_request",
+    "make_manus_handler",
+    "main",
+    "select_manus_tools",
+    "start_manus_bridge_server",
+]
