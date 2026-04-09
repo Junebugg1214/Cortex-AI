@@ -11,11 +11,12 @@ from urllib.parse import urlparse
 
 from cortex.auth import authorize_api_key
 from cortex.config import APIKeyConfig, format_startup_diagnostics, load_selfhost_config
-from cortex.mcp import CortexMCPServer, JsonRpcError, ToolDefinition
+from cortex.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
 
 MANUS_BRIDGE_NAME = "cortex-manus"
 DEFAULT_MANUS_HOST = "127.0.0.1"
 DEFAULT_MANUS_PORT = 8790
+DEFAULT_MANUS_PROTOCOL_VERSION = "2024-11-05"
 MANUS_MCP_PATHS = ("/", "/mcp")
 MANUS_HEALTH_PATHS = ("/health", "/healthz")
 DEFAULT_MANUS_TOOLS = (
@@ -48,6 +49,57 @@ OPTIONAL_MANUS_WRITE_TOOLS = (
 
 def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def _normalize_manus_initialize(message: Any, *, protocol_version: str) -> Any:
+    if isinstance(message, list):
+        return [_normalize_manus_initialize(item, protocol_version=protocol_version) for item in message]
+    if not isinstance(message, dict):
+        return message
+    if str(message.get("method") or "") != "initialize":
+        return message
+    params = message.get("params")
+    if not isinstance(params, dict):
+        params = {}
+    requested = str(params.get("protocolVersion") or "").strip()
+    negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else protocol_version
+    if negotiated > protocol_version:
+        negotiated = protocol_version
+    return {
+        **message,
+        "params": {
+            **params,
+            "protocolVersion": negotiated,
+        },
+    }
+
+
+def _message_includes_initialize(message: Any) -> bool:
+    if isinstance(message, list):
+        return any(_message_includes_initialize(item) for item in message)
+    if not isinstance(message, dict):
+        return False
+    return str(message.get("method") or "") == "initialize"
+
+
+def _auto_initialize_manus_session(server: CortexMCPServer, *, protocol_version: str) -> None:
+    if server._initialize_seen:
+        return
+    server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": None,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "clientInfo": {
+                    "name": MANUS_BRIDGE_NAME,
+                    "version": "bridge",
+                },
+            },
+        }
+    )
+    server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
 
 def _tool_scope(tool: ToolDefinition | None) -> str:
@@ -230,43 +282,51 @@ def dispatch_manus_request(
     payload: Any,
     headers: dict[str, str] | None = None,
     api_keys: tuple[APIKeyConfig, ...] = (),
+    protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
 ) -> tuple[int, Any]:
     headers = headers or {}
     try:
-        request_namespace = _requested_namespace(server, payload)
+        effective_payload = _normalize_manus_initialize(payload, protocol_version=protocol_version)
+        if not _message_includes_initialize(effective_payload):
+            _auto_initialize_manus_session(server, protocol_version=protocol_version)
+        request_namespace = _requested_namespace(server, effective_payload)
         decision = authorize_api_key(
             keys=api_keys,
             headers=headers,
-            required_scope=_required_scope(server, payload),
+            required_scope=_required_scope(server, effective_payload),
             namespace=request_namespace,
             namespace_required=request_namespace is not None or server.namespace is not None,
         )
         if not decision.allowed:
-            return decision.status_code, _auth_error_payload(server, payload, decision.error)
+            return decision.status_code, _auth_error_payload(server, effective_payload, decision.error)
 
-        effective_payload = payload
         if decision.namespace:
-            if isinstance(payload, list):
-                effective_payload = [_inject_namespace(server, item, decision.namespace) for item in payload]
+            if isinstance(effective_payload, list):
+                effective_payload = [_inject_namespace(server, item, decision.namespace) for item in effective_payload]
             else:
-                effective_payload = _inject_namespace(server, payload, decision.namespace)
+                effective_payload = _inject_namespace(server, effective_payload, decision.namespace)
 
         response = server.handle_message(effective_payload)
         if response is None:
             return 202, {}
         return 200, response
     except ValueError as exc:
-        return 400, _jsonrpc_error_payload(server, payload, JsonRpcError(-32602, str(exc)))
+        return 400, _jsonrpc_error_payload(server, effective_payload, JsonRpcError(-32602, str(exc)))
     except JsonRpcError as exc:
-        return 400, _jsonrpc_error_payload(server, payload, exc)
+        return 400, _jsonrpc_error_payload(server, effective_payload, exc)
     except Exception:
-        return 500, _jsonrpc_error_payload(server, payload, JsonRpcError(-32603, "Internal Manus bridge error"))
+        return 500, _jsonrpc_error_payload(
+            server,
+            effective_payload,
+            JsonRpcError(-32603, "Internal Manus bridge error"),
+        )
 
 
 def make_manus_handler(
     server: CortexMCPServer,
     *,
     api_keys: tuple[APIKeyConfig, ...] = (),
+    protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
 ) -> type[BaseHTTPRequestHandler]:
     class ManusBridgeHandler(BaseHTTPRequestHandler):
         def _write_json(self, status: int, payload: Any) -> None:
@@ -323,6 +383,7 @@ def make_manus_handler(
                 payload=payload,
                 headers={key: value for key, value in self.headers.items()},
                 api_keys=api_keys,
+                protocol_version=protocol_version,
             )
             self._write_json(status, response)
 
@@ -343,7 +404,11 @@ def start_manus_bridge_server(
     include_write_tools: bool = False,
     extra_tools: list[str] | tuple[str, ...] | None = None,
     allow_insecure_no_auth: bool = False,
+    protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
 ) -> tuple[ThreadingHTTPServer, str, tuple[str, ...]]:
+    if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+        joined = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
+        raise ValueError(f"Unsupported Manus bridge protocol version: {protocol_version}. Expected one of: {joined}")
     _validate_bridge_security(
         host=host,
         api_keys=api_keys,
@@ -355,7 +420,14 @@ def start_manus_bridge_server(
         include_write_tools=include_write_tools,
         extra_tools=extra_tools,
     )
-    httpd = ThreadingHTTPServer((host, port), make_manus_handler(server, api_keys=api_keys))
+    httpd = ThreadingHTTPServer(
+        (host, port),
+        make_manus_handler(
+            server,
+            api_keys=api_keys,
+            protocol_version=protocol_version,
+        ),
+    )
     actual_host, actual_port = httpd.server_address
     return httpd, f"http://{actual_host}:{actual_port}/mcp", exposed_tools
 
@@ -386,6 +458,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-insecure-no-auth",
         action="store_true",
         help="Allow a non-loopback bind without API keys. Use only behind a trusted local reverse proxy.",
+    )
+    parser.add_argument(
+        "--protocol-version",
+        default=DEFAULT_MANUS_PROTOCOL_VERSION,
+        choices=SUPPORTED_PROTOCOL_VERSIONS,
+        help=f"Pin the Manus bridge to a negotiated MCP protocol version (default {DEFAULT_MANUS_PROTOCOL_VERSION}).",
     )
     parser.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
     return parser
@@ -427,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             diagnostics
             + "\n  Bridge:    Manus custom MCP over HTTP (deploy behind HTTPS)\n"
-            + f"  MCP path:  /mcp\n  Tool count: {len(exposed_tools)}\n  Tools:\n{tool_lines}"
+            + f"  MCP path:  /mcp\n  Protocol:  {args.protocol_version}\n  Tool count: {len(exposed_tools)}\n  Tools:\n{tool_lines}"
         )
         return 0
 
@@ -441,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         include_write_tools=args.allow_write_tools,
         extra_tools=args.tool,
         allow_insecure_no_auth=args.allow_insecure_no_auth,
+        protocol_version=args.protocol_version,
     )
     print(f"Cortex Manus bridge running at {url}")
     print("Expose this endpoint over HTTPS before adding it to Manus.")
