@@ -19,14 +19,14 @@ def _graph_with_node(node: Node) -> CortexGraph:
     return graph
 
 
-def _initialize(server: CortexMCPServer) -> dict:
+def _initialize(server: CortexMCPServer, *, protocol_version: str = "2025-11-25") -> dict:
     response = server.handle_message(
         {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "initialize",
             "params": {
-                "protocolVersion": "2025-11-25",
+                "protocolVersion": protocol_version,
                 "clientInfo": {"name": "pytest", "version": "1.0"},
             },
         }
@@ -99,6 +99,17 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "channel_prepare_turn",
         "channel_seed_turn_memory",
     } <= names
+
+
+def test_mcp_initialize_supports_2024_protocol_clients(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    backend.versions.commit(_graph_with_node(Node(id="n1", label="Project Atlas")), "baseline")
+
+    server = CortexMCPServer(service=MemoryService(store_dir=store_dir, backend=backend))
+    initialize = _initialize(server, protocol_version="2024-11-05")
+
+    assert initialize["result"]["protocolVersion"] == "2024-11-05"
 
 
 def _portable_export_path(base: Path) -> Path:
