@@ -123,6 +123,37 @@ For production:
 - prefer a pinned `--namespace` when serving a team or workflow-specific bridge
 - keep the default read-oriented toolset unless you explicitly trust Manus to write back
 
+## Troubleshooting
+
+If `cortex-manus` is not found, your local install may predate the Manus entrypoint or your shell may not include the user script directory on `PATH`.
+
+Reinstall from the repo root:
+
+```bash
+python3.11 -m pip install --user --no-build-isolation -e ".[server]"
+```
+
+On macOS, that user install often places the script here:
+
+```text
+~/Library/Python/3.11/bin/cortex-manus
+```
+
+If `which cortex-manus` still fails, add that directory to `PATH`:
+
+```bash
+export PATH="$HOME/Library/Python/3.11/bin:$PATH"
+```
+
+For a permanent fix, add that line to `~/.zshrc`, then run `source ~/.zshrc`.
+
+If `cortex-manus --check` fails with a TOML parse error like `Cannot declare ('runtime',) twice`, open `.cortex/config.toml` and make sure each section appears only once:
+
+- `[runtime]`
+- `[server]`
+- `[mcp]`
+- each `[[auth.keys]]` block
+
 ## Novel Cortex + Manus workflows
 
 ### 1. Manus as a portable operator with a composed Mind
