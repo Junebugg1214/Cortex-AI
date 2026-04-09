@@ -163,6 +163,7 @@ Manus bridge commands:
 | --- | --- |
 | `cortex-manus --config .cortex/config.toml --check` | Prints bridge diagnostics, exposed tools, and the Manus MCP path before you deploy it. |
 | `cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790` | Runs the hosted Manus bridge locally at `/mcp`. Put it behind HTTPS before connecting it to Manus. |
+| `cortex-manus --config .cortex/config.toml --host 0.0.0.0 --check` | Verifies your config and intentionally refuses non-loopback startup unless you configured API keys first. |
 | `cortex-manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
 
 ## Brainpacks

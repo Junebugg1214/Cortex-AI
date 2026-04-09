@@ -4,6 +4,12 @@ Cortex can work with Manus through a hosted custom MCP server.
 
 The key constraint is that Manus expects a custom MCP server reachable over **HTTPS**, while `cortex-mcp` is a local stdio server. The `cortex-manus` bridge solves that by exposing a Manus-friendly HTTP MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
 
+The bridge is intentionally safer by default than a quick local demo:
+
+- loopback binds like `127.0.0.1` can run without API keys for local development
+- non-loopback binds like `0.0.0.0` require Cortex API keys by default
+- `--allow-insecure-no-auth` exists only for trusted local reverse-proxy setups and should not be your normal Manus deployment path
+
 ## What the bridge exposes
 
 By default, `cortex-manus` exposes a safe read-oriented toolset:
@@ -59,6 +65,14 @@ http://127.0.0.1:8790/mcp
 
 For Manus, deploy or proxy that endpoint behind HTTPS.
 
+If you try to bind the bridge to a non-loopback host without auth, Cortex will refuse to start:
+
+```bash
+cortex-manus --config .cortex/config.toml --host 0.0.0.0 --port 8790 --check
+```
+
+Use that refusal as a safety rail, not a nuisance. The correct production fix is to configure API keys in `.cortex/config.toml`, then expose the bridge over HTTPS.
+
 ## Enable write tools
 
 The bridge is read-oriented by default. If you want Manus to update a Mind or Brainpack, opt in explicitly:
@@ -104,6 +118,7 @@ In Manus:
 For production:
 
 - put the bridge behind HTTPS
+- keep API keys configured whenever the bridge is reachable beyond loopback
 - use scoped API keys
 - prefer a pinned `--namespace` when serving a team or workflow-specific bridge
 - keep the default read-oriented toolset unless you explicitly trust Manus to write back

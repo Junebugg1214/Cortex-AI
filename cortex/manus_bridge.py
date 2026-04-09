@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,6 +55,18 @@ def _tool_scope(tool: ToolDefinition | None) -> str:
         return "read"
     annotations = tool.annotations or {}
     return "read" if annotations.get("readOnlyHint", False) else "write"
+
+
+def _jsonrpc_error_payload(server: CortexMCPServer, message: Any, error: JsonRpcError) -> Any:
+    if isinstance(message, list):
+        responses: list[dict[str, Any]] = []
+        for item in message:
+            if isinstance(item, dict):
+                responses.append(server._error_response(item.get("id"), error))
+        return responses or server._error_response(None, error)
+    if isinstance(message, dict):
+        return server._error_response(message.get("id"), error)
+    return server._error_response(None, error)
 
 
 def _requested_tool_names(message: Any) -> list[str]:
@@ -137,16 +150,33 @@ def _inject_namespace(server: CortexMCPServer, message: Any, namespace: str | No
 
 
 def _auth_error_payload(server: CortexMCPServer, message: Any, error: str) -> Any:
-    rpc_error = JsonRpcError(-32001, error)
-    if isinstance(message, list):
-        responses: list[dict[str, Any]] = []
-        for item in message:
-            if isinstance(item, dict):
-                responses.append(server._error_response(item.get("id"), rpc_error))
-        return responses or server._error_response(None, rpc_error)
-    if isinstance(message, dict):
-        return server._error_response(message.get("id"), rpc_error)
-    return server._error_response(None, rpc_error)
+    return _jsonrpc_error_payload(server, message, JsonRpcError(-32001, error))
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip()
+    if not normalized:
+        return False
+    if normalized == "localhost" or normalized.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(normalized.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def _validate_bridge_security(
+    *,
+    host: str,
+    api_keys: tuple[APIKeyConfig, ...],
+    allow_insecure_no_auth: bool = False,
+) -> None:
+    if api_keys or allow_insecure_no_auth or _is_loopback_host(host):
+        return
+    raise ValueError(
+        "Refusing to bind the Manus bridge to a non-loopback host without API keys. "
+        "Configure auth keys or pass --allow-insecure-no-auth only for trusted local reverse-proxy setups."
+    )
 
 
 def select_manus_tools(
@@ -202,28 +232,35 @@ def dispatch_manus_request(
     api_keys: tuple[APIKeyConfig, ...] = (),
 ) -> tuple[int, Any]:
     headers = headers or {}
-    request_namespace = _requested_namespace(server, payload)
-    decision = authorize_api_key(
-        keys=api_keys,
-        headers=headers,
-        required_scope=_required_scope(server, payload),
-        namespace=request_namespace,
-        namespace_required=request_namespace is not None or server.namespace is not None,
-    )
-    if not decision.allowed:
-        return decision.status_code, _auth_error_payload(server, payload, decision.error)
+    try:
+        request_namespace = _requested_namespace(server, payload)
+        decision = authorize_api_key(
+            keys=api_keys,
+            headers=headers,
+            required_scope=_required_scope(server, payload),
+            namespace=request_namespace,
+            namespace_required=request_namespace is not None or server.namespace is not None,
+        )
+        if not decision.allowed:
+            return decision.status_code, _auth_error_payload(server, payload, decision.error)
 
-    effective_payload = payload
-    if decision.namespace:
-        if isinstance(payload, list):
-            effective_payload = [_inject_namespace(server, item, decision.namespace) for item in payload]
-        else:
-            effective_payload = _inject_namespace(server, payload, decision.namespace)
+        effective_payload = payload
+        if decision.namespace:
+            if isinstance(payload, list):
+                effective_payload = [_inject_namespace(server, item, decision.namespace) for item in payload]
+            else:
+                effective_payload = _inject_namespace(server, payload, decision.namespace)
 
-    response = server.handle_message(effective_payload)
-    if response is None:
-        return 202, {}
-    return 200, response
+        response = server.handle_message(effective_payload)
+        if response is None:
+            return 202, {}
+        return 200, response
+    except ValueError as exc:
+        return 400, _jsonrpc_error_payload(server, payload, JsonRpcError(-32602, str(exc)))
+    except JsonRpcError as exc:
+        return 400, _jsonrpc_error_payload(server, payload, exc)
+    except Exception:
+        return 500, _jsonrpc_error_payload(server, payload, JsonRpcError(-32603, "Internal Manus bridge error"))
 
 
 def make_manus_handler(
@@ -242,7 +279,19 @@ def make_manus_handler(
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            if parsed.path not in MANUS_HEALTH_PATHS:
+            if parsed.path in MANUS_HEALTH_PATHS:
+                self._write_json(
+                    200,
+                    {
+                        "status": "ok",
+                        "service": MANUS_BRIDGE_NAME,
+                        "namespace": server.namespace or "",
+                        "tool_count": len(server._tools),
+                        "auth_required": bool(api_keys),
+                    },
+                )
+                return
+            if parsed.path in MANUS_MCP_PATHS:
                 self._write_json(
                     200,
                     {
@@ -254,16 +303,7 @@ def make_manus_handler(
                     },
                 )
                 return
-            self._write_json(
-                200,
-                {
-                    "status": "ok",
-                    "service": MANUS_BRIDGE_NAME,
-                    "namespace": server.namespace or "",
-                    "tool_count": len(server._tools),
-                    "auth_required": bool(api_keys),
-                },
-            )
+            self._write_json(404, {"status": "error", "error": "Not found"})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -302,7 +342,13 @@ def start_manus_bridge_server(
     api_keys: tuple[APIKeyConfig, ...] = (),
     include_write_tools: bool = False,
     extra_tools: list[str] | tuple[str, ...] | None = None,
+    allow_insecure_no_auth: bool = False,
 ) -> tuple[ThreadingHTTPServer, str, tuple[str, ...]]:
+    _validate_bridge_security(
+        host=host,
+        api_keys=api_keys,
+        allow_insecure_no_auth=allow_insecure_no_auth,
+    )
     server = CortexMCPServer(store_dir=store_dir, context_file=context_file, namespace=namespace)
     exposed_tools = configure_manus_toolset(
         server,
@@ -336,6 +382,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
     )
+    parser.add_argument(
+        "--allow-insecure-no-auth",
+        action="store_true",
+        help="Allow a non-loopback bind without API keys. Use only behind a trusted local reverse proxy.",
+    )
     parser.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
     return parser
 
@@ -361,6 +412,11 @@ def main(argv: list[str] | None = None) -> int:
             include_write_tools=args.allow_write_tools,
             extra_tools=args.tool,
         )
+        _validate_bridge_security(
+            host=config.server_host,
+            api_keys=config.api_keys,
+            allow_insecure_no_auth=args.allow_insecure_no_auth,
+        )
     except ValueError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
@@ -384,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
         api_keys=config.api_keys,
         include_write_tools=args.allow_write_tools,
         extra_tools=args.tool,
+        allow_insecure_no_auth=args.allow_insecure_no_auth,
     )
     print(f"Cortex Manus bridge running at {url}")
     print("Expose this endpoint over HTTPS before adding it to Manus.")
@@ -408,3 +465,7 @@ __all__ = [
     "select_manus_tools",
     "start_manus_bridge_server",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised by module CLI smoke tests
+    raise SystemExit(main())
