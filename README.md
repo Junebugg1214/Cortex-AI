@@ -166,6 +166,8 @@ Manus bridge commands:
 | `cortex-manus --config .cortex/config.toml --host 0.0.0.0 --check` | Verifies your config and intentionally refuses non-loopback startup unless you configured API keys first. |
 | `cortex-manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
 
+If `cortex-manus` is missing after a local source install, reinstall with `python3.11 -m pip install --user --no-build-isolation -e ".[server]"` and add `~/Library/Python/3.11/bin` to `PATH` on macOS if needed. See [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md) for the full troubleshooting steps.
+
 ## Brainpacks
 
 Brainpacks are the **specialist cognition subsystem** for a Mind.
