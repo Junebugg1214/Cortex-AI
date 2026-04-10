@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 
+import pytest
+
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
 from cortex.minds import (
@@ -116,6 +118,25 @@ def test_mind_list_and_status_round_trip(tmp_path):
     assert status["policies"]["approval_rules"]["merge_to_main_requires_review"] is True
     assert "manifest.json" in status["layout"]["files"]
     assert "refs" in status["layout"]["directories"]
+
+
+def test_mind_namespace_filters_and_enforces_access(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_mind(store_dir, "alpha", kind="person", owner="marc", namespace="team-a")
+    init_mind(store_dir, "beta", kind="agent", owner="cortex", namespace="team-b")
+
+    listing = list_minds(store_dir, namespace="team-a")
+    status = mind_status(store_dir, "alpha", namespace="team-a")
+
+    assert listing["count"] == 1
+    assert listing["minds"][0]["mind"] == "alpha"
+    assert listing["minds"][0]["namespace"] == "team-a"
+    assert status["namespace"] == "team-a"
+    assert status["manifest"]["namespace"] == "team-a"
+
+    with pytest.raises(PermissionError):
+        mind_status(store_dir, "beta", namespace="team-a")
 
 
 def test_default_mind_round_trip(tmp_path):

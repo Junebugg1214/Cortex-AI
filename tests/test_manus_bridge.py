@@ -276,6 +276,63 @@ def test_manus_bridge_batch_namespace_conflict_returns_structured_error(tmp_path
     assert "must not span multiple namespaces" in payload[0]["error"]["message"]
 
 
+def test_manus_bridge_injects_single_namespace_for_namespace_aware_tool(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "alpha", kind="person", owner="marc", namespace="team-a")
+    init_mind(store_dir, "beta", kind="person", owner="marc", namespace="team-b")
+    init_pack(store_dir, "alpha-pack", description="A", owner="marc", namespace="team-a")
+    init_pack(store_dir, "beta-pack", description="B", owner="marc", namespace="team-b")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    mind_status, mind_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("tools/call", request_id=31, params={"name": "mind_list", "arguments": {}}),
+        api_keys=(APIKeyConfig(name="team-a-reader", token="team-a-token", scopes=("read",), namespaces=("team-a",)),),
+        headers={"X-API-Key": "team-a-token"},
+    )
+    pack_status_code, pack_payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("tools/call", request_id=32, params={"name": "pack_list", "arguments": {}}),
+        api_keys=(APIKeyConfig(name="team-b-reader", token="team-b-token", scopes=("read",), namespaces=("team-b",)),),
+        headers={"X-API-Key": "team-b-token"},
+    )
+
+    assert mind_status == 200
+    assert mind_payload["result"]["structuredContent"]["count"] == 1
+    assert mind_payload["result"]["structuredContent"]["minds"][0]["mind"] == "alpha"
+    assert mind_payload["result"]["structuredContent"]["minds"][0]["namespace"] == "team-a"
+    assert pack_status_code == 200
+    assert pack_payload["result"]["structuredContent"]["count"] == 1
+    assert pack_payload["result"]["structuredContent"]["packs"][0]["pack"] == "beta-pack"
+    assert pack_payload["result"]["structuredContent"]["packs"][0]["namespace"] == "team-b"
+
+
+def test_manus_bridge_requires_explicit_namespace_for_multi_namespace_keys_on_namespace_tools(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "alpha", kind="person", owner="marc", namespace="team-a")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+
+    status, payload = dispatch_manus_request(
+        server,
+        payload=_jsonrpc("tools/call", request_id=33, params={"name": "mind_list", "arguments": {}}),
+        api_keys=(
+            APIKeyConfig(
+                name="multi-reader",
+                token="multi-token",
+                scopes=("read",),
+                namespaces=("team-a", "team-b"),
+            ),
+        ),
+        headers={"Authorization": "Bearer multi-token"},
+    )
+
+    assert status == 403
+    assert payload["error"]["code"] == -32001
+    assert "spans multiple namespaces" in payload["error"]["message"]
+
+
 def test_manus_bridge_http_server_supports_auth_and_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "brainpack.md"

@@ -372,6 +372,39 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     assert (openclaw_store / "minds.mounted.json").exists()
 
 
+def test_mcp_namespace_filters_mind_and_pack_tools(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "alpha", kind="person", owner="marc", namespace="team-a")
+    init_mind(store_dir, "beta", kind="person", owner="marc", namespace="team-b")
+    init_pack(store_dir, "alpha-pack", description="A", owner="marc", namespace="team-a")
+    init_pack(store_dir, "beta-pack", description="B", owner="marc", namespace="team-b")
+
+    server = CortexMCPServer(store_dir=store_dir)
+    _initialize(server)
+
+    mind_list_payload = _tool_call(server, tool="mind_list", arguments={"namespace": "team-a"}, request_id=91)[
+        "result"
+    ]["structuredContent"]
+    pack_list_payload = _tool_call(server, tool="pack_list", arguments={"namespace": "team-b"}, request_id=92)[
+        "result"
+    ]["structuredContent"]
+    denied_status = _tool_call(
+        server,
+        tool="mind_status",
+        arguments={"name": "beta", "namespace": "team-a"},
+        request_id=93,
+    )["result"]
+
+    assert mind_list_payload["count"] == 1
+    assert mind_list_payload["minds"][0]["mind"] == "alpha"
+    assert mind_list_payload["minds"][0]["namespace"] == "team-a"
+    assert pack_list_payload["count"] == 1
+    assert pack_list_payload["packs"][0]["pack"] == "beta-pack"
+    assert pack_list_payload["packs"][0]["namespace"] == "team-b"
+    assert denied_status["isError"] is True
+    assert "outside namespace 'team-a'" in denied_status["structuredContent"]["error"]
+
+
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):
     project_dir, store_dir, _ = _seed_portability(tmp_path, monkeypatch)
     backend = build_sqlite_backend(store_dir)

@@ -55,6 +55,7 @@ class MindManifest:
     label: str
     kind: str
     owner: str
+    namespace: str
     created_at: str
     updated_at: str
     default_branch: str = DEFAULT_BRANCH
@@ -89,6 +90,33 @@ def _validate_kind(kind: str) -> str:
 def _default_label(mind_id: str) -> str:
     parts = [part for part in re.split(r"[-_.]+", mind_id.strip()) if part]
     return " ".join(part.capitalize() for part in parts) or mind_id
+
+
+def _normalize_namespace(value: str | None) -> str:
+    cleaned = str(value or "").strip().strip("/")
+    if not cleaned:
+        return ""
+    if cleaned == "*" or " " in cleaned or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", cleaned):
+        raise ValueError(
+            "Namespaces must use letters, numbers, '.', '-', '_', or '/' and must not contain spaces or '*'."
+        )
+    return cleaned
+
+
+def _namespace_matches(item_namespace: str, requested_namespace: str | None) -> bool:
+    if not requested_namespace:
+        return True
+    normalized_item = _normalize_namespace(item_namespace)
+    normalized_requested = _normalize_namespace(requested_namespace)
+    return bool(normalized_item) and (
+        normalized_item == normalized_requested or normalized_item.startswith(f"{normalized_requested}/")
+    )
+
+
+def _require_mind_namespace(manifest: MindManifest, namespace: str | None) -> None:
+    if _namespace_matches(manifest.namespace, namespace):
+        return
+    raise PermissionError(f"Mind '{manifest.id}' is outside namespace '{_normalize_namespace(namespace)}'.")
 
 
 def _read_json(path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
@@ -172,6 +200,7 @@ def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
         label=str(payload["label"]),
         kind=str(payload["kind"]),
         owner=str(payload.get("owner") or ""),
+        namespace=_normalize_namespace(str(payload.get("namespace") or "")),
         created_at=str(payload["created_at"]),
         updated_at=str(payload["updated_at"]),
         default_branch=str(payload.get("default_branch") or DEFAULT_BRANCH),
@@ -187,6 +216,7 @@ def _replace_manifest(store_dir: Path, mind_id: str, *, updated_at: str) -> Mind
         label=manifest.label,
         kind=manifest.kind,
         owner=manifest.owner,
+        namespace=manifest.namespace,
         created_at=manifest.created_at,
         updated_at=updated_at,
         default_branch=manifest.default_branch,
@@ -278,6 +308,7 @@ def init_mind(
     kind: str = "person",
     label: str = "",
     owner: str = "",
+    namespace: str = "",
     default_policy: str = DEFAULT_POLICY,
 ) -> dict[str, Any]:
     normalized_id = _validate_mind_id(mind_id)
@@ -292,6 +323,7 @@ def init_mind(
         label=label.strip() or _default_label(normalized_id),
         kind=normalized_kind,
         owner=owner.strip(),
+        namespace=_normalize_namespace(namespace),
         created_at=created_at,
         updated_at=created_at,
         default_policy=default_policy.strip() or DEFAULT_POLICY,
@@ -469,15 +501,21 @@ def attach_pack_to_mind(
     always_on: bool = False,
     targets: list[str] | None = None,
     task_terms: list[str] | None = None,
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.portable_runtime import canonical_target_name
 
     normalized_mind_id = _validate_mind_id(mind_id)
-    load_mind_manifest(store_dir, normalized_mind_id)
+    manifest = load_mind_manifest(store_dir, normalized_mind_id)
+    _require_mind_namespace(manifest, namespace)
 
     from cortex.packs import load_manifest as load_pack_manifest
 
     pack_manifest = load_pack_manifest(store_dir, pack_name)
+    if not _namespace_matches(pack_manifest.namespace, namespace):
+        raise PermissionError(
+            f"Brainpack '{pack_manifest.name}' is outside namespace '{_normalize_namespace(namespace)}'."
+        )
     attachments_payload = _load_attachments(store_dir, normalized_mind_id)
     records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
     now = _iso_now()
@@ -526,9 +564,16 @@ def attach_pack_to_mind(
     }
 
 
-def detach_pack_from_mind(store_dir: Path, mind_id: str, pack_name: str) -> dict[str, Any]:
+def detach_pack_from_mind(
+    store_dir: Path,
+    mind_id: str,
+    pack_name: str,
+    *,
+    namespace: str | None = None,
+) -> dict[str, Any]:
     normalized_mind_id = _validate_mind_id(mind_id)
-    load_mind_manifest(store_dir, normalized_mind_id)
+    manifest = load_mind_manifest(store_dir, normalized_mind_id)
+    _require_mind_namespace(manifest, namespace)
 
     target = str(pack_name).strip()
     if not target:
@@ -553,7 +598,12 @@ def detach_pack_from_mind(store_dir: Path, mind_id: str, pack_name: str) -> dict
     }
 
 
-def _attachment_details(store_dir: Path, records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+def _attachment_details(
+    store_dir: Path,
+    records: list[dict[str, Any]],
+    *,
+    namespace: str | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
     from cortex.packs import pack_status
 
     details: list[dict[str, Any]] = []
@@ -583,8 +633,8 @@ def _attachment_details(store_dir: Path, records: list[dict[str, Any]]) -> tuple
             "mounted_targets": [],
         }
         try:
-            status = pack_status(store_dir, pack_name)
-        except FileNotFoundError:
+            status = pack_status(store_dir, pack_name, namespace=namespace)
+        except (FileNotFoundError, PermissionError):
             status = None
         if status is not None:
             detail["pack_exists"] = True
@@ -918,6 +968,7 @@ def ingest_detected_sources_into_mind(
     include_unmanaged_text: bool = False,
     redactor: Any | None = None,
     message: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.portable_runtime import extract_graph_from_detected_sources
 
@@ -948,11 +999,13 @@ def ingest_detected_sources_into_mind(
             f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}{unmanaged_hint}"
         )
 
+    manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     adopted = adopt_graph_into_mind(
         store_dir,
-        mind_id,
+        manifest.id,
         detected_payload["graph"],
-        message=message.strip() or f"Adopt detected local context into Mind `{mind_id}`",
+        message=message.strip() or f"Adopt detected local context into Mind `{manifest.id}`",
         source="mind.ingest_detected",
     )
     return {
@@ -970,6 +1023,7 @@ def remember_on_mind(
     *,
     statement: str,
     message: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.portable_runtime import extract_graph_from_statement
 
@@ -977,14 +1031,16 @@ def remember_on_mind(
     if not cleaned:
         raise ValueError("Statement is required.")
 
+    manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     adopted = adopt_graph_into_mind(
         store_dir,
-        mind_id,
+        manifest.id,
         extract_graph_from_statement(cleaned),
-        message=message.strip() or f"Remember on Mind `{mind_id}`",
+        message=message.strip() or f"Remember on Mind `{manifest.id}`",
         source="mind.remember",
     )
-    refresh_payload = _refresh_mind_mounts(store_dir, mind_id)
+    refresh_payload = _refresh_mind_mounts(store_dir, manifest.id)
     return {
         **adopted,
         "statement": cleaned,
@@ -1038,12 +1094,16 @@ def _evaluate_attachment_match(record: dict[str, Any], *, target: str, task: str
 
 
 def _select_brainpacks_for_compose(
-    store_dir: Path, mind_id: str, *, target: str, task: str
+    store_dir: Path, mind_id: str, *, target: str, task: str, namespace: str | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     from cortex.portable_runtime import canonical_target_name
 
     attachments = _load_attachments(store_dir, mind_id)
-    attachment_details, _ = _attachment_details(store_dir, [dict(item) for item in attachments.get("brainpacks", [])])
+    attachment_details, _ = _attachment_details(
+        store_dir,
+        [dict(item) for item in attachments.get("brainpacks", [])],
+        namespace=namespace,
+    )
     canonical_target = canonical_target_name(target)
     included: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -1078,11 +1138,13 @@ def _compose_graph_for_target(
     task: str,
     policy_name: str,
     activation_target: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.packs import graph_path as pack_graph_path
     from cortex.portable_runtime import canonical_target_name, merge_graphs
 
     manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     policies = _load_policies(store_dir, mind_id, manifest)
     canonical_target = canonical_target_name(target)
     canonical_activation_target = canonical_target_name(activation_target.strip()) if activation_target.strip() else ""
@@ -1100,6 +1162,7 @@ def _compose_graph_for_target(
         mind_id,
         target=selection_target,
         task=task,
+        namespace=namespace,
     )
 
     composed_graph = CortexGraph.from_v5_json(base_graph.export_v5())
@@ -1234,6 +1297,7 @@ def compose_mind(
     policy_name: str = "",
     max_chars: int = 1500,
     activation_target: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     composed = _compose_graph_for_target(
         store_dir,
@@ -1242,6 +1306,7 @@ def compose_mind(
         task=task,
         policy_name=policy_name,
         activation_target=activation_target,
+        namespace=namespace,
     )
 
     render_payload = _render_graph_for_target(
@@ -1282,11 +1347,13 @@ def mount_mind(
     policy_name: str = "",
     max_chars: int = 1500,
     openclaw_store_dir: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.packs import default_output_dir
     from cortex.portable_runtime import canonical_target_name, sync_targets
 
     manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     policies = _load_policies(store_dir, manifest.id, manifest)
     if not targets:
         raise ValueError("Specify at least one mount target.")
@@ -1368,6 +1435,7 @@ def mount_mind(
             smart=smart,
             policy_name=policy_name,
             max_chars=max_chars,
+            namespace=namespace,
         )
         graph = CortexGraph.from_v5_json(dict(composed["graph"]))
         sync_payload = sync_targets(
@@ -1424,8 +1492,9 @@ def mount_mind(
     }
 
 
-def list_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
-    load_mind_manifest(store_dir, mind_id)
+def list_mind_mounts(store_dir: Path, mind_id: str, *, namespace: str | None = None) -> dict[str, Any]:
+    manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     payload = _load_mounts(store_dir, mind_id)
     mounts = [dict(item) for item in payload.get("mounts", [])]
     mounts.sort(key=lambda item: str(item.get("target") or "").lower())
@@ -1451,7 +1520,11 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
     )
     attachments = _read_json(mind_attachments_path(store_dir, manifest.id), default={"brainpacks": []})
     attachment_records = [dict(item) for item in attachments.get("brainpacks", [])]
-    attachment_details, attached_targets = _attachment_details(store_dir, attachment_records)
+    attachment_details, attached_targets = _attachment_details(
+        store_dir,
+        attachment_records,
+        namespace=manifest.namespace or None,
+    )
     branches = _read_json(
         mind_branches_path(store_dir, manifest.id),
         default={"branches": {manifest.default_branch: {"head": "", "created_at": manifest.created_at}}},
@@ -1464,6 +1537,7 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
     return {
         "mind": manifest.id,
         "manifest": asdict(manifest),
+        "namespace": manifest.namespace,
         "path": str(mind_path(store_dir, manifest.id)),
         "graph_ref": str(core_state.get("graph_ref") or ""),
         "categories": [str(item) for item in core_state.get("categories", [])],
@@ -1482,7 +1556,7 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
     }
 
 
-def list_minds(store_dir: Path) -> dict[str, Any]:
+def list_minds(store_dir: Path, *, namespace: str | None = None) -> dict[str, Any]:
     root = _minds_root(store_dir)
     if not root.exists():
         return {"status": "ok", "count": 0, "minds": []}
@@ -1498,10 +1572,13 @@ def list_minds(store_dir: Path) -> dict[str, Any]:
             manifest = load_mind_manifest(store_dir, child.name)
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
             continue
+        if not _namespace_matches(manifest.namespace, namespace):
+            continue
         summary = _mind_summary(store_dir, manifest)
         minds.append(
             {
                 "mind": summary["mind"],
+                "namespace": summary["namespace"],
                 "label": summary["manifest"]["label"],
                 "kind": summary["manifest"]["kind"],
                 "owner": summary["manifest"]["owner"],
@@ -1540,8 +1617,9 @@ def _mind_preview_nodes(graph: CortexGraph, *, limit: int = 8) -> list[dict[str,
     return preview
 
 
-def mind_status(store_dir: Path, mind_id: str) -> dict[str, Any]:
+def mind_status(store_dir: Path, mind_id: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
     payload = _mind_summary(store_dir, manifest)
     core_graph_payload = load_mind_core_graph(store_dir, mind_id)
     core_graph = core_graph_payload["graph"]
