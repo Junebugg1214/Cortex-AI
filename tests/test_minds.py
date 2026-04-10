@@ -142,6 +142,21 @@ def test_mind_namespace_filters_and_enforces_access(tmp_path):
         mind_status(store_dir, "beta", namespace="team-a")
 
 
+def test_mind_list_uses_lightweight_summary_path(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    init_mind(store_dir, "atlas-agent", kind="agent", label="Atlas", owner="cortex")
+
+    (store_dir / "minds" / "marc" / "branches.json").write_text("{not-json", encoding="utf-8")
+    (store_dir / "minds" / "marc" / "policies.json").write_text("{not-json", encoding="utf-8")
+
+    listing = list_minds(store_dir)
+
+    assert listing["count"] == 2
+    assert [item["mind"] for item in listing["minds"]] == ["atlas-agent", "marc"]
+
+
 def test_default_mind_round_trip(tmp_path):
     store_dir = tmp_path / ".cortex"
 

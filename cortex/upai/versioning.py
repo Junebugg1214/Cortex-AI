@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -152,9 +153,9 @@ class VersionStore:
             return []
         history_by_id = {item["version_id"]: item for item in self._load_history()}
         seen: set[str] = set()
-        queue: list[str] = [start_version]
+        queue: deque[str] = deque([start_version])
         while queue:
-            version_id = queue.pop(0)
+            version_id = queue.popleft()
             if version_id in seen:
                 continue
             seen.add(version_id)
@@ -451,9 +452,9 @@ class VersionStore:
 
         def _ancestor_distances(start: str) -> dict[str, int]:
             distances: dict[str, int] = {}
-            queue: list[tuple[str, int]] = [(start, 0)]
+            queue: deque[tuple[str, int]] = deque([(start, 0)])
             while queue:
-                version_id, distance = queue.pop(0)
+                version_id, distance = queue.popleft()
                 if version_id in distances and distances[version_id] <= distance:
                     continue
                 distances[version_id] = distance

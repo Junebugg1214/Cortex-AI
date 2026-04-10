@@ -37,6 +37,7 @@ class CortexObservability:
     store_dir: Path
     log_path: Path = field(init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _log_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _request_count: int = 0
     _error_count: int = 0
     _routes: dict[str, RouteMetric] = field(default_factory=dict)
@@ -48,8 +49,9 @@ class CortexObservability:
 
     def _append_event(self, payload: dict[str, Any]) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with self._log_lock:
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def record_request(
         self,
@@ -87,7 +89,7 @@ class CortexObservability:
             metric = self._routes.setdefault(route, RouteMetric())
             metric.add(duration_ms, error=is_error)
             self._last_event = payload
-            self._append_event(payload)
+        self._append_event(payload)
 
     def metrics(
         self, *, index_status: dict[str, Any] | None = None, backend: str = "", current_branch: str = ""

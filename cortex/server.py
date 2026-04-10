@@ -66,6 +66,19 @@ def _backend_name(service: MemoryService) -> str:
     return "filesystem"
 
 
+def _response_index_lag(path: str, response: dict[str, Any]) -> int | None:
+    if path == "/v1/metrics":
+        index = response.get("index")
+        if isinstance(index, dict):
+            lag = index.get("lag_commits")
+            return lag if isinstance(lag, int) else None
+        return None
+    if path == "/v1/index/status":
+        lag = response.get("lag_commits")
+        return lag if isinstance(lag, int) else None
+    return None
+
+
 def _request_namespace(
     *,
     query: dict[str, list[str]],
@@ -345,10 +358,6 @@ def dispatch_api_request(
         status, response = _error_payload(exc)
 
     response = {**response, "request_id": request_id}
-    try:
-        index_lag = service.backend.indexing.status(ref="HEAD").get("lag_commits")
-    except Exception:
-        index_lag = None
     service.observability.record_request(
         request_id=request_id,
         method=method,
@@ -357,7 +366,7 @@ def dispatch_api_request(
         duration_ms=(perf_counter() - started) * 1000,
         namespace=namespace or "",
         backend=_backend_name(service),
-        index_lag_commits=index_lag,
+        index_lag_commits=_response_index_lag(path, response),
         error=response.get("error", "") if status >= 400 else "",
     )
     return status, response

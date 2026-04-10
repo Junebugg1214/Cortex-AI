@@ -263,7 +263,34 @@ def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatc
     assert "/v1/query/search" in metrics["routes"]
     assert metrics["index"]["lag_commits"] == 0
     assert lines[-1]["path"] == "/v1/metrics"
+    assert lines[-1]["index_lag_commits"] == 0
     assert all(line["request_id"] for line in lines)
+
+
+def test_cortex_api_avoids_duplicate_index_lag_sampling_for_request_logs(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir, backend=build_sqlite_backend(store_dir))
+    handler_cls = make_api_handler(service)
+
+    status_calls = 0
+    backend_type = type(service.backend.indexing)
+    original_status = backend_type.status
+
+    def counted_status(self, *args, **kwargs):
+        nonlocal status_calls
+        status_calls += 1
+        return original_status(self, *args, **kwargs)
+
+    monkeypatch.setattr(backend_type, "status", counted_status)
+
+    health_status, _, _ = _invoke_api_handler(handler_cls, path="/v1/health", method="GET")
+    meta_status, _, _ = _invoke_api_handler(handler_cls, path="/v1/meta", method="GET")
+    metrics_status, _, _ = _invoke_api_handler(handler_cls, path="/v1/metrics", method="GET")
+
+    assert health_status == 200
+    assert meta_status == 200
+    assert metrics_status == 200
+    assert status_calls == 3
 
 
 def test_cortex_client_reports_network_errors_cleanly():
