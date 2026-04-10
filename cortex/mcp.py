@@ -311,8 +311,8 @@ class CortexMCPServer:
                 name="mind_ingest",
                 title="Ingest Into Mind",
                 description=(
-                    "Adopt detected local platform context directly into a Cortex Mind's core graph "
-                    "instead of the shared portability canonical graph."
+                    "Queue detected local platform context as an unverified review proposal for a Cortex Mind "
+                    "instead of mutating the Mind's canonical graph directly."
                 ),
                 method_name="mind_ingest",
                 input_schema=_object_schema(

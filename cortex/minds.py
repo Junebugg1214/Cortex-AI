@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ ATTACHMENT_MODE = "attached"
 ATTACHMENT_SCOPE = "specialist"
 OPENCLAW_MIND_MOUNTS_FILE = "minds.mounted.json"
 DEFAULT_MIND_CONFIG_FILE = "default.json"
+MIND_PROPOSALS_DIRNAME = "proposals"
 SUPPORTED_MIND_MOUNT_TARGETS = (
     "claude-code",
     "codex",
@@ -49,6 +51,7 @@ MIND_LAYOUT_FILES = (
     "policies.json",
     "mounts.json",
 )
+MIND_LAYOUT_DIRECTORIES = ("compositions", MIND_PROPOSALS_DIRNAME, "refs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +175,14 @@ def mind_openclaw_mount_registry_path(openclaw_store_dir: Path | None = None) ->
 
 def default_mind_config_path(store_dir: Path) -> Path:
     return _minds_root(store_dir) / DEFAULT_MIND_CONFIG_FILE
+
+
+def mind_proposals_dir(store_dir: Path, mind_id: str) -> Path:
+    return mind_path(store_dir, mind_id) / MIND_PROPOSALS_DIRNAME
+
+
+def mind_proposal_path(store_dir: Path, mind_id: str, proposal_id: str) -> Path:
+    return mind_proposals_dir(store_dir, mind_id) / f"{proposal_id}.json"
 
 
 def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
@@ -317,6 +328,7 @@ def init_mind(
     with locked_path(_store_lock_path(store_dir)):
         root.mkdir(parents=True, exist_ok=False)
         (root / "compositions").mkdir(parents=True, exist_ok=True)
+        (root / MIND_PROPOSALS_DIRNAME).mkdir(parents=True, exist_ok=True)
         (root / "refs").mkdir(parents=True, exist_ok=True)
         _write_manifest(store_dir, manifest)
         _write_json(
@@ -1001,19 +1013,44 @@ def ingest_detected_sources_into_mind(
 
     manifest = load_mind_manifest(store_dir, mind_id)
     _require_mind_namespace(manifest, namespace)
-    adopted = adopt_graph_into_mind(
-        store_dir,
-        manifest.id,
-        detected_payload["graph"],
-        message=message.strip() or f"Adopt detected local context into Mind `{manifest.id}`",
-        source="mind.ingest_detected",
-    )
-    return {
-        **adopted,
+    proposal_id = f"proposal-{secrets.token_hex(8)}"
+    proposal_path = mind_proposal_path(store_dir, manifest.id, proposal_id)
+    proposal_payload = {
+        "proposal_id": proposal_id,
+        "mind": manifest.id,
+        "created_at": _iso_now(),
+        "status": "pending_review",
+        "review_required": True,
+        "trust_level": "unverified",
+        "source": "mind.ingest_detected",
+        "message": message.strip() or f"Review detected local context for Mind `{manifest.id}`",
+        "namespace": manifest.namespace,
+        "project_dir": str(project_dir),
+        "graph": detected_payload["graph"].export_v5(),
+        "graph_node_count": len(detected_payload["graph"].nodes),
+        "graph_edge_count": len(detected_payload["graph"].edges),
         "selected_sources": selected_sources,
         "skipped_sources": detected_payload["skipped_sources"],
         "detected_source_count": len(detected_payload["detected_sources"]),
-        "ingested_source_count": len(selected_sources),
+        "proposed_source_count": len(selected_sources),
+    }
+    with locked_path(_store_lock_path(store_dir)):
+        atomic_write_json(proposal_path, proposal_payload)
+        _replace_manifest(store_dir, manifest.id, updated_at=_iso_now())
+    return {
+        "status": "pending_review",
+        "pending_review": True,
+        "review_required": True,
+        "mind": manifest.id,
+        "proposal_id": proposal_id,
+        "proposal_path": str(proposal_path),
+        "selected_sources": selected_sources,
+        "skipped_sources": detected_payload["skipped_sources"],
+        "detected_source_count": len(detected_payload["detected_sources"]),
+        "proposed_source_count": len(selected_sources),
+        "ingested_source_count": 0,
+        "graph_node_count": len(detected_payload["graph"].nodes),
+        "graph_edge_count": len(detected_payload["graph"].edges),
     }
 
 
@@ -1528,6 +1565,7 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
         attachment_records,
         namespace=manifest.namespace or None,
     )
+    proposals = list_mind_proposals(store_dir, manifest.id, namespace=manifest.namespace)
     branches = _read_json(
         mind_branches_path(store_dir, manifest.id),
         default={"branches": {manifest.default_branch: {"head": "", "created_at": manifest.created_at}}},
@@ -1550,6 +1588,8 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
         "attached_mounted_targets": attached_targets,
         "branch_count": len(branches.get("branches", {})),
         "mount_count": len(mounts.get("mounts", [])),
+        "proposal_count": int(proposals.get("proposal_count") or 0),
+        "pending_proposal_count": int(proposals.get("pending_proposal_count") or 0),
         "mounts": [dict(item) for item in mounts.get("mounts", [])],
         "mounted_targets": [
             str(item.get("target") or "") for item in mounts.get("mounts", []) if str(item.get("target") or "").strip()
@@ -1566,6 +1606,7 @@ def _mind_list_item(store_dir: Path, manifest: MindManifest, *, configured_defau
     )
     attachments = _read_json(mind_attachments_path(store_dir, manifest.id), default={"brainpacks": []})
     mounts = _read_json(mind_mounts_path(store_dir, manifest.id), default={"mounts": []})
+    proposals = list_mind_proposals(store_dir, manifest.id, namespace=manifest.namespace)
     return {
         "mind": manifest.id,
         "namespace": manifest.namespace,
@@ -1577,6 +1618,8 @@ def _mind_list_item(store_dir: Path, manifest: MindManifest, *, configured_defau
         "graph_ref": str(core_state.get("graph_ref") or ""),
         "attachment_count": len(attachments.get("brainpacks", [])),
         "mount_count": len(mounts.get("mounts", [])),
+        "proposal_count": int(proposals.get("proposal_count") or 0),
+        "pending_proposal_count": int(proposals.get("pending_proposal_count") or 0),
         "updated_at": manifest.updated_at,
         "is_default": manifest.id == configured_default,
     }
@@ -1631,6 +1674,41 @@ def _mind_preview_nodes(graph: CortexGraph, *, limit: int = 8) -> list[dict[str,
     return preview
 
 
+def list_mind_proposals(store_dir: Path, mind_id: str, *, namespace: str | None = None) -> dict[str, Any]:
+    manifest = load_mind_manifest(store_dir, mind_id)
+    _require_mind_namespace(manifest, namespace)
+    root = mind_proposals_dir(store_dir, manifest.id)
+    proposals: list[dict[str, Any]] = []
+    if root.exists():
+        for child in sorted(root.glob("*.json"), key=lambda item: item.name.lower()):
+            try:
+                payload = json.loads(child.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            proposal_id = str(payload.get("proposal_id") or child.stem).strip() or child.stem
+            proposals.append(
+                {
+                    "proposal_id": proposal_id,
+                    "status": str(payload.get("status") or "pending_review").strip() or "pending_review",
+                    "created_at": str(payload.get("created_at") or ""),
+                    "trust_level": str(payload.get("trust_level") or "unverified"),
+                    "review_required": bool(payload.get("review_required", True)),
+                    "proposed_source_count": int(payload.get("proposed_source_count") or 0),
+                    "graph_node_count": int(payload.get("graph_node_count") or 0),
+                    "graph_edge_count": int(payload.get("graph_edge_count") or 0),
+                    "path": str(child),
+                }
+            )
+    pending = [item for item in proposals if item.get("status") == "pending_review"]
+    return {
+        "status": "ok",
+        "mind": manifest.id,
+        "proposal_count": len(proposals),
+        "pending_proposal_count": len(pending),
+        "proposals": proposals,
+    }
+
+
 def mind_status(store_dir: Path, mind_id: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_mind_manifest(store_dir, mind_id)
     _require_mind_namespace(manifest, namespace)
@@ -1639,11 +1717,12 @@ def mind_status(store_dir: Path, mind_id: str, *, namespace: str | None = None) 
     core_graph = core_graph_payload["graph"]
     branches_payload = _load_branches(store_dir, mind_id, manifest)
     policies_payload = _load_policies(store_dir, mind_id, manifest)
+    proposals_payload = list_mind_proposals(store_dir, mind_id, namespace=manifest.namespace)
     current_branch = manifest.current_branch or manifest.default_branch
     current_branch_record = dict(branches_payload.get("branches", {}).get(current_branch) or {})
     payload["layout"] = {
         "files": list(MIND_LAYOUT_FILES),
-        "directories": ["compositions", "refs"],
+        "directories": list(MIND_LAYOUT_DIRECTORIES),
     }
     payload["core_state"] = {
         "graph_ref": payload["graph_ref"],
@@ -1673,5 +1752,10 @@ def mind_status(store_dir: Path, mind_id: str, *, namespace: str | None = None) 
         "approval_rules": {
             str(name): bool(value) for name, value in sorted((policies_payload.get("approval_rules") or {}).items())
         },
+    }
+    payload["proposals"] = {
+        "proposal_count": int(proposals_payload.get("proposal_count") or 0),
+        "pending_proposal_count": int(proposals_payload.get("pending_proposal_count") or 0),
+        "items": [dict(item) for item in proposals_payload.get("proposals", [])],
     }
     return {"status": "ok", **payload}

@@ -341,13 +341,15 @@ def test_mcp_mind_tools_round_trip(tmp_path, monkeypatch):
     assert status_payload["graph_ref"] == "refs/minds/marc/branches/main"
     assert status_payload["attachment_count"] == 1
     assert status_payload["attached_brainpacks"][0]["pack"] == "ai-memory"
-    assert ingest_payload["ingested_source_count"] == 1
+    assert ingest_payload["status"] == "pending_review"
+    assert ingest_payload["proposed_source_count"] == 1
+    assert ingest_payload["ingested_source_count"] == 0
     assert ingest_payload["selected_sources"][0]["target"] == "chatgpt"
     assert compose_payload["mind"] == "marc"
     assert compose_payload["included_brainpack_count"] == 1
     assert compose_payload["included_brainpacks"][0]["pack"] == "ai-memory"
     assert compose_payload["target"] == "chatgpt"
-    assert "Python" in compose_payload["labels"]
+    assert "Python" not in compose_payload["labels"]
     assert mount_payload["mounted_count"] == 5
     assert remember_payload["mind"] == "marc"
     assert remember_payload["refreshed_mount_count"] == 5

@@ -6,6 +6,7 @@ import shutil
 import stat
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -88,6 +89,7 @@ def test_mind_init_creates_manifest_and_layout(tmp_path):
     assert (store_dir / "minds" / "marc" / "policies.json").exists()
     assert (store_dir / "minds" / "marc" / "mounts.json").exists()
     assert (store_dir / "minds" / "marc" / "compositions").exists()
+    assert (store_dir / "minds" / "marc" / "proposals").exists()
     assert (store_dir / "minds" / "marc" / "refs").exists()
     assert manifest.id == "marc"
     assert manifest.label == "Marc"
@@ -122,6 +124,7 @@ def test_mind_list_and_status_round_trip(tmp_path):
     assert status["policies"]["default_disclosure"] == "professional"
     assert status["policies"]["approval_rules"]["merge_to_main_requires_review"] is True
     assert "manifest.json" in status["layout"]["files"]
+    assert "proposals" in status["layout"]["directories"]
     assert "refs" in status["layout"]["directories"]
 
 
@@ -281,7 +284,7 @@ def test_concurrent_mind_attachment_updates_preserve_all_records(tmp_path, monke
     assert sorted(item["pack"] for item in status["attached_brainpacks"]) == [f"pack-{index}" for index in range(5)]
 
 
-def test_mind_ingest_detected_sources_commits_to_mind_branch(tmp_path, monkeypatch):
+def test_mind_ingest_detected_sources_queues_review_proposal(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     home_dir = tmp_path / "home"
     project_dir = tmp_path / "project"
@@ -307,15 +310,18 @@ def test_mind_ingest_detected_sources_commits_to_mind_branch(tmp_path, monkeypat
     branch_head = get_storage_backend(store_dir).versions.resolve_ref(mind_branch_name("marc", "main"))
 
     assert payload["mind"] == "marc"
-    assert payload["ingested_source_count"] == 1
+    assert payload["status"] == "pending_review"
+    assert payload["pending_review"] is True
+    assert payload["proposed_source_count"] == 1
+    assert payload["ingested_source_count"] == 0
     assert payload["selected_sources"][0]["target"] == "chatgpt"
-    assert payload["graph_ref"] == "refs/minds/marc/branches/main"
-    assert payload["base_graph_source"] == "portable_canonical_graph"
-    assert branch_head == payload["version_id"]
+    assert Path(payload["proposal_path"]).exists()
+    assert branch_head is None
     assert status["graph_ref"] == "refs/minds/marc/branches/main"
-    assert compose_payload["base_graph_source"] in {"mind_branch_ref", "mind_branch"}
+    assert status["proposals"]["pending_proposal_count"] == 1
+    assert compose_payload["base_graph_source"] in {"mind_branch_ref", "mind_branch", "portable_canonical_graph"}
     assert "Marc" in compose_payload["labels"]
-    assert "Python" in compose_payload["labels"]
+    assert "Python" not in compose_payload["labels"]
 
 
 def test_mind_compose_merges_core_graph_and_selected_brainpacks(tmp_path, monkeypatch):
@@ -599,8 +605,9 @@ def test_mind_production_smoke_compose_mount_ingest_remember_and_policy_override
     )
     mounts_payload = list_mind_mounts(store_dir, "marc")
 
-    assert ingest_payload["ingested_source_count"] == 1
-    assert ingest_payload["base_graph_source"] == "empty_graph"
+    assert ingest_payload["status"] == "pending_review"
+    assert ingest_payload["proposed_source_count"] == 1
+    assert ingest_payload["ingested_source_count"] == 0
     assert compose_payload["policy"] == "technical"
     assert compose_payload["included_brainpack_count"] == 1
     assert compose_payload["included_brainpacks"][0]["pack"] == "support-pack"
@@ -620,7 +627,6 @@ def test_mind_production_smoke_compose_mount_ingest_remember_and_policy_override
     persisted_mounts = {item["target"]: item for item in mounts_payload["mounts"]}
     assert persisted_mounts["codex"]["policy"] == ""
     assert persisted_mounts["codex"]["effective_policy"] == "technical"
-    assert remember_payload["graph_node_count"] > ingest_payload["graph_node_count"]
     assert remember_payload["refreshed_mount_count"] == 5
     assert remember_payload["stale_mount_count"] == 0
     assert remember_payload["refresh_error_count"] == 0
@@ -990,10 +996,12 @@ def test_cli_mind_ingest_from_detected_json(tmp_path, capsys, monkeypatch):
     assert init_payload["mind"] == "marc"
     assert ingest_rc == 0
     assert ingest_payload["mind"] == "marc"
-    assert ingest_payload["ingested_source_count"] == 1
+    assert ingest_payload["status"] == "pending_review"
+    assert ingest_payload["proposed_source_count"] == 1
+    assert ingest_payload["ingested_source_count"] == 0
     assert ingest_payload["selected_sources"][0]["target"] == "chatgpt"
     assert compose_rc == 0
-    assert "Python" in compose_payload["labels"]
+    assert "Python" not in compose_payload["labels"]
 
 
 def test_cli_mind_remember_refreshes_mounts_json(tmp_path, capsys, monkeypatch):

@@ -39,7 +39,7 @@ What happens in that flow:
 
 1. `mind init` creates the persistent Mind object.
 2. `mind default` makes classic portability commands route through that Mind.
-3. `mind ingest` adopts detected local AI context into the Mind's core graph.
+3. `mind ingest` queues detected local AI context as an unverified review proposal for the Mind.
 4. `mind remember` teaches the Mind one new fact or preference directly.
 5. `pack init/ingest/compile` creates a specialist Brainpack.
 6. `mind attach-pack` connects that Brainpack to the Mind with activation rules.
@@ -54,7 +54,7 @@ What happens in that flow:
 | `cortex mind default marc` | Marks one Mind as the default compatibility target so classic commands like `portable`, `remember`, and `sync --smart` can route through it. |
 | `cortex mind list` | Lists local Minds in the current Cortex store. |
 | `cortex mind status marc` | Shows the Mind manifest, core-state ref, current branch, disclosure policy, attached Brainpacks, and persisted mounts. |
-| `cortex mind ingest marc --from-detected ... --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch. |
+| `cortex mind ingest marc --from-detected ... --project .` | Queues detected local context as a review proposal for the Mind instead of mutating its canonical branch directly. |
 | `cortex mind remember marc "..."` | Adds one new fact or preference directly to the Mind's core graph and refreshes persisted mounts from the updated state. |
 | `cortex mind attach-pack marc ai-memory --always-on --target hermes --task-term memory` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
 | `cortex mind detach-pack marc ai-memory` | Detaches a Brainpack from a Mind without deleting the Brainpack itself. |
@@ -69,7 +69,7 @@ What happens in that flow:
 Portable AI is how a Mind learns and gets synchronized.
 
 - `scan` tells you what context already exists on disk
-- `mind ingest` adopts detected local context into a Mind
+- `mind ingest` stages detected local context for Mind review
 - `mind remember` teaches the Mind one new thing directly
 - `portable`, `remember`, and `sync --smart` still work as compatibility flows
 - if a default Mind is configured, those classic flows route through that Mind

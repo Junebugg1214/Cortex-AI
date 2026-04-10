@@ -1592,13 +1592,13 @@ def build_parser(*, show_all_commands: bool = False):
     mind_default.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_default.add_argument("--format", choices=["json", "text"], default="text")
 
-    mind_ingest = mind_sub.add_parser("ingest", help="Adopt detected local context directly into a Cortex Mind")
+    mind_ingest = mind_sub.add_parser("ingest", help="Queue detected local context for review on a Cortex Mind")
     mind_ingest.add_argument("name", help="Mind id")
     mind_ingest.add_argument(
         "--from-detected",
         nargs="+",
         required=True,
-        help="Explicitly adopt detected local platform sources into the Mind's core graph",
+        help="Queue detected local platform sources as a review proposal for the Mind",
     )
     mind_ingest.add_argument("--project", "-d", help="Project directory for detected local sources (default: cwd)")
     mind_ingest.add_argument(
@@ -5968,8 +5968,8 @@ def run_mind(args):
         if _emit_result(payload, args.format) == 0:
             return 0
         _echo(
-            f"Mind `{payload['mind']}` adopted {payload['ingested_source_count']} detected source(s)"
-            f" into branch `{payload['branch']}`"
+            f"Mind `{payload['mind']}` queued {payload['proposed_source_count']} detected source(s)"
+            f" for review as `{payload['proposal_id']}`"
         )
         _echo(
             "  "
@@ -5977,7 +5977,7 @@ def run_mind(args):
                 [
                     f"{payload['graph_node_count']} nodes",
                     f"{payload['graph_edge_count']} edges",
-                    payload["graph_ref"],
+                    payload["proposal_path"],
                 ]
             )
         )

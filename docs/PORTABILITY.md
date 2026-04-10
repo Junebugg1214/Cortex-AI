@@ -2,7 +2,7 @@
 
 Portable AI is the **ingest and sync subsystem** for a Cortex Mind.
 
-It is how a Mind learns what already exists on disk, adopts that context into its core graph, and materializes the right slice into each runtime or tool.
+It is how a Mind learns what already exists on disk, stages that context for review, and materializes the right slice into each runtime or tool.
 
 If you already use the older portability commands directly, that still works. The important change is the model:
 
@@ -38,7 +38,7 @@ If you want copy-paste first-run flows by platform, see [PLATFORM_ONBOARDING.md]
 Portable AI is responsible for four things:
 
 1. **detect** local AI exports, artifacts, instruction files, and MCP setup
-2. **adopt** that context into a Mind or canonical portability graph
+2. **stage or adopt** that context into a Mind or canonical portability graph
 3. **route** the right slice into each target instead of writing one giant blob everywhere
 4. **serve** live context over MCP for runtimes that can fetch it during conversations
 
@@ -54,13 +54,13 @@ Detection is permissioned. `scan` does not mutate the graph.
 
 ### `cortex mind ingest`
 
-Adopts detected local platform sources directly into a Mind's core graph:
+Queues detected local platform sources as an unverified review proposal for a Mind:
 
 ```bash
 cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
 ```
 
-This is the recommended path when you are already working Mind-first.
+This is the recommended path when you are already working Mind-first and want a reviewable quarantine step before canonical Mind state changes.
 
 ### `cortex portable`
 
