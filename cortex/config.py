@@ -531,7 +531,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
             warnings.append("No API keys configured; hosted-service mode is only safe on loopback unless overridden.")
     if mode == "ui" and config.runtime_mode == "hosted-service":
         warnings.append(
-            "The UI does not yet enforce remote auth; keep it on loopback unless you intentionally override it."
+            "The UI only provides browser session auth for loopback use; keep it on loopback unless you intentionally override it for API-key clients."
         )
     if any(key.single_namespace() is None and "*" not in key.namespaces for key in config.api_keys):
         warnings.append("Some API keys cover multiple namespaces; those clients must send an explicit namespace.")
@@ -575,7 +575,10 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
     if mode in {"server", "manus", "ui"}:
         lines.append(f"  Listen:    {diagnostics['server_host']}:{diagnostics['server_port']}")
         if mode == "ui":
-            lines.append("  Auth:      not supported on the UI surface")
+            session_note = "browser session token (loopback)"
+            if diagnostics["auth_enabled"]:
+                session_note += f" + {diagnostics['api_key_count']} scoped key(s)"
+            lines.append(f"  Auth:      {session_note}")
         else:
             lines.append(
                 "  Auth:      "

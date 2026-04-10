@@ -7601,6 +7601,7 @@ def run_ui(args):
         open_browser=args.open,
         runtime_mode=config.runtime_mode,
         allow_unsafe_bind=args.allow_unsafe_bind,
+        api_keys=config.api_keys,
     )
     print(f"Cortex UI running at {url}")
     print("Press Ctrl+C to stop.")

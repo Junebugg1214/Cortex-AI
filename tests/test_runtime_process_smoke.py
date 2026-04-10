@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import select
 import socket
 import subprocess
@@ -112,12 +113,15 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_for_http(url: str, *, timeout: float = 10.0) -> dict | str:
+def _wait_for_http(url: str, *, timeout: float = 10.0, headers: dict[str, str] | None = None) -> dict | str:
     deadline = time.time() + timeout
     last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=1.0) as response:
+            request = urllib.request.Request(url, method="GET")
+            for key, value in (headers or {}).items():
+                request.add_header(key, value)
+            with urllib.request.urlopen(request, timeout=1.0) as response:
                 body = response.read().decode("utf-8")
             try:
                 return json.loads(body)
@@ -129,17 +133,31 @@ def _wait_for_http(url: str, *, timeout: float = 10.0) -> dict | str:
     raise AssertionError(f"Timed out waiting for {url}: {last_error}")
 
 
-def _request_json(url: str, *, method: str = "GET", payload: dict | None = None) -> dict | str:
+def _request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict | str:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=body, method=method)
     if body is not None:
         request.add_header("Content-Type", "application/json")
+    for key, value in (headers or {}).items():
+        request.add_header(key, value)
     with urllib.request.urlopen(request, timeout=2.0) as response:
         raw = response.read().decode("utf-8")
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         return raw
+
+
+def _extract_ui_session_token(html: str) -> str:
+    match = re.search(r'const uiSessionToken = "([^"]+)";', html)
+    assert match, "UI session token was not embedded in the HTML"
+    return match.group(1)
 
 
 def _spawn_logged_process(*args: str, log_path: Path) -> subprocess.Popen[str]:
@@ -249,9 +267,10 @@ def test_web_ui_process_serves_real_control_plane_requests(tmp_path):
     )
     try:
         html = _wait_for_http(f"http://127.0.0.1:{port}/")
-        meta = _wait_for_http(f"http://127.0.0.1:{port}/api/meta")
-        health = _wait_for_http(f"http://127.0.0.1:{port}/api/health")
-        index = _wait_for_http(f"http://127.0.0.1:{port}/api/index/status?ref=HEAD")
+        session_headers = {"X-Cortex-UI-Session": _extract_ui_session_token(str(html))}
+        meta = _wait_for_http(f"http://127.0.0.1:{port}/api/meta", headers=session_headers)
+        health = _wait_for_http(f"http://127.0.0.1:{port}/api/health", headers=session_headers)
+        index = _wait_for_http(f"http://127.0.0.1:{port}/api/index/status?ref=HEAD", headers=session_headers)
     finally:
         _stop_process(process)
 
