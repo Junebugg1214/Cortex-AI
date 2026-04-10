@@ -280,9 +280,14 @@ def test_webapp_backend_governance_and_remotes(tmp_path):
     assert check["allowed"] is True
     assert check["require_approval"] is True
     assert remote_add["remote"]["name"] == "origin"
+    assert remote_add["remote"]["trusted_did"]
+    assert remote_add["remote"]["allowed_namespaces"] == ["main"]
     assert remote_list["remotes"][0]["name"] == "origin"
     assert push["head"] == local_commit
+    assert push["trusted_remote_did"] == remote_add["remote"]["trusted_did"]
+    assert push["receipt_path"]
     assert pull["branch"] == "imported/main"
+    assert pull["receipt_path"]
     assert fork["forked"] is True
 
 

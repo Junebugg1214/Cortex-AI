@@ -159,6 +159,9 @@ REMOTE_RECORD_SCHEMA: dict[str, Any] = {
         "path": {"type": "string", "minLength": 1},
         "resolved_store_path": {"type": "string"},
         "default_branch": {"type": "string", "minLength": 1},
+        "trusted_did": {"type": "string"},
+        "trusted_public_key_b64": {"type": "string"},
+        "allowed_namespaces": {"type": "array", "items": {"type": "string"}},
     },
 }
 

@@ -10,6 +10,7 @@ from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.embeddings import get_embedding_provider, hybrid_search_documents
 from cortex.governance import GovernanceRule, GovernanceStore
 from cortex.graph import CortexGraph, Node
+from cortex.remote_trust import prepare_remote_fields
 from cortex.remotes import MemoryRemote, RemoteRegistry
 from cortex.schemas.memory_v1 import (
     DEFAULT_TENANT_ID,
@@ -39,10 +40,14 @@ def _to_governance_model(record: GovernanceRuleRecord) -> GovernanceRule:
 
 
 def _to_remote_model(record: RemoteRecord) -> MemoryRemote:
+    prepared = prepare_remote_fields(record)
     return MemoryRemote(
         name=record.name,
         path=record.path,
         default_branch=record.default_branch,
+        trusted_did=prepared["trusted_did"],
+        trusted_public_key_b64=prepared["trusted_public_key_b64"],
+        allowed_namespaces=list(prepared["allowed_namespaces"]),
     )
 
 
@@ -242,6 +247,9 @@ class FilesystemRemoteBackend:
     def _require_remote(self, name: str) -> RemoteRecord:
         for remote in self.list_remotes():
             if remote.name == name:
+                if not remote.trusted_did or not remote.trusted_public_key_b64 or not remote.allowed_namespaces:
+                    self.add_remote(remote)
+                    return next(item for item in self.list_remotes() if item.name == name)
                 return remote
         raise ValueError(f"Unknown remote: {name}")
 

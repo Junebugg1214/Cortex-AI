@@ -9,21 +9,13 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from cortex.atomic_io import atomic_write_text, locked_path
+from cortex.remote_trust import _normalize_store_path, prepare_remote_fields
 from cortex.upai.versioning import VersionStore
-
-
-def _normalize_store_path(path: str | Path) -> Path:
-    raw = Path(path)
-    if raw.name == ".cortex":
-        return raw
-    if (raw / "history.json").exists() or (raw / "versions").exists():
-        return raw
-    return raw / ".cortex"
 
 
 @dataclass
@@ -31,12 +23,18 @@ class MemoryRemote:
     name: str
     path: str
     default_branch: str = "main"
+    trusted_did: str = ""
+    trusted_public_key_b64: str = ""
+    allowed_namespaces: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "path": self.path,
             "default_branch": self.default_branch,
+            "trusted_did": self.trusted_did,
+            "trusted_public_key_b64": self.trusted_public_key_b64,
+            "allowed_namespaces": list(self.allowed_namespaces),
         }
 
     @classmethod
@@ -45,6 +43,9 @@ class MemoryRemote:
             name=data["name"],
             path=data["path"],
             default_branch=data.get("default_branch", "main"),
+            trusted_did=data.get("trusted_did", ""),
+            trusted_public_key_b64=data.get("trusted_public_key_b64", ""),
+            allowed_namespaces=list(data.get("allowed_namespaces", [data.get("default_branch", "main")])),
         )
 
     @property
@@ -77,9 +78,18 @@ class RemoteRegistry:
 
     def add(self, remote: MemoryRemote) -> None:
         with locked_path(self.store_dir):
+            prepared = prepare_remote_fields(remote)
+            stored = MemoryRemote(
+                name=remote.name,
+                path=remote.path,
+                default_branch=remote.default_branch,
+                trusted_did=prepared["trusted_did"],
+                trusted_public_key_b64=prepared["trusted_public_key_b64"],
+                allowed_namespaces=list(prepared["allowed_namespaces"]),
+            )
             payload = self._load()
-            remotes = [item for item in payload.get("remotes", []) if item.get("name") != remote.name]
-            remotes.append(remote.to_dict())
+            remotes = [item for item in payload.get("remotes", []) if item.get("name") != stored.name]
+            remotes.append(stored.to_dict())
             payload["remotes"] = sorted(remotes, key=lambda item: item["name"])
             self._save(payload)
 

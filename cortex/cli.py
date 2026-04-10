@@ -1199,6 +1199,12 @@ def build_parser(*, show_all_commands: bool = False):
     rem_add.add_argument("name", help="Remote name")
     rem_add.add_argument("path", help="Path to another .cortex store or its parent directory")
     rem_add.add_argument("--default-branch", default="main", help="Default remote branch (default: main)")
+    rem_add.add_argument(
+        "--allow-namespace",
+        action="append",
+        default=[],
+        help="Allowed remote namespace/branch prefix for sync operations (repeatable; default: remote default branch)",
+    )
     rem_add.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     rem_add.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -4519,7 +4525,12 @@ def run_remote(args):
             print("No remotes configured.")
             return 0
         for remote in remotes:
-            print(f"{remote['name']}: {remote['store_path']} (default={remote['default_branch']})")
+            allowed = ", ".join(remote.get("allowed_namespaces", []) or [remote["default_branch"]])
+            did = str(remote.get("trusted_did") or "")[:24]
+            print(
+                f"{remote['name']}: {remote['store_path']} (default={remote['default_branch']}, "
+                f"allow={allowed}, did={did}...)"
+            )
         return 0
 
     if args.remote_subcommand == "add":
@@ -4528,13 +4539,21 @@ def run_remote(args):
             name=args.name,
             path=args.path,
             default_branch=args.default_branch,
+            allowed_namespaces=list(args.allow_namespace or []),
         )
-        backend.remotes.add_remote(remote)
+        try:
+            backend.remotes.add_remote(remote)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
         stored = next(item for item in backend.remotes.list_remotes() if item.name == args.name)
         payload = {"status": "ok", "remote": stored.to_dict() | {"store_path": stored.resolved_store_path}}
         if _emit_result(payload, args.format) == 0:
             return 0
+        allowed = ", ".join(stored.allowed_namespaces or [stored.default_branch])
         print(f"Added remote {stored.name} -> {stored.resolved_store_path}")
+        print(f"  trusted DID: {stored.trusted_did}")
+        print(f"  allowed namespaces: {allowed}")
         return 0
 
     if args.remote_subcommand == "remove":
@@ -4579,6 +4598,8 @@ def run_remote(args):
         if _emit_result(payload, args.format) == 0:
             return 0
         print(f"Pushed {payload['branch']} -> {remote.name}:{payload['remote_branch']} ({payload['head']})")
+        print(f"  trusted remote: {payload['trusted_remote_did']}")
+        print(f"  receipt: {payload['receipt_path']}")
         return 0
 
     if args.remote_subcommand == "pull":
@@ -4608,6 +4629,8 @@ def run_remote(args):
         if _emit_result(payload, args.format) == 0:
             return 0
         print(f"Pulled {remote.name}:{remote_branch} -> {payload['branch']} ({payload['head']})")
+        print(f"  trusted remote: {payload['trusted_remote_did']}")
+        print(f"  receipt: {payload['receipt_path']}")
         return 0
 
     if args.remote_subcommand == "fork":
@@ -4635,6 +4658,8 @@ def run_remote(args):
         if _emit_result(payload, args.format) == 0:
             return 0
         print(f"Forked {remote.name}:{remote_branch} -> {args.branch_name} ({payload['head']})")
+        print(f"  trusted remote: {payload['trusted_remote_did']}")
+        print(f"  receipt: {payload['receipt_path']}")
         return 0
 
     print("Specify a remote subcommand: list, add, remove, push, pull, fork")
