@@ -135,6 +135,46 @@ def test_connect_manus_check_warns_until_public_url_is_known(tmp_path, capsys):
     assert any("No public HTTPS URL was provided yet" in warning for warning in payload["warnings"])
 
 
+def test_connect_manus_print_config_requires_real_public_https_url(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
+    capsys.readouterr()
+    rc = main(["connect", "manus", "--store-dir", str(store_dir), "--print-config", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 1
+    assert payload["status"] == "error"
+    assert "connector_config" not in payload
+    assert any("A real public HTTPS URL is required" in error for error in payload["errors"])
+
+
+def test_connect_manus_print_config_requires_read_key(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    store_dir.mkdir()
+
+    rc = main(
+        [
+            "connect",
+            "manus",
+            "--store-dir",
+            str(store_dir),
+            "--url",
+            "https://example.ngrok-free.app",
+            "--print-config",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 1
+    assert payload["status"] == "error"
+    assert payload["auth_ready"] is False
+    assert "connector_config" not in payload
+    assert any("A read-scoped API key is required" in error for error in payload["errors"])
+
+
 def test_connect_manus_uses_discovered_store_from_nested_workspace(tmp_path, capsys, monkeypatch):
     workspace = tmp_path / "workspace"
     nested = workspace / "apps" / "cortex"
@@ -168,6 +208,7 @@ def test_serve_api_mcp_and_manus_checks_round_trip(tmp_path, capsys):
     assert mcp_rc == 0
     assert "Cortex mcp diagnostics:" in mcp_output
     assert manus_rc == 0
+    assert "Cortex manus diagnostics:" in manus_output
     assert "Bridge:    Manus custom MCP over HTTP" in manus_output
 
 

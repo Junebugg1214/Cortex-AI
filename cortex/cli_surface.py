@@ -68,6 +68,13 @@ DOCTOR_HELP_EPILOG = (
     "  cortex doctor --portability\n"
 )
 CONNECT_RUNTIME_TARGETS = ("hermes", "codex", "cursor", "claude-code")
+ARGPARSE_RECOVERY_HINTS = {
+    "cortex connect": "cortex connect manus --check",
+    "cortex serve": "cortex serve manus --check",
+    "cortex mind status": "cortex mind list",
+    "cortex mind remember": 'cortex mind remember self "..."',
+    "cortex mind compose": 'cortex mind compose self --to codex --task "..."',
+}
 
 
 class CortexArgumentParser(argparse.ArgumentParser):
@@ -94,6 +101,15 @@ class CortexArgumentParser(argparse.ArgumentParser):
             action._choices_actions = original_choices_actions
             action.metavar = original_metavar
         return f"{help_text}\n\n{DEFAULT_HELP_START_HERE}\n{DEFAULT_HELP_SURFACE_MAP}\n{ADVANCED_HELP_NOTE}\n"
+
+    def error(self, message: str) -> None:
+        normalized_prog = " ".join(self.prog.split())
+        hint = ""
+        if "the following arguments are required:" in message:
+            hint = ARGPARSE_RECOVERY_HINTS.get(normalized_prog, "")
+        if hint:
+            message = f"{message}\nTry: {hint}"
+        super().error(message)
 
 
 def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
