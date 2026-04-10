@@ -566,6 +566,7 @@ def build_parser(*, show_all_commands: bool = False):
     serve_api.add_argument("--api-key", help="Optional API key required for requests")
     serve_api.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     serve_api.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    serve_api.add_argument("--format", choices=["json", "text"], default="text")
 
     serve_mcp = serve_sub.add_parser("mcp", help="Launch the local Cortex MCP server over stdio")
     serve_mcp.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
@@ -576,6 +577,7 @@ def build_parser(*, show_all_commands: bool = False):
     )
     serve_mcp.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     serve_mcp.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    serve_mcp.add_argument("--format", choices=["json", "text"], default="text")
 
     serve_manus = serve_sub.add_parser("manus", help="Launch the Manus-friendly hosted Cortex MCP bridge")
     serve_manus.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
@@ -606,6 +608,7 @@ def build_parser(*, show_all_commands: bool = False):
         help="Optional negotiated MCP protocol version override for Manus compatibility",
     )
     serve_manus.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
+    serve_manus.add_argument("--format", choices=["json", "text"], default="text")
 
     serve_ui = serve_sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     serve_ui.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")
@@ -1922,6 +1925,7 @@ def build_parser(*, show_all_commands: bool = False):
     srv.add_argument("--api-key", help="Optional API key required for requests")
     srv.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     srv.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    srv.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- mcp (local Model Context Protocol server) -----------------------
     mcp = sub.add_parser(
@@ -1937,6 +1941,7 @@ def build_parser(*, show_all_commands: bool = False):
     )
     mcp.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     mcp.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    mcp.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- backup (export / verify / restore) ------------------------------
     bk = sub.add_parser("backup", help="Backup, verify, and restore a Cortex store")
@@ -6964,8 +6969,97 @@ def run_connect(args):
     return _error("Specify a connect target: manus")
 
 
+def _load_runtime_check_config(
+    *,
+    store_dir: str | None,
+    context_file: str | None,
+    config_path: str | None,
+    host: str | None = None,
+    port: int | None = None,
+    namespace: str | None = None,
+    api_key: str | None = None,
+):
+    from cortex.config import load_selfhost_config
+
+    return load_selfhost_config(
+        store_dir=store_dir,
+        context_file=context_file,
+        config_path=config_path,
+        server_host=host,
+        server_port=port,
+        mcp_namespace=namespace,
+        api_key=api_key,
+    )
+
+
+def _serve_check_payload(*, target: str, mode: str, config) -> dict[str, Any]:
+    from cortex.config import startup_diagnostics
+
+    diagnostics = startup_diagnostics(config, mode=mode)
+    return {
+        "status": "ok",
+        "target": target,
+        **diagnostics,
+    }
+
+
+def _serve_manus_check_payload(args) -> dict[str, Any]:
+    from cortex.manus_bridge import (
+        DEFAULT_MANUS_HOST,
+        DEFAULT_MANUS_PORT,
+        DEFAULT_MANUS_PROTOCOL_VERSION,
+        CortexMCPServer,
+        _validate_bridge_security,
+        select_manus_tools,
+    )
+
+    config = _load_runtime_check_config(
+        store_dir=args.store_dir,
+        context_file=args.context_file,
+        config_path=args.config,
+        host=args.host or DEFAULT_MANUS_HOST,
+        port=args.port if args.port is not None else DEFAULT_MANUS_PORT,
+        namespace=args.namespace,
+    )
+    preview_server = CortexMCPServer(
+        store_dir=config.store_dir,
+        context_file=config.context_file,
+        namespace=config.mcp_namespace,
+    )
+    _validate_bridge_security(
+        host=config.server_host,
+        api_keys=config.api_keys,
+        allow_insecure_no_auth=args.allow_insecure_no_auth,
+    )
+    exposed_tools = select_manus_tools(
+        preview_server,
+        include_write_tools=args.allow_write_tools,
+        extra_tools=args.tool,
+    )
+    return {
+        **_serve_check_payload(target="manus", mode="server", config=config),
+        "bridge": "manus_http",
+        "bridge_transport": "http",
+        "bridge_https_required": True,
+        "mcp_path": "/mcp",
+        "protocol_version": args.protocol_version or DEFAULT_MANUS_PROTOCOL_VERSION,
+        "tool_count": len(exposed_tools),
+        "tools": list(exposed_tools),
+        "allow_write_tools": bool(args.allow_write_tools),
+        "allow_insecure_no_auth": bool(args.allow_insecure_no_auth),
+    }
+
+
 def run_serve_manus(args):
     from cortex.manus_bridge import main as manus_main
+
+    if args.check and args.format == "json":
+        try:
+            payload = _serve_manus_check_payload(args)
+        except ValueError as exc:
+            return _error(str(exc))
+        _emit_result(payload, "json")
+        return 0
 
     argv: list[str] = []
     if args.store_dir:
@@ -7009,7 +7103,8 @@ def run_ui(args):
     """Launch the local Cortex infrastructure UI."""
     from cortex.webapp import start_ui_server
 
-    _emit_compatibility_note("ui", "cortex serve ui")
+    if getattr(args, "subcommand", "") == "ui":
+        _emit_compatibility_note("ui", "cortex serve ui")
 
     server, url = start_ui_server(
         host=args.host,
@@ -7034,7 +7129,27 @@ def run_server(args):
     """Launch the local Cortex REST API server."""
     from cortex.server import main as server_main
 
-    _emit_compatibility_note("server", "cortex serve api")
+    if getattr(args, "subcommand", "") == "server":
+        _emit_compatibility_note("server", "cortex serve api", format_name=getattr(args, "format", None))
+
+    if args.check and args.format == "json":
+        try:
+            payload = _serve_check_payload(
+                target="api",
+                mode="server",
+                config=_load_runtime_check_config(
+                    store_dir=args.store_dir,
+                    context_file=args.context_file,
+                    config_path=args.config,
+                    host=args.host,
+                    port=args.port,
+                    api_key=args.api_key,
+                ),
+            )
+        except ValueError as exc:
+            return _error(str(exc))
+        _emit_result(payload, "json")
+        return 0
 
     argv: list[str] = []
     if args.store_dir:
@@ -7058,7 +7173,25 @@ def run_mcp(args):
     """Launch the local Cortex MCP server over stdio."""
     from cortex.mcp import main as mcp_main
 
-    _emit_compatibility_note("mcp", "cortex serve mcp")
+    if getattr(args, "subcommand", "") == "mcp":
+        _emit_compatibility_note("mcp", "cortex serve mcp", format_name=getattr(args, "format", None))
+
+    if args.check and args.format == "json":
+        try:
+            payload = _serve_check_payload(
+                target="mcp",
+                mode="mcp",
+                config=_load_runtime_check_config(
+                    store_dir=args.store_dir,
+                    context_file=args.context_file,
+                    config_path=args.config,
+                    namespace=args.namespace,
+                ),
+            )
+        except ValueError as exc:
+            return _error(str(exc))
+        _emit_result(payload, "json")
+        return 0
 
     argv: list[str] = []
     if args.store_dir:
