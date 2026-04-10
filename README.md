@@ -58,9 +58,9 @@ Five-minute first run:
 ```bash
 mkdir cortex-workspace
 cd cortex-workspace
-cortex init --mind marc --owner marc
-cortex mind remember marc "I prefer concise, implementation-first answers."
-cortex mind status marc
+cortex init
+cortex mind remember self "I prefer concise, implementation-first answers."
+cortex mind status self
 cortex doctor
 ```
 
@@ -69,9 +69,9 @@ What this does:
 | Command | What it does |
 | --- | --- |
 | `mkdir cortex-workspace && cd cortex-workspace` | Creates a clean workspace for your Cortex store. |
-| `cortex init --mind marc --owner marc` | Creates `.cortex/config.toml`, generates reader and writer API keys, initializes the canonical store, creates the default Mind if needed, and prints the next recommended commands. |
-| `cortex mind remember marc "..."` | Teaches the Mind one durable fact or preference directly. |
-| `cortex mind status marc` | Shows the Mind's manifest, branch, policy, attachments, and mounts. |
+| `cortex init` | Creates `.cortex/config.toml`, generates reader and writer API keys, initializes the canonical store, creates the default Mind `self` if needed, and prints the next recommended commands. |
+| `cortex mind remember self "..."` | Teaches the default Mind one durable fact or preference directly. |
+| `cortex mind status self` | Shows the default Mind's manifest, branch, policy, attachments, and mounts. |
 | `cortex doctor` | Checks the local workspace for store or config issues before they become runtime problems. |
 
 ## First-Class CLI
@@ -100,10 +100,10 @@ That includes legacy and low-level commands such as `portable`, `remember`, `syn
 ### 1. Create and Compose a Mind
 
 ```bash
-cortex init --mind marc --owner marc
-cortex mind remember marc "I prefer concise, implementation-first answers."
-cortex mind remember marc "We are building Cortex as a first-class AI CLI."
-cortex mind compose marc --to codex --task "product strategy"
+cortex init
+cortex mind remember self "I prefer concise, implementation-first answers."
+cortex mind remember self "We are building Cortex as a first-class AI CLI."
+cortex mind compose self --to codex --task "product strategy"
 ```
 
 Use this flow when you want one portable Mind to carry across tools instead of restarting from zero in every runtime.
@@ -111,10 +111,10 @@ Use this flow when you want one portable Mind to carry across tools instead of r
 ### 2. Add a Brainpack
 
 ```bash
-cortex pack init ai-memory --description "Portable AI memory research" --owner marc
+cortex pack init ai-memory --description "Portable AI memory research"
 cortex pack ingest ai-memory ~/notes/ai-memory ~/Downloads/papers --recurse
 cortex pack compile ai-memory --suggest-questions
-cortex mind attach-pack marc ai-memory --always-on --target codex --task-term memory
+cortex mind attach-pack self ai-memory --always-on --target codex --task-term memory
 ```
 
 Use Brainpacks when you want specialist knowledge to be compiled once and composed into the Mind only when relevant.
@@ -142,7 +142,7 @@ cortex connect claude-code --install --project .
 Then materialize the actual Mind into those runtimes:
 
 ```bash
-cortex mind mount marc --to hermes codex cursor claude-code --task "support"
+cortex mind mount self --to hermes codex cursor claude-code --task "support"
 ```
 
 ### 4. Connect Manus
