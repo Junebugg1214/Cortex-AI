@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.upai.versioning import VersionStore
 
 
@@ -62,8 +63,7 @@ class RemoteRegistry:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def _save(self, payload: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     def list_remotes(self) -> list[MemoryRemote]:
         payload = self._load()
@@ -76,20 +76,22 @@ class RemoteRegistry:
         return None
 
     def add(self, remote: MemoryRemote) -> None:
-        payload = self._load()
-        remotes = [item for item in payload.get("remotes", []) if item.get("name") != remote.name]
-        remotes.append(remote.to_dict())
-        payload["remotes"] = sorted(remotes, key=lambda item: item["name"])
-        self._save(payload)
+        with locked_path(self.store_dir):
+            payload = self._load()
+            remotes = [item for item in payload.get("remotes", []) if item.get("name") != remote.name]
+            remotes.append(remote.to_dict())
+            payload["remotes"] = sorted(remotes, key=lambda item: item["name"])
+            self._save(payload)
 
     def remove(self, name: str) -> bool:
-        payload = self._load()
-        before = len(payload.get("remotes", []))
-        payload["remotes"] = [item for item in payload.get("remotes", []) if item.get("name") != name]
-        if len(payload["remotes"]) == before:
-            return False
-        self._save(payload)
-        return True
+        with locked_path(self.store_dir):
+            payload = self._load()
+            before = len(payload.get("remotes", []))
+            payload["remotes"] = [item for item in payload.get("remotes", []) if item.get("name") != name]
+            if len(payload["remotes"]) == before:
+                return False
+            self._save(payload)
+            return True
 
 
 def _required_records(store: VersionStore, ref: str) -> tuple[list[dict[str, Any]], str]:

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.graph import CortexGraph, diff_graphs
 from cortex.semantic_diff import semantic_diff_graphs
 
@@ -101,28 +102,29 @@ class GovernanceStore:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def _save_payload(self, payload: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     def list_rules(self) -> list[GovernanceRule]:
         payload = self._load_payload()
         return [GovernanceRule.from_dict(item) for item in payload.get("rules", [])]
 
     def upsert_rule(self, rule: GovernanceRule) -> None:
-        payload = self._load_payload()
-        rules = [item for item in payload.get("rules", []) if item.get("name") != rule.name]
-        rules.append(rule.to_dict())
-        payload["rules"] = sorted(rules, key=lambda item: item["name"])
-        self._save_payload(payload)
+        with locked_path(self.store_dir):
+            payload = self._load_payload()
+            rules = [item for item in payload.get("rules", []) if item.get("name") != rule.name]
+            rules.append(rule.to_dict())
+            payload["rules"] = sorted(rules, key=lambda item: item["name"])
+            self._save_payload(payload)
 
     def remove_rule(self, name: str) -> bool:
-        payload = self._load_payload()
-        before = len(payload.get("rules", []))
-        payload["rules"] = [item for item in payload.get("rules", []) if item.get("name") != name]
-        if len(payload["rules"]) == before:
-            return False
-        self._save_payload(payload)
-        return True
+        with locked_path(self.store_dir):
+            payload = self._load_payload()
+            before = len(payload.get("rules", []))
+            payload["rules"] = [item for item in payload.get("rules", []) if item.get("name") != name]
+            if len(payload["rules"]) == before:
+                return False
+            self._save_payload(payload)
+            return True
 
     def _approval_reasons(
         self,
