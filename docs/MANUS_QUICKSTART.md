@@ -61,6 +61,12 @@ When you have a public HTTPS bridge URL, print the Manus MCP JSON:
 cortex connect manus --url https://your-https-endpoint.example/mcp --print-config
 ```
 
+That preview masks secrets by default. For a paste-ready file, write the full JSON to disk instead:
+
+```bash
+cortex connect manus --url https://your-https-endpoint.example/mcp --write-config ./manus-mcp.json
+```
+
 Run the bridge locally:
 
 ```bash
@@ -132,7 +138,7 @@ In Manus:
 
 1. go to `Settings -> Integrations -> Custom MCP Server`
 2. click `Add server`
-3. either paste the JSON from `cortex connect manus --url https://... --print-config` or enter:
+3. either paste the JSON from `cortex connect manus --url https://... --write-config ./manus-mcp.json` or enter:
    - a server name such as `Cortex-Manus`
    - the HTTPS URL for your deployed bridge
    - the Bearer token or API key that matches your Cortex self-host config

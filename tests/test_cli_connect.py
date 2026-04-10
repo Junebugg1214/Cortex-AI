@@ -21,7 +21,7 @@ def test_cli_parser_supports_connect_and_serve_subcommands():
     assert serve_args.serve_subcommand == "manus"
 
 
-def test_connect_manus_prints_paste_ready_config_json(tmp_path, capsys):
+def test_connect_manus_masks_secret_in_printed_config_json(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
 
     init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
@@ -49,10 +49,71 @@ def test_connect_manus_prints_paste_ready_config_json(tmp_path, capsys):
     assert payload["key_name"] == "reader"
     assert payload["mcp_url"] == "https://example.ngrok-free.app/mcp"
     assert payload["serve_command"].startswith("cortex serve manus ")
+    assert payload["secrets_revealed"] is False
     connector = payload["connector_config"]["mcpServers"]["Cortex-Manus"]
     assert connector["type"] == "streamableHttp"
     assert connector["url"] == "https://example.ngrok-free.app/mcp"
     assert connector["headers"]["X-API-Key"].startswith("cortex-reader-")
+    assert "..." in connector["headers"]["X-API-Key"]
+
+
+def test_connect_manus_can_write_full_config_to_file(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    output_path = tmp_path / "manus-mcp.json"
+
+    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
+    capsys.readouterr()
+    connect_rc = main(
+        [
+            "connect",
+            "manus",
+            "--store-dir",
+            str(store_dir),
+            "--url",
+            "https://example.ngrok-free.app",
+            "--write-config",
+            str(output_path),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert init_rc == 0
+    assert connect_rc == 0
+    assert payload["connector_config_path"] == str(output_path.resolve())
+    assert written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"].startswith("cortex-reader-")
+    assert "..." not in written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"]
+
+
+def test_connect_manus_can_reveal_secret_explicitly(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
+    capsys.readouterr()
+    connect_rc = main(
+        [
+            "connect",
+            "manus",
+            "--store-dir",
+            str(store_dir),
+            "--url",
+            "https://example.ngrok-free.app",
+            "--print-config",
+            "--reveal-secret",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    connector = payload["connector_config"]["mcpServers"]["Cortex-Manus"]
+
+    assert init_rc == 0
+    assert connect_rc == 0
+    assert payload["secrets_revealed"] is True
+    assert connector["headers"]["X-API-Key"].startswith("cortex-reader-")
+    assert "..." not in connector["headers"]["X-API-Key"]
 
 
 def test_connect_manus_check_warns_until_public_url_is_known(tmp_path, capsys):
