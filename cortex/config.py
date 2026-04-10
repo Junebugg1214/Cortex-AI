@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from cortex.http_hardening import request_policy_for_mode
+from cortex.namespaces import (
+    WILDCARD_NAMESPACE,
+    acl_allows_namespace,
+    acl_single_namespace,
+    normalize_acl_namespaces,
+    normalize_resource_namespace,
+)
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 
 try:  # pragma: no cover - exercised implicitly on Python 3.10
@@ -44,19 +51,6 @@ def _path_from_config(value: str | Path | None, *, base_dir: Path | None) -> Pat
     if path.is_absolute() or base_dir is None:
         return path
     return base_dir / path
-
-
-def _normalize_namespace(value: str) -> str:
-    namespace = value.strip().strip("/")
-    return namespace or "*"
-
-
-def _normalize_namespaces(values: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
-    raw_values = list(values or [])
-    if not raw_values:
-        return ("*",)
-    normalized = tuple(dict.fromkeys(_normalize_namespace(item) for item in raw_values if str(item).strip()))
-    return normalized or ("*",)
 
 
 def _normalize_scopes(values: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
@@ -165,7 +159,7 @@ class APIKeyConfig:
     name: str
     token: str
     scopes: tuple[str, ...] = ALL_SCOPES
-    namespaces: tuple[str, ...] = ("*",)
+    namespaces: tuple[str, ...] = (WILDCARD_NAMESPACE,)
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "APIKeyConfig":
@@ -176,7 +170,7 @@ class APIKeyConfig:
         if not token:
             raise ValueError(f"API key '{name}' is missing a non-empty token.")
         scopes = _normalize_scopes(list(payload.get("scopes") or []))
-        namespaces = _normalize_namespaces(list(payload.get("namespaces") or []))
+        namespaces = normalize_acl_namespaces(list(payload.get("namespaces") or []))
         return cls(name=name, token=token, scopes=scopes, namespaces=namespaces)
 
     def to_safe_dict(self) -> dict[str, Any]:
@@ -190,20 +184,10 @@ class APIKeyConfig:
         return "admin" in self.scopes or scope in self.scopes
 
     def allows_namespace(self, namespace: str) -> bool:
-        if "*" in self.namespaces:
-            return True
-        normalized = _normalize_namespace(namespace)
-        return any(
-            normalized == allowed or normalized.startswith(f"{allowed}/")
-            for allowed in self.namespaces
-            if allowed != "*"
-        )
+        return acl_allows_namespace(self.namespaces, namespace)
 
     def single_namespace(self) -> str | None:
-        namespaces = [namespace for namespace in self.namespaces if namespace != "*"]
-        if len(namespaces) == 1:
-            return namespaces[0]
-        return None
+        return acl_single_namespace(self.namespaces)
 
 
 def _legacy_api_key(name: str, token: str, *, scopes: list[str] | tuple[str, ...] | None = None) -> APIKeyConfig:
@@ -211,7 +195,7 @@ def _legacy_api_key(name: str, token: str, *, scopes: list[str] | tuple[str, ...
         name=name,
         token=token.strip(),
         scopes=_normalize_scopes(list(scopes or ALL_SCOPES)),
-        namespaces=("*",),
+        namespaces=(WILDCARD_NAMESPACE,),
     )
 
 
@@ -388,7 +372,9 @@ def _keys_from_config(data: dict[str, Any]) -> tuple[APIKeyConfig, ...]:
                 name="server-default",
                 token=legacy_token,
                 scopes=_normalize_scopes(list(server_table.get("api_key_scopes") or ALL_SCOPES)),
-                namespaces=_normalize_namespaces(list(server_table.get("api_key_namespaces") or ["*"])),
+                namespaces=normalize_acl_namespaces(
+                    list(server_table.get("api_key_namespaces") or [WILDCARD_NAMESPACE])
+                ),
             )
         )
 
@@ -420,7 +406,9 @@ def _keys_from_env(env: Mapping[str, str]) -> tuple[APIKeyConfig, ...]:
                 name="env-default",
                 token=legacy_token,
                 scopes=_normalize_scopes(_split_csv(env.get("CORTEX_API_KEY_SCOPES")) or list(ALL_SCOPES)),
-                namespaces=_normalize_namespaces(_split_csv(env.get("CORTEX_API_KEY_NAMESPACES")) or ["*"]),
+                namespaces=normalize_acl_namespaces(
+                    _split_csv(env.get("CORTEX_API_KEY_NAMESPACES")) or [WILDCARD_NAMESPACE]
+                ),
             )
         )
     return tuple(keys)
@@ -514,7 +502,7 @@ def load_selfhost_config(
         server_host=_normalize_server_host(configured_host),
         server_port=_normalize_server_port(configured_port),
         runtime_mode=_normalize_runtime_mode(configured_runtime_mode),
-        mcp_namespace=_normalize_namespace(configured_mcp_namespace) if configured_mcp_namespace else None,
+        mcp_namespace=normalize_resource_namespace(configured_mcp_namespace),
         api_keys=configured_keys,
     )
 
@@ -547,7 +535,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         warnings.append(
             "Hosted-service deployments should run behind an HTTPS reverse proxy; Cortex does not terminate TLS itself."
         )
-        if "*" in {namespace for key in config.api_keys for namespace in key.namespaces}:
+        if WILDCARD_NAMESPACE in {namespace for key in config.api_keys for namespace in key.namespaces}:
             warnings.append(
                 "Some API keys allow every namespace; prefer dedicated single-namespace keys for hosted-service deployments."
             )
@@ -559,7 +547,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
             warnings.append(
                 "Hosted-service deployments should use a persisted config.toml instead of relying on CLI or environment defaults alone."
             )
-    if any(key.single_namespace() is None and "*" not in key.namespaces for key in config.api_keys):
+    if any(key.single_namespace() is None and WILDCARD_NAMESPACE not in key.namespaces for key in config.api_keys):
         warnings.append("Some API keys cover multiple namespaces; those clients must send an explicit namespace.")
     if mode == "mcp" and not config.mcp_namespace:
         warnings.append("No default MCP namespace configured; clients may choose namespaces explicitly.")

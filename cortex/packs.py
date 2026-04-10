@@ -26,6 +26,7 @@ from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 from cortex.hermes_integration import build_hermes_documents
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
+from cortex.namespaces import describe_resource_namespace, normalize_resource_namespace, resource_namespace_matches
 from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
 from cortex.portable_runtime import (
     _policy_for_target,
@@ -105,7 +106,7 @@ class BrainpackManifest:
     name: str
     description: str
     owner: str
-    namespace: str
+    namespace: str | None
     created_at: str
     updated_at: str
     default_policy: str = "research"
@@ -141,31 +142,12 @@ def _validate_pack_name(name: str) -> str:
     return cleaned
 
 
-def _normalize_namespace(value: str | None) -> str:
-    cleaned = str(value or "").strip().strip("/")
-    if not cleaned:
-        return ""
-    if cleaned == "*" or " " in cleaned or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", cleaned):
-        raise ValueError(
-            "Namespaces must use letters, numbers, '.', '-', '_', or '/' and must not contain spaces or '*'."
-        )
-    return cleaned
-
-
-def _namespace_matches(item_namespace: str, requested_namespace: str | None) -> bool:
-    if not requested_namespace:
-        return True
-    normalized_item = _normalize_namespace(item_namespace)
-    normalized_requested = _normalize_namespace(requested_namespace)
-    return bool(normalized_item) and (
-        normalized_item == normalized_requested or normalized_item.startswith(f"{normalized_requested}/")
-    )
-
-
 def _require_pack_namespace(manifest: BrainpackManifest, namespace: str | None) -> None:
-    if _namespace_matches(manifest.namespace, namespace):
+    if resource_namespace_matches(manifest.namespace, namespace):
         return
-    raise PermissionError(f"Brainpack '{manifest.name}' is outside namespace '{_normalize_namespace(namespace)}'.")
+    raise PermissionError(
+        f"Brainpack '{manifest.name}' is outside namespace '{describe_resource_namespace(namespace)}'."
+    )
 
 
 def pack_path(store_dir: Path, name: str) -> Path:
@@ -266,7 +248,6 @@ def _write_manifest(path: Path, manifest: BrainpackManifest) -> None:
         f"name = {json.dumps(manifest.name)}",
         f"description = {json.dumps(manifest.description)}",
         f"owner = {json.dumps(manifest.owner)}",
-        f"namespace = {json.dumps(manifest.namespace)}",
         f"default_policy = {json.dumps(manifest.default_policy)}",
         f"auto_backlink = {'true' if manifest.auto_backlink else 'false'}",
         f"auto_promote_claims = {'true' if manifest.auto_promote_claims else 'false'}",
@@ -277,6 +258,8 @@ def _write_manifest(path: Path, manifest: BrainpackManifest) -> None:
         "[sources]",
         "glob = [",
     ]
+    if manifest.namespace is not None:
+        lines.insert(3, f"namespace = {json.dumps(manifest.namespace)}")
     lines.extend(f"  {json.dumps(item)}," for item in manifest.source_glob)
     lines.extend(
         [
@@ -308,7 +291,7 @@ def _manifest_from_payload(payload: dict[str, Any], *, fallback_name: str) -> Br
         name=str(payload.get("name") or fallback_name),
         description=str(payload.get("description") or ""),
         owner=str(payload.get("owner") or ""),
-        namespace=_normalize_namespace(str(payload.get("namespace") or "")),
+        namespace=normalize_resource_namespace(payload.get("namespace")),
         created_at=str(payload.get("created_at") or ""),
         updated_at=str(payload.get("updated_at") or ""),
         default_policy=str(payload.get("default_policy") or "research"),
@@ -358,7 +341,7 @@ def init_pack(
     *,
     description: str = "",
     owner: str = "",
-    namespace: str = "",
+    namespace: str | None = None,
     default_policy: str = "research",
 ) -> dict[str, Any]:
     pack_name = _validate_pack_name(name)
@@ -374,7 +357,7 @@ def init_pack(
         name=pack_name,
         description=description.strip(),
         owner=owner.strip(),
-        namespace=_normalize_namespace(namespace),
+        namespace=normalize_resource_namespace(namespace),
         created_at=created_at,
         updated_at=created_at,
         default_policy=default_policy,
@@ -855,7 +838,7 @@ def import_pack_bundle(
                 name=manifest_payload.name,
                 description=manifest_payload.description,
                 owner=manifest_payload.owner,
-                namespace=_normalize_namespace(namespace),
+                namespace=normalize_resource_namespace(namespace),
                 created_at=manifest_payload.created_at,
                 updated_at=_iso_now(),
                 default_policy=manifest_payload.default_policy,
