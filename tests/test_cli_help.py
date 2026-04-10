@@ -41,6 +41,8 @@ def test_default_help_is_first_class_and_mind_first():
         "status",
     }.isdisjoint(commands)
     assert "Start Here:" in help_text
+    assert "Surface Map:" in help_text
+    assert "Runtime / admin" in help_text
     assert "cortex connect manus" in help_text
     assert ADVANCED_HELP_NOTE in help_text
 
@@ -85,6 +87,29 @@ def test_compatibility_subcommand_help_labels_are_visible(capsys):
 
     assert "Compatibility command for legacy portability-first context sync" in portable_help
     assert "Compatibility alias for `cortex serve api`" in server_help
+
+
+def test_first_class_subcommand_help_explains_product_surfaces(capsys):
+    parser = build_parser()
+
+    with pytest.raises(SystemExit, match="0"):
+        parser.parse_args(["connect", "--help"])
+    connect_help = capsys.readouterr().out
+
+    with pytest.raises(SystemExit, match="0"):
+        parser.parse_args(["serve", "--help"])
+    serve_help = capsys.readouterr().out
+
+    with pytest.raises(SystemExit, match="0"):
+        parser.parse_args(["doctor", "--help"])
+    doctor_help = capsys.readouterr().out
+
+    assert "runtime wiring for Cortex without materializing Mind state yet" in connect_help
+    assert "Use `cortex mind mount` to materialize Cortex state" in connect_help
+    assert "Runtime / admin surfaces:" in serve_help
+    assert "day-to-day workflows usually start with `cortex init`" in serve_help
+    assert "store, config, and runtime drift" in doctor_help
+    assert "cortex doctor --fix-store" in doctor_help
 
 
 def _write_graph(path):
