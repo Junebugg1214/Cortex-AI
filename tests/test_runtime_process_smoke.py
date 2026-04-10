@@ -277,8 +277,8 @@ def test_web_ui_process_serves_real_control_plane_requests(tmp_path):
     logs = log_path.read_text(encoding="utf-8")
 
     assert isinstance(html, str)
-    assert "Portable AI context, without the archaeology" in html
-    assert "Workspace Overview" in html
+    assert "One portable Mind, wired across your tools" in html
+    assert "Mind Overview" in html
     assert meta["backend"] == "sqlite"
     assert health["status"] == "ok"
     assert index["persistent"] is True

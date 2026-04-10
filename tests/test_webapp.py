@@ -68,11 +68,14 @@ def _invoke_handler(
 
 
 def test_webapp_html_mentions_current_primary_surfaces():
-    assert "Portable AI context, without the archaeology" in UI_HTML
-    assert "Workspace Overview" in UI_HTML
+    assert "Portable AI Minds across your tools." in UI_HTML
+    assert "One portable Mind, wired across your tools" in UI_HTML
+    assert "Mind Overview" in UI_HTML
     assert "Quick actions" in UI_HTML
+    assert "Default Mind workflow" in UI_HTML
+    assert "Mind and workspace health" in UI_HTML
     assert "Remember & sync" in UI_HTML
-    assert "Sync all" in UI_HTML
+    assert "Sync mounted targets" in UI_HTML
     assert "Connected Tools" in UI_HTML
     assert "Minds" in UI_HTML
     assert "Compose preview" in UI_HTML
@@ -106,6 +109,9 @@ def test_webapp_html_mentions_current_primary_surfaces():
     assert "/api/packs/claims" in UI_HTML
     assert "/api/packs/unknowns" in UI_HTML
     assert "/api/packs/artifacts" in UI_HTML
+    assert "Portable AI context, without the archaeology" not in UI_HTML
+    assert "Workspace Overview" not in UI_HTML
+    assert "Sync all" not in UI_HTML
 
 
 def test_webapp_backend_meta_review_and_blame(tmp_path):
@@ -408,7 +414,7 @@ def test_webapp_handler_exposes_operations_endpoints(tmp_path):
     assert html_headers["X-Request-ID"]
     assert meta_headers["X-Request-ID"]
     assert rebuild_headers["X-Request-ID"]
-    assert "Workspace Overview" in html
+    assert "Mind Overview" in html
     assert meta["backend"] == "sqlite"
     assert index["persistent"] is True
     assert rebuild["rebuilt"] == 1
