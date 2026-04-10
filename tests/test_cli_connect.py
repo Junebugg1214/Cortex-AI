@@ -131,6 +131,24 @@ def test_connect_manus_check_warns_until_public_url_is_known(tmp_path, capsys):
     assert any("No public HTTPS URL was provided yet" in warning for warning in payload["warnings"])
 
 
+def test_connect_manus_uses_discovered_store_from_nested_workspace(tmp_path, capsys, monkeypatch):
+    workspace = tmp_path / "workspace"
+    nested = workspace / "apps" / "cortex"
+    store_dir = workspace / ".cortex"
+    nested.mkdir(parents=True)
+
+    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
+    capsys.readouterr()
+    monkeypatch.chdir(nested)
+    rc = main(["connect", "manus", "--url", "https://example.ngrok-free.app", "--check", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert init_rc == 0
+    assert rc == 0
+    assert payload["store_dir"] == str(store_dir.resolve())
+    assert payload["store_source"] == "discovered_config"
+
+
 def test_serve_api_mcp_and_manus_checks_round_trip(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
 
@@ -147,6 +165,25 @@ def test_serve_api_mcp_and_manus_checks_round_trip(tmp_path, capsys):
     assert "Cortex mcp diagnostics:" in mcp_output
     assert manus_rc == 0
     assert "Bridge:    Manus custom MCP over HTTP" in manus_output
+
+
+def test_serve_api_refuses_root_store_paths_for_first_class_flow(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "config.toml").write_text(
+        """
+[runtime]
+store_dir = "."
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["serve", "api", "--store-dir", str(project_dir), "--check"])
+    streams = capsys.readouterr()
+
+    assert rc == 1
+    assert "First-class Cortex CLI flows expect the canonical `.cortex/` layout" in streams.err
+    assert "doctor --store-dir" in streams.err
 
 
 def test_serve_api_and_ui_reject_unsafe_non_loopback_by_default(tmp_path, capsys):
@@ -205,6 +242,35 @@ def test_serve_api_allows_hosted_service_with_auth_and_ui_needs_explicit_overrid
     assert api_payload["auth_enabled"] is True
     assert ui_rc == 1
     assert "does not yet enforce remote auth" in ui_streams.err
+
+
+def test_connect_runtime_install_creates_canonical_dot_store_config(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    rc = main(
+        [
+            "connect",
+            "codex",
+            "--store-dir",
+            str(store_dir),
+            "--project",
+            str(project_dir),
+            "--install",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["config_created"] is True
+    assert payload["config_path"] == str((store_dir / "config.toml").resolve())
+    assert 'store_dir = "."' in (store_dir / "config.toml").read_text(encoding="utf-8")
 
 
 def _connect_target_config_path(target: str, home_dir: Path, project_dir: Path) -> Path:
