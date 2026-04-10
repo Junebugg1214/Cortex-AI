@@ -248,6 +248,7 @@ def _validate_bridge_security(
     *,
     host: str,
     api_keys: tuple[APIKeyConfig, ...],
+    namespace: str | None = None,
     runtime_mode: str = "local-single-user",
     allow_unsafe_bind: bool = False,
     allow_insecure_no_auth: bool = False,
@@ -257,6 +258,7 @@ def _validate_bridge_security(
         host=host,
         runtime_mode=runtime_mode,
         api_keys=api_keys,
+        namespace=namespace,
         allow_unsafe_bind=allow_unsafe_bind or allow_insecure_no_auth,
     )
 
@@ -458,6 +460,7 @@ def start_manus_bridge_server(
     _validate_bridge_security(
         host=host,
         api_keys=api_keys,
+        namespace=namespace,
         runtime_mode=runtime_mode,
         allow_unsafe_bind=allow_unsafe_bind,
         allow_insecure_no_auth=allow_insecure_no_auth,
@@ -556,6 +559,7 @@ def main(argv: list[str] | None = None) -> int:
         _validate_bridge_security(
             host=config.server_host,
             api_keys=config.api_keys,
+            namespace=config.mcp_namespace,
             runtime_mode=config.runtime_mode,
             allow_unsafe_bind=args.allow_unsafe_bind,
         )

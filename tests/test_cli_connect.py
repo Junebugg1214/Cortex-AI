@@ -240,6 +240,9 @@ def test_serve_api_allows_hosted_service_with_auth_and_ui_needs_explicit_overrid
     assert api_rc == 0
     assert api_payload["runtime_mode"] == "hosted-service"
     assert api_payload["auth_enabled"] is True
+    assert api_payload["bind_scope"] == "network"
+    assert api_payload["reverse_proxy_recommended"] is True
+    assert any("HTTPS reverse proxy" in warning for warning in api_payload["warnings"])
     assert ui_rc == 1
     assert "does not yet enforce remote auth" in ui_streams.err
 
