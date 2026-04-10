@@ -88,6 +88,64 @@ def test_serve_api_mcp_and_manus_checks_round_trip(tmp_path, capsys):
     assert "Bridge:    Manus custom MCP over HTTP" in manus_output
 
 
+def test_serve_api_and_ui_reject_unsafe_non_loopback_by_default(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    api_rc = main(["serve", "api", "--store-dir", str(store_dir), "--host", "0.0.0.0", "--check"])
+    api_streams = capsys.readouterr()
+    ui_rc = main(["serve", "ui", "--store-dir", str(store_dir), "--host", "0.0.0.0", "--check"])
+    ui_streams = capsys.readouterr()
+
+    assert api_rc == 1
+    assert "local-single-user mode" in api_streams.err
+    assert ui_rc == 1
+    assert "local-single-user mode" in ui_streams.err
+
+
+def test_serve_api_allows_hosted_service_with_auth_and_ui_needs_explicit_override(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+
+    api_rc = main(
+        [
+            "serve",
+            "api",
+            "--store-dir",
+            str(store_dir),
+            "--host",
+            "0.0.0.0",
+            "--runtime-mode",
+            "hosted-service",
+            "--api-key",
+            "secret-token",
+            "--check",
+            "--format",
+            "json",
+        ]
+    )
+    api_payload = json.loads(capsys.readouterr().out)
+
+    ui_rc = main(
+        [
+            "serve",
+            "ui",
+            "--store-dir",
+            str(store_dir),
+            "--host",
+            "0.0.0.0",
+            "--runtime-mode",
+            "hosted-service",
+            "--check",
+        ]
+    )
+    ui_streams = capsys.readouterr()
+
+    assert api_rc == 0
+    assert api_payload["runtime_mode"] == "hosted-service"
+    assert api_payload["auth_enabled"] is True
+    assert ui_rc == 1
+    assert "does not yet enforce remote auth" in ui_streams.err
+
+
 def _connect_target_config_path(target: str, home_dir: Path, project_dir: Path) -> Path:
     return {
         "codex": home_dir / ".codex" / "config.toml",

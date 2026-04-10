@@ -26,6 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
 
 from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
+from cortex.config import RUNTIME_MODES
 from cortex.contradictions import ContradictionEngine
 from cortex.extract_memory import (
     AggressiveExtractor,
@@ -237,6 +238,7 @@ def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, st
     payload = (
         "[runtime]\n"
         'store_dir = "."\n'
+        'mode = "local-single-user"\n'
         "\n"
         "[server]\n"
         'host = "127.0.0.1"\n'
@@ -340,6 +342,27 @@ def _build_connect_manus_serve_command(
         parts.extend(["--namespace", namespace])
     parts.extend(["--host", host, "--port", str(port)])
     return _shell_join(parts)
+
+
+def _add_runtime_security_args(parser, *, include_legacy_manus_alias: bool = False) -> None:
+    parser.add_argument(
+        "--runtime-mode",
+        choices=RUNTIME_MODES,
+        default=None,
+        help="Security posture for HTTP serving (default from config or local-single-user)",
+    )
+    parser.add_argument(
+        "--allow-unsafe-bind",
+        action="store_true",
+        help="Allow a non-loopback bind even when the runtime security contract would normally refuse it.",
+    )
+    if include_legacy_manus_alias:
+        parser.add_argument(
+            "--allow-insecure-no-auth",
+            dest="allow_unsafe_bind",
+            action="store_true",
+            help=argparse.SUPPRESS,
+        )
 
 
 def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
@@ -603,6 +626,7 @@ def build_parser(*, show_all_commands: bool = False):
     serve_api.add_argument("--context-file", help="Optional default context graph file")
     serve_api.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
     serve_api.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
+    _add_runtime_security_args(serve_api)
     serve_api.add_argument("--api-key", help="Optional API key required for requests")
     serve_api.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     serve_api.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
@@ -626,6 +650,7 @@ def build_parser(*, show_all_commands: bool = False):
     serve_manus.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     serve_manus.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
     serve_manus.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8790)")
+    _add_runtime_security_args(serve_manus, include_legacy_manus_alias=True)
     serve_manus.add_argument(
         "--tool",
         action="append",
@@ -638,11 +663,6 @@ def build_parser(*, show_all_commands: bool = False):
         help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
     )
     serve_manus.add_argument(
-        "--allow-insecure-no-auth",
-        action="store_true",
-        help="Allow a non-loopback bind without API keys. Use only behind a trusted local reverse proxy.",
-    )
-    serve_manus.add_argument(
         "--protocol-version",
         default=None,
         help="Optional negotiated MCP protocol version override for Manus compatibility",
@@ -653,9 +673,13 @@ def build_parser(*, show_all_commands: bool = False):
     serve_ui = serve_sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     serve_ui.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")
     serve_ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
-    serve_ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    serve_ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
+    serve_ui.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    serve_ui.add_argument("--host", default=None, help="Bind host (default: 127.0.0.1)")
+    serve_ui.add_argument("--port", type=int, default=None, help="Bind port (default: 8765, or 0 for any free port)")
+    _add_runtime_security_args(serve_ui)
     serve_ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
+    serve_ui.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    serve_ui.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- migrate (default) --------------------------------------------------
     mig = sub.add_parser("migrate", help="Full pipeline: extract then import")
@@ -1922,9 +1946,13 @@ def build_parser(*, show_all_commands: bool = False):
     )
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
-    ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
+    ui.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    ui.add_argument("--host", default=None, help="Bind host (default: 127.0.0.1)")
+    ui.add_argument("--port", type=int, default=None, help="Bind port (default: 8765, or 0 for any free port)")
+    _add_runtime_security_args(ui)
     ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
+    ui.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+    ui.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- openapi (contract export) ----------------------------------------
     oa = sub.add_parser("openapi", help="Write the Cortex OpenAPI contract")
@@ -1962,6 +1990,7 @@ def build_parser(*, show_all_commands: bool = False):
     srv.add_argument("--context-file", help="Optional default context graph file")
     srv.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
     srv.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
+    _add_runtime_security_args(srv)
     srv.add_argument("--api-key", help="Optional API key required for requests")
     srv.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     srv.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
@@ -7390,6 +7419,7 @@ def _load_runtime_check_config(
     config_path: str | None,
     host: str | None = None,
     port: int | None = None,
+    runtime_mode: str | None = None,
     namespace: str | None = None,
     api_key: str | None = None,
 ):
@@ -7401,18 +7431,20 @@ def _load_runtime_check_config(
         config_path=config_path,
         server_host=host,
         server_port=port,
+        runtime_mode=runtime_mode,
         mcp_namespace=namespace,
         api_key=api_key,
     )
 
 
-def _serve_check_payload(*, target: str, mode: str, config) -> dict[str, Any]:
+def _serve_check_payload(*, target: str, mode: str, config, allow_unsafe_bind: bool = False) -> dict[str, Any]:
     from cortex.config import startup_diagnostics
 
     diagnostics = startup_diagnostics(config, mode=mode)
     return {
         "status": "ok",
         "target": target,
+        "allow_unsafe_bind": bool(allow_unsafe_bind),
         **diagnostics,
     }
 
@@ -7433,6 +7465,7 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
         config_path=args.config,
         host=args.host or DEFAULT_MANUS_HOST,
         port=args.port if args.port is not None else DEFAULT_MANUS_PORT,
+        runtime_mode=args.runtime_mode,
         namespace=args.namespace,
     )
     preview_server = CortexMCPServer(
@@ -7443,7 +7476,8 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
     _validate_bridge_security(
         host=config.server_host,
         api_keys=config.api_keys,
-        allow_insecure_no_auth=args.allow_insecure_no_auth,
+        runtime_mode=config.runtime_mode,
+        allow_unsafe_bind=args.allow_unsafe_bind,
     )
     exposed_tools = select_manus_tools(
         preview_server,
@@ -7451,7 +7485,7 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
         extra_tools=args.tool,
     )
     return {
-        **_serve_check_payload(target="manus", mode="server", config=config),
+        **_serve_check_payload(target="manus", mode="manus", config=config, allow_unsafe_bind=args.allow_unsafe_bind),
         "bridge": "manus_http",
         "bridge_transport": "http",
         "bridge_https_required": True,
@@ -7460,7 +7494,8 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
         "tool_count": len(exposed_tools),
         "tools": list(exposed_tools),
         "allow_write_tools": bool(args.allow_write_tools),
-        "allow_insecure_no_auth": bool(args.allow_insecure_no_auth),
+        "allow_unsafe_bind": bool(args.allow_unsafe_bind),
+        "allow_insecure_no_auth": bool(args.allow_unsafe_bind),
     }
 
 
@@ -7492,8 +7527,10 @@ def run_serve_manus(args):
         argv.extend(["--tool", tool])
     if args.allow_write_tools:
         argv.append("--allow-write-tools")
-    if args.allow_insecure_no_auth:
-        argv.append("--allow-insecure-no-auth")
+    if args.runtime_mode:
+        argv.extend(["--runtime-mode", args.runtime_mode])
+    if args.allow_unsafe_bind:
+        argv.append("--allow-unsafe-bind")
     if args.protocol_version:
         argv.extend(["--protocol-version", args.protocol_version])
     if args.check:
@@ -7515,17 +7552,55 @@ def run_serve(args):
 
 def run_ui(args):
     """Launch the local Cortex infrastructure UI."""
+    from cortex.config import format_startup_diagnostics, validate_runtime_security
     from cortex.webapp import start_ui_server
 
     if getattr(args, "subcommand", "") == "ui":
         _emit_compatibility_note("ui", "cortex serve ui")
 
+    try:
+        config = _load_runtime_check_config(
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=getattr(args, "config", None),
+            host=args.host or "127.0.0.1",
+            port=args.port if args.port is not None else 8765,
+            runtime_mode=args.runtime_mode,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+
+    try:
+        validate_runtime_security(
+            surface="ui",
+            host=config.server_host,
+            runtime_mode=config.runtime_mode,
+            allow_unsafe_bind=args.allow_unsafe_bind,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+
+    if args.check and getattr(args, "format", "text") == "json":
+        payload = _serve_check_payload(
+            target="ui",
+            mode="ui",
+            config=config,
+            allow_unsafe_bind=args.allow_unsafe_bind,
+        )
+        _emit_result(payload, "json")
+        return 0
+    if args.check:
+        _echo(format_startup_diagnostics(config, mode="ui"), force=True)
+        return 0
+
     server, url = start_ui_server(
-        host=args.host,
-        port=args.port,
-        store_dir=str(_resolved_store_dir(args.store_dir)),
-        context_file=args.context_file,
+        host=config.server_host,
+        port=config.server_port,
+        store_dir=str(config.store_dir),
+        context_file=config.context_file,
         open_browser=args.open,
+        runtime_mode=config.runtime_mode,
+        allow_unsafe_bind=args.allow_unsafe_bind,
     )
     print(f"Cortex UI running at {url}")
     print("Press Ctrl+C to stop.")
@@ -7541,6 +7616,7 @@ def run_ui(args):
 
 def run_server(args):
     """Launch the local Cortex REST API server."""
+    from cortex.config import validate_runtime_security
     from cortex.server import main as server_main
 
     if getattr(args, "subcommand", "") == "server":
@@ -7548,17 +7624,27 @@ def run_server(args):
 
     if args.check and args.format == "json":
         try:
+            config = _load_runtime_check_config(
+                store_dir=args.store_dir,
+                context_file=args.context_file,
+                config_path=args.config,
+                host=args.host,
+                port=args.port,
+                runtime_mode=args.runtime_mode,
+                api_key=args.api_key,
+            )
+            validate_runtime_security(
+                surface="api",
+                host=config.server_host,
+                runtime_mode=config.runtime_mode,
+                api_keys=config.api_keys,
+                allow_unsafe_bind=args.allow_unsafe_bind,
+            )
             payload = _serve_check_payload(
                 target="api",
                 mode="server",
-                config=_load_runtime_check_config(
-                    store_dir=args.store_dir,
-                    context_file=args.context_file,
-                    config_path=args.config,
-                    host=args.host,
-                    port=args.port,
-                    api_key=args.api_key,
-                ),
+                config=config,
+                allow_unsafe_bind=args.allow_unsafe_bind,
             )
         except ValueError as exc:
             return _error(str(exc))
@@ -7574,10 +7660,14 @@ def run_server(args):
         argv.extend(["--host", args.host])
     if args.port is not None:
         argv.extend(["--port", str(args.port)])
+    if args.runtime_mode:
+        argv.extend(["--runtime-mode", args.runtime_mode])
     if args.api_key:
         argv.extend(["--api-key", args.api_key])
     if args.config:
         argv.extend(["--config", args.config])
+    if args.allow_unsafe_bind:
+        argv.append("--allow-unsafe-bind")
     if args.check:
         argv.append("--check")
     return server_main(argv)

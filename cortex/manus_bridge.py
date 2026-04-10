@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ipaddress
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,7 +9,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from cortex.auth import authorize_api_key
-from cortex.config import APIKeyConfig, format_startup_diagnostics, load_selfhost_config
+from cortex.config import (
+    RUNTIME_MODES,
+    APIKeyConfig,
+    format_startup_diagnostics,
+    load_selfhost_config,
+    validate_runtime_security,
+)
 from cortex.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
 
 MANUS_BRIDGE_NAME = "cortex-manus"
@@ -205,29 +210,20 @@ def _auth_error_payload(server: CortexMCPServer, message: Any, error: str) -> An
     return _jsonrpc_error_payload(server, message, JsonRpcError(-32001, error))
 
 
-def _is_loopback_host(host: str) -> bool:
-    normalized = str(host or "").strip()
-    if not normalized:
-        return False
-    if normalized == "localhost" or normalized.endswith(".localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(normalized.strip("[]")).is_loopback
-    except ValueError:
-        return False
-
-
 def _validate_bridge_security(
     *,
     host: str,
     api_keys: tuple[APIKeyConfig, ...],
+    runtime_mode: str = "local-single-user",
+    allow_unsafe_bind: bool = False,
     allow_insecure_no_auth: bool = False,
 ) -> None:
-    if api_keys or allow_insecure_no_auth or _is_loopback_host(host):
-        return
-    raise ValueError(
-        "Refusing to bind the Manus bridge to a non-loopback host without API keys. "
-        "Configure auth keys or pass --allow-insecure-no-auth only for trusted local reverse-proxy setups."
+    validate_runtime_security(
+        surface="manus",
+        host=host,
+        runtime_mode=runtime_mode,
+        api_keys=api_keys,
+        allow_unsafe_bind=allow_unsafe_bind or allow_insecure_no_auth,
     )
 
 
@@ -403,6 +399,8 @@ def start_manus_bridge_server(
     api_keys: tuple[APIKeyConfig, ...] = (),
     include_write_tools: bool = False,
     extra_tools: list[str] | tuple[str, ...] | None = None,
+    runtime_mode: str = "local-single-user",
+    allow_unsafe_bind: bool = False,
     allow_insecure_no_auth: bool = False,
     protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
 ) -> tuple[ThreadingHTTPServer, str, tuple[str, ...]]:
@@ -412,6 +410,8 @@ def start_manus_bridge_server(
     _validate_bridge_security(
         host=host,
         api_keys=api_keys,
+        runtime_mode=runtime_mode,
+        allow_unsafe_bind=allow_unsafe_bind,
         allow_insecure_no_auth=allow_insecure_no_auth,
     )
     server = CortexMCPServer(store_dir=store_dir, context_file=context_file, namespace=namespace)
@@ -444,6 +444,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=None, help=f"Bind host (default {DEFAULT_MANUS_HOST})")
     parser.add_argument("--port", type=int, default=None, help=f"Bind port (default {DEFAULT_MANUS_PORT})")
     parser.add_argument(
+        "--runtime-mode",
+        choices=RUNTIME_MODES,
+        default=None,
+        help="Security posture for HTTP serving (default from config or local-single-user)",
+    )
+    parser.add_argument(
         "--tool",
         action="append",
         default=[],
@@ -455,9 +461,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
     )
     parser.add_argument(
-        "--allow-insecure-no-auth",
+        "--allow-unsafe-bind",
         action="store_true",
-        help="Allow a non-loopback bind without API keys. Use only behind a trusted local reverse proxy.",
+        help="Allow a non-loopback bind even when the runtime security contract would normally refuse it.",
+    )
+    parser.add_argument(
+        "--allow-insecure-no-auth",
+        dest="allow_unsafe_bind",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--protocol-version",
@@ -478,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             server_host=args.host or DEFAULT_MANUS_HOST,
             server_port=args.port if args.port is not None else DEFAULT_MANUS_PORT,
+            runtime_mode=args.runtime_mode,
             mcp_namespace=args.namespace,
         )
         preview_server = CortexMCPServer(
@@ -493,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
         _validate_bridge_security(
             host=config.server_host,
             api_keys=config.api_keys,
-            allow_insecure_no_auth=args.allow_insecure_no_auth,
+            runtime_mode=config.runtime_mode,
+            allow_unsafe_bind=args.allow_unsafe_bind,
         )
     except ValueError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
@@ -518,7 +532,8 @@ def main(argv: list[str] | None = None) -> int:
         api_keys=config.api_keys,
         include_write_tools=args.allow_write_tools,
         extra_tools=args.tool,
-        allow_insecure_no_auth=args.allow_insecure_no_auth,
+        runtime_mode=config.runtime_mode,
+        allow_unsafe_bind=args.allow_unsafe_bind,
         protocol_version=args.protocol_version,
     )
     print(f"Cortex Manus bridge running at {url}")

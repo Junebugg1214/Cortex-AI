@@ -11,7 +11,14 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from cortex.auth import authorize_api_key
-from cortex.config import ALL_SCOPES, APIKeyConfig, format_startup_diagnostics, load_selfhost_config
+from cortex.config import (
+    ALL_SCOPES,
+    RUNTIME_MODES,
+    APIKeyConfig,
+    format_startup_diagnostics,
+    load_selfhost_config,
+    validate_runtime_security,
+)
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 
@@ -414,9 +421,18 @@ def start_api_server(
     port: int = 8766,
     store_dir: str | Path = ".cortex",
     context_file: str | Path | None = None,
+    runtime_mode: str = "local-single-user",
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
+    allow_unsafe_bind: bool = False,
 ) -> tuple[ThreadingHTTPServer, str]:
+    validate_runtime_security(
+        surface="api",
+        host=host,
+        runtime_mode=runtime_mode,
+        api_keys=auth_keys,
+        allow_unsafe_bind=allow_unsafe_bind,
+    )
     service = MemoryService(store_dir=store_dir, context_file=context_file)
     server = ThreadingHTTPServer((host, port), make_api_handler(service, api_key=api_key, auth_keys=auth_keys))
     actual_host, actual_port = server.server_address
@@ -429,8 +445,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--context-file", help="Optional default context graph file")
     parser.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
     parser.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
+    parser.add_argument(
+        "--runtime-mode",
+        choices=RUNTIME_MODES,
+        default=None,
+        help="Security posture for HTTP serving (default from config or local-single-user)",
+    )
     parser.add_argument("--api-key", help="Legacy single API key shortcut")
     parser.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    parser.add_argument(
+        "--allow-unsafe-bind",
+        action="store_true",
+        help="Allow a non-loopback bind even when the runtime security contract would normally refuse it.",
+    )
     parser.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     return parser
 
@@ -444,7 +471,15 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             server_host=args.host,
             server_port=args.port,
+            runtime_mode=args.runtime_mode,
             api_key=args.api_key,
+        )
+        validate_runtime_security(
+            surface="api",
+            host=config.server_host,
+            runtime_mode=config.runtime_mode,
+            api_keys=config.api_keys,
+            allow_unsafe_bind=args.allow_unsafe_bind,
         )
     except ValueError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
@@ -460,7 +495,9 @@ def main(argv: list[str] | None = None) -> int:
         port=config.server_port,
         store_dir=config.store_dir,
         context_file=config.context_file,
+        runtime_mode=config.runtime_mode,
         auth_keys=config.api_keys,
+        allow_unsafe_bind=args.allow_unsafe_bind,
     )
     print(diagnostics)
     print(f"Cortex API running at {url}")

@@ -148,6 +148,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(api_payload) == {
         "status",
         "target",
+        "allow_unsafe_bind",
         "mode",
         "project_version",
         "api_version",
@@ -159,6 +160,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "context_file",
         "server_host",
         "server_port",
+        "runtime_mode",
         "mcp_namespace",
         "auth_enabled",
         "api_key_count",
@@ -168,6 +170,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert api_payload["status"] == "ok"
     assert api_payload["target"] == "api"
     assert api_payload["mode"] == "server"
+    assert api_payload["runtime_mode"] == "local-single-user"
     assert api_payload["auth_enabled"] is True
 
     mcp_rc = main(["serve", "mcp", "--store-dir", str(store_dir), "--check", "--format", "json"])
@@ -179,6 +182,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(mcp_payload) == {
         "status",
         "target",
+        "allow_unsafe_bind",
         "mode",
         "project_version",
         "api_version",
@@ -190,6 +194,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "context_file",
         "server_host",
         "server_port",
+        "runtime_mode",
         "mcp_namespace",
         "auth_enabled",
         "api_key_count",
@@ -199,7 +204,41 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert mcp_payload["status"] == "ok"
     assert mcp_payload["target"] == "mcp"
     assert mcp_payload["mode"] == "mcp"
+    assert mcp_payload["runtime_mode"] == "local-single-user"
     assert mcp_payload["mcp_namespace"] == "team"
+
+    ui_rc = main(["serve", "ui", "--store-dir", str(store_dir), "--check", "--format", "json"])
+    ui_streams = capsys.readouterr()
+    ui_payload = json.loads(ui_streams.out)
+
+    assert ui_rc == 0
+    assert ui_streams.err == ""
+    assert set(ui_payload) == {
+        "status",
+        "target",
+        "allow_unsafe_bind",
+        "mode",
+        "project_version",
+        "api_version",
+        "openapi_version",
+        "config_path",
+        "store_dir",
+        "store_exists",
+        "backend",
+        "context_file",
+        "server_host",
+        "server_port",
+        "runtime_mode",
+        "mcp_namespace",
+        "auth_enabled",
+        "api_key_count",
+        "api_keys",
+        "warnings",
+    }
+    assert ui_payload["status"] == "ok"
+    assert ui_payload["target"] == "ui"
+    assert ui_payload["mode"] == "ui"
+    assert ui_payload["runtime_mode"] == "local-single-user"
 
     manus_rc = main(["serve", "manus", "--store-dir", str(store_dir), "--check", "--format", "json"])
     manus_streams = capsys.readouterr()
@@ -210,6 +249,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(manus_payload) == {
         "status",
         "target",
+        "allow_unsafe_bind",
         "mode",
         "project_version",
         "api_version",
@@ -221,6 +261,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "context_file",
         "server_host",
         "server_port",
+        "runtime_mode",
         "mcp_namespace",
         "auth_enabled",
         "api_key_count",
@@ -238,7 +279,9 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     }
     assert manus_payload["status"] == "ok"
     assert manus_payload["target"] == "manus"
+    assert manus_payload["mode"] == "manus"
     assert manus_payload["bridge"] == "manus_http"
+    assert manus_payload["runtime_mode"] == "local-single-user"
     assert manus_payload["protocol_version"] == "2024-11-05"
     assert manus_payload["tool_count"] == len(manus_payload["tools"])
     assert "mind_list" in manus_payload["tools"]

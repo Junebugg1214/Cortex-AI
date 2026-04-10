@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 from dataclasses import dataclass, field
@@ -15,6 +16,9 @@ except ModuleNotFoundError:  # pragma: no cover - Python <3.11
 
 ALL_SCOPES = ("read", "write", "branch", "merge", "index", "prune")
 VALID_SCOPES = set(ALL_SCOPES) | {"*", "admin"}
+RUNTIME_MODES = ("local-single-user", "hosted-service")
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+HTTP_RUNTIME_SURFACES = {"api", "manus", "ui"}
 
 
 def _split_csv(raw: str | None) -> list[str]:
@@ -85,6 +89,69 @@ def _normalize_server_port(value: Any) -> int:
     return port
 
 
+def _normalize_runtime_mode(value: str | None) -> str:
+    mode = str(value or "").strip().lower() or "local-single-user"
+    if mode not in RUNTIME_MODES:
+        raise ValueError(f"Runtime mode must be one of: {', '.join(RUNTIME_MODES)}.")
+    return mode
+
+
+def is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if normalized in LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _runtime_surface_label(surface: str) -> str:
+    return {
+        "api": "Cortex REST API",
+        "manus": "Cortex Manus bridge",
+        "ui": "Cortex UI",
+    }.get(surface, f"Cortex {surface}")
+
+
+def validate_runtime_security(
+    *,
+    surface: str,
+    host: str,
+    runtime_mode: str,
+    api_keys: tuple["APIKeyConfig", ...] = (),
+    allow_unsafe_bind: bool = False,
+) -> None:
+    normalized_surface = str(surface or "").strip().lower()
+    if normalized_surface not in HTTP_RUNTIME_SURFACES:
+        raise ValueError(f"Unknown runtime surface: {surface}")
+    normalized_mode = _normalize_runtime_mode(runtime_mode)
+    normalized_host = _normalize_server_host(host)
+    if allow_unsafe_bind or is_loopback_host(normalized_host):
+        return
+
+    label = _runtime_surface_label(normalized_surface)
+    if normalized_mode == "local-single-user":
+        raise ValueError(
+            f"Refusing to bind the {label} to a non-loopback host in local-single-user mode. "
+            "Keep it on 127.0.0.1/localhost, switch to --runtime-mode hosted-service, "
+            "or pass --allow-unsafe-bind to override."
+        )
+
+    if normalized_surface == "ui":
+        raise ValueError(
+            f"Refusing to bind the {label} to a non-loopback host in hosted-service mode. "
+            "The UI does not yet enforce remote auth, so keep it on loopback or pass "
+            "--allow-unsafe-bind to override."
+        )
+
+    if not api_keys:
+        raise ValueError(
+            f"Refusing to bind the {label} to a non-loopback host in hosted-service mode without API keys. "
+            "Configure scoped auth keys or pass --allow-unsafe-bind to override."
+        )
+
+
 @dataclass(slots=True)
 class APIKeyConfig:
     name: str
@@ -147,6 +214,7 @@ class CortexSelfHostConfig:
     config_path: Path | None = None
     server_host: str = "127.0.0.1"
     server_port: int = 8766
+    runtime_mode: str = "local-single-user"
     mcp_namespace: str | None = None
     api_keys: tuple[APIKeyConfig, ...] = field(default_factory=tuple)
 
@@ -157,6 +225,7 @@ class CortexSelfHostConfig:
             "config_path": str(self.config_path) if self.config_path else None,
             "server_host": self.server_host,
             "server_port": self.server_port,
+            "runtime_mode": self.runtime_mode,
             "mcp_namespace": self.mcp_namespace,
             "api_keys": [item.to_safe_dict() for item in self.api_keys],
         }
@@ -362,6 +431,7 @@ def load_selfhost_config(
     config_path: str | Path | None = None,
     server_host: str | None = None,
     server_port: int | None = None,
+    runtime_mode: str | None = None,
     api_key: str | None = None,
     mcp_namespace: str | None = None,
     env: Mapping[str, str] | None = None,
@@ -400,6 +470,13 @@ def load_selfhost_config(
         or _as_optional_path(env_map.get("CORTEX_CONTEXT_FILE"))
         or _path_from_config(runtime_table.get("context_file"), base_dir=config_dir)
     )
+    configured_runtime_mode = (
+        str(runtime_mode).strip()
+        if runtime_mode is not None
+        else env_map.get("CORTEX_RUNTIME_MODE", "").strip()
+        or str(runtime_table.get("mode", "")).strip()
+        or "local-single-user"
+    )
     configured_host = (
         str(server_host).strip()
         if server_host is not None
@@ -428,6 +505,7 @@ def load_selfhost_config(
         config_path=resolved_config_path.resolve() if resolved_config_path and resolved_config_path.exists() else None,
         server_host=_normalize_server_host(configured_host),
         server_port=_normalize_server_port(configured_port),
+        runtime_mode=_normalize_runtime_mode(configured_runtime_mode),
         mcp_namespace=_normalize_namespace(configured_mcp_namespace) if configured_mcp_namespace else None,
         api_keys=configured_keys,
     )
@@ -446,8 +524,15 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         warnings.append("No config.toml loaded; using defaults and environment variables.")
     if not store_dir.exists():
         warnings.append("Store directory does not exist yet; Cortex will create it on first write.")
-    if mode == "server" and not config.api_keys:
-        warnings.append("No API keys configured; cortexd will run in local trust mode.")
+    if mode in {"server", "manus"} and not config.api_keys:
+        if config.runtime_mode == "local-single-user":
+            warnings.append("No API keys configured; local-single-user mode only permits safe loopback binds.")
+        else:
+            warnings.append("No API keys configured; hosted-service mode is only safe on loopback unless overridden.")
+    if mode == "ui" and config.runtime_mode == "hosted-service":
+        warnings.append(
+            "The UI does not yet enforce remote auth; keep it on loopback unless you intentionally override it."
+        )
     if any(key.single_namespace() is None and "*" not in key.namespaces for key in config.api_keys):
         warnings.append("Some API keys cover multiple namespaces; those clients must send an explicit namespace.")
     if mode == "mcp" and not config.mcp_namespace:
@@ -465,6 +550,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         "context_file": str(config.context_file) if config.context_file else None,
         "server_host": config.server_host,
         "server_port": config.server_port,
+        "runtime_mode": config.runtime_mode,
         "mcp_namespace": config.mcp_namespace,
         "auth_enabled": bool(config.api_keys),
         "api_key_count": len(config.api_keys),
@@ -480,22 +566,22 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
         f"  Release:   {diagnostics['project_version']} (API {diagnostics['api_version']}, OpenAPI {diagnostics['openapi_version']})",
         f"  Store dir: {diagnostics['store_dir']}",
         f"  Backend:   {diagnostics['backend']}",
+        f"  Runtime:   {diagnostics['runtime_mode']}",
     ]
     if diagnostics["config_path"]:
         lines.append(f"  Config:    {diagnostics['config_path']}")
     if diagnostics["context_file"]:
         lines.append(f"  Context:   {diagnostics['context_file']}")
-    if mode == "server":
+    if mode in {"server", "manus", "ui"}:
         lines.append(f"  Listen:    {diagnostics['server_host']}:{diagnostics['server_port']}")
-        lines.append(
-            "  Auth:      "
-            + (
-                f"{diagnostics['api_key_count']} scoped key(s)"
-                if diagnostics["auth_enabled"]
-                else "disabled (local trust mode)"
+        if mode == "ui":
+            lines.append("  Auth:      not supported on the UI surface")
+        else:
+            lines.append(
+                "  Auth:      "
+                + (f"{diagnostics['api_key_count']} scoped key(s)" if diagnostics["auth_enabled"] else "disabled")
             )
-        )
-        if diagnostics["api_keys"]:
+        if mode != "ui" and diagnostics["api_keys"]:
             rendered_keys = ", ".join(
                 f"{item['name']}[{','.join(item['scopes'])}]@{','.join(item['namespaces'])}"
                 for item in diagnostics["api_keys"]
@@ -514,10 +600,14 @@ __all__ = [
     "APIKeyConfig",
     "CortexStoreDiscovery",
     "CortexSelfHostConfig",
+    "HTTP_RUNTIME_SURFACES",
+    "RUNTIME_MODES",
     "VALID_SCOPES",
     "discover_cortex_store",
     "format_startup_diagnostics",
+    "is_loopback_host",
     "load_selfhost_config",
     "resolve_cli_store_dir",
     "startup_diagnostics",
+    "validate_runtime_security",
 ]
