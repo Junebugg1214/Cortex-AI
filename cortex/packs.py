@@ -105,6 +105,7 @@ class BrainpackManifest:
     name: str
     description: str
     owner: str
+    namespace: str
     created_at: str
     updated_at: str
     default_policy: str = "research"
@@ -138,6 +139,33 @@ def _validate_pack_name(name: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{1,63}", cleaned):
         raise ValueError("Pack names must use letters, numbers, '.', '-', or '_' and start with an alphanumeric.")
     return cleaned
+
+
+def _normalize_namespace(value: str | None) -> str:
+    cleaned = str(value or "").strip().strip("/")
+    if not cleaned:
+        return ""
+    if cleaned == "*" or " " in cleaned or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", cleaned):
+        raise ValueError(
+            "Namespaces must use letters, numbers, '.', '-', '_', or '/' and must not contain spaces or '*'."
+        )
+    return cleaned
+
+
+def _namespace_matches(item_namespace: str, requested_namespace: str | None) -> bool:
+    if not requested_namespace:
+        return True
+    normalized_item = _normalize_namespace(item_namespace)
+    normalized_requested = _normalize_namespace(requested_namespace)
+    return bool(normalized_item) and (
+        normalized_item == normalized_requested or normalized_item.startswith(f"{normalized_requested}/")
+    )
+
+
+def _require_pack_namespace(manifest: BrainpackManifest, namespace: str | None) -> None:
+    if _namespace_matches(manifest.namespace, namespace):
+        return
+    raise PermissionError(f"Brainpack '{manifest.name}' is outside namespace '{_normalize_namespace(namespace)}'.")
 
 
 def pack_path(store_dir: Path, name: str) -> Path:
@@ -238,6 +266,7 @@ def _write_manifest(path: Path, manifest: BrainpackManifest) -> None:
         f"name = {json.dumps(manifest.name)}",
         f"description = {json.dumps(manifest.description)}",
         f"owner = {json.dumps(manifest.owner)}",
+        f"namespace = {json.dumps(manifest.namespace)}",
         f"default_policy = {json.dumps(manifest.default_policy)}",
         f"auto_backlink = {'true' if manifest.auto_backlink else 'false'}",
         f"auto_promote_claims = {'true' if manifest.auto_promote_claims else 'false'}",
@@ -279,6 +308,7 @@ def _manifest_from_payload(payload: dict[str, Any], *, fallback_name: str) -> Br
         name=str(payload.get("name") or fallback_name),
         description=str(payload.get("description") or ""),
         owner=str(payload.get("owner") or ""),
+        namespace=_normalize_namespace(str(payload.get("namespace") or "")),
         created_at=str(payload.get("created_at") or ""),
         updated_at=str(payload.get("updated_at") or ""),
         default_policy=str(payload.get("default_policy") or "research"),
@@ -306,6 +336,7 @@ def _replace_manifest(store_dir: Path, name: str, *, updated_at: str) -> Brainpa
         name=manifest.name,
         description=manifest.description,
         owner=manifest.owner,
+        namespace=manifest.namespace,
         created_at=manifest.created_at,
         updated_at=updated_at,
         default_policy=manifest.default_policy,
@@ -327,6 +358,7 @@ def init_pack(
     *,
     description: str = "",
     owner: str = "",
+    namespace: str = "",
     default_policy: str = "research",
 ) -> dict[str, Any]:
     pack_name = _validate_pack_name(name)
@@ -342,6 +374,7 @@ def init_pack(
         name=pack_name,
         description=description.strip(),
         owner=owner.strip(),
+        namespace=_normalize_namespace(namespace),
         created_at=created_at,
         updated_at=created_at,
         default_policy=default_policy,
@@ -515,6 +548,7 @@ def _rewrite_pack_name_metadata(root: Path, *, target_name: str) -> None:
         name=target_name,
         description=manifest.description,
         owner=manifest.owner,
+        namespace=manifest.namespace,
         created_at=manifest.created_at,
         updated_at=_iso_now(),
         default_policy=manifest.default_policy,
@@ -740,8 +774,10 @@ def export_pack_bundle(
     output_path: str | Path,
     *,
     verify: bool = True,
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     source_root = pack_path(store_dir, name)
     destination = Path(output_path)
     if destination.exists() and destination.is_dir():
@@ -781,6 +817,7 @@ def import_pack_bundle(
     store_dir: Path,
     *,
     as_name: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     archive = Path(archive_path)
     manifest = _read_pack_bundle_manifest(archive)
@@ -812,9 +849,28 @@ def import_pack_bundle(
             tmp_root.rename(renamed_root)
             tmp_root = renamed_root
             _rewrite_pack_name_metadata(tmp_root, target_name=target_name)
+        if namespace:
+            manifest_payload = _load_manifest_from_root(tmp_root)
+            namespaced_manifest = BrainpackManifest(
+                name=manifest_payload.name,
+                description=manifest_payload.description,
+                owner=manifest_payload.owner,
+                namespace=_normalize_namespace(namespace),
+                created_at=manifest_payload.created_at,
+                updated_at=_iso_now(),
+                default_policy=manifest_payload.default_policy,
+                auto_backlink=manifest_payload.auto_backlink,
+                auto_promote_claims=manifest_payload.auto_promote_claims,
+                store_outputs=manifest_payload.store_outputs,
+                max_summary_chars=manifest_payload.max_summary_chars,
+                suggest_questions=manifest_payload.suggest_questions,
+                source_glob=manifest_payload.source_glob,
+                default_tags=manifest_payload.default_tags,
+            )
+            _write_manifest(tmp_root / "manifest.toml", namespaced_manifest)
         shutil.copytree(tmp_root, destination)
 
-    status = pack_status(store_dir, target_name)
+    status = pack_status(store_dir, target_name, namespace=namespace)
     return {
         "status": "ok",
         "archive": str(archive),
@@ -829,8 +885,9 @@ def import_pack_bundle(
     }
 
 
-def pack_mounts(store_dir: Path, name: str) -> dict[str, Any]:
-    load_manifest(store_dir, name)
+def pack_mounts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     payload = _read_json(pack_mounts_path(store_dir, name), default={})
     if payload:
         return payload
@@ -876,8 +933,10 @@ def mount_pack(
     policy_name: str = "technical",
     max_chars: int = 1500,
     openclaw_store_dir: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     graph = _load_compiled_graph(store_dir, name)
     if not targets:
         raise ValueError("Specify at least one mount target.")
@@ -1261,8 +1320,10 @@ def compile_pack(
     incremental: bool = True,
     suggest_questions: bool = True,
     max_summary_chars: int | None = None,
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     pack_root = pack_path(store_dir, name)
     source_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
     source_records = list(source_index.get("sources", []))
@@ -1503,8 +1564,9 @@ def _refresh_artifact_count(store_dir: Path, name: str) -> int:
     return count
 
 
-def pack_lint_report(store_dir: Path, name: str) -> dict[str, Any]:
-    load_manifest(store_dir, name)
+def pack_lint_report(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     payload = _read_json(lint_report_path(store_dir, name), default={})
     if payload:
         return payload
@@ -1526,8 +1588,9 @@ def pack_lint_report(store_dir: Path, name: str) -> dict[str, Any]:
     }
 
 
-def pack_sources(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_sources(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     ingest_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
     compiled_index = _read_json(pack_path(store_dir, name) / "indexes" / "source_index.json", default={"sources": []})
     compiled_by_source = {
@@ -1564,6 +1627,7 @@ def pack_sources(store_dir: Path, name: str) -> dict[str, Any]:
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "source_count": len(sources),
         "readable_count": sum(1 for item in sources if item["readable"]),
         "skipped_count": sum(1 for item in sources if item["skipped"]),
@@ -1571,8 +1635,9 @@ def pack_sources(store_dir: Path, name: str) -> dict[str, Any]:
     }
 
 
-def pack_concepts(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_concepts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     knowledge_graph = _pack_knowledge_graph(_load_compiled_graph(store_dir, name))
     degree_map: dict[str, int] = {node_id: 0 for node_id in knowledge_graph.nodes}
     for edge in knowledge_graph.edges.values():
@@ -1598,39 +1663,46 @@ def pack_concepts(store_dir: Path, name: str) -> dict[str, Any]:
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "concept_count": len(concepts),
         "concepts": concepts,
     }
 
 
-def pack_claims(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_claims(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     claims = _load_claims(store_dir, name)
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "claim_count": len(claims),
         "claims": claims,
     }
 
 
-def pack_unknowns(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_unknowns(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     unknowns = _load_unknowns(store_dir, name)
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "unknown_count": len(unknowns),
         "unknowns": unknowns,
     }
 
 
-def pack_artifacts(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_artifacts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     artifacts = _list_artifact_records(store_dir, name)
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
     }
@@ -1643,8 +1715,10 @@ def query_pack(
     *,
     limit: int = 8,
     mode: str = "hybrid",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     graph = _load_compiled_graph(store_dir, name)
     claims = _load_claims(store_dir, name)
     unknowns = _load_unknowns(store_dir, name)
@@ -1793,6 +1867,7 @@ def query_pack(
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "query": query,
         "mode": mode,
         "limit": limit,
@@ -1972,9 +2047,11 @@ def ask_pack(
     output: str = "note",
     limit: int = 8,
     write_back: bool = True,
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
-    query_payload = query_pack(store_dir, name, question, limit=limit, mode="hybrid")
+    _require_pack_namespace(manifest, namespace)
+    query_payload = query_pack(store_dir, name, question, limit=limit, mode="hybrid", namespace=namespace)
     sections = _artifact_sections_for_query(question, query_payload)
     if output == "report":
         artifact_body = _render_report_artifact(manifest, question, sections)
@@ -1992,7 +2069,7 @@ def ask_pack(
         artifact_path_value = str(artifact_path)
         artifact_count = _refresh_artifact_count(store_dir, name)
     else:
-        artifact_count = pack_status(store_dir, name)["artifact_count"]
+        artifact_count = pack_status(store_dir, name, namespace=namespace)["artifact_count"]
 
     summary = (
         f"Built a {output} from {query_payload['total_matches']} ranked Brainpack matches."
@@ -2002,6 +2079,7 @@ def ask_pack(
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "question": question,
         "output": output,
         "write_back": write_back and manifest.store_outputs,
@@ -2027,8 +2105,10 @@ def lint_pack(
     duplicate_threshold: float = 0.88,
     weak_claim_confidence: float = 0.65,
     thin_article_chars: int = 220,
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     graph = _load_compiled_graph(store_dir, name)
     knowledge_graph = _pack_knowledge_graph(graph)
     claims = _load_claims(store_dir, name)
@@ -2206,6 +2286,7 @@ def lint_pack(
     payload = {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "lint_status": lint_status,
         "linted_at": _iso_now(),
         "summary": summary,
@@ -2218,8 +2299,9 @@ def lint_pack(
     return payload
 
 
-def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
+def pack_status(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     source_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
     compile_meta = _read_json(
         compile_meta_path(store_dir, name),
@@ -2237,16 +2319,18 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
             "artifact_count": 0,
         },
     )
-    lint_report = pack_lint_report(store_dir, name)
-    mount_report = pack_mounts(store_dir, name)
+    lint_report = pack_lint_report(store_dir, name, namespace=namespace)
+    mount_report = pack_mounts(store_dir, name, namespace=namespace)
     return {
         "status": "ok",
         "pack": manifest.name,
+        "namespace": manifest.namespace,
         "path": str(pack_path(store_dir, name)),
         "manifest": {
             "name": manifest.name,
             "description": manifest.description,
             "owner": manifest.owner,
+            "namespace": manifest.namespace,
             "default_policy": manifest.default_policy,
             "created_at": manifest.created_at,
             "updated_at": manifest.updated_at,
@@ -2269,14 +2353,17 @@ def pack_status(store_dir: Path, name: str) -> dict[str, Any]:
     }
 
 
-def list_packs(store_dir: Path) -> dict[str, Any]:
+def list_packs(store_dir: Path, *, namespace: str | None = None) -> dict[str, Any]:
     root = _packs_root(store_dir)
     packs: list[dict[str, Any]] = []
     if root.exists():
         for path in sorted(root.iterdir()):
             if not path.is_dir() or not (path / "manifest.toml").exists():
                 continue
-            packs.append(pack_status(store_dir, path.name))
+            try:
+                packs.append(pack_status(store_dir, path.name, namespace=namespace))
+            except PermissionError:
+                continue
     return {
         "status": "ok",
         "packs": packs,
@@ -2293,13 +2380,16 @@ def render_pack_context(
     policy_name: str = "technical",
     max_chars: int = 1500,
     project_dir: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
     graph_payload = _read_json(graph_path(store_dir, name), default={})
     if not graph_payload:
         raise FileNotFoundError(f"Brainpack '{name}' has not been compiled yet.")
     graph = CortexGraph.from_v5_json(graph_payload)
     canonical_target = canonical_target_name(target)
-    resolved_policy_name = policy_name or load_manifest(store_dir, name).default_policy
+    resolved_policy_name = policy_name or manifest.default_policy
     policy, route_tags = _policy_for_target(canonical_target, smart=smart, policy_name=resolved_policy_name)
     filtered = apply_disclosure(graph, policy)
     ctx = NormalizedContext.from_v5(filtered.export_v5())
@@ -2355,7 +2445,8 @@ def render_pack_context(
     ]
     return {
         "status": "ok",
-        "pack": name,
+        "pack": manifest.name,
+        "namespace": manifest.namespace,
         "target": canonical_target,
         "name": display_name(canonical_target),
         "mode": "smart" if smart else "full",

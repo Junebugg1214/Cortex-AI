@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node, make_node_id
 from cortex.packs import (
@@ -77,6 +79,25 @@ def test_pack_ingest_compile_status_and_context(tmp_path):
     assert context["consume_as"] == "custom_instructions"
     assert context["fact_count"] >= 1
     assert "Identity" in context["context_markdown"] or "Role" in context["context_markdown"]
+
+
+def test_pack_namespace_filters_and_enforces_access(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_pack(store_dir, "team-a-pack", description="A", owner="marc", namespace="team-a")
+    init_pack(store_dir, "team-b-pack", description="B", owner="marc", namespace="team-b")
+
+    listing = list_packs(store_dir, namespace="team-a")
+    status = pack_status(store_dir, "team-a-pack", namespace="team-a")
+
+    assert listing["count"] == 1
+    assert listing["packs"][0]["pack"] == "team-a-pack"
+    assert listing["packs"][0]["namespace"] == "team-a"
+    assert status["namespace"] == "team-a"
+    assert status["manifest"]["namespace"] == "team-a"
+
+    with pytest.raises(PermissionError):
+        pack_status(store_dir, "team-b-pack", namespace="team-a")
 
 
 def test_pack_query_and_ask_write_back_artifact(tmp_path):

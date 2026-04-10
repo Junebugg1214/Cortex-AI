@@ -526,13 +526,13 @@ class MemoryService:
         payload["release"] = self.release()
         return payload
 
-    def mind_list(self) -> dict[str, Any]:
-        payload = list_minds(self.store_dir)
+    def mind_list(self, *, namespace: str | None = None) -> dict[str, Any]:
+        payload = list_minds(self.store_dir, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def mind_status(self, *, name: str) -> dict[str, Any]:
-        payload = mind_status(self.store_dir, name)
+    def mind_status(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = mind_status(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
@@ -548,6 +548,7 @@ class MemoryService:
         redact_detected: bool = True,
         redact_patterns: dict[str, Any] | None = None,
         message: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         from cortex.extract_memory import PIIRedactor
 
@@ -562,6 +563,7 @@ class MemoryService:
             include_unmanaged_text=include_unmanaged_text,
             redactor=redactor,
             message=message,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -577,6 +579,7 @@ class MemoryService:
         policy: str = "",
         max_chars: int = 1500,
         activation_target: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = compose_mind(
             self.store_dir,
@@ -588,6 +591,7 @@ class MemoryService:
             policy_name=policy,
             max_chars=max_chars,
             activation_target=activation_target,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -598,18 +602,20 @@ class MemoryService:
         name: str,
         statement: str,
         message: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = remember_on_mind(
             self.store_dir,
             name,
             statement=statement,
             message=message,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
 
-    def mind_mounts(self, *, name: str) -> dict[str, Any]:
-        payload = list_mind_mounts(self.store_dir, name)
+    def mind_mounts(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = list_mind_mounts(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
@@ -624,6 +630,7 @@ class MemoryService:
         policy: str = "",
         max_chars: int = 1500,
         openclaw_store_dir: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = mount_mind(
             self.store_dir,
@@ -635,52 +642,53 @@ class MemoryService:
             policy_name=policy,
             max_chars=max_chars,
             openclaw_store_dir=openclaw_store_dir,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
 
-    def pack_list(self) -> dict[str, Any]:
-        payload = list_packs(self.store_dir)
+    def pack_list(self, *, namespace: str | None = None) -> dict[str, Any]:
+        payload = list_packs(self.store_dir, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_status(self, *, name: str) -> dict[str, Any]:
-        payload = pack_status(self.store_dir, name)
+    def pack_status(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_status(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_sources(self, *, name: str) -> dict[str, Any]:
-        payload = pack_sources(self.store_dir, name)
+    def pack_sources(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_sources(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_concepts(self, *, name: str) -> dict[str, Any]:
-        payload = pack_concepts(self.store_dir, name)
+    def pack_concepts(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_concepts(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_claims(self, *, name: str) -> dict[str, Any]:
-        payload = pack_claims(self.store_dir, name)
+    def pack_claims(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_claims(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_unknowns(self, *, name: str) -> dict[str, Any]:
-        payload = pack_unknowns(self.store_dir, name)
+    def pack_unknowns(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_unknowns(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_artifacts(self, *, name: str) -> dict[str, Any]:
-        payload = pack_artifacts(self.store_dir, name)
+    def pack_artifacts(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_artifacts(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_lint_report(self, *, name: str) -> dict[str, Any]:
-        payload = pack_lint_report(self.store_dir, name)
+    def pack_lint_report(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_lint_report(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
-    def pack_mounts(self, *, name: str) -> dict[str, Any]:
-        payload = pack_mounts(self.store_dir, name)
+    def pack_mounts(self, *, name: str, namespace: str | None = None) -> dict[str, Any]:
+        payload = pack_mounts(self.store_dir, name, namespace=namespace)
         payload["release"] = self.release()
         return payload
 
@@ -691,6 +699,7 @@ class MemoryService:
         incremental: bool = True,
         suggest_questions: bool = True,
         max_summary_chars: int = 1200,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = compile_pack(
             self.store_dir,
@@ -698,6 +707,7 @@ class MemoryService:
             incremental=incremental,
             suggest_questions=suggest_questions,
             max_summary_chars=max_summary_chars,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -709,6 +719,7 @@ class MemoryService:
         query: str,
         limit: int = 8,
         mode: str = "hybrid",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = query_pack(
             self.store_dir,
@@ -716,6 +727,7 @@ class MemoryService:
             query,
             limit=limit,
             mode=mode,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -728,6 +740,7 @@ class MemoryService:
         output: str = "note",
         limit: int = 8,
         write_back: bool = True,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = ask_pack(
             self.store_dir,
@@ -736,6 +749,7 @@ class MemoryService:
             output=output,
             limit=limit,
             write_back=write_back,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -748,6 +762,7 @@ class MemoryService:
         duplicate_threshold: float = 0.88,
         weak_claim_confidence: float = 0.65,
         thin_article_chars: int = 220,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = lint_pack(
             self.store_dir,
@@ -756,6 +771,7 @@ class MemoryService:
             duplicate_threshold=duplicate_threshold,
             weak_claim_confidence=weak_claim_confidence,
             thin_article_chars=thin_article_chars,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -766,12 +782,14 @@ class MemoryService:
         name: str,
         output: str,
         verify: bool = True,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = export_pack_bundle(
             self.store_dir,
             name,
             output,
             verify=verify,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -781,11 +799,13 @@ class MemoryService:
         *,
         archive: str,
         as_name: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = import_pack_bundle(
             archive,
             self.store_dir,
             as_name=as_name,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -800,6 +820,7 @@ class MemoryService:
         policy: str = "technical",
         max_chars: int = 1500,
         openclaw_store_dir: str = "",
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = mount_pack(
             self.store_dir,
@@ -810,6 +831,7 @@ class MemoryService:
             policy_name=policy,
             max_chars=max_chars,
             openclaw_store_dir=openclaw_store_dir,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload
@@ -823,6 +845,7 @@ class MemoryService:
         smart: bool = True,
         policy: str = "technical",
         max_chars: int = 1500,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         payload = render_pack_context(
             self.store_dir,
@@ -832,6 +855,7 @@ class MemoryService:
             smart=smart,
             policy_name=policy,
             max_chars=max_chars,
+            namespace=namespace,
         )
         payload["release"] = self.release()
         return payload

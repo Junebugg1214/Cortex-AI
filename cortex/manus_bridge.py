@@ -172,6 +172,31 @@ def _required_scope(server: CortexMCPServer, message: Any) -> str:
     return "write" if "write" in scopes else "read"
 
 
+def _tool_accepts_namespace(server: CortexMCPServer, tool_name: str) -> bool:
+    tool = server._tools.get(tool_name)
+    if tool is None:
+        return False
+    properties = dict(tool.input_schema.get("properties") or {})
+    return "namespace" in properties
+
+
+def _message_requires_namespace(server: CortexMCPServer, message: Any) -> bool:
+    if server.namespace:
+        return True
+    if isinstance(message, list):
+        return any(_message_requires_namespace(server, item) for item in message)
+    if not isinstance(message, dict):
+        return False
+    method = str(message.get("method") or "")
+    if method != "tools/call":
+        return False
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return False
+    tool_name = str(params.get("name") or "").strip()
+    return _tool_accepts_namespace(server, tool_name)
+
+
 def _inject_namespace(server: CortexMCPServer, message: Any, namespace: str | None) -> Any:
     if not namespace or server.namespace or not isinstance(message, dict):
         return message
@@ -291,7 +316,7 @@ def dispatch_manus_request(
             headers=headers,
             required_scope=_required_scope(server, effective_payload),
             namespace=request_namespace,
-            namespace_required=request_namespace is not None or server.namespace is not None,
+            namespace_required=request_namespace is not None or _message_requires_namespace(server, effective_payload),
         )
         if not decision.allowed:
             return decision.status_code, _auth_error_payload(server, effective_payload, decision.error)
