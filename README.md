@@ -151,12 +151,13 @@ Use `connect` to prepare the connector and `serve` to run the bridge:
 
 ```bash
 cortex connect manus --check
-cortex connect manus --url https://your-https-endpoint.example/mcp --print-config
+cortex connect manus --url https://your-https-endpoint.example/mcp --write-config ./manus-mcp.json
 cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
 ```
 
 Notes:
 - Manus expects an HTTPS MCP endpoint.
+- `--print-config` now masks secrets by default; use `--write-config <path>` for a paste-ready file or `--reveal-secret` only when you explicitly want the live token printed.
 - For local testing, use a tunnel such as ngrok in front of `cortex serve manus`.
 - For persistent production use, host the bridge behind stable HTTPS.
 

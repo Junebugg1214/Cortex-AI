@@ -127,6 +127,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "auth_ready",
         "key_name",
         "auth_header",
+        "secrets_revealed",
         "serve_command",
         "warnings",
         "errors",
@@ -135,6 +136,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     }
     assert connect_payload["status"] == "ok"
     assert connect_payload["target"] == "manus"
+    assert connect_payload["secrets_revealed"] is False
     assert connect_payload["mcp_url"] == "https://example.ngrok-free.app/mcp"
     assert connect_payload["serve_command"].startswith("cortex serve manus ")
     assert connect_payload["connector_config"]["mcpServers"]["Cortex-Manus"]["url"] == connect_payload["mcp_url"]

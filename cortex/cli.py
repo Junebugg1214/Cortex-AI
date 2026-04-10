@@ -578,8 +578,15 @@ def build_parser(*, show_all_commands: bool = False):
         help="Suggested local bind port for `cortex serve manus` (default: 8790)",
     )
     connect_manus.add_argument("--check", action="store_true", help="Validate local Manus bridge readiness")
+    connect_manus.add_argument("--print-config", action="store_true", help="Include a Manus MCP JSON preview")
     connect_manus.add_argument(
-        "--print-config", action="store_true", help="Include a paste-ready Manus MCP JSON snippet"
+        "--write-config",
+        help="Write the full Manus MCP JSON with live secrets to this file path instead of only printing a masked preview",
+    )
+    connect_manus.add_argument(
+        "--reveal-secret",
+        action="store_true",
+        help="Print live secrets in the generated JSON preview (unsafe; may leak to shell history or logs)",
     )
     connect_manus.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -6959,28 +6966,67 @@ def run_connect_manus(args):
             "No read-scoped API key was found; the printed config uses a <reader-token> placeholder until you add or select one."
         )
 
+    def _mask_token(token: str) -> str:
+        if token.startswith("<") and token.endswith(">"):
+            return token
+        if len(token) <= 16:
+            return "***"
+        return f"{token[:14]}...{token[-4:]}"
+
+    def _header_value_for(secret_token: str, *, reveal: bool) -> str:
+        if header_name == "Authorization":
+            if secret_token.startswith("<") and secret_token.endswith(">"):
+                return f"Bearer {secret_token}"
+            return f"Bearer {secret_token if reveal else _mask_token(secret_token)}"
+        return (
+            secret_token
+            if reveal or (secret_token.startswith("<") and secret_token.endswith(">"))
+            else _mask_token(secret_token)
+        )
+
     header_name = "Authorization" if args.auth_header == "authorization" else "X-API-Key"
-    if header_name == "Authorization":
-        header_value = f"Bearer {read_key.token if read_key else '<reader-token>'}"
-    else:
-        header_value = read_key.token if read_key else "<reader-token>"
+    secret_token = read_key.token if read_key else "<reader-token>"
+    revealed_header_value = _header_value_for(secret_token, reveal=True)
+    display_header_value = _header_value_for(secret_token, reveal=args.reveal_secret)
 
     connector_config = {
         "mcpServers": {
             connector_name: {
                 "type": "streamableHttp",
                 "url": mcp_url,
-                "headers": {header_name: header_value},
+                "headers": {header_name: display_header_value},
             }
         }
     }
+    connector_config_full = {
+        "mcpServers": {
+            connector_name: {
+                "type": "streamableHttp",
+                "url": mcp_url,
+                "headers": {header_name: revealed_header_value},
+            }
+        }
+    }
+    connector_config_path = ""
+    if args.write_config:
+        target_path = Path(args.write_config).expanduser().resolve()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(json.dumps(connector_config_full, indent=2) + "\n", encoding="utf-8")
+        connector_config_path = str(target_path)
     next_steps = [f"Run `{serve_command}`."]
     if not args.url:
         next_steps.append(
             "Expose the local Manus bridge over HTTPS, then rerun `cortex connect manus --url https://... --print-config`."
         )
+    elif connector_config_path:
+        next_steps.append(f"Use `{connector_config_path}` as the paste-ready Manus MCP JSON source.")
     elif args.print_config:
-        next_steps.append("Paste the printed JSON into Manus -> Settings -> Integrations -> Custom MCP Server.")
+        if args.reveal_secret:
+            next_steps.append("Paste the printed JSON into Manus -> Settings -> Integrations -> Custom MCP Server.")
+        else:
+            next_steps.append(
+                "Use `--write-config <path>` for a paste-ready file, or `--reveal-secret` if you intentionally want to print the live secret."
+            )
     else:
         next_steps.append(
             "Run `cortex connect manus --url https://... --print-config` to generate the final Manus MCP JSON."
@@ -6998,6 +7044,7 @@ def run_connect_manus(args):
         "auth_ready": read_key is not None,
         "key_name": read_key.name if read_key else "",
         "auth_header": header_name,
+        "secrets_revealed": bool(args.reveal_secret),
         "serve_command": serve_command,
         "warnings": warnings,
         "errors": errors,
@@ -7005,6 +7052,8 @@ def run_connect_manus(args):
     }
     if args.print_config:
         payload["connector_config"] = connector_config
+    if connector_config_path:
+        payload["connector_config_path"] = connector_config_path
 
     if _emit_result(payload, args.format) == 0:
         return 1 if errors or (args.check and read_key is None) else 0
@@ -7015,7 +7064,8 @@ def run_connect_manus(args):
     if payload["config_path"]:
         _echo(f"  Config:   {payload['config_path']}")
     _echo(f"  URL:      {mcp_url}")
-    _echo(f"  Auth:     {read_key.name if read_key else 'missing read key'} via {header_name}")
+    auth_mode = "live secret printed" if args.reveal_secret else "secret masked"
+    _echo(f"  Auth:     {read_key.name if read_key else 'missing read key'} via {header_name} ({auth_mode})")
     _echo(f"  Serve:    {serve_command}")
     for message in warnings:
         _echo(f"  Warning:  {message}")
@@ -7023,8 +7073,10 @@ def run_connect_manus(args):
         _echo(f"  Error:    {message}")
     if args.print_config:
         _echo("")
-        _echo("Manus MCP JSON:")
+        _echo("Manus MCP JSON preview:")
         _echo(json.dumps(connector_config, indent=2))
+    if connector_config_path:
+        _echo(f"  Wrote:    {connector_config_path}")
     _echo("")
     _echo("Next:")
     for step in next_steps:
