@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
 from cortex.graph import CortexGraph
 
 MINDS_DIRNAME = "minds"
@@ -126,8 +127,11 @@ def _read_json(path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(path, payload)
+
+
+def _store_lock_path(store_dir: Path) -> Path:
+    return Path(store_dir)
 
 
 def _write_manifest(store_dir: Path, manifest: MindManifest) -> None:
@@ -276,7 +280,8 @@ def set_default_mind(store_dir: Path, mind_id: str) -> dict[str, Any]:
         "mind": manifest.id,
         "configured_at": _iso_now(),
     }
-    _write_json(path, payload)
+    with locked_path(_store_lock_path(store_dir)):
+        _write_json(path, payload)
     return {
         "status": "ok",
         "configured": True,
@@ -288,9 +293,10 @@ def set_default_mind(store_dir: Path, mind_id: str) -> dict[str, Any]:
 
 def clear_default_mind(store_dir: Path) -> dict[str, Any]:
     path = default_mind_config_path(store_dir)
-    existed = path.exists()
-    if existed:
-        path.unlink()
+    with locked_path(_store_lock_path(store_dir)):
+        existed = path.exists()
+        if existed:
+            path.unlink()
     return {
         "status": "ok",
         "configured": False,
@@ -328,56 +334,57 @@ def init_mind(
         updated_at=created_at,
         default_policy=default_policy.strip() or DEFAULT_POLICY,
     )
-    root.mkdir(parents=True, exist_ok=False)
-    (root / "compositions").mkdir(parents=True, exist_ok=True)
-    (root / "refs").mkdir(parents=True, exist_ok=True)
-    _write_manifest(store_dir, manifest)
-    _write_json(
-        mind_core_state_path(store_dir, normalized_id),
-        {
-            "mind": normalized_id,
-            "graph_ref": f"refs/minds/{normalized_id}/branches/{manifest.default_branch}",
-            "categories": list(DEFAULT_CATEGORIES),
-        },
-    )
-    _write_json(
-        mind_attachments_path(store_dir, normalized_id),
-        {
-            "mind": normalized_id,
-            "brainpacks": [],
-        },
-    )
-    _write_json(
-        mind_branches_path(store_dir, normalized_id),
-        {
-            "mind": normalized_id,
-            "branches": {
-                manifest.default_branch: {
-                    "head": "",
-                    "created_at": created_at,
-                }
+    with locked_path(_store_lock_path(store_dir)):
+        root.mkdir(parents=True, exist_ok=False)
+        (root / "compositions").mkdir(parents=True, exist_ok=True)
+        (root / "refs").mkdir(parents=True, exist_ok=True)
+        _write_manifest(store_dir, manifest)
+        _write_json(
+            mind_core_state_path(store_dir, normalized_id),
+            {
+                "mind": normalized_id,
+                "graph_ref": f"refs/minds/{normalized_id}/branches/{manifest.default_branch}",
+                "categories": list(DEFAULT_CATEGORIES),
             },
-        },
-    )
-    _write_json(
-        mind_policies_path(store_dir, normalized_id),
-        {
-            "mind": normalized_id,
-            "default_disclosure": manifest.default_policy,
-            "target_overrides": {},
-            "approval_rules": {
-                "merge_to_main_requires_review": True,
-                "external_mount_requires_explicit_approval": True,
+        )
+        _write_json(
+            mind_attachments_path(store_dir, normalized_id),
+            {
+                "mind": normalized_id,
+                "brainpacks": [],
             },
-        },
-    )
-    _write_json(
-        mind_mounts_path(store_dir, normalized_id),
-        {
-            "mind": normalized_id,
-            "mounts": [],
-        },
-    )
+        )
+        _write_json(
+            mind_branches_path(store_dir, normalized_id),
+            {
+                "mind": normalized_id,
+                "branches": {
+                    manifest.default_branch: {
+                        "head": "",
+                        "created_at": created_at,
+                    }
+                },
+            },
+        )
+        _write_json(
+            mind_policies_path(store_dir, normalized_id),
+            {
+                "mind": normalized_id,
+                "default_disclosure": manifest.default_policy,
+                "target_overrides": {},
+                "approval_rules": {
+                    "merge_to_main_requires_review": True,
+                    "external_mount_requires_explicit_approval": True,
+                },
+            },
+        )
+        _write_json(
+            mind_mounts_path(store_dir, normalized_id),
+            {
+                "mind": normalized_id,
+                "mounts": [],
+            },
+        )
     return {
         "status": "ok",
         "created": True,
@@ -488,7 +495,8 @@ def _load_openclaw_mind_mount_registry(openclaw_store_dir: Path) -> dict[str, An
 
 def _write_openclaw_mind_mount_registry(openclaw_store_dir: Path, payload: dict[str, Any]) -> Path:
     path = mind_openclaw_mount_registry_path(openclaw_store_dir)
-    _write_json(path, payload)
+    with locked_path(path):
+        _write_json(path, payload)
     return path
 
 
@@ -516,42 +524,43 @@ def attach_pack_to_mind(
         raise PermissionError(
             f"Brainpack '{pack_manifest.name}' is outside namespace '{_normalize_namespace(namespace)}'."
         )
-    attachments_payload = _load_attachments(store_dir, normalized_mind_id)
-    records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
     now = _iso_now()
     updated = False
     normalized_targets = [canonical_target_name(item) for item in _clean_strings(targets)]
 
-    attachment_record = {
-        "id": pack_manifest.name,
-        "pack_ref": f"packs/{pack_manifest.name}",
-        "mode": ATTACHMENT_MODE,
-        "scope": ATTACHMENT_SCOPE,
-        "priority": int(priority),
-        "activation": {
-            "targets": normalized_targets,
-            "task_terms": _clean_strings(task_terms),
-            "always_on": bool(always_on),
-        },
-        "attached_at": now,
-        "updated_at": now,
-    }
+    with locked_path(_store_lock_path(store_dir)):
+        attachments_payload = _load_attachments(store_dir, normalized_mind_id)
+        records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
+        attachment_record = {
+            "id": pack_manifest.name,
+            "pack_ref": f"packs/{pack_manifest.name}",
+            "mode": ATTACHMENT_MODE,
+            "scope": ATTACHMENT_SCOPE,
+            "priority": int(priority),
+            "activation": {
+                "targets": normalized_targets,
+                "task_terms": _clean_strings(task_terms),
+                "always_on": bool(always_on),
+            },
+            "attached_at": now,
+            "updated_at": now,
+        }
 
-    for index, existing in enumerate(records):
-        if _attachment_pack_name(existing) != pack_manifest.name:
-            continue
-        attachment_record["attached_at"] = str(existing.get("attached_at") or now)
-        records[index] = attachment_record
-        updated = True
-        break
-    else:
-        records.append(attachment_record)
+        for index, existing in enumerate(records):
+            if _attachment_pack_name(existing) != pack_manifest.name:
+                continue
+            attachment_record["attached_at"] = str(existing.get("attached_at") or now)
+            records[index] = attachment_record
+            updated = True
+            break
+        else:
+            records.append(attachment_record)
 
-    records.sort(key=lambda item: (-int(item.get("priority", 0)), _attachment_pack_name(item).lower()))
-    attachments_payload["mind"] = normalized_mind_id
-    attachments_payload["brainpacks"] = records
-    _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
-    _replace_manifest(store_dir, normalized_mind_id, updated_at=now)
+        records.sort(key=lambda item: (-int(item.get("priority", 0)), _attachment_pack_name(item).lower()))
+        attachments_payload["mind"] = normalized_mind_id
+        attachments_payload["brainpacks"] = records
+        _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
+        _replace_manifest(store_dir, normalized_mind_id, updated_at=now)
 
     return {
         "status": "ok",
@@ -579,16 +588,17 @@ def detach_pack_from_mind(
     if not target:
         raise ValueError("Pack name is required.")
 
-    attachments_payload = _load_attachments(store_dir, normalized_mind_id)
-    records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
-    remaining = [item for item in records if _attachment_pack_name(item) != target]
-    if len(remaining) == len(records):
-        raise ValueError(f"Brainpack '{target}' is not attached to Mind '{normalized_mind_id}'.")
+    with locked_path(_store_lock_path(store_dir)):
+        attachments_payload = _load_attachments(store_dir, normalized_mind_id)
+        records = [dict(item) for item in attachments_payload.get("brainpacks", [])]
+        remaining = [item for item in records if _attachment_pack_name(item) != target]
+        if len(remaining) == len(records):
+            raise ValueError(f"Brainpack '{target}' is not attached to Mind '{normalized_mind_id}'.")
 
-    attachments_payload["mind"] = normalized_mind_id
-    attachments_payload["brainpacks"] = remaining
-    _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
-    _replace_manifest(store_dir, normalized_mind_id, updated_at=_iso_now())
+        attachments_payload["mind"] = normalized_mind_id
+        attachments_payload["brainpacks"] = remaining
+        _write_json(mind_attachments_path(store_dir, normalized_mind_id), attachments_payload)
+        _replace_manifest(store_dir, normalized_mind_id, updated_at=_iso_now())
     return {
         "status": "ok",
         "mind": normalized_mind_id,
@@ -724,23 +734,24 @@ def _persist_mind_core_graph(
     branch_name = mind_branch_name(mind_id, branch)
     identity_path = store_dir / "identity.json"
     identity = UPAIIdentity.load(store_dir) if identity_path.exists() else None
-    commit = backend.versions.commit(graph, message, source=source, identity=identity, branch=branch_name)
+    with locked_path(_store_lock_path(store_dir)):
+        commit = backend.versions.commit(graph, message, source=source, identity=identity, branch=branch_name)
 
-    branches_payload = _load_branches(store_dir, mind_id, manifest)
-    branch_record = dict(branches_payload.get("branches", {}).get(branch) or {})
-    branch_record["head"] = commit.version_id
-    branch_record["created_at"] = str(branch_record.get("created_at") or manifest.created_at)
-    branches_payload["mind"] = mind_id
-    branches_payload.setdefault("branches", {})
-    branches_payload["branches"][branch] = branch_record
-    _write_json(mind_branches_path(store_dir, mind_id), branches_payload)
+        branches_payload = _load_branches(store_dir, mind_id, manifest)
+        branch_record = dict(branches_payload.get("branches", {}).get(branch) or {})
+        branch_record["head"] = commit.version_id
+        branch_record["created_at"] = str(branch_record.get("created_at") or manifest.created_at)
+        branches_payload["mind"] = mind_id
+        branches_payload.setdefault("branches", {})
+        branches_payload["branches"][branch] = branch_record
+        _write_json(mind_branches_path(store_dir, mind_id), branches_payload)
 
-    core_state = _load_core_state(store_dir, mind_id)
-    core_state["mind"] = mind_id
-    core_state["graph_ref"] = mind_branch_ref(mind_id, branch)
-    core_state["categories"] = _graph_categories(graph)
-    _write_json(mind_core_state_path(store_dir, mind_id), core_state)
-    _replace_manifest(store_dir, mind_id, updated_at=_iso_now())
+        core_state = _load_core_state(store_dir, mind_id)
+        core_state["mind"] = mind_id
+        core_state["graph_ref"] = mind_branch_ref(mind_id, branch)
+        core_state["categories"] = _graph_categories(graph)
+        _write_json(mind_core_state_path(store_dir, mind_id), core_state)
+        _replace_manifest(store_dir, mind_id, updated_at=_iso_now())
     return {
         "branch": branch,
         "branch_name": branch_name,
@@ -818,8 +829,7 @@ def sync_mind_compatibility_targets(
     state = load_portability_state(store_dir)
     chosen_output_dir = output_dir or (Path(state.output_dir) if state.output_dir else default_output_dir(store_dir))
     snapshot_path = mind_graph_snapshot_path(store_dir, manifest.id)
-    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_path.write_text(json.dumps(resolved_graph.export_v5(), indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(snapshot_path, json.dumps(resolved_graph.export_v5(), indent=2, ensure_ascii=False))
     identity_path = store_dir / "identity.json"
     identity = UPAIIdentity.load(store_dir) if identity_path.exists() else None
     sync_payload = sync_targets(
@@ -889,40 +899,41 @@ def remember_and_sync_default_mind(
 def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
     from cortex.portable_runtime import canonical_target_name
 
-    persisted = [dict(item) for item in _load_mounts(store_dir, mind_id).get("mounts", [])]
-    if not persisted:
-        return {
-            "mount_count": 0,
-            "refreshed_count": 0,
-            "targets": [],
-            "stale_mount_count": 0,
-            "stale_mounts": [],
-            "refresh_error_count": 0,
-            "refresh_errors": [],
-        }
+    with locked_path(_store_lock_path(store_dir)):
+        persisted = [dict(item) for item in _load_mounts(store_dir, mind_id).get("mounts", [])]
+        if not persisted:
+            return {
+                "mount_count": 0,
+                "refreshed_count": 0,
+                "targets": [],
+                "stale_mount_count": 0,
+                "stale_mounts": [],
+                "refresh_error_count": 0,
+                "refresh_errors": [],
+            }
 
-    retained_mounts: list[dict[str, Any]] = []
-    stale_mounts: list[dict[str, Any]] = []
-    seen_targets: set[str] = set()
-    for item in persisted:
-        raw_target = str(item.get("target") or "").strip()
-        if not raw_target:
-            stale_mounts.append({"target": "", "reason": "missing_target"})
-            continue
-        canonical_target = canonical_target_name(raw_target.lower())
-        if canonical_target not in SUPPORTED_MIND_MOUNT_TARGETS:
-            stale_mounts.append({"target": raw_target, "reason": "unsupported_target"})
-            continue
-        if canonical_target in seen_targets:
-            stale_mounts.append({"target": raw_target, "reason": "duplicate_target"})
-            continue
-        normalized = dict(item)
-        normalized["target"] = canonical_target
-        retained_mounts.append(normalized)
-        seen_targets.add(canonical_target)
+        retained_mounts: list[dict[str, Any]] = []
+        stale_mounts: list[dict[str, Any]] = []
+        seen_targets: set[str] = set()
+        for item in persisted:
+            raw_target = str(item.get("target") or "").strip()
+            if not raw_target:
+                stale_mounts.append({"target": "", "reason": "missing_target"})
+                continue
+            canonical_target = canonical_target_name(raw_target.lower())
+            if canonical_target not in SUPPORTED_MIND_MOUNT_TARGETS:
+                stale_mounts.append({"target": raw_target, "reason": "unsupported_target"})
+                continue
+            if canonical_target in seen_targets:
+                stale_mounts.append({"target": raw_target, "reason": "duplicate_target"})
+                continue
+            normalized = dict(item)
+            normalized["target"] = canonical_target
+            retained_mounts.append(normalized)
+            seen_targets.add(canonical_target)
 
-    if len(retained_mounts) != len(persisted):
-        _write_mounts(store_dir, mind_id, retained_mounts)
+        if len(retained_mounts) != len(persisted):
+            _write_mounts(store_dir, mind_id, retained_mounts)
 
     refreshed_targets: list[dict[str, Any]] = []
     refresh_errors: list[dict[str, Any]] = []
@@ -1379,31 +1390,33 @@ def mount_mind(
                 if openclaw_store_dir
                 else _default_openclaw_store_dir().resolve()
             )
-            registry = _load_openclaw_mind_mount_registry(openclaw_root)
-            mounts = [
-                dict(item)
-                for item in registry.get("mounts", [])
-                if str(item.get("name") or "").strip() and str(item.get("name")) != manifest.id
-            ]
-            entry = {
-                "name": manifest.id,
-                "smart": smart,
-                "policy": policy_name,
-                "effective_policy": effective_policy,
-                "max_chars": max_chars,
-                "task": task,
-                "project_dir": project_path,
-                "activation_target": "openclaw",
-                "mounted_at": mounted_at,
-                "enabled": True,
-            }
-            mounts.append(entry)
-            registry_payload = {
-                "status": "ok",
-                "mount_count": len(mounts),
-                "mounts": mounts,
-            }
-            registry_path = _write_openclaw_mind_mount_registry(openclaw_root, registry_payload)
+            registry_path = mind_openclaw_mount_registry_path(openclaw_root)
+            with locked_path(registry_path):
+                registry = _load_openclaw_mind_mount_registry(openclaw_root)
+                mounts = [
+                    dict(item)
+                    for item in registry.get("mounts", [])
+                    if str(item.get("name") or "").strip() and str(item.get("name")) != manifest.id
+                ]
+                entry = {
+                    "name": manifest.id,
+                    "smart": smart,
+                    "policy": policy_name,
+                    "effective_policy": effective_policy,
+                    "max_chars": max_chars,
+                    "task": task,
+                    "project_dir": project_path,
+                    "activation_target": "openclaw",
+                    "mounted_at": mounted_at,
+                    "enabled": True,
+                }
+                mounts.append(entry)
+                registry_payload = {
+                    "status": "ok",
+                    "mount_count": len(mounts),
+                    "mounts": mounts,
+                }
+                registry_path = _write_openclaw_mind_mount_registry(openclaw_root, registry_payload)
             mount_results.append(
                 {
                     "target": "openclaw",
@@ -1472,15 +1485,16 @@ def mount_mind(
             }
         )
 
-    persisted = [
-        dict(item)
-        for item in _load_mounts(store_dir, manifest.id).get("mounts", [])
-        if str(item.get("target") or "").strip() not in set(resolved_targets)
-    ]
-    persisted.extend(mount_results)
-    persisted.sort(key=lambda item: str(item.get("target") or "").lower())
-    mounts_payload = _write_mounts(store_dir, manifest.id, persisted)
-    _replace_manifest(store_dir, manifest.id, updated_at=_iso_now())
+    with locked_path(_store_lock_path(store_dir)):
+        persisted = [
+            dict(item)
+            for item in _load_mounts(store_dir, manifest.id).get("mounts", [])
+            if str(item.get("target") or "").strip() not in set(resolved_targets)
+        ]
+        persisted.extend(mount_results)
+        persisted.sort(key=lambda item: str(item.get("target") or "").lower())
+        mounts_payload = _write_mounts(store_dir, manifest.id, persisted)
+        _replace_manifest(store_dir, manifest.id, updated_at=_iso_now())
     return {
         "status": "ok",
         "mind": manifest.id,
