@@ -5,6 +5,7 @@ import argparse
 from cortex.upai.disclosure import BUILTIN_POLICIES
 
 FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "doctor")
+GUIDED_HELP_NOTE = "Guided help:\n  cortex help init\n  cortex help runtime\n  cortex help legacy\n"
 ADVANCED_HELP_NOTE = (
     "Advanced / compatibility:\n"
     "  Run `cortex --help-all` for graph/versioning internals and legacy aliases such as "
@@ -28,6 +29,7 @@ INIT_HELP_EPILOG = (
     "  cortex init\n"
     '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
     "  cortex connect manus\n"
+    "\nAdvanced init flags live under `cortex help init`.\n"
 )
 MIND_HELP_EPILOG = (
     "Common Mind flow:\n"
@@ -68,6 +70,74 @@ DOCTOR_HELP_EPILOG = (
     "  cortex doctor --portability\n"
 )
 CONNECT_RUNTIME_TARGETS = ("hermes", "codex", "cursor", "claude-code")
+HELP_TOPIC_TEXT = {
+    "overview": (
+        "Cortex guided help\n"
+        "\n"
+        "Start with the first-class path:\n"
+        "  cortex init\n"
+        '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
+        "  cortex connect manus\n"
+        "  cortex serve manus\n"
+        "\n"
+        "Topic guides:\n"
+        "  cortex help init\n"
+        "  cortex help runtime\n"
+        "  cortex help legacy\n"
+    ),
+    "init": (
+        "Cortex init\n"
+        "\n"
+        "Zero-config path:\n"
+        "  cortex init\n"
+        "\n"
+        "What it does by default:\n"
+        "  - creates or reuses the canonical .cortex store\n"
+        "  - writes config.toml with scoped reader/writer keys\n"
+        "  - creates a default `self` Mind when none exists\n"
+        "\n"
+        "Common beginner flow:\n"
+        '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
+        "  cortex doctor\n"
+        "\n"
+        "Advanced init flags:\n"
+        "  --label            override the display label for the default Mind\n"
+        "  --owner            record an explicit owner label in the default Mind manifest\n"
+        "  --kind             choose person|agent|project|team for the default Mind\n"
+        "  --default-policy   override the default disclosure policy\n"
+        "  --namespace        pin the initial MCP/API namespace (default: team)\n"
+        "  --no-mind          initialize only the store/config and skip Mind creation\n"
+    ),
+    "runtime": (
+        "Cortex runtime wiring\n"
+        "\n"
+        "Prepare a runtime first:\n"
+        "  cortex connect manus --check\n"
+        "  cortex connect codex --install\n"
+        "\n"
+        "Then run or expose the runtime surface:\n"
+        "  cortex serve manus\n"
+        "  cortex serve mcp\n"
+        "  cortex serve api\n"
+        "  cortex serve ui\n"
+        "\n"
+        "Mount state after the runtime is wired:\n"
+        "  cortex mind mount self --to codex\n"
+    ),
+    "legacy": (
+        "Cortex legacy compatibility\n"
+        "\n"
+        "Legacy commands still work, but they are compatibility paths:\n"
+        "  portable  -> cortex mind ingest / mount\n"
+        "  remember  -> cortex mind remember\n"
+        "  build     -> cortex pack ...\n"
+        "  audit     -> cortex doctor\n"
+        "  server    -> cortex serve api\n"
+        "  mcp       -> cortex serve mcp\n"
+        "\n"
+        "Use `cortex --help-all` only when you need the full legacy or graph/versioning surface.\n"
+    ),
+}
 ARGPARSE_RECOVERY_HINTS = {
     "cortex connect": "cortex connect manus --check",
     "cortex serve": "cortex serve manus --check",
@@ -84,6 +154,18 @@ class CortexArgumentParser(argparse.ArgumentParser):
 
     def format_help(self) -> str:
         if self.show_all_commands or self.prog != "cortex":
+            if not self.show_all_commands and self.prog == "cortex init":
+                hidden_dests = {"label", "owner", "kind", "default_policy", "namespace", "no_mind"}
+                original_help: dict[argparse.Action, str] = {}
+                for action in self._actions:
+                    if action.dest in hidden_dests:
+                        original_help[action] = action.help
+                        action.help = argparse.SUPPRESS
+                try:
+                    return super().format_help()
+                finally:
+                    for action, help_text in original_help.items():
+                        action.help = help_text
             return super().format_help()
 
         action = next((item for item in self._actions if isinstance(item, argparse._SubParsersAction)), None)
@@ -100,7 +182,13 @@ class CortexArgumentParser(argparse.ArgumentParser):
         finally:
             action._choices_actions = original_choices_actions
             action.metavar = original_metavar
-        return f"{help_text}\n\n{DEFAULT_HELP_START_HERE}\n{DEFAULT_HELP_SURFACE_MAP}\n{ADVANCED_HELP_NOTE}\n"
+        return (
+            f"{help_text}\n\n"
+            f"{DEFAULT_HELP_START_HERE}\n"
+            f"{DEFAULT_HELP_SURFACE_MAP}\n"
+            f"{GUIDED_HELP_NOTE}\n"
+            f"{ADVANCED_HELP_NOTE}\n"
+        )
 
     def error(self, message: str) -> None:
         normalized_prog = " ".join(self.prog.split())
@@ -113,6 +201,18 @@ class CortexArgumentParser(argparse.ArgumentParser):
 
 
 def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
+    help_parser = sub.add_parser(
+        "help",
+        help="Guided help for beginner, runtime, and legacy Cortex topics",
+    )
+    help_parser.add_argument(
+        "topic",
+        nargs="?",
+        choices=tuple(HELP_TOPIC_TEXT.keys()),
+        default="overview",
+        help="Help topic to print (default: overview)",
+    )
+
     init = sub.add_parser(
         "init",
         help="Initialize a first-class local Cortex workspace",

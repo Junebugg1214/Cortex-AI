@@ -44,6 +44,7 @@ def test_default_help_is_first_class_and_mind_first():
     assert "Surface Map:" in help_text
     assert "Runtime / admin" in help_text
     assert "cortex connect manus" in help_text
+    assert "cortex help init" in help_text
     assert ADVANCED_HELP_NOTE in help_text
 
 
@@ -93,6 +94,10 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
     parser = build_parser()
 
     with pytest.raises(SystemExit, match="0"):
+        parser.parse_args(["init", "--help"])
+    init_help = capsys.readouterr().out
+
+    with pytest.raises(SystemExit, match="0"):
         parser.parse_args(["connect", "--help"])
     connect_help = capsys.readouterr().out
 
@@ -104,6 +109,12 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
         parser.parse_args(["doctor", "--help"])
     doctor_help = capsys.readouterr().out
 
+    assert "cortex help init" in init_help
+    assert "--owner" not in init_help
+    assert "--kind" not in init_help
+    assert "--namespace" not in init_help
+    assert "--default-policy" not in init_help
+    assert "--no-mind" not in init_help
     assert "runtime wiring for Cortex without materializing Mind state yet" in connect_help
     assert "Use `cortex mind mount` to materialize Cortex state" in connect_help
     assert "Runtime / admin surfaces:" in serve_help
@@ -151,6 +162,26 @@ def test_argparse_required_argument_errors_include_task_hints(capsys):
 
     assert "the following arguments are required: name" in status_error
     assert "Try: cortex mind list" in status_error
+
+
+def test_topic_help_surfaces_beginner_and_legacy_guidance(capsys):
+    init_rc = main(["help", "init"])
+    init_help = capsys.readouterr().out
+    runtime_rc = main(["help", "runtime"])
+    runtime_help = capsys.readouterr().out
+    legacy_rc = main(["help", "legacy"])
+    legacy_help = capsys.readouterr().out
+
+    assert init_rc == 0
+    assert "Zero-config path:" in init_help
+    assert "--owner" in init_help
+    assert "--namespace" in init_help
+    assert runtime_rc == 0
+    assert "cortex connect manus --check" in runtime_help
+    assert "cortex serve manus" in runtime_help
+    assert legacy_rc == 0
+    assert "portable  -> cortex mind ingest / mount" in legacy_help
+    assert "cortex --help-all" in legacy_help
 
 
 def test_portable_remember_build_and_audit_print_compatibility_hints(tmp_path, capsys, monkeypatch):
