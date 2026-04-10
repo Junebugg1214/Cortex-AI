@@ -2,12 +2,19 @@
 
 This is the concise threat model for the self-hosted, user-owned Cortex beta.
 
+Deployment assumption:
+
+- default mode is `local-single-user`
+- hosted use means operator-managed `hosted-service`, not a shared Cortex cloud
+
 ## Scope
 
 In scope:
 
 - `cortexd` REST API
 - `cortex-mcp` local MCP server
+- `cortex serve manus` hosted MCP bridge
+- `cortex serve ui` operator UI
 - local store backends
 - API keys, namespace boundaries, backups, logs, and release artifacts
 
