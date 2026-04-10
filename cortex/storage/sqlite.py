@@ -12,7 +12,7 @@ from cortex.claims import ClaimEvent
 from cortex.embeddings import build_document_embeddings, get_embedding_provider, hybrid_search_documents
 from cortex.governance import GovernanceRule
 from cortex.graph import CortexGraph, Node, _normalize_label, diff_graphs
-from cortex.remotes import _normalize_store_path
+from cortex.remote_trust import _normalize_store_path, prepare_remote_fields
 from cortex.schemas.memory_v1 import (
     DEFAULT_NAMESPACE,
     DEFAULT_TENANT_ID,
@@ -1368,18 +1368,24 @@ class SQLiteRemoteBackend:
                     path=record.path,
                     resolved_store_path=str(_normalize_store_path(record.path)),
                     default_branch=record.default_branch,
+                    trusted_did=record.trusted_did,
+                    trusted_public_key_b64=record.trusted_public_key_b64,
+                    allowed_namespaces=list(record.allowed_namespaces),
                 )
             remotes.append(record)
         return remotes
 
     def add_remote(self, remote: RemoteRecord) -> None:
-        resolved_store_path = remote.resolved_store_path or str(_normalize_store_path(remote.path))
+        prepared = prepare_remote_fields(remote)
         stored_remote = RemoteRecord(
             tenant_id=remote.tenant_id,
             name=remote.name,
             path=remote.path,
-            resolved_store_path=resolved_store_path,
+            resolved_store_path=prepared["resolved_store_path"],
             default_branch=remote.default_branch,
+            trusted_did=prepared["trusted_did"],
+            trusted_public_key_b64=prepared["trusted_public_key_b64"],
+            allowed_namespaces=list(prepared["allowed_namespaces"]),
         )
         with self._connect() as conn:
             conn.execute(
@@ -1399,6 +1405,9 @@ class SQLiteRemoteBackend:
     def _require_remote(self, name: str) -> RemoteRecord:
         for remote in self.list_remotes():
             if remote.name == name:
+                if not remote.trusted_did or not remote.trusted_public_key_b64 or not remote.allowed_namespaces:
+                    self.add_remote(remote)
+                    return next(item for item in self.list_remotes() if item.name == name)
                 return remote
         raise ValueError(f"Unknown remote: {name}")
 

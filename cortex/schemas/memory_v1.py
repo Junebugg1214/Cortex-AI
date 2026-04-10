@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from cortex.namespaces import normalize_acl_namespaces
+
 DEFAULT_TENANT_ID = "default"
 DEFAULT_NAMESPACE = "main"
 
@@ -340,6 +342,9 @@ class RemoteRecord(_RecordMixin):
     tenant_id: str = DEFAULT_TENANT_ID
     resolved_store_path: str = ""
     default_branch: str = DEFAULT_NAMESPACE
+    trusted_did: str = ""
+    trusted_public_key_b64: str = ""
+    allowed_namespaces: list[str] = field(default_factory=list)
 
     @classmethod
     def from_memory_remote(
@@ -358,6 +363,13 @@ class RemoteRecord(_RecordMixin):
             path=payload["path"],
             resolved_store_path=resolved_store_path or "",
             default_branch=payload.get("default_branch", DEFAULT_NAMESPACE),
+            trusted_did=payload.get("trusted_did", ""),
+            trusted_public_key_b64=payload.get("trusted_public_key_b64", ""),
+            allowed_namespaces=list(
+                normalize_acl_namespaces(
+                    payload.get("allowed_namespaces") or [payload.get("default_branch", DEFAULT_NAMESPACE)]
+                )
+            ),
         )
 
 

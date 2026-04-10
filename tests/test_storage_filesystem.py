@@ -77,3 +77,5 @@ def test_filesystem_backend_remotes_and_injected_webapp_backend(tmp_path):
     assert meta["current_branch"] == "main"
     assert remotes["remotes"][0]["name"] == "origin"
     assert remotes["remotes"][0]["store_path"].endswith(".cortex")
+    assert remotes["remotes"][0]["trusted_did"]
+    assert remotes["remotes"][0]["allowed_namespaces"] == ["main"]

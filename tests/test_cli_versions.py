@@ -1,9 +1,12 @@
 import json
+from pathlib import Path
 
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.cli import main
 from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.remote_trust import _normalize_store_path
+from cortex.upai.identity import UPAIIdentity
 from cortex.upai.versioning import VersionStore
 
 
@@ -1087,6 +1090,9 @@ def test_remote_push_pull_and_fork_workflows(tmp_path, capsys):
 
     assert push_rc == 0
     assert push_out["head"] == local_commit
+    assert push_out["trusted_remote_did"]
+    assert push_out["allowed_namespaces"] == ["main"]
+    assert Path(push_out["receipt_path"]).exists()
 
     clone_store_dir = tmp_path / "clone" / ".cortex"
     assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(clone_store_dir)]) == 0
@@ -1109,6 +1115,7 @@ def test_remote_push_pull_and_fork_workflows(tmp_path, capsys):
     pull_out = json.loads(capsys.readouterr().out)
     assert pull_rc == 0
     assert pull_out["branch"] == "imported/main"
+    assert Path(pull_out["receipt_path"]).exists()
     assert VersionStore(clone_store_dir).resolve_ref("imported/main") == local_commit
 
     fork_rc = main(
@@ -1128,4 +1135,51 @@ def test_remote_push_pull_and_fork_workflows(tmp_path, capsys):
     fork_out = json.loads(capsys.readouterr().out)
     assert fork_rc == 0
     assert fork_out["forked"] is True
+    assert Path(fork_out["receipt_path"]).exists()
     assert VersionStore(clone_store_dir).resolve_ref("agent/experiment") == local_commit
+
+
+def test_remote_push_rejects_namespace_outside_allowlist(tmp_path, capsys):
+    local_store_dir = tmp_path / "local" / ".cortex"
+    remote_root = tmp_path / "remote"
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    assert main(["commit", str(graph_path), "-m", "baseline", "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+    assert main(["branch", "team/atlas", "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+    assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+
+    push_rc = main(
+        ["remote", "push", "origin", "--branch", "team/atlas", "--store-dir", str(local_store_dir), "--format", "json"]
+    )
+    push_out = capsys.readouterr().out
+
+    assert push_rc == 1
+    assert "does not allow namespace 'team/atlas'" in push_out
+
+
+def test_remote_push_rejects_remote_identity_drift(tmp_path, capsys):
+    local_store_dir = tmp_path / "local" / ".cortex"
+    remote_root = tmp_path / "remote"
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.9))
+    graph_path = tmp_path / "context.json"
+    _write_graph(graph_path, graph)
+
+    assert main(["commit", str(graph_path), "-m", "baseline", "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+    assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(local_store_dir)]) == 0
+    capsys.readouterr()
+
+    UPAIIdentity.generate("Drifted Remote").save(_normalize_store_path(remote_root))
+
+    push_rc = main(["remote", "push", "origin", "--branch", "main", "--store-dir", str(local_store_dir)])
+    push_out = capsys.readouterr().out
+
+    assert push_rc == 1
+    assert "identity mismatch" in push_out

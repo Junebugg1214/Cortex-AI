@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
@@ -125,11 +126,15 @@ def test_cli_claim_history_and_remote_flows_use_sqlite_backend(tmp_path, monkeyp
     add_out = json.loads(capsys.readouterr().out)
     assert add_rc == 0
     assert add_out["remote"]["name"] == "origin"
+    assert add_out["remote"]["trusted_did"]
+    assert add_out["remote"]["allowed_namespaces"] == ["main"]
 
     push_rc = main(["remote", "push", "origin", "--branch", "main", "--store-dir", str(store_dir), "--format", "json"])
     push_out = json.loads(capsys.readouterr().out)
     assert push_rc == 0
     assert push_out["head"] == set_out["commit_id"]
+    assert push_out["trusted_remote_did"] == add_out["remote"]["trusted_did"]
+    assert Path(push_out["receipt_path"]).exists()
 
     clone_store_dir = tmp_path / "clone" / ".cortex"
     assert main(["remote", "add", "origin", str(remote_root), "--store-dir", str(clone_store_dir)]) == 0
@@ -152,3 +157,4 @@ def test_cli_claim_history_and_remote_flows_use_sqlite_backend(tmp_path, monkeyp
     pull_out = json.loads(capsys.readouterr().out)
     assert pull_rc == 0
     assert pull_out["branch"] == "imported/main"
+    assert Path(pull_out["receipt_path"]).exists()

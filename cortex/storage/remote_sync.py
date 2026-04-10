@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from cortex.remote_trust import perform_remote_handshake, require_remote_namespace, write_remote_sync_receipt
 from cortex.remotes import _normalize_store_path
 from cortex.schemas.memory_v1 import RemoteRecord
 from cortex.storage.filesystem import FilesystemStorageBackend
@@ -27,6 +28,14 @@ def _open_remote_backend(remote: RemoteRecord, *, fallback_backend_type: str) ->
     has_sqlite_store = sqlite_db_path(store_path).exists()
     backend_type = None if (has_filesystem_store or has_sqlite_store) else fallback_backend_type
     return get_storage_backend(store_path, backend_type=backend_type)
+
+
+def _backend_store_dir(backend: Any) -> Path:
+    if isinstance(backend, SQLiteStorageBackend):
+        return backend.store_dir
+    if isinstance(backend, FilesystemStorageBackend):
+        return backend.store_dir
+    raise TypeError(f"Unsupported storage backend for sync: {type(backend)!r}")
 
 
 def _export_bundle(backend: Any, ref: str) -> dict[str, Any]:
@@ -102,13 +111,23 @@ def push_remote_backend(
     target_branch: str | None,
     force: bool,
 ) -> dict[str, Any]:
+    local_store_dir = _backend_store_dir(local_backend)
+    local_branch = branch if branch != "HEAD" else local_backend.versions.current_branch()
+    remote_branch = target_branch or local_branch
+    require_remote_namespace(remote, remote_branch)
+    handshake = perform_remote_handshake(
+        local_store_dir,
+        remote,
+        direction="push",
+        branch=local_branch,
+        remote_branch=remote_branch,
+    )
     remote_backend = _open_remote_backend(remote, fallback_backend_type=_backend_name(local_backend))
     local_head = local_backend.versions.resolve_ref(branch)
     if local_head is None:
         raise ValueError(f"Unknown ref: {branch}")
     bundle = _export_bundle(local_backend, branch)
     copied = _import_bundle(remote_backend, bundle)
-    remote_branch = target_branch or branch
     remote_head = remote_backend.versions.resolve_ref(remote_branch)
 
     if remote_head and remote_head != local_head and not remote_backend.versions.is_ancestor(remote_head, local_head):
@@ -116,15 +135,32 @@ def push_remote_backend(
             raise ValueError(f"Push would not be a fast-forward on remote branch '{remote_branch}'.")
 
     _set_branch_head(remote_backend, remote_branch, local_head)
+    receipt_path = write_remote_sync_receipt(
+        local_store_dir,
+        {
+            "direction": "push",
+            "remote": remote.name,
+            "branch": local_branch,
+            "remote_branch": remote_branch,
+            "head": local_head,
+            "versions_copied": copied,
+            "force": force,
+            **handshake,
+        },
+    )
     return {
         "status": "ok",
         "remote": remote.name,
         "remote_path": str(_resolve_remote_store_path(remote)),
-        "branch": branch,
+        "branch": local_branch,
         "remote_branch": remote_branch,
         "head": local_head,
         "versions_copied": copied,
         "force": force,
+        "trusted_remote_did": handshake["remote_did"],
+        "local_did": handshake["local_did"],
+        "allowed_namespaces": list(handshake["allowed_namespaces"]),
+        "receipt_path": receipt_path,
     }
 
 
@@ -136,6 +172,15 @@ def pull_remote_backend(
     force: bool,
     switch: bool,
 ) -> dict[str, Any]:
+    local_store_dir = _backend_store_dir(local_backend)
+    require_remote_namespace(remote, branch)
+    handshake = perform_remote_handshake(
+        local_store_dir,
+        remote,
+        direction="pull",
+        branch=branch,
+        remote_branch=branch,
+    )
     remote_backend = _open_remote_backend(remote, fallback_backend_type=_backend_name(local_backend))
     remote_head = remote_backend.versions.resolve_ref(branch)
     if remote_head is None:
@@ -156,6 +201,20 @@ def pull_remote_backend(
     _set_branch_head(local_backend, local_branch, remote_head)
     if switch:
         local_backend.versions.switch_branch(local_branch)
+    receipt_path = write_remote_sync_receipt(
+        local_store_dir,
+        {
+            "direction": "pull",
+            "remote": remote.name,
+            "branch": local_branch,
+            "remote_branch": branch,
+            "head": remote_head,
+            "versions_copied": copied,
+            "switched": switch,
+            "force": force,
+            **handshake,
+        },
+    )
 
     return {
         "status": "ok",
@@ -167,6 +226,10 @@ def pull_remote_backend(
         "versions_copied": copied,
         "switched": switch,
         "force": force,
+        "trusted_remote_did": handshake["remote_did"],
+        "local_did": handshake["local_did"],
+        "allowed_namespaces": list(handshake["allowed_namespaces"]),
+        "receipt_path": receipt_path,
     }
 
 

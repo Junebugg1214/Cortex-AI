@@ -66,6 +66,7 @@ def test_branch_rule_and_remote_records_validate():
     assert rule.require_approval is True
     assert decision.allowed is True
     assert remote.resolved_store_path.endswith(".cortex")
+    assert remote.allowed_namespaces == ["main"]
     assert validate_model(branch) == []
     assert validate_model(rule) == []
     assert validate_model(decision) == []
