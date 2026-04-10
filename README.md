@@ -171,6 +171,25 @@ The legacy `cortex-manus` entrypoint still works and maps to the same bridge run
 
 If `cortex-manus` is missing after a local source install, reinstall with `python3.11 -m pip install --user --no-build-isolation -e ".[server]"` and add `~/Library/Python/3.11/bin` to `PATH` on macOS if needed. See [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md) for the full troubleshooting steps.
 
+## Runtime Connect
+
+`cortex connect` now covers direct local runtimes too, not just Manus.
+
+Use it to wire Cortex MCP into Hermes, Codex, Cursor, and Claude Code first, then materialize actual runtime context with `cortex mind mount` or `cortex sync`.
+
+Recommended direct-runtime commands:
+
+| Command | What it does |
+| --- | --- |
+| `cortex connect hermes --check --project .` | Verifies Hermes config readiness, expected Cortex-managed memory files, and the next mount step. |
+| `cortex connect hermes --install --project .` | Writes or updates `~/.hermes/config.yaml` with the managed `cortex-mcp` entry. |
+| `cortex connect codex --check --project .` | Checks Codex MCP readiness and shows the `AGENTS.md` mount path Cortex will use. |
+| `cortex connect codex --install --project .` | Writes or updates `~/.codex/config.toml` with the Cortex MCP server block. |
+| `cortex connect cursor --check --project .` | Checks Cursor MCP readiness and the `.cursor/rules/cortex.mdc` runtime path. |
+| `cortex connect cursor --install --project .` | Writes or updates `./.cursor/mcp.json` with the Cortex MCP server block. |
+| `cortex connect claude-code --check --project .` | Checks Claude Code MCP readiness and the global/project `CLAUDE.md` mount paths. |
+| `cortex connect claude-code --install --project .` | Writes or updates `./.mcp.json` with the Cortex MCP server block for Claude Code. |
+
 ## Brainpacks
 
 Brainpacks are the **specialist cognition subsystem** for a Mind.

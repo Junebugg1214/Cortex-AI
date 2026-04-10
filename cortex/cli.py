@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import tomllib
+
 from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
 from cortex.contradictions import ContradictionEngine
@@ -52,6 +54,7 @@ DEFAULT_HELP_START_HERE = (
 )
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
+CONNECT_RUNTIME_TARGETS = ("hermes", "codex", "cursor", "claude-code")
 DOCTOR_STORE_ENTRY_NAMES = (
     "HEAD",
     "history.json",
@@ -553,6 +556,40 @@ def build_parser(*, show_all_commands: bool = False):
         "--print-config", action="store_true", help="Include a paste-ready Manus MCP JSON snippet"
     )
     connect_manus.add_argument("--format", choices=["json", "text"], default="text")
+
+    def _add_connect_runtime_args(target_parser, *, target_label: str):
+        target_parser.add_argument(
+            "--store-dir", default=None, help="Storage directory (default from config discovery)"
+        )
+        target_parser.add_argument("--project", "-d", help="Project directory for project-scoped files (default: cwd)")
+        target_parser.add_argument("--config", help="Path to the Cortex self-host config.toml used by cortex-mcp")
+        target_parser.add_argument("--check", action="store_true", help=f"Validate local {target_label} readiness")
+        target_parser.add_argument(
+            "--print-config",
+            action="store_true",
+            help=f"Include a paste-ready Cortex MCP config snippet for {target_label}",
+        )
+        target_parser.add_argument(
+            "--install",
+            action="store_true",
+            help=f"Write or update the local {target_label} Cortex MCP config",
+        )
+        target_parser.add_argument("--format", choices=["json", "text"], default="text")
+
+    connect_hermes = connect_sub.add_parser("hermes", help="Prepare Hermes for Cortex MCP + mounted context")
+    _add_connect_runtime_args(connect_hermes, target_label="Hermes")
+
+    connect_codex = connect_sub.add_parser("codex", help="Prepare Codex for Cortex MCP + mounted context")
+    _add_connect_runtime_args(connect_codex, target_label="Codex")
+
+    connect_cursor = connect_sub.add_parser("cursor", help="Prepare Cursor for Cortex MCP + mounted context")
+    _add_connect_runtime_args(connect_cursor, target_label="Cursor")
+
+    connect_claude_code = connect_sub.add_parser(
+        "claude-code",
+        help="Prepare Claude Code for Cortex MCP + mounted context",
+    )
+    _add_connect_runtime_args(connect_claude_code, target_label="Claude Code")
 
     # -- serve (runtime processes) ---------------------------------------
     serve = sub.add_parser("serve", help="Run local Cortex runtime surfaces")
@@ -6963,10 +7000,384 @@ def run_connect_manus(args):
     return 1 if errors or (args.check and read_key is None) else 0
 
 
+def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
+    from cortex.context import _resolve_path
+
+    templates = {
+        "claude-code": "{project}/.mcp.json",
+        "codex": "{home}/.codex/config.toml",
+        "cursor": "{project}/.cursor/mcp.json",
+        "hermes": "{home}/.hermes/config.yaml",
+    }
+    template = templates[target]
+    return _resolve_path(template, str(project_dir))
+
+
+def _connect_runtime_content_paths(target: str, *, project_dir: Path) -> list[str]:
+    from cortex.context import _resolve_path
+
+    templates = {
+        "claude-code": ("{home}/.claude/CLAUDE.md", "{project}/CLAUDE.md"),
+        "codex": ("{project}/AGENTS.md",),
+        "cursor": ("{project}/.cursor/rules/cortex.mdc",),
+        "hermes": ("{home}/.hermes/memories/USER.md", "{home}/.hermes/memories/MEMORY.md"),
+    }
+    return [str(_resolve_path(template, str(project_dir))) for template in templates[target]]
+
+
+def _connect_runtime_schema(target: str) -> str:
+    return {
+        "claude-code": "mcpServers",
+        "codex": "mcp_servers",
+        "cursor": "mcpServers",
+        "hermes": "mcp_servers",
+    }[target]
+
+
+def _connect_runtime_format(target: str) -> str:
+    return {
+        "claude-code": "json",
+        "codex": "toml",
+        "cursor": "json",
+        "hermes": "yaml",
+    }[target]
+
+
+def _connect_runtime_server_payload(cortex_config_path: Path) -> dict[str, Any]:
+    return {
+        "command": "cortex-mcp",
+        "args": ["--config", str(cortex_config_path)],
+    }
+
+
+def _connect_runtime_config_snippet(target: str, *, cortex_config_path: Path) -> str:
+    from cortex.hermes_integration import _render_cortex_mcp_block
+
+    server_payload = _connect_runtime_server_payload(cortex_config_path)
+    if target in {"claude-code", "cursor"}:
+        return json.dumps({"mcpServers": {"cortex": server_payload}}, indent=2)
+    if target == "codex":
+        escaped = str(cortex_config_path).replace("\\", "\\\\").replace('"', '\\"')
+        return f'[mcp_servers.cortex]\ncommand = "cortex-mcp"\nargs = ["--config", "{escaped}"]'
+    if target == "hermes":
+        return "\n".join(["mcp_servers:", *_render_cortex_mcp_block(cortex_config_path)])
+    raise ValueError(f"Unsupported connect target: {target}")
+
+
+def _connect_runtime_upsert_json_config(path: Path, *, schema: str, cortex_config_path: Path) -> dict[str, str]:
+    server_payload = _connect_runtime_server_payload(cortex_config_path)
+    status = "created"
+    payload: dict[str, Any] = {}
+
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not parse existing JSON MCP config at {path}: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Expected a JSON object in {path}.")
+        payload = loaded
+        status = "updated"
+
+    container = payload.get(schema)
+    if container is None:
+        container = {}
+    if not isinstance(container, dict):
+        raise ValueError(f"Expected `{schema}` to be a JSON object in {path}.")
+    container = dict(container)
+    container["cortex"] = server_payload
+    payload[schema] = container
+
+    rendered = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    if path.exists() and path.read_text(encoding="utf-8") == rendered:
+        status = "unchanged"
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rendered, encoding="utf-8")
+    return {"path": str(path), "status": status}
+
+
+def _connect_runtime_upsert_codex_config(path: Path, *, cortex_config_path: Path) -> dict[str, str]:
+    escaped = str(cortex_config_path).replace("\\", "\\\\").replace('"', '\\"')
+    block = [
+        "[mcp_servers.cortex]",
+        'command = "cortex-mcp"',
+        f'args = ["--config", "{escaped}"]',
+    ]
+    status = "created"
+    if path.exists():
+        original = path.read_text(encoding="utf-8")
+        try:
+            tomllib.loads(original)
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"Could not parse existing Codex config at {path}: {exc}") from exc
+        lines = original.splitlines()
+        start = None
+        for index, line in enumerate(lines):
+            if line.strip() == "[mcp_servers.cortex]":
+                start = index
+                break
+        if start is not None:
+            end = len(lines)
+            for index in range(start + 1, len(lines)):
+                stripped = lines[index].strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    end = index
+                    break
+            updated_lines = lines[:start] + block + lines[end:]
+        else:
+            updated_lines = list(lines)
+            if updated_lines and updated_lines[-1].strip():
+                updated_lines.append("")
+            updated_lines.extend(block)
+        rendered = "\n".join(updated_lines).rstrip() + "\n"
+        status = "updated"
+        if rendered == original:
+            status = "unchanged"
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rendered, encoding="utf-8")
+        return {"path": str(path), "status": status}
+
+    rendered = "\n".join(block) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
+    return {"path": str(path), "status": status}
+
+
+def _connect_runtime_upsert_target_config(target: str, *, path: Path, cortex_config_path: Path) -> dict[str, str]:
+    from cortex.hermes_integration import update_hermes_config
+
+    if target in {"claude-code", "cursor"}:
+        return _connect_runtime_upsert_json_config(
+            path,
+            schema=_connect_runtime_schema(target),
+            cortex_config_path=cortex_config_path,
+        )
+    if target == "codex":
+        return _connect_runtime_upsert_codex_config(path, cortex_config_path=cortex_config_path)
+    if target == "hermes":
+        status = update_hermes_config(path, cortex_config_path=cortex_config_path, dry_run=False)
+        return {"path": str(path), "status": status}
+    raise ValueError(f"Unsupported connect target: {target}")
+
+
+def _connect_runtime_context_status(store_dir: Path) -> dict[str, Any]:
+    from cortex.minds import load_mind_core_graph, resolve_default_mind
+    from cortex.portable_runtime import load_canonical_graph, load_portability_state
+
+    try:
+        default_mind = resolve_default_mind(store_dir)
+    except (FileNotFoundError, ValueError):
+        default_mind = None
+
+    if default_mind:
+        payload = load_mind_core_graph(store_dir, default_mind)
+        return {
+            "default_mind": default_mind,
+            "context_ready": payload["fact_count"] > 0,
+            "fact_count": payload["fact_count"],
+            "graph_ref": payload["graph_ref"],
+            "graph_source": payload["graph_source"],
+        }
+
+    state = load_portability_state(store_dir)
+    graph, graph_path = load_canonical_graph(store_dir, state)
+    return {
+        "default_mind": "",
+        "context_ready": len(graph.nodes) > 0,
+        "fact_count": len(graph.nodes),
+        "graph_ref": str(graph_path),
+        "graph_source": "portable_canonical_graph" if graph.nodes else "empty_graph",
+    }
+
+
+def _connect_runtime_next_steps(
+    *,
+    target: str,
+    project_dir: Path,
+    mcp_configured: bool,
+    context_status: dict[str, Any],
+) -> list[str]:
+    steps: list[str] = []
+    if not mcp_configured:
+        steps.append(f"Run `cortex connect {target} --install --project {project_dir}` to wire the local MCP config.")
+    default_mind = str(context_status.get("default_mind") or "")
+    if default_mind:
+        steps.append(f"Run `cortex mind mount {default_mind} --to {target} --project {project_dir} --smart`.")
+    elif context_status.get("context_ready"):
+        steps.append(f"Run `cortex sync --smart --to {target} --project {project_dir}`.")
+    else:
+        steps.append('Run `cortex init` or `cortex mind remember <mind> "..."` before mounting context into this tool.')
+    return steps
+
+
+def run_connect_runtime_target(args, *, target: str):
+    from cortex.config import load_selfhost_config
+    from cortex.hermes_integration import ensure_cortex_mcp_config
+    from cortex.portable_runtime import display_name, scan_portability
+
+    project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
+    warnings: list[str] = []
+    errors: list[str] = []
+
+    try:
+        runtime_config = load_selfhost_config(
+            store_dir=args.store_dir,
+            config_path=args.config,
+            env={},
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+
+    store_dir = runtime_config.store_dir.resolve()
+    explicit_config_path = Path(args.config).expanduser().resolve() if getattr(args, "config", None) else None
+    if explicit_config_path is not None and not explicit_config_path.exists():
+        errors.append(f"Config path not found: {explicit_config_path}")
+
+    shared_config_path = (
+        explicit_config_path
+        if explicit_config_path is not None
+        else (
+            runtime_config.config_path.resolve()
+            if runtime_config.config_path
+            else (store_dir / "config.toml").resolve()
+        )
+    )
+    shared_config_exists = shared_config_path.exists()
+    config_created = False
+    install_actions: list[dict[str, str]] = []
+
+    if not shared_config_exists and not explicit_config_path:
+        warnings.append(
+            f"No Cortex config.toml was found yet; `--install` will create one at {shared_config_path} for cortex-mcp."
+        )
+
+    if args.install and not errors:
+        if not shared_config_exists:
+            if explicit_config_path is not None:
+                errors.append(f"Cannot install using a missing explicit config path: {explicit_config_path}")
+            else:
+                shared_config_path = ensure_cortex_mcp_config(store_dir, dry_run=False).resolve()
+                config_created = True
+                shared_config_exists = True
+                install_actions.append(
+                    {
+                        "action": "create_cortex_config",
+                        "path": str(shared_config_path),
+                        "status": "created",
+                    }
+                )
+        if shared_config_exists:
+            try:
+                target_result = _connect_runtime_upsert_target_config(
+                    target,
+                    path=_connect_runtime_mcp_config_path(target, project_dir=project_dir),
+                    cortex_config_path=shared_config_path,
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+            else:
+                install_actions.append(
+                    {
+                        "action": "write_target_mcp_config",
+                        "path": target_result["path"],
+                        "status": target_result["status"],
+                    }
+                )
+
+    try:
+        scan_payload = scan_portability(store_dir=store_dir, project_dir=project_dir)
+    except ValueError as exc:
+        return _error(str(exc))
+    tool = {item["target"]: item for item in scan_payload["tools"]}[target]
+    context_status = _connect_runtime_context_status(store_dir)
+    target_mcp_config_path = _connect_runtime_mcp_config_path(target, project_dir=project_dir)
+
+    if not tool["cortex_mcp_configured"]:
+        warnings.append(f"{display_name(target)} is not configured to run `cortex-mcp` yet.")
+    if not context_status["context_ready"]:
+        warnings.append("No portable context is ready yet; wire the runtime first, then mount or sync a Mind into it.")
+
+    status = "error" if errors else ("ok" if tool["cortex_mcp_configured"] else "warn")
+    payload = {
+        "status": status,
+        "target": target,
+        "display_name": display_name(target),
+        "store_dir": str(store_dir),
+        "config_path": str(shared_config_path) if shared_config_exists else None,
+        "project_dir": str(project_dir.resolve()),
+        "mcp_command": _shell_join(["cortex-mcp", "--config", str(shared_config_path)]),
+        "mcp_config_path": str(target_mcp_config_path),
+        "config_format": _connect_runtime_format(target),
+        "mcp_configured": bool(tool["cortex_mcp_configured"]),
+        "mcp_server_count": int(tool["mcp_server_count"]),
+        "mcp_paths": list(tool["mcp_paths"]),
+        "content_paths": list(tool["detected_paths"]),
+        "managed_content_paths": _connect_runtime_content_paths(target, project_dir=project_dir),
+        "configured": bool(tool["configured"]),
+        "context_ready": bool(context_status["context_ready"]),
+        "default_mind": str(context_status["default_mind"]),
+        "graph_ref": str(context_status["graph_ref"]),
+        "graph_source": str(context_status["graph_source"]),
+        "fact_count": int(context_status["fact_count"]),
+        "config_created": config_created,
+        "warnings": warnings,
+        "errors": errors,
+        "next_steps": _connect_runtime_next_steps(
+            target=target,
+            project_dir=project_dir.resolve(),
+            mcp_configured=bool(tool["cortex_mcp_configured"]),
+            context_status=context_status,
+        ),
+    }
+    if args.print_config:
+        payload["config_snippet"] = _connect_runtime_config_snippet(target, cortex_config_path=shared_config_path)
+    if args.install:
+        payload["install_actions"] = install_actions
+
+    if _emit_result(payload, args.format) == 0:
+        return 1 if errors or (args.check and not tool["cortex_mcp_configured"]) else 0
+
+    _echo(f"Cortex ↔ {payload['display_name']}")
+    _echo(f"  Status:      {payload['status']}")
+    _echo(f"  Store:       {payload['store_dir']}")
+    _echo(f"  MCP config:  {payload['mcp_config_path']}")
+    if payload["config_path"]:
+        _echo(f"  Cortex cfg:  {payload['config_path']}")
+    _echo(f"  MCP ready:   {'yes' if payload['mcp_configured'] else 'no'}")
+    _echo(f"  Context:     {payload['fact_count']} facts from {payload['graph_source']}")
+    if payload["mcp_paths"]:
+        _echo("  Detected MCP paths:")
+        for path in payload["mcp_paths"]:
+            _echo(f"    - {path}")
+    if payload["content_paths"]:
+        _echo("  Detected context files:")
+        for path in payload["content_paths"]:
+            _echo(f"    - {path}")
+    for action in install_actions:
+        _echo(f"  Install:     {action['action']} ({action['status']}) -> {action['path']}")
+    for message in warnings:
+        _echo(f"  Warning:     {message}")
+    for message in errors:
+        _echo(f"  Error:       {message}")
+    if args.print_config:
+        _echo("")
+        _echo("Config snippet:")
+        _echo(payload["config_snippet"])
+    _echo("")
+    _echo("Next:")
+    for step in payload["next_steps"]:
+        _echo(f"  {step}")
+    return 1 if errors or (args.check and not tool["cortex_mcp_configured"]) else 0
+
+
 def run_connect(args):
     if args.connect_subcommand == "manus":
         return run_connect_manus(args)
-    return _error("Specify a connect target: manus")
+    if args.connect_subcommand in CONNECT_RUNTIME_TARGETS:
+        return run_connect_runtime_target(args, target=args.connect_subcommand)
+    return _error("Specify a connect target: manus, hermes, codex, cursor, or claude-code")
 
 
 def _load_runtime_check_config(
