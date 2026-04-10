@@ -6,6 +6,14 @@
 
 Cortex is a local-first CLI that gives every AI tool the same Mind.
 
+It is strongest today as:
+- a single-user local runtime
+- a small-team self-hosted memory layer with explicit operator control
+
+It is not positioned as:
+- a hosted multi-tenant Cortex cloud
+- a no-ops public internet service with automatic enterprise controls
+
 Use Cortex to:
 - create one portable Mind with durable memory, policy, and mounts
 - attach Brainpacks as specialist knowledge
@@ -179,7 +187,34 @@ What each surface is for:
 | `cortex serve manus` | Runs the Manus-friendly hosted MCP bridge. |
 | `cortex serve ui` | Launches the local Cortex infrastructure UI. |
 
-## Production-Ready CLI Habits
+## Deployment Modes
+
+### Local Single-User
+
+This is the default and recommended starting point.
+
+Use it when:
+- Cortex runs on your laptop or workstation
+- the store stays user-owned and local
+- runtime surfaces bind to loopback like `127.0.0.1`
+- you want the simplest, safest operating model
+
+### Hosted Service
+
+Use this only when you are intentionally operating Cortex as a self-hosted service for a person, team, or workflow.
+
+Hosted mode means:
+- API keys should be configured before you bind beyond loopback
+- HTTPS should terminate at a reverse proxy you control
+- Manus and other shared bridges should prefer a pinned namespace
+- you, not Cortex, are the operator responsible for network policy and deployment hygiene
+
+Read these before exposing Cortex beyond localhost:
+- [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+
+## Operational Safety
 
 If you want Cortex to stay reliable as it grows, these are the habits to keep:
 
@@ -196,6 +231,8 @@ Important defaults:
 - Cortex strongly prefers a canonical `.cortex/` store.
 - `cortex init` is idempotent and safe to rerun.
 - `cortex doctor --fix` is the supported path for recovering from common local misconfiguration.
+- `local-single-user` is the default runtime mode.
+- hosted binds should be treated as an operator decision, not the default dev path.
 
 ## Compatibility and Legacy Commands
 
@@ -227,6 +264,8 @@ cortex doctor
 - [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
 - [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
 - [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
 - [docs/CLI_UNIFICATION_PRD.md](docs/CLI_UNIFICATION_PRD.md)
 - [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
 

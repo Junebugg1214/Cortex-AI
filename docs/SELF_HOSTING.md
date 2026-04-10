@@ -10,6 +10,44 @@ Cortex is designed to stay local-first and user-owned. The self-host path is:
 Release metadata is exposed consistently across REST, Python, TypeScript, and MCP surfaces so operators can confirm
 the running package version, API generation, and frozen v1 contract hash.
 
+## What Self-Hosting Means Right Now
+
+Cortex is currently strongest as:
+
+- a single-user local runtime
+- a small-team, operator-managed self-host deployment
+- a portable Mind layer that you wire into external runtimes deliberately
+
+Cortex is not currently positioned as:
+
+- a hosted multi-tenant Cortex cloud
+- a public internet service with automatic enterprise controls
+- a substitute for your own reverse proxy, TLS, network policy, and operator practices
+
+## Deployment Modes
+
+### `local-single-user`
+
+This is the default mode.
+
+Use it when:
+
+- Cortex runs on the same machine you use directly
+- REST/UI/Manus surfaces stay on loopback
+- local trust and user-owned storage are the primary goals
+
+### `hosted-service`
+
+Use this only when you are intentionally exposing Cortex as a self-hosted service.
+
+Hosted-service mode expects:
+
+- configured API keys before binding beyond loopback
+- HTTPS terminated by a reverse proxy you control
+- scoped API keys instead of wildcard grants whenever possible
+- pinned namespaces for shared Manus bridges or team-specific runtimes
+- operators who understand the warnings emitted by `cortex serve ... --check`
+
 For the public beta rollout, pair this guide with:
 
 - [BETA_QUICKSTART.md](BETA_QUICKSTART.md)
@@ -69,8 +107,10 @@ use that namespace by default when the request does not provide one.
 Use `--check` before you start a process for real:
 
 ```bash
-cortex server --config .cortex/config.toml --check
-cortex mcp --config .cortex/config.toml --check
+cortex serve api --config .cortex/config.toml --check
+cortex serve mcp --config .cortex/config.toml --check
+cortex serve manus --config .cortex/config.toml --check
+cortex serve ui --config .cortex/config.toml --check
 
 # direct entrypoints
 cortexd --config .cortex/config.toml --check
@@ -79,6 +119,20 @@ cortex-mcp --config .cortex/config.toml --check
 
 That prints the resolved store directory, backend, auth summary, namespace defaults, and warnings such as running in
 local trust mode with no API keys configured.
+
+For hosted-service mode, treat warnings about bind scope, missing auth, wildcard namespaces, and reverse proxies as
+deployment blockers rather than optional suggestions.
+
+## Hosted-Service Checklist
+
+Before you expose Cortex beyond localhost:
+
+- configure real API keys in `.cortex/config.toml`
+- verify `cortex serve api --check` and `cortex serve manus --check`
+- terminate HTTPS at a reverse proxy you control
+- prefer one namespace per bridge or workflow
+- keep the UI on trusted networks only
+- export and verify a backup before first exposure
 
 ## Backup and Restore
 
@@ -108,7 +162,7 @@ cortex backup restore backups/cortex-store.zip --store-dir .cortex --force
 
 ## Docker
 
-The repo ships with a production-leaning local image and compose file:
+The repo ships with an operator-oriented local image and compose file:
 
 ```bash
 docker compose up --build

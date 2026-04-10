@@ -35,14 +35,17 @@ For beta, prefer:
 ## Startup Checklist
 
 ```bash
-cortexd --config .cortex/config.toml --check
-cortex-mcp --config .cortex/config.toml --check
+cortex serve api --config .cortex/config.toml --check
+cortex serve mcp --config .cortex/config.toml --check
+cortex serve manus --config .cortex/config.toml --check
 ```
 
 Verify:
 
 - expected store directory
 - expected backend
+- expected runtime mode
+- expected bind scope
 - expected namespace scope
 - expected auth key names and scopes
 - no warnings you do not understand

@@ -2,6 +2,8 @@
 
 Cortex can work with Manus through a hosted custom MCP server.
 
+This is best understood as a self-hosted operator setup, not a managed Cortex cloud integration.
+
 The key constraint is that Manus expects a custom MCP server reachable over **HTTPS**, while `cortex-mcp` is a local stdio server. The `cortex-manus` bridge solves that by exposing a Manus-friendly HTTP MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
 
 The bridge now defaults to the older `2024-11-05` MCP revision for Manus compatibility, even if a client asks for a newer Cortex-supported revision. You can override that with `--protocol-version`, but the default is intentionally conservative because some Manus runtimes still reject newer MCP revisions.
@@ -13,6 +15,28 @@ The bridge is intentionally safer by default than a quick local demo:
 - loopback binds like `127.0.0.1` can run without API keys for local development
 - non-loopback binds like `0.0.0.0` require Cortex API keys by default
 - `--allow-insecure-no-auth` exists only for trusted local reverse-proxy setups and should not be your normal Manus deployment path
+
+## Two Valid Ways To Run It
+
+### 1. Local Demo
+
+Use this when you are proving the integration on your own machine:
+
+- `cortex serve manus --host 127.0.0.1 --port 8790`
+- a temporary HTTPS tunnel such as ngrok
+- a scoped reader key
+
+This is great for validation, not for permanence.
+
+### 2. Hosted Service
+
+Use this when you want a persistent Cortex ↔ Manus bridge:
+
+- run `cortex serve manus` on infrastructure you control
+- configure API keys first
+- terminate HTTPS at a reverse proxy
+- prefer a pinned `--namespace` for team or workflow-specific bridges
+- keep the default read-oriented toolset unless you explicitly trust Manus to write back
 
 ## What the bridge exposes
 
@@ -149,15 +173,21 @@ In Manus:
 - `Authorization: Bearer <token>`
 - `X-API-Key: <token>`
 
-## Recommended setup
+## Recommended hosted setup
 
-For production:
+For persistent operator-managed use:
 
 - put the bridge behind HTTPS
 - keep API keys configured whenever the bridge is reachable beyond loopback
 - use scoped API keys
 - prefer a pinned `--namespace` when serving a team or workflow-specific bridge
 - keep the default read-oriented toolset unless you explicitly trust Manus to write back
+
+See also:
+
+- [SELF_HOSTING.md](SELF_HOSTING.md)
+- [THREAT_MODEL.md](THREAT_MODEL.md)
+- [OPERATIONS.md](OPERATIONS.md)
 
 ## Troubleshooting
 
