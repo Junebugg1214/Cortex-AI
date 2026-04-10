@@ -4,6 +4,7 @@ import json
 from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Node
+from cortex.http_hardening import HTTPRequestPolicy
 from cortex.minds import attach_pack_to_mind, init_mind, mount_mind, remember_on_mind, set_default_mind
 from cortex.packs import ask_pack, compile_pack, ingest_pack, init_pack, lint_pack
 from cortex.storage import build_sqlite_backend
@@ -31,6 +32,8 @@ def _invoke_handler(
     handler.rfile = io.BytesIO(json.dumps(payload).encode("utf-8") if payload is not None else b"")
     handler.wfile = io.BytesIO()
     resolved_headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes), "Host": "127.0.0.1:8765"}
+    if method == "POST":
+        resolved_headers["Content-Type"] = "application/json"
     session_token = getattr(handler_cls, "_cortex_ui_session_token", "")
     if session_token:
         resolved_headers["X-Cortex-UI-Session"] = session_token
@@ -39,6 +42,7 @@ def _invoke_handler(
     if headers:
         resolved_headers.update(headers)
     handler.headers = resolved_headers
+    handler.client_address = ("127.0.0.1", 8765)
     handler._status = 200
     handler._headers = {}
 
@@ -481,6 +485,39 @@ def test_webapp_handler_accepts_api_key_for_scripted_access(tmp_path):
     assert json.loads(meta_body)["status"] == "ok"
     assert rebuild_status == 200
     assert json.loads(rebuild_body)["rebuilt"] == 1
+
+
+def test_webapp_handler_rejects_non_json_post_content_type(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+    handler_cls = make_handler(ui_backend)
+
+    status, _, body = _invoke_handler(
+        handler_cls,
+        path="/api/index/rebuild",
+        method="POST",
+        payload={"ref": "HEAD", "all_refs": False},
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert status == 415
+    assert "application/json" in json.loads(body)["error"]
+
+
+def test_webapp_handler_rejects_oversized_json_body(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+    handler_cls = make_handler(ui_backend, request_policy=HTTPRequestPolicy(max_body_bytes=8))
+
+    status, _, body = _invoke_handler(
+        handler_cls,
+        path="/api/index/rebuild",
+        method="POST",
+        payload={"ref": "HEAD", "all_refs": False},
+    )
+
+    assert status == 413
+    assert "exceeds 8 bytes" in json.loads(body)["error"]
 
 
 def test_webapp_handler_exposes_portability_endpoints(tmp_path):

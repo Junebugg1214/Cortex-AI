@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from cortex.http_hardening import request_policy_for_mode
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 
 try:  # pragma: no cover - exercised implicitly on Python 3.10
@@ -538,7 +539,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
     if mode == "mcp" and not config.mcp_namespace:
         warnings.append("No default MCP namespace configured; clients may choose namespaces explicitly.")
 
-    return {
+    diagnostics = {
         "mode": mode,
         "project_version": PROJECT_VERSION,
         "api_version": API_VERSION,
@@ -557,6 +558,9 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         "api_keys": [item.to_safe_dict() for item in config.api_keys],
         "warnings": warnings,
     }
+    if mode in {"server", "manus", "ui"}:
+        diagnostics["request_policy"] = request_policy_for_mode(config.runtime_mode).to_dict()
+    return diagnostics
 
 
 def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> str:
@@ -574,6 +578,18 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
         lines.append(f"  Context:   {diagnostics['context_file']}")
     if mode in {"server", "manus", "ui"}:
         lines.append(f"  Listen:    {diagnostics['server_host']}:{diagnostics['server_port']}")
+        if diagnostics["request_policy"]:
+            policy = diagnostics["request_policy"]
+            lines.append(
+                "  Requests:  "
+                + f"max {policy['max_body_bytes']} bytes, "
+                + f"timeout {policy['read_timeout_seconds']}s, "
+                + (
+                    f"rate limit {policy['rate_limit_per_minute']}/min"
+                    if policy["rate_limit_per_minute"]
+                    else "rate limit disabled"
+                )
+            )
         if mode == "ui":
             session_note = "browser session token (loopback)"
             if diagnostics["auth_enabled"]:
