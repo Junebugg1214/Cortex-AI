@@ -487,6 +487,23 @@ def test_webapp_handler_accepts_api_key_for_scripted_access(tmp_path):
     assert json.loads(rebuild_body)["rebuilt"] == 1
 
 
+def test_webapp_handler_hides_internal_errors_from_clients(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+    handler_cls = make_handler(ui_backend)
+
+    def boom(self):
+        raise RuntimeError("secret ui path /tmp/cortex-ui-internal")
+
+    monkeypatch.setattr(type(ui_backend), "health", boom)
+
+    status, _, body = _invoke_handler(handler_cls, path="/api/health", method="GET")
+    payload = json.loads(body)
+
+    assert status == 500
+    assert payload["error"] == "Internal server error."
+
+
 def test_webapp_handler_rejects_non_json_post_content_type(tmp_path):
     store_dir = tmp_path / ".cortex"
     ui_backend = MemoryUIBackend(store_dir=store_dir)

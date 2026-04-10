@@ -21,6 +21,7 @@ context_file = "context.json"
 [server]
 host = "0.0.0.0"
 port = 8766
+external_base_url = "https://api.cortex.example"
 
 [mcp]
 namespace = "team"
@@ -43,6 +44,7 @@ namespaces = ["team"]
     assert config.context_file == (config_dir / "context.json").resolve()
     assert config.server_host == "0.0.0.0"
     assert config.server_port == 9911
+    assert config.external_base_url == "https://api.cortex.example"
     assert config.runtime_mode == "local-single-user"
     assert config.mcp_namespace == "team"
     assert config.api_keys[0].name == "reader"

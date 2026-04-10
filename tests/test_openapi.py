@@ -38,7 +38,7 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert spec["components"]["schemas"]["MergePreviewRequest"]["required"] == ["other_ref"]
 
 
-def test_openapi_endpoint_uses_request_host(tmp_path):
+def test_openapi_endpoint_does_not_reflect_request_host(tmp_path):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
     service = MemoryService(store_dir=store_dir, backend=backend)
@@ -51,8 +51,25 @@ def test_openapi_endpoint_uses_request_host(tmp_path):
     )
 
     assert status == 200
-    assert payload["servers"][0]["url"] == "http://cortex.local:8766"
+    assert "servers" not in payload
     assert payload["paths"]["/v1/merge/resolve"]["post"]["operationId"] == "mergeResolve"
+
+
+def test_openapi_endpoint_uses_configured_external_base_url(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+
+    status, payload = dispatch_api_request(
+        service,
+        method="GET",
+        path="/v1/openapi.json",
+        headers={"Host": "cortex.local:8766"},
+        external_base_url="https://api.cortex.example",
+    )
+
+    assert status == 200
+    assert payload["servers"][0]["url"] == "https://api.cortex.example"
 
 
 def test_openapi_cli_writes_expected_contract(tmp_path, capsys):

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import secrets
+import sys
 import threading
+import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -3016,6 +3018,10 @@ def make_handler(
         def _write_request_error(self, status: int, message: str, *, request_id: str) -> None:
             self._send_json({"status": "error", "error": message}, status=status, request_id=request_id)
 
+        def _log_unhandled_exception(self, *, request_id: str, exc: Exception) -> None:
+            print(f"[cortex-ui] request_id={request_id} unhandled error: {exc}", file=sys.stderr)
+            traceback.print_exc()
+
         def _check_rate_limit(self) -> str | None:
             parsed = urlparse(self.path)
             if not parsed.path.startswith("/api/"):
@@ -3182,7 +3188,8 @@ def make_handler(
                 self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
             except Exception as exc:  # pragma: no cover - defensive
                 status = 500
-                error = str(exc)
+                self._log_unhandled_exception(request_id=request_id, exc=exc)
+                error = "Internal server error."
                 self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
             finally:
                 self._log_request(
@@ -3280,7 +3287,8 @@ def make_handler(
                 self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
             except Exception as exc:  # pragma: no cover - defensive
                 status = 500
-                error = str(exc)
+                self._log_unhandled_exception(request_id=request_id, exc=exc)
+                error = "Internal server error."
                 self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
             else:
                 status = 404

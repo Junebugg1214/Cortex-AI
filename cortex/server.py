@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
@@ -50,15 +51,6 @@ def _query_int(values: dict[str, list[str]], key: str, default: int) -> int:
     return int(raw)
 
 
-def _server_url(headers: dict[str, str]) -> str | None:
-    normalized = {key.lower(): value for key, value in headers.items()}
-    host = normalized.get("host", "").strip()
-    if not host:
-        return None
-    proto = normalized.get("x-forwarded-proto", "http").strip() or "http"
-    return f"{proto}://{host}"
-
-
 def _backend_name(service: MemoryService) -> str:
     module_name = type(service.backend).__module__
     if module_name.endswith(".sqlite"):
@@ -95,6 +87,11 @@ def _request_namespace(
     return _query_value(query, "namespace")
 
 
+def _log_unhandled_exception(*, request_id: str, exc: Exception) -> None:
+    print(f"[cortex-api] request_id={request_id} unhandled error: {exc}", file=sys.stderr)
+    traceback.print_exc()
+
+
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
     if isinstance(exc, FileNotFoundError):
         return 404, {"status": "error", "error": str(exc)}
@@ -102,7 +99,7 @@ def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
         return 403, {"status": "error", "error": str(exc)}
     if isinstance(exc, ValueError):
         return 400, {"status": "error", "error": str(exc)}
-    return 500, {"status": "error", "error": str(exc)}
+    return 500, {"status": "error", "error": "Internal server error."}
 
 
 def _global_route(path: str) -> bool:
@@ -162,6 +159,7 @@ def dispatch_api_request(
     headers: dict[str, str] | None = None,
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
+    external_base_url: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
     headers = headers or {}
     normalized_headers = {key.lower(): value for key, value in headers.items()}
@@ -221,7 +219,7 @@ def dispatch_api_request(
             elif parsed.path == "/v1/prune/audit":
                 status, response = 200, service.prune_audit(limit=_query_int(query, "limit", 50))
             elif parsed.path == "/v1/openapi.json":
-                status, response = 200, service.openapi(server_url=_server_url(headers))
+                status, response = 200, service.openapi(server_url=external_base_url)
             elif parsed.path == "/v1/nodes":
                 status, response = (
                     200,
@@ -355,6 +353,7 @@ def dispatch_api_request(
             elif parsed.path == "/v1/branches/switch":
                 status, response = 200, service.switch_branch(**payload)
     except Exception as exc:  # pragma: no cover - exercised through tests and handler
+        _log_unhandled_exception(request_id=request_id, exc=exc)
         status, response = _error_payload(exc)
 
     response = {**response, "request_id": request_id}
@@ -378,6 +377,7 @@ def make_api_handler(
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
     request_policy: HTTPRequestPolicy | None = None,
+    external_base_url: str | None = None,
 ):
     policy = request_policy or HTTPRequestPolicy()
     rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
@@ -423,6 +423,7 @@ def make_api_handler(
                 headers={key: value for key, value in self.headers.items()},
                 api_key=api_key,
                 auth_keys=auth_keys,
+                external_base_url=external_base_url,
             )
             self._send_json(response, status=status)
 
@@ -444,6 +445,7 @@ def make_api_handler(
                 headers={key: value for key, value in self.headers.items()},
                 api_key=api_key,
                 auth_keys=auth_keys,
+                external_base_url=external_base_url,
             )
             self._send_json(response, status=status)
 
@@ -461,6 +463,7 @@ def start_api_server(
     auth_keys: tuple[APIKeyConfig, ...] = (),
     allow_unsafe_bind: bool = False,
     request_policy: HTTPRequestPolicy | None = None,
+    external_base_url: str | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     validate_runtime_security(
         surface="api",
@@ -473,7 +476,13 @@ def start_api_server(
     policy = request_policy or request_policy_for_mode(runtime_mode)
     server = ThreadingHTTPServer(
         (host, port),
-        make_api_handler(service, api_key=api_key, auth_keys=auth_keys, request_policy=policy),
+        make_api_handler(
+            service,
+            api_key=api_key,
+            auth_keys=auth_keys,
+            request_policy=policy,
+            external_base_url=external_base_url,
+        ),
     )
     actual_host, actual_port = server.server_address
     return server, f"http://{actual_host}:{actual_port}"
@@ -493,6 +502,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--api-key", help="Legacy single API key shortcut")
     parser.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    parser.add_argument("--external-base-url", help="Public HTTPS base URL to advertise in generated OpenAPI.")
     parser.add_argument(
         "--allow-unsafe-bind",
         action="store_true",
@@ -511,6 +521,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             server_host=args.host,
             server_port=args.port,
+            external_base_url=args.external_base_url,
             runtime_mode=args.runtime_mode,
             api_key=args.api_key,
         )
@@ -538,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_mode=config.runtime_mode,
         auth_keys=config.api_keys,
         allow_unsafe_bind=args.allow_unsafe_bind,
+        external_base_url=config.external_base_url,
     )
     print(diagnostics)
     print(f"Cortex API running at {url}")
