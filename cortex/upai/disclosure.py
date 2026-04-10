@@ -7,10 +7,7 @@ Policies control which nodes are visible to a given platform or audience.
 from __future__ import annotations
 
 import copy
-import re
-import threading
 from dataclasses import dataclass
-from typing import Any
 
 from cortex.graph import CortexGraph
 
@@ -67,75 +64,6 @@ BUILTIN_POLICIES = {
         redact_properties=[],
     ),
 }
-
-
-_POLICY_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,63}$")
-
-
-class PolicyRegistry:
-    """Thread-safe registry that wraps built-in + custom disclosure policies."""
-
-    def __init__(self, store: Any | None = None) -> None:
-        self._custom: dict[str, DisclosurePolicy] = {}
-        self._lock = threading.Lock()
-        self._store = store
-        if store is not None:
-            for p in store.list_all():
-                self._custom[p.name] = p
-
-    @staticmethod
-    def _validate_name(name: str) -> bool:
-        return bool(_POLICY_NAME_RE.match(name))
-
-    def is_builtin(self, name: str) -> bool:
-        return name in BUILTIN_POLICIES
-
-    def get(self, name: str) -> DisclosurePolicy | None:
-        if name in BUILTIN_POLICIES:
-            return BUILTIN_POLICIES[name]
-        with self._lock:
-            return self._custom.get(name)
-
-    def list_all(self) -> list[DisclosurePolicy]:
-        with self._lock:
-            return list(BUILTIN_POLICIES.values()) + list(self._custom.values())
-
-    def register(self, policy: DisclosurePolicy) -> None:
-        if not self._validate_name(policy.name):
-            raise ValueError(f"Invalid policy name: {policy.name}")
-        if self.is_builtin(policy.name):
-            raise ValueError(f"Cannot override built-in policy: {policy.name}")
-        with self._lock:
-            self._custom[policy.name] = policy
-            if self._store is not None:
-                self._store.add(policy)
-
-    def update(self, name: str, policy: DisclosurePolicy) -> bool:
-        if self.is_builtin(name):
-            raise ValueError(f"Cannot modify built-in policy: {name}")
-        with self._lock:
-            if name not in self._custom:
-                return False
-            # If name changed, remove old
-            if policy.name != name:
-                del self._custom[name]
-                if self._store is not None:
-                    self._store.delete(name)
-            self._custom[policy.name] = policy
-            if self._store is not None:
-                self._store.update(policy.name, policy)
-            return True
-
-    def delete(self, name: str) -> bool:
-        if self.is_builtin(name):
-            raise ValueError(f"Cannot delete built-in policy: {name}")
-        with self._lock:
-            if name not in self._custom:
-                return False
-            del self._custom[name]
-            if self._store is not None:
-                self._store.delete(name)
-            return True
 
 
 def apply_disclosure(graph: CortexGraph, policy: DisclosurePolicy) -> CortexGraph:

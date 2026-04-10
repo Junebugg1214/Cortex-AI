@@ -482,11 +482,6 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def graph_fingerprint(graph: CortexGraph) -> str:
-    payload = json.dumps(graph.export_v5(), sort_keys=True, ensure_ascii=False).encode("utf-8")
-    return _sha256_bytes(payload)
-
-
 def file_fingerprint(path: Path) -> str:
     try:
         return _sha256_bytes(path.read_bytes())
@@ -1054,22 +1049,6 @@ def extract_fact_labels_from_text(text: str) -> list[str]:
             cleaned = cleaned[:120].rsplit(" ", 1)[0]
         labels.append(cleaned)
     return _dedupe_labels(labels)
-
-
-def extract_fact_labels_from_file(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    try:
-        if path.suffix.lower() == ".json":
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                return _parse_chat_style_json(payload)
-            if isinstance(payload, list):
-                return _dedupe_labels([str(item) for item in payload if isinstance(item, str | int | float)])
-            return extract_fact_labels_from_text(str(payload))
-        return extract_fact_labels_from_text(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return []
 
 
 def _stringify_json_value(value: Any) -> list[str]:
@@ -1739,12 +1718,6 @@ def build_git_history_graph(project_dir: Path) -> tuple[CortexGraph, dict[str, A
         )
 
     return graph, summary
-
-
-def detect_live_project_graph(project_dir: Path) -> CortexGraph:
-    graph, _ = build_project_graph(project_dir)
-    history_graph, _ = build_git_history_graph(project_dir)
-    return merge_graphs(graph, history_graph)
 
 
 def load_canonical_graph(store_dir: Path, state: PortabilityState | None = None) -> tuple[CortexGraph, Path]:
@@ -2631,13 +2604,6 @@ def bar(coverage: float, width: int = 20) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def stale_summary(target_state: TargetState, current_labels: set[str]) -> tuple[bool, list[str]]:
-    snapshot_labels = _label_map([str(item.get("label", "")) for item in target_state.facts])
-    current = _label_map(list(current_labels))
-    missing = sorted(current[key] for key in current.keys() - snapshot_labels.keys())
-    return bool(missing), missing[:6]
-
-
 __all__ = [
     "ALL_PORTABLE_TARGETS",
     "DEFAULT_DIRECT_TARGETS",
@@ -2659,7 +2625,6 @@ __all__ = [
     "save_canonical_graph",
     "save_portability_state",
     "scan_portability",
-    "stale_summary",
     "status_portability",
     "switch_portability",
     "sync_targets",

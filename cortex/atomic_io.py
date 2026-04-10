@@ -36,19 +36,6 @@ def locked_path(path: Path) -> Iterator[Path]:
         lock.release()
 
 
-@contextmanager
-def locked_paths(*paths: Path) -> Iterator[tuple[Path, ...]]:
-    normalized = tuple(dict.fromkeys(Path(path) for path in paths))
-    locks = [_lock_for(path) for path in sorted(normalized, key=_normalized_lock_key)]
-    for lock in locks:
-        lock.acquire()
-    try:
-        yield normalized
-    finally:
-        for lock in reversed(locks):
-            lock.release()
-
-
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -76,5 +63,4 @@ __all__ = [
     "atomic_write_json",
     "atomic_write_text",
     "locked_path",
-    "locked_paths",
 ]
