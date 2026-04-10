@@ -240,6 +240,59 @@ def test_cortex_api_handler_rate_limits_hosted_requests(tmp_path):
     assert "Too many requests" in json.loads(second_body)["error"]
 
 
+def test_cortex_api_rate_limit_ignores_untrusted_forwarded_for(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+    handler_cls = make_api_handler(service, request_policy=HTTPRequestPolicy(rate_limit_per_minute=1))
+
+    first_status, _, _ = _invoke_api_handler(
+        handler_cls,
+        path="/v1/health",
+        method="GET",
+        headers={"X-Forwarded-For": "198.51.100.10"},
+    )
+    second_status, _, second_body = _invoke_api_handler(
+        handler_cls,
+        path="/v1/health",
+        method="GET",
+        headers={"X-Forwarded-For": "203.0.113.25"},
+    )
+
+    assert first_status == 200
+    assert second_status == 429
+    assert "Too many requests" in json.loads(second_body)["error"]
+
+
+def test_cortex_api_rate_limit_can_trust_configured_forwarded_for(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+    handler_cls = make_api_handler(
+        service,
+        request_policy=HTTPRequestPolicy(
+            rate_limit_per_minute=1,
+            trust_forwarded_headers=True,
+            trusted_proxies=("127.0.0.1",),
+        ),
+    )
+
+    first_status, _, _ = _invoke_api_handler(
+        handler_cls,
+        path="/v1/health",
+        method="GET",
+        headers={"X-Forwarded-For": "198.51.100.10"},
+    )
+    second_status, _, second_body = _invoke_api_handler(
+        handler_cls,
+        path="/v1/health",
+        method="GET",
+        headers={"X-Forwarded-For": "203.0.113.25"},
+    )
+
+    assert first_status == 200
+    assert second_status == 200
+    assert json.loads(second_body)["status"] == "ok"
+
+
 def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)

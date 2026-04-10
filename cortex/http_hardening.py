@@ -17,12 +17,16 @@ class HTTPRequestPolicy:
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
     read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS
     rate_limit_per_minute: int = 0
+    trust_forwarded_headers: bool = False
+    trusted_proxies: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "max_body_bytes": self.max_body_bytes,
             "read_timeout_seconds": self.read_timeout_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
+            "trust_forwarded_headers": self.trust_forwarded_headers,
+            "trusted_proxies": list(self.trusted_proxies),
         }
 
 
@@ -70,21 +74,35 @@ def apply_read_timeout(handler: Any, *, policy: HTTPRequestPolicy) -> None:
         return
 
 
-def client_identifier(handler: Any) -> str:
-    headers = getattr(handler, "headers", {}) or {}
-    forwarded = str(headers.get("X-Forwarded-For", "")).strip()
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()
+def _trusted_proxy_set(policy: HTTPRequestPolicy | None) -> set[str]:
+    return {str(item).strip() for item in tuple(getattr(policy, "trusted_proxies", ()) or ()) if str(item).strip()}
+
+
+def client_identifier(handler: Any, *, policy: HTTPRequestPolicy | None = None) -> str:
     client_address = getattr(handler, "client_address", None)
-    if client_address and client_address[0]:
-        return str(client_address[0]).strip()
-    return "unknown"
+    client_ip = str(client_address[0]).strip() if client_address and client_address[0] else "unknown"
+    if not client_ip:
+        client_ip = "unknown"
+    headers = getattr(handler, "headers", {}) or {}
+    normalized_headers = {str(key).lower(): value for key, value in dict(headers).items()}
+    if policy and policy.trust_forwarded_headers and client_ip in _trusted_proxy_set(policy):
+        forwarded = str(normalized_headers.get("x-forwarded-for", "")).strip()
+        if forwarded:
+            forwarded_client = forwarded.split(",", 1)[0].strip()
+            if forwarded_client:
+                return forwarded_client
+    return client_ip
 
 
-def enforce_rate_limit(handler: Any, *, limiter: InMemoryRateLimiter | None) -> str | None:
+def enforce_rate_limit(
+    handler: Any,
+    *,
+    limiter: InMemoryRateLimiter | None,
+    policy: HTTPRequestPolicy | None = None,
+) -> str | None:
     if limiter is None or limiter.limit_per_minute <= 0:
         return None
-    if limiter.allow(client_identifier(handler)):
+    if limiter.allow(client_identifier(handler, policy=policy)):
         return None
     return f"Too many requests: limit is {limiter.limit_per_minute} requests per minute."
 

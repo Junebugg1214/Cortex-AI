@@ -3020,7 +3020,11 @@ def make_handler(
             parsed = urlparse(self.path)
             if not parsed.path.startswith("/api/"):
                 return None
-            return enforce_rate_limit(self, limiter=self._cortex_ui_rate_limiter)
+            return enforce_rate_limit(
+                self,
+                limiter=self._cortex_ui_rate_limiter,
+                policy=self._cortex_ui_request_policy,
+            )
 
         def do_GET(self) -> None:  # noqa: N802
             request_id = uuid4().hex[:16]

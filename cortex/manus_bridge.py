@@ -410,7 +410,7 @@ def make_manus_handler(
 
         def do_POST(self) -> None:  # noqa: N802
             apply_read_timeout(self, policy=self._request_policy)
-            if rate_error := enforce_rate_limit(self, limiter=self._rate_limiter):
+            if rate_error := enforce_rate_limit(self, limiter=self._rate_limiter, policy=self._request_policy):
                 self._write_error(429, rate_error, code=-32029)
                 return
             parsed = urlparse(self.path)
