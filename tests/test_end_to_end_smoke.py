@@ -430,8 +430,8 @@ def test_atlas_self_hosted_end_to_end_smoke(tmp_path, monkeypatch):
     )
 
     assert html_status == 200
-    assert "Portable AI context, without the archaeology" in html_body
-    assert "Workspace Overview" in html_body
+    assert "One portable Mind, wired across your tools" in html_body
+    assert "Mind Overview" in html_body
     assert html_headers["Content-Security-Policy"]
     assert html_headers["X-Request-ID"]
     assert meta_status == 200

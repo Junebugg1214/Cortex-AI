@@ -1089,7 +1089,7 @@ UI_HTML = """<!doctype html>
       <div class="brand">
         <div class="eyebrow">Cortex 1.4</div>
         <h1>Cortex</h1>
-        <p>Portable AI context across your tools. Scan what already exists on disk, preview what each target receives, and only dive into the advanced memory plumbing when you actually need it.</p>
+        <p>Portable AI Minds across your tools. Start from one durable brain-state, then inspect targets, packs, mounts, and operator details only when you need them.</p>
       </div>
       <div class="meta-card" id="meta-card">Loading workspace…</div>
       <div class="nav" role="tablist" aria-label="Cortex UI panels">
@@ -1104,23 +1104,23 @@ UI_HTML = """<!doctype html>
     </aside>
     <main>
       <section class="hero">
-        <div class="eyebrow">Local-first control plane</div>
-        <h2>Portable AI context, without the archaeology</h2>
-        <p>Scan what is already on disk, preview what each tool gets, and keep everything in sync from one place.</p>
+        <div class="eyebrow">Local-first Mind control plane</div>
+        <h2>One portable Mind, wired across your tools</h2>
+        <p>Start from your default Mind, keep it mounted where it matters, and only drill into tool scans or operator plumbing when the overview says you should.</p>
       </section>
 
       <section id="panel-overview" class="panel active" role="tabpanel">
-        <h3>Workspace Overview</h3>
-        <p class="panel-copy">Scan, remember, sync, and only dive into the advanced internals when you need them.</p>
+        <h3>Mind Overview</h3>
+        <p class="panel-copy">Lead from the default Mind: its branch, attached Brainpacks, mounted targets, pending proposals, and the runtime follow-up that matters next.</p>
         <div id="overview-cards" class="cards"></div>
         <div class="split-results">
           <div class="quick-actions subpanel">
             <div class="subpanel-body">
               <h4>Quick actions</h4>
-              <p class="tiny">These run the same core portability loop as the CLI.</p>
+              <p class="tiny">These refresh the default Mind loop and the runtime state around it.</p>
               <div class="actions">
-                <button class="action" onclick="runScanAction(this)">Run scan</button>
-                <button class="action subtle" onclick="runSyncAction(this)">Sync all</button>
+                <button class="action" onclick="runScanAction(this)">Refresh overview</button>
+                <button class="action subtle" onclick="runSyncAction(this)">Sync mounted targets</button>
                 <button class="action subtle" onclick="loadMetrics(this)">Refresh metrics</button>
               </div>
               <div class="quick-grid">
@@ -1128,7 +1128,7 @@ UI_HTML = """<!doctype html>
                   <textarea id="remember-statement" placeholder="We prefer concise, implementation-first responses."></textarea>
                 </label>
                 <div>
-                  <p class="tiny">Use this for one-off context that should be merged into the canonical graph and pushed everywhere.</p>
+                  <p class="tiny">Use this for one-off context that should land in the active Mind and refresh the runtimes mounted from it.</p>
                   <div class="actions">
                     <button class="action" onclick="runRememberAction(this)">Remember & sync</button>
                   </div>
@@ -1136,14 +1136,14 @@ UI_HTML = """<!doctype html>
               </div>
             </div>
           </div>
-          <div id="overview-action-result" class="result empty">Run scan, sync, or remember from here.</div>
+          <div id="overview-action-result" class="result empty">Refresh the overview, sync mounted targets, or remember one thing from here.</div>
         </div>
         <div class="split-results">
-          <div id="overview-journey" class="result empty">Cortex will summarize the current workflow here.</div>
-          <div id="overview-adoptable" class="result empty">Detected importable sources and permission boundaries will appear here.</div>
+          <div id="overview-journey" class="result empty">Default Mind workflow and next steps will appear here.</div>
+          <div id="overview-adoptable" class="result empty">Mind queue, attached packs, and detected sources will appear here.</div>
         </div>
         <div class="split-results">
-          <div id="overview-health" class="result empty">Store and release details will appear here.</div>
+          <div id="overview-health" class="result empty">Mind and workspace health will appear here.</div>
           <div id="overview-metrics" class="result empty">Observability and maintenance signals will appear here.</div>
         </div>
       </section>
@@ -1592,51 +1592,105 @@ UI_HTML = """<!doctype html>
       }).join("");
     }
 
-    function renderOverviewCards(meta, scan, status, audit) {
+    function currentOverviewMindState() {
+      const minds = workspaceState.minds?.list?.minds || [];
+      const selectedName = (workspaceState.minds?.selected || "").trim();
+      const summary = minds.find((mind) => mind.mind === selectedName)
+        || minds.find((mind) => mind.is_default)
+        || minds[0]
+        || null;
+      return {
+        summary,
+        status: workspaceState.minds?.status || null,
+        mounts: workspaceState.minds?.mounts || null,
+      };
+    }
+
+    function refreshOverviewPanels() {
+      if (!workspaceState.meta) {
+        return;
+      }
+      const mindState = currentOverviewMindState();
+      updateMetaCard(workspaceState.meta, workspaceState.scan, workspaceState.status, mindState.summary, mindState.status, mindState.mounts);
+      document.getElementById("overview-cards").innerHTML = renderOverviewCards(
+        workspaceState.meta,
+        workspaceState.scan,
+        workspaceState.status,
+        workspaceState.audit,
+        mindState.summary,
+        mindState.status,
+        mindState.mounts,
+      );
+      setResult(
+        "overview-journey",
+        renderJourney(workspaceState.scan, workspaceState.status, workspaceState.audit, mindState.summary, mindState.status, mindState.mounts),
+      );
+      setResult(
+        "overview-adoptable",
+        renderAdoptableSources(workspaceState.scan, mindState.summary, mindState.status, mindState.mounts),
+      );
+      setResult(
+        "overview-health",
+        renderHealthSummary(workspaceState.meta, workspaceState.health, workspaceState.scan, workspaceState.status, mindState.summary, mindState.status),
+      );
+      setResult("overview-metrics", renderMetricsSummary(workspaceState.metrics, workspaceState.pruneStatus));
+    }
+
+    function renderOverviewCards(meta, scan, status, audit, mindSummary, mindStatus, mindMounts) {
       const alerts = collectStatusAlerts(status).length;
       const tools = scan?.tools || [];
-      const sources = scan?.adoptable_sources || [];
-      const metadataOnly = sources.filter((item) => item.metadata_only).length;
-      const importable = sources.filter((item) => item.importable).length;
       const mcpReady = tools.filter((tool) => tool.cortex_mcp_configured).length;
+      const mindLabel = mindStatus?.manifest?.label || mindSummary?.label || mindStatus?.mind || mindSummary?.mind || "No Mind yet";
+      const mindKind = mindStatus?.manifest?.kind || mindSummary?.kind || "mind";
+      const mindState = mindStatus?.is_default ?? mindSummary?.is_default ? "default" : "named";
+      const mountedTargets = mindMounts?.mounted_targets || mindStatus?.mounted_targets || [];
+      const proposalCount = Number(mindStatus?.proposals?.pending_proposal_count ?? mindSummary?.pending_proposal_count ?? 0);
+      const packCount = Number(mindStatus?.attachment_count ?? mindSummary?.attachment_count ?? 0);
+      const mountCount = Number(mindMounts?.mount_count ?? mindStatus?.mount_count ?? mindSummary?.mount_count ?? 0);
+      const factCount = Number(mindStatus?.core_state?.fact_count || 0);
       return `
-        <div class="card"><div>Coverage</div><strong>${escapeHtml(percent(scan?.coverage || 0))}</strong><small>${escapeHtml(String(scan?.known_facts || 0))} of ${escapeHtml(String(scan?.total_facts || 0))} facts are reflected in local targets.</small></div>
-        <div class="card"><div>Tools</div><strong>${escapeHtml(String(tools.length))}</strong><small>Detected tools with local files or MCP config.</small></div>
-        <div class="card"><div>Sources</div><strong>${escapeHtml(String(importable))}</strong><small>Importable local sources waiting for explicit adoption.</small></div>
-        <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>Targets already wired to Cortex MCP.</small></div>
-        <div class="card"><div>Attention</div><strong>${escapeHtml(String(alerts + ((audit?.issues || []).length || 0)))}</strong><small>Freshness or audit items that still need follow-up.</small></div>
-        <div class="card"><div>Graph</div><strong>${escapeHtml(String(scan?.total_facts || 0))}</strong><small>${escapeHtml(meta?.release?.project_version || "dev")} · ${escapeHtml(String(metadataOnly))} metadata-only detections.</small></div>
+        <div class="card"><div>Mind</div><strong>${escapeHtml(mindLabel)}</strong><small>${escapeHtml(mindKind)} · ${escapeHtml(mindState)}</small></div>
+        <div class="card"><div>Core facts</div><strong>${escapeHtml(String(factCount))}</strong><small>${escapeHtml(shortRef(mindStatus?.core_state?.graph_ref || mindSummary?.graph_ref || "(none)"))}</small></div>
+        <div class="card"><div>Brainpacks</div><strong>${escapeHtml(String(packCount))}</strong><small>Attached specialist modules active in this Mind.</small></div>
+        <div class="card"><div>Mounted targets</div><strong>${escapeHtml(String(mountCount))}</strong><small>${escapeHtml(mountedTargets.join(", ") || "No persisted mounts yet.")}</small></div>
+        <div class="card"><div>Pending proposals</div><strong>${escapeHtml(String(proposalCount))}</strong><small>Unreviewed context waiting before it touches canonical memory.</small></div>
+        <div class="card"><div>MCP ready</div><strong>${escapeHtml(String(mcpReady))}</strong><small>${escapeHtml(String(tools.length))} detected tool(s) · ${escapeHtml(String(alerts + ((audit?.issues || []).length || 0)))} attention item(s).</small></div>
       `;
     }
 
-    function renderJourney(scan, status, audit) {
+    function renderJourney(scan, status, audit, mindSummary, mindStatus, mindMounts) {
+      const mindName = mindStatus?.mind || mindSummary?.mind || "self";
+      const mountedTargets = mindMounts?.mounted_targets || mindStatus?.mounted_targets || [];
       const detectedTargets = (scan?.adoptable_targets || []).join(" ");
-      const adoptCommand = detectedTargets
-        ? `cortex portable --from-detected ${detectedTargets} --to all --project .`
-        : "cortex portable INPUT --to all --project .";
+      const ingestCommand = detectedTargets
+        ? `cortex mind ingest ${mindName} --from-detected ${detectedTargets}`
+        : `cortex mind ingest ${mindName} --from-detected chatgpt claude cursor codex`;
       const alerts = collectStatusAlerts(status);
       const attentionCopy = alerts.length || (audit?.issues || []).length
-        ? "At least one target needs a sync or a missing-context fix."
-        : "Everything Cortex can see looks fresh, so the next step is improving the content.";
+        ? "At least one runtime or freshness surface still needs follow-up."
+        : "The main operational question now is whether the default Mind itself needs better content or better mounts.";
       return `
         <div class="list">
           <div class="item">
-            <h4>Current loop</h4>
+            <h4>Default Mind workflow</h4>
             <p>${escapeHtml(attentionCopy)}</p>
-            <div class="command-block">cortex scan --project .</div>
-            <div class="command-block">${escapeHtml(adoptCommand)}</div>
-            <div class="command-block">cortex remember "New fact" --smart</div>
-            <div class="command-block">cortex sync --smart</div>
+            <div class="command-block">cortex mind status ${escapeHtml(mindName)}</div>
+            <div class="command-block">cortex mind remember ${escapeHtml(mindName)} "New fact"</div>
+            <div class="command-block">${escapeHtml(ingestCommand)}</div>
+            <div class="command-block">cortex mind mount ${escapeHtml(mindName)} --to ${escapeHtml(mountedTargets[0] || "codex")}</div>
+            <div class="command-block">cortex doctor</div>
           </div>
           <div class="item">
             <h4>Permission boundary</h4>
-            <p>Detection is automatic and read-only. Adoption stays explicit.</p>
+            <p>Detected local context stays read-only until you ingest it into a Mind. Untrusted source ingestion lands as reviewable proposals instead of mutating canonical memory directly.</p>
           </div>
         </div>
       `;
     }
 
-    function renderAdoptableSources(scan) {
+    function renderAdoptableSources(scan, mindSummary, mindStatus, mindMounts) {
+      const proposals = mindStatus?.proposals?.items || [];
+      const attachments = mindStatus?.attached_brainpacks || [];
       const grouped = new Map();
       for (const source of (scan?.adoptable_sources || [])) {
         const bucket = grouped.get(source.target) || { importable: 0, metadataOnly: 0, paths: [] };
@@ -1645,33 +1699,65 @@ UI_HTML = """<!doctype html>
         bucket.paths.push(source.path);
         grouped.set(source.target, bucket);
       }
-      if (!grouped.size) {
-        return '<div class="empty">No detected sources yet. Run a portability flow or create context first.</div>';
+      if (!proposals.length && !attachments.length && !grouped.size) {
+        return '<div class="empty">No pending proposals, attached Brainpacks, or detected sources yet.</div>';
       }
-      const items = Array.from(grouped.entries()).map(([target, info]) => `
-        <div class="item">
-          <h4>${escapeHtml(target)}</h4>
-          <div class="meta-row">
-            <span class="pill good">${escapeHtml(String(info.importable))} importable</span>
-            <span class="pill info">${escapeHtml(String(info.metadataOnly))} metadata only</span>
+      const items = [];
+      if (mindStatus || mindSummary) {
+        const mountedTargets = mindMounts?.mounted_targets || mindStatus?.mounted_targets || [];
+        items.push(`
+          <div class="item">
+            <h4>${escapeHtml(mindStatus?.manifest?.label || mindSummary?.label || mindStatus?.mind || mindSummary?.mind || "Mind queue")}</h4>
+            <div class="meta-row">
+              <span class="pill good">${escapeHtml(String(proposals.length))} pending proposal(s)</span>
+              <span class="pill info">${escapeHtml(String(attachments.length))} attached Brainpack(s)</span>
+              <span class="pill">${escapeHtml(String(mountedTargets.length))} mounted target(s)</span>
+            </div>
+            <p class="tiny">${escapeHtml(mountedTargets.join(", ") || "No persisted mounts yet.")}</p>
           </div>
-          <p class="tiny">${escapeHtml(info.paths.slice(0, 2).join(" · "))}</p>
-        </div>
-      `).join("");
-      return `<div class="list">${items}</div>`;
+        `);
+      }
+      for (const proposal of proposals.slice(0, 3)) {
+        items.push(`
+          <div class="item">
+            <h4>${escapeHtml(proposal.proposal_id || "proposal")}</h4>
+            <div class="meta-row">
+              <span class="pill warn">${escapeHtml(proposal.status || "pending_review")}</span>
+              <span class="pill">${escapeHtml(String(proposal.proposed_source_count || 0))} source(s)</span>
+              <span class="pill">${escapeHtml(String(proposal.graph_node_count || 0))} node(s)</span>
+            </div>
+            <p class="tiny">${escapeHtml(proposal.created_at || proposal.path || "Queued for review.")}</p>
+          </div>
+        `);
+      }
+      for (const [target, info] of Array.from(grouped.entries())) {
+        items.push(`
+          <div class="item">
+            <h4>${escapeHtml(target)}</h4>
+            <div class="meta-row">
+              <span class="pill good">${escapeHtml(String(info.importable))} importable</span>
+              <span class="pill info">${escapeHtml(String(info.metadataOnly))} metadata only</span>
+            </div>
+            <p class="tiny">${escapeHtml(info.paths.slice(0, 2).join(" · "))}</p>
+          </div>
+        `);
+      }
+      return `<div class="list">${items.join("")}</div>`;
     }
 
-    function renderHealthSummary(meta, health, scan, status) {
+    function renderHealthSummary(meta, health, scan, status, mindSummary, mindStatus) {
       const alerts = collectStatusAlerts(status);
       const index = meta?.index || {};
       return `
         <div class="list">
           <div class="item">
-            <h4>Workspace state</h4>
+            <h4>Mind & workspace state</h4>
+            <p><strong>Mind:</strong> ${escapeHtml(mindStatus?.manifest?.label || mindSummary?.label || mindStatus?.mind || mindSummary?.mind || "No Mind selected")}</p>
+            <p><strong>Branch:</strong> <span class="mono">${escapeHtml(mindStatus?.branches?.current_branch || mindSummary?.current_branch || meta?.current_branch || "main")}</span></p>
+            <p><strong>Graph ref:</strong> <span class="mono">${escapeHtml(mindStatus?.core_state?.graph_ref || mindSummary?.graph_ref || "(none)")}</span></p>
+            <p><strong>Default policy:</strong> ${escapeHtml(mindStatus?.policies?.default_disclosure || mindSummary?.default_policy || "professional")}</p>
             <p><strong>Workspace:</strong> <span class="mono">${escapeHtml(meta?.workspace_dir || "(unknown)")}</span></p>
             <p><strong>Store:</strong> <span class="mono">${escapeHtml(meta?.store_dir || "(unknown)")}</span></p>
-            <p><strong>Graph path:</strong> <span class="mono">${escapeHtml(scan?.graph_path || "portable/context.json")}</span></p>
-            <p><strong>Current branch:</strong> <span class="mono">${escapeHtml(meta?.current_branch || "main")}</span></p>
             <p><strong>HEAD:</strong> <span class="mono">${escapeHtml(shortRef(meta?.head || "(empty)"))}</span></p>
           </div>
           <div class="item">
@@ -1707,13 +1793,17 @@ UI_HTML = """<!doctype html>
       `;
     }
 
-    function updateMetaCard(meta, scan, status) {
+    function updateMetaCard(meta, scan, status, mindSummary, mindStatus, mindMounts) {
       const alerts = collectStatusAlerts(status).length;
+      const mindLabel = mindStatus?.manifest?.label || mindSummary?.label || mindStatus?.mind || mindSummary?.mind || "No Mind";
+      const mountedTargets = mindMounts?.mounted_targets || mindStatus?.mounted_targets || [];
+      const pending = mindStatus?.proposals?.pending_proposal_count ?? mindSummary?.pending_proposal_count ?? 0;
       document.getElementById("meta-card").innerHTML = `
         <div class="meta-block"><strong>Workspace</strong><div class="mono">${escapeHtml(meta?.workspace_dir || "(unknown)")}</div></div>
         <div class="meta-block"><strong>Store</strong><div class="mono">${escapeHtml(meta?.store_dir || "(unknown)")}</div></div>
-        <div class="meta-block"><strong>Coverage</strong><div class="mono">${escapeHtml(percent(scan?.coverage || 0))}</div></div>
-        <div class="meta-block"><strong>Detected tools</strong><div class="mono">${escapeHtml(String((scan?.tools || []).length))}</div></div>
+        <div class="meta-block"><strong>Mind</strong><div class="mono">${escapeHtml(mindLabel)}</div></div>
+        <div class="meta-block"><strong>Mounted</strong><div class="mono">${escapeHtml(String(mountedTargets.length))}</div></div>
+        <div class="meta-block"><strong>Pending</strong><div class="mono">${escapeHtml(String(pending))}</div></div>
         <div class="meta-block"><strong>Needs attention</strong><div class="mono">${escapeHtml(String(alerts))}</div></div>
       `;
     }
@@ -1994,12 +2084,15 @@ UI_HTML = """<!doctype html>
           workspaceState.minds.list = data;
           populateMindSelector(data);
           if (!(data.minds || []).length) {
+            workspaceState.minds.status = null;
+            workspaceState.minds.mounts = null;
             setEmpty("mind-summary", "No Minds yet. Create one with `cortex mind init`.");
             setEmpty("mind-core", "Once a Mind exists, Cortex will show its base brain-state here.");
             setEmpty("mind-attachments", "Attached Brainpacks will appear here.");
             setEmpty("mind-branch-policy", "Branch and policy status will appear here.");
             setEmpty("mind-mounts", "Mounted targets will appear here.");
             setEmpty("mind-compose", "Compose preview will appear here.");
+            refreshOverviewPanels();
             return;
           }
           await loadMindView();
@@ -2036,6 +2129,7 @@ UI_HTML = """<!doctype html>
           workspaceState.minds.status = status;
           workspaceState.minds.mounts = mounts;
           populateMindTargetSelector(status, mounts);
+          refreshOverviewPanels();
           setResult("mind-summary", renderMindSummary(status, mounts));
           setResult("mind-core", `${renderMindCoreState(status)}${renderRawDetails("Raw core-state payload", status.core_state || {})}`);
           setResult("mind-attachments", `${renderMindAttachments(status)}${renderRawDetails("Raw attachment payload", { attached_brainpacks: status.attached_brainpacks || [] })}`);
@@ -2339,15 +2433,19 @@ UI_HTML = """<!doctype html>
           api("/api/portability/status"),
           api("/api/portability/audit"),
         ]);
-        workspaceState = { meta, health, metrics, pruneStatus, scan, status, audit };
+        workspaceState = {
+          ...workspaceState,
+          meta,
+          health,
+          metrics,
+          pruneStatus,
+          scan,
+          status,
+          audit,
+        };
         defaultContext = meta.context_file || "";
         applyDefaultContext();
-        updateMetaCard(meta, scan, status);
-        document.getElementById("overview-cards").innerHTML = renderOverviewCards(meta, scan, status, audit);
-        setResult("overview-journey", renderJourney(scan, status, audit));
-        setResult("overview-adoptable", renderAdoptableSources(scan));
-        setResult("overview-health", renderHealthSummary(meta, health, scan, status));
-        setResult("overview-metrics", renderMetricsSummary(metrics, pruneStatus));
+        refreshOverviewPanels();
         setResult("tools-summary", renderToolsSummary(scan));
         renderTools(scan, status);
         setResult("audit-status", renderAuditStatus(status));
@@ -2371,7 +2469,7 @@ UI_HTML = """<!doctype html>
           const scan = workspaceState.scan || {};
           setResult(
             "overview-action-result",
-            `<div class="item"><h4>Scan complete</h4><p>Found ${escapeHtml(String((scan.tools || []).length))} tool(s), ${escapeHtml(String(scan.total_facts || 0))} graph fact(s), and ${escapeHtml(String((scan.adoptable_sources || []).length))} detected source(s).</p></div>`
+            `<div class="item"><h4>Overview refreshed</h4><p>Found ${escapeHtml(String((scan.tools || []).length))} tool(s), ${escapeHtml(String(scan.total_facts || 0))} graph fact(s), and ${escapeHtml(String((scan.adoptable_sources || []).length))} detected source(s).</p></div>`
           );
         } catch (err) {
           setError("overview-action-result", err);
@@ -2395,7 +2493,7 @@ UI_HTML = """<!doctype html>
           }
           setResult(
             "overview-action-result",
-            `<div class="item"><h4>Sync complete</h4><p>Pushed ${escapeHtml(String(data.fact_count || 0))} graph fact(s) across ${escapeHtml(String((data.targets || []).length))} target(s).</p></div>`
+            `<div class="item"><h4>Sync complete</h4><p>Refreshed ${escapeHtml(String((data.targets || []).length))} mounted target(s) from the active Mind context.</p></div>`
           );
           await loadWorkspace();
         } catch (err) {
@@ -2422,7 +2520,7 @@ UI_HTML = """<!doctype html>
           document.getElementById("remember-statement").value = "";
           setResult(
             "overview-action-result",
-            `<div class="item"><h4>Remembered and synced</h4><p>Added the statement to the canonical graph and updated ${escapeHtml(String((data.targets || []).length))} target(s).</p></div>`
+            `<div class="item"><h4>Remembered and synced</h4><p>Added the statement to the active Mind workflow and updated ${escapeHtml(String((data.targets || []).length))} mounted target(s).</p></div>`
           );
           await loadWorkspace();
         } catch (err) {
