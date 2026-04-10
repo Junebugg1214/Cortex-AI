@@ -37,6 +37,36 @@ from cortex.extract_memory_streams import (
     message_collection,
     parse_timestamp,
 )
+from cortex.extract_memory_text import (
+    clean_extracted_text as _clean_extracted_text,
+)
+from cortex.extract_memory_text import (
+    clean_role_phrase as _clean_role_phrase,
+)
+from cortex.extract_memory_text import (
+    extract_entities as _extract_entities,
+)
+from cortex.extract_memory_text import (
+    extract_match_context as _extract_match_context,
+)
+from cortex.extract_memory_text import (
+    extract_numbers as _extract_numbers,
+)
+from cortex.extract_memory_text import (
+    extract_with_context as _extract_with_context,
+)
+from cortex.extract_memory_text import (
+    keyword_pattern as _keyword_pattern,
+)
+from cortex.extract_memory_text import (
+    keyword_search as _keyword_search,
+)
+from cortex.extract_memory_text import (
+    looks_like_project_phrase as _looks_like_project_phrase,
+)
+from cortex.extract_memory_text import (
+    looks_like_role_phrase as _looks_like_role_phrase,
+)
 
 # ============================================================================
 # CONFIGURATION
@@ -705,123 +735,56 @@ def get_time_decay_multiplier(last_seen: datetime | None, reference: datetime | 
 
 
 def clean_extracted_text(text: str) -> str:
-    text = text.strip()
-    lower = text.lower()
-    for prefix in STRIP_PREFIXES:
-        if lower.startswith(prefix):
-            text = text[len(prefix) :]
-            break
-    text = text.rstrip(".,;:!?")
-    if text and text[0].islower():
-        text = text[0].upper() + text[1:]
-    return text.strip()
+    return _clean_extracted_text(text, strip_prefixes=STRIP_PREFIXES)
 
 
 def keyword_pattern(keyword: str) -> re.Pattern:
-    cached = _KEYWORD_PATTERN_CACHE.get(keyword)
-    if cached is not None:
-        return cached
-    pattern = re.compile(r"(?<![A-Za-z0-9])" + re.escape(keyword) + r"(?![A-Za-z0-9])", re.IGNORECASE)
-    _KEYWORD_PATTERN_CACHE[keyword] = pattern
-    return pattern
+    return _keyword_pattern(keyword, cache=_KEYWORD_PATTERN_CACHE)
 
 
 def keyword_search(text: str, keyword: str) -> re.Match | None:
-    return keyword_pattern(keyword).search(text)
+    return _keyword_search(text, keyword, cache=_KEYWORD_PATTERN_CACHE)
 
 
 def extract_match_context(text: str, start: int, end: int, window: int = 50) -> str:
-    start = max(0, start - window)
-    end = min(len(text), end + window)
-    while start > 0 and text[start] not in " \n\t":
-        start -= 1
-    while end < len(text) and text[end] not in " \n\t":
-        end += 1
-    return text[start:end].strip()
+    return _extract_match_context(text, start, end, window)
 
 
 def looks_like_role_phrase(text: str) -> bool:
-    normalized = normalize_text(text)
-    tokens = normalized.split()
-    if not tokens or len(tokens) > 8:
-        return False
-    if tokens[0] in ROLE_GUARD_WORDS:
-        return False
-    if tokens[0] in {"of", "for", "with"}:
-        return False
-    if " of " in normalized and tokens[0] not in ROLE_HINT_WORDS:
-        return False
-    return any(token in ROLE_HINT_WORDS for token in tokens)
+    return _looks_like_role_phrase(
+        text,
+        normalize_text=normalize_text,
+        role_guard_words=ROLE_GUARD_WORDS,
+        role_hint_words=ROLE_HINT_WORDS,
+    )
 
 
 def clean_role_phrase(text: str) -> str:
-    text = clean_extracted_text(text)
-    segments = re.split(r"\s+(?:on|at|for|with)\s+", text, maxsplit=1, flags=re.IGNORECASE)
-    candidate = segments[0].strip() if segments else text
-    return candidate or text
+    return _clean_role_phrase(text, clean_extracted_text_fn=clean_extracted_text)
 
 
 def looks_like_project_phrase(text: str) -> bool:
-    normalized = normalize_text(text)
-    tokens = normalized.split()
-    if len(tokens) < 2 or len(tokens) > 14:
-        return False
-    if tokens[0] in NOISE_WORDS | SKIP_WORDS:
-        return False
-    if any(phrase in normalized for phrase in {" with the team", " with my team", " with the people"}):
-        return False
-    if any(token in PROJECT_HINT_WORDS for token in tokens):
-        return True
-    if any(token in PRIORITY_ACTION_HINT_WORDS for token in tokens):
-        return True
-    if any(token in ALL_TECH_KEYWORDS for token in tokens):
-        return True
-    if any(ch.isdigit() for ch in text) or any(sym in text for sym in "-_/"):
-        return True
-    if any(token[:1].isupper() for token in text.split() if token):
-        return True
-    return False
+    return _looks_like_project_phrase(
+        text,
+        normalize_text=normalize_text,
+        noise_words=NOISE_WORDS,
+        skip_words=SKIP_WORDS,
+        project_hint_words=PROJECT_HINT_WORDS,
+        priority_action_hint_words=PRIORITY_ACTION_HINT_WORDS,
+        all_tech_keywords=ALL_TECH_KEYWORDS,
+    )
 
 
 def extract_numbers(text: str) -> list[str]:
-    patterns = [
-        r"\$[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|M|B|k|K))?",
-        r"[\d,]+(?:\.\d+)?%",
-        r"[\d,]+(?:\.\d+)?\s*(?:million|billion|M|B|k|K)\b",
-        r"\b\d{4}\b(?!\d)",
-        r"(?:≥|>=|≤|<=|>|<)\s*[\d.]+",
-        r"\b\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?|hours?)\b",
-        r"\b\d+\s*(?:users?|customers?|clients?|employees?|people)\b",
-    ]
-    results = []
-    for pattern in patterns:
-        results.extend(re.findall(pattern, text, re.IGNORECASE))
-    return list(set(results))
+    return _extract_numbers(text)
 
 
 def extract_with_context(text: str, keyword: str, window: int = 50) -> str:
-    pos = text.lower().find(keyword.lower())
-    if pos == -1:
-        return ""
-    start, end = max(0, pos - window), min(len(text), pos + len(keyword) + window)
-    while start > 0 and text[start] not in " \n\t":
-        start -= 1
-    while end < len(text) and text[end] not in " \n\t":
-        end += 1
-    return text[start:end].strip()
+    return _extract_with_context(text, keyword, window)
 
 
 def extract_entities(text: str) -> list[tuple[str, str]]:
-    entities = []
-    # Hyphenated/apostrophe names
-    for match in re.finditer(r"\b([A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*(?:\s+[A-Z][a-z]+(?:[-\'][A-Z]?[a-z]+)*)*)\b", text):
-        entity = match.group(1)
-        if len(entity) > 2 and entity.lower() not in SKIP_WORDS:
-            entities.append((entity, "entity"))
-    # Acronyms/CamelCase
-    for match in re.finditer(r"\b([A-Z][a-z]+[A-Z][A-Za-z]*|[A-Z]{2,})\b", text):
-        entities.append((match.group(1), "tech_entity"))
-    return entities
+    return _extract_entities(text, skip_words=SKIP_WORDS)
 
 
 def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
