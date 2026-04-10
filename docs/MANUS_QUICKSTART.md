@@ -47,24 +47,36 @@ Together, you can do things like:
 - let Manus work against your portable AI context instead of restarting from zero in each session
 - optionally let Manus write back into a Mind with explicit write-tool opt-in
 
-## Run the bridge
+## First-class CLI flow
 
-Check the bridge first:
+Check local Manus readiness first:
 
 ```bash
-cortex-manus --config .cortex/config.toml --check
+cortex connect manus --check
 ```
 
-Run it locally:
+When you have a public HTTPS bridge URL, print the Manus MCP JSON:
 
 ```bash
-cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
+cortex connect manus --url https://your-https-endpoint.example/mcp --print-config
+```
+
+Run the bridge locally:
+
+```bash
+cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
+```
+
+Check the bridge runtime directly:
+
+```bash
+cortex serve manus --config .cortex/config.toml --check
 ```
 
 If you need to override the pinned Manus protocol explicitly:
 
 ```bash
-cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790 --protocol-version 2024-11-05
+cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790 --protocol-version 2024-11-05
 ```
 
 You will see an MCP endpoint like:
@@ -75,10 +87,18 @@ http://127.0.0.1:8790/mcp
 
 For Manus, deploy or proxy that endpoint behind HTTPS.
 
+The underlying `cortex-manus` entrypoint still works if you prefer the dedicated bridge command:
+
+```bash
+cortex-manus --config .cortex/config.toml --check
+cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
+cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790 --protocol-version 2024-11-05
+```
+
 If you try to bind the bridge to a non-loopback host without auth, Cortex will refuse to start:
 
 ```bash
-cortex-manus --config .cortex/config.toml --host 0.0.0.0 --port 8790 --check
+cortex serve manus --config .cortex/config.toml --host 0.0.0.0 --port 8790 --check
 ```
 
 Use that refusal as a safety rail, not a nuisance. The correct production fix is to configure API keys in `.cortex/config.toml`, then expose the bridge over HTTPS.
@@ -88,7 +108,7 @@ Use that refusal as a safety rail, not a nuisance. The correct production fix is
 The bridge is read-oriented by default. If you want Manus to update a Mind or Brainpack, opt in explicitly:
 
 ```bash
-cortex-manus \
+cortex serve manus \
   --config .cortex/config.toml \
   --host 127.0.0.1 \
   --port 8790 \
@@ -112,8 +132,8 @@ In Manus:
 
 1. go to `Settings -> Integrations -> Custom MCP Server`
 2. click `Add server`
-3. enter:
-   - a server name such as `Cortex`
+3. either paste the JSON from `cortex connect manus --url https://... --print-config` or enter:
+   - a server name such as `Cortex-Manus`
    - the HTTPS URL for your deployed bridge
    - the Bearer token or API key that matches your Cortex self-host config
 4. test the connection

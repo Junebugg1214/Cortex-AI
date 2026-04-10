@@ -13,6 +13,7 @@ import getpass
 import json
 import os
 import secrets
+import shlex
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from cortex.schemas.memory_v1 import GovernanceRuleRecord
     from cortex.upai.identity import UPAIIdentity
 
-FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "scan", "sync", "status", "doctor", "ui")
+FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "scan", "sync", "status", "doctor")
 ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced and legacy commands."
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
@@ -202,6 +203,75 @@ def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, st
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(payload, encoding="utf-8")
     return reader_token, writer_token
+
+
+def _shell_join(parts: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _select_scoped_api_key(
+    config,
+    *,
+    scope: str,
+    preferred_name: str = "",
+    namespace: str | None = None,
+):
+    keys = list(config.api_keys)
+    if preferred_name:
+        for key in keys:
+            if key.name == preferred_name:
+                if not key.allows_scope(scope):
+                    raise ValueError(f"API key '{preferred_name}' does not allow scope '{scope}'.")
+                if namespace and not key.allows_namespace(namespace):
+                    raise ValueError(f"API key '{preferred_name}' does not allow namespace '{namespace}'.")
+                return key
+        raise ValueError(f"API key '{preferred_name}' was not found in {config.config_path or 'the active config'}.")
+
+    def eligible():
+        for key in keys:
+            if not key.allows_scope(scope):
+                continue
+            if namespace and not key.allows_namespace(namespace):
+                continue
+            yield key
+
+    eligible_keys = list(eligible())
+    preferred_order = ("reader", "read", "writer", "server-default", "env-default", "cli-default")
+    for name in preferred_order:
+        for key in eligible_keys:
+            if key.name == name:
+                return key
+    return eligible_keys[0] if eligible_keys else None
+
+
+def _normalize_manus_url(url: str) -> str:
+    normalized = url.strip()
+    if not normalized:
+        return "https://your-https-endpoint.example/mcp"
+    if normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+    if normalized.endswith("/mcp"):
+        return normalized
+    return f"{normalized}/mcp"
+
+
+def _build_connect_manus_serve_command(
+    *,
+    config_path: Path | None,
+    store_dir: Path,
+    namespace: str | None,
+    host: str,
+    port: int,
+) -> str:
+    parts = ["cortex", "serve", "manus"]
+    if config_path is not None:
+        parts.extend(["--config", str(config_path)])
+    else:
+        parts.extend(["--store-dir", str(store_dir)])
+    if namespace:
+        parts.extend(["--namespace", namespace])
+    parts.extend(["--host", host, "--port", str(port)])
+    return _shell_join(parts)
 
 
 def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
@@ -383,6 +453,104 @@ def build_parser(*, show_all_commands: bool = False):
     init.add_argument("--namespace", default="team", help="Default MCP/API namespace (default: team)")
     init.add_argument("--no-mind", action="store_true", help="Skip Mind creation and only initialize the store/config")
     init.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- connect (runtime setup) -----------------------------------------
+    connect = sub.add_parser("connect", help="Prepare first-class runtime connection setup")
+    connect_sub = connect.add_subparsers(dest="connect_subcommand")
+
+    connect_manus = connect_sub.add_parser("manus", help="Generate a Manus custom MCP connector config")
+    connect_manus.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")
+    connect_manus.add_argument("--context-file", help="Optional default context graph file")
+    connect_manus.add_argument("--namespace", help="Optional namespace to pin the bridge session to")
+    connect_manus.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    connect_manus.add_argument(
+        "--url",
+        help="Public HTTPS Manus MCP URL, with or without the trailing /mcp path",
+    )
+    connect_manus.add_argument("--name", default="Cortex-Manus", help="Connector name to include in the MCP JSON")
+    connect_manus.add_argument("--key-name", default="", help="Preferred read-scoped API key name from config.toml")
+    connect_manus.add_argument(
+        "--auth-header",
+        choices=["x-api-key", "authorization"],
+        default="x-api-key",
+        help="Header style Manus should send (default: x-api-key)",
+    )
+    connect_manus.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Suggested local bind host for `cortex serve manus` (default: 127.0.0.1)",
+    )
+    connect_manus.add_argument(
+        "--port",
+        type=int,
+        default=8790,
+        help="Suggested local bind port for `cortex serve manus` (default: 8790)",
+    )
+    connect_manus.add_argument("--check", action="store_true", help="Validate local Manus bridge readiness")
+    connect_manus.add_argument(
+        "--print-config", action="store_true", help="Include a paste-ready Manus MCP JSON snippet"
+    )
+    connect_manus.add_argument("--format", choices=["json", "text"], default="text")
+
+    # -- serve (runtime processes) ---------------------------------------
+    serve = sub.add_parser("serve", help="Run local Cortex runtime surfaces")
+    serve_sub = serve.add_subparsers(dest="serve_subcommand")
+
+    serve_api = serve_sub.add_parser("api", help="Launch the local Cortex REST API server")
+    serve_api.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
+    serve_api.add_argument("--context-file", help="Optional default context graph file")
+    serve_api.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
+    serve_api.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8766)")
+    serve_api.add_argument("--api-key", help="Optional API key required for requests")
+    serve_api.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    serve_api.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+
+    serve_mcp = serve_sub.add_parser("mcp", help="Launch the local Cortex MCP server over stdio")
+    serve_mcp.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
+    serve_mcp.add_argument("--context-file", help="Optional default context graph file")
+    serve_mcp.add_argument(
+        "--namespace",
+        help="Optional namespace prefix to pin the MCP session to, such as 'team' or 'team/atlas'",
+    )
+    serve_mcp.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    serve_mcp.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
+
+    serve_manus = serve_sub.add_parser("manus", help="Launch the Manus-friendly hosted Cortex MCP bridge")
+    serve_manus.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
+    serve_manus.add_argument("--context-file", help="Optional default context graph file")
+    serve_manus.add_argument("--namespace", help="Optional namespace to pin the Manus bridge session to")
+    serve_manus.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    serve_manus.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
+    serve_manus.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8790)")
+    serve_manus.add_argument(
+        "--tool",
+        action="append",
+        default=[],
+        help="Expose an additional Cortex MCP tool by name. Repeatable.",
+    )
+    serve_manus.add_argument(
+        "--allow-write-tools",
+        action="store_true",
+        help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
+    )
+    serve_manus.add_argument(
+        "--allow-insecure-no-auth",
+        action="store_true",
+        help="Allow a non-loopback bind without API keys. Use only behind a trusted local reverse proxy.",
+    )
+    serve_manus.add_argument(
+        "--protocol-version",
+        default=None,
+        help="Optional negotiated MCP protocol version override for Manus compatibility",
+    )
+    serve_manus.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
+
+    serve_ui = serve_sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
+    serve_ui.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")
+    serve_ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
+    serve_ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    serve_ui.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765, or 0 for any free port)")
+    serve_ui.add_argument("--open", action="store_true", help="Open the UI in your browser automatically")
 
     # -- migrate (default) --------------------------------------------------
     mig = sub.add_parser("migrate", help="Full pipeline: extract then import")
@@ -6195,6 +6363,169 @@ def run_doctor(args):
     return 0
 
 
+def run_connect_manus(args):
+    from cortex.config import load_selfhost_config
+
+    try:
+        config = load_selfhost_config(
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            server_host=args.host,
+            server_port=args.port,
+            mcp_namespace=args.namespace,
+        )
+        read_key = _select_scoped_api_key(
+            config,
+            scope="read",
+            preferred_name=args.key_name.strip(),
+            namespace=config.mcp_namespace,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+
+    connector_name = args.name.strip() or "Cortex-Manus"
+    mcp_url = _normalize_manus_url(args.url or "")
+    serve_command = _build_connect_manus_serve_command(
+        config_path=config.config_path,
+        store_dir=config.store_dir,
+        namespace=config.mcp_namespace,
+        host=args.host,
+        port=args.port,
+    )
+
+    warnings: list[str] = []
+    errors: list[str] = []
+    if not args.url:
+        warnings.append("No public HTTPS URL was provided yet; the printed config uses a placeholder bridge URL.")
+    elif not mcp_url.startswith("https://"):
+        errors.append("Manus custom MCP servers must use an HTTPS URL.")
+
+    if read_key is None:
+        warnings.append(
+            "No read-scoped API key was found; the printed config uses a <reader-token> placeholder until you add or select one."
+        )
+
+    header_name = "Authorization" if args.auth_header == "authorization" else "X-API-Key"
+    if header_name == "Authorization":
+        header_value = f"Bearer {read_key.token if read_key else '<reader-token>'}"
+    else:
+        header_value = read_key.token if read_key else "<reader-token>"
+
+    connector_config = {
+        "mcpServers": {
+            connector_name: {
+                "type": "streamableHttp",
+                "url": mcp_url,
+                "headers": {header_name: header_value},
+            }
+        }
+    }
+    next_steps = [f"Run `{serve_command}`."]
+    if not args.url:
+        next_steps.append(
+            "Expose the local Manus bridge over HTTPS, then rerun `cortex connect manus --url https://... --print-config`."
+        )
+    elif args.print_config:
+        next_steps.append("Paste the printed JSON into Manus -> Settings -> Integrations -> Custom MCP Server.")
+    else:
+        next_steps.append(
+            "Run `cortex connect manus --url https://... --print-config` to generate the final Manus MCP JSON."
+        )
+
+    status = "error" if errors else ("ok" if read_key and args.url else "warn")
+    payload = {
+        "status": status,
+        "target": "manus",
+        "store_dir": str(config.store_dir.resolve()),
+        "config_path": str(config.config_path) if config.config_path else None,
+        "namespace": config.mcp_namespace,
+        "connector_name": connector_name,
+        "mcp_url": mcp_url,
+        "auth_ready": read_key is not None,
+        "key_name": read_key.name if read_key else "",
+        "auth_header": header_name,
+        "serve_command": serve_command,
+        "warnings": warnings,
+        "errors": errors,
+        "next_steps": next_steps,
+    }
+    if args.print_config:
+        payload["connector_config"] = connector_config
+
+    if _emit_result(payload, args.format) == 0:
+        return 1 if errors or (args.check and read_key is None) else 0
+
+    _echo("Cortex ↔ Manus")
+    _echo(f"  Status:   {status}")
+    _echo(f"  Store:    {payload['store_dir']}")
+    if payload["config_path"]:
+        _echo(f"  Config:   {payload['config_path']}")
+    _echo(f"  URL:      {mcp_url}")
+    _echo(f"  Auth:     {read_key.name if read_key else 'missing read key'} via {header_name}")
+    _echo(f"  Serve:    {serve_command}")
+    for message in warnings:
+        _echo(f"  Warning:  {message}")
+    for message in errors:
+        _echo(f"  Error:    {message}")
+    if args.print_config:
+        _echo("")
+        _echo("Manus MCP JSON:")
+        _echo(json.dumps(connector_config, indent=2))
+    _echo("")
+    _echo("Next:")
+    for step in next_steps:
+        _echo(f"  {step}")
+    return 1 if errors or (args.check and read_key is None) else 0
+
+
+def run_connect(args):
+    if args.connect_subcommand == "manus":
+        return run_connect_manus(args)
+    return _error("Specify a connect target: manus")
+
+
+def run_serve_manus(args):
+    from cortex.manus_bridge import main as manus_main
+
+    argv: list[str] = []
+    if args.store_dir:
+        argv.extend(["--store-dir", args.store_dir])
+    if args.context_file:
+        argv.extend(["--context-file", args.context_file])
+    if args.namespace:
+        argv.extend(["--namespace", args.namespace])
+    if args.config:
+        argv.extend(["--config", args.config])
+    if args.host:
+        argv.extend(["--host", args.host])
+    if args.port is not None:
+        argv.extend(["--port", str(args.port)])
+    for tool in args.tool:
+        argv.extend(["--tool", tool])
+    if args.allow_write_tools:
+        argv.append("--allow-write-tools")
+    if args.allow_insecure_no_auth:
+        argv.append("--allow-insecure-no-auth")
+    if args.protocol_version:
+        argv.extend(["--protocol-version", args.protocol_version])
+    if args.check:
+        argv.append("--check")
+    return manus_main(argv)
+
+
+def run_serve(args):
+    if args.serve_subcommand == "api":
+        return run_server(args)
+    if args.serve_subcommand == "mcp":
+        return run_mcp(args)
+    if args.serve_subcommand == "manus":
+        return run_serve_manus(args)
+    if args.serve_subcommand == "ui":
+        return run_ui(args)
+    return _error("Specify a serve target: api, mcp, manus, ui")
+
+
 def run_ui(args):
     """Launch the local Cortex infrastructure UI."""
     from cortex.webapp import start_ui_server
@@ -6466,6 +6797,8 @@ def main(argv=None):
     # treat it as a file path and route to the "migrate" subcommand.
     known_subcommands = (
         "init",
+        "connect",
+        "serve",
         "extract",
         "ingest",
         "import",
@@ -6550,6 +6883,10 @@ def main(argv=None):
 
     if args.subcommand == "init":
         return run_init(args)
+    elif args.subcommand == "connect":
+        return run_connect(args)
+    elif args.subcommand == "serve":
+        return run_serve(args)
     elif args.subcommand == "extract":
         return run_extract(args)
     elif args.subcommand == "ingest":

@@ -29,6 +29,8 @@ def test_default_help_is_first_class_and_mind_first():
         "remote",
         "backup",
         "server",
+        "mcp",
+        "ui",
         "memory",
     }.isdisjoint(commands)
     assert ADVANCED_HELP_NOTE in help_text
@@ -51,6 +53,8 @@ def test_help_all_shows_full_command_list(capsys):
         "remote",
         "backup",
         "server",
+        "mcp",
+        "ui",
         "memory",
     }.issubset(commands)
     assert ADVANCED_HELP_NOTE not in out

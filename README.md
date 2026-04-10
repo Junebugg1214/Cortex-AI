@@ -149,7 +149,7 @@ Portable AI notes:
 
 ## Manus Bridge
 
-`cortex-manus` exposes a Manus-friendly hosted MCP endpoint on top of Cortex's existing Mind, Brainpack, and portability tools.
+`cortex connect manus` and `cortex serve manus` turn the Manus bridge into a first-class Cortex workflow on top of the existing Mind, Brainpack, and portability tools.
 
 Use it when you want Manus to:
 - compose a Cortex Mind at runtime
@@ -157,15 +157,17 @@ Use it when you want Manus to:
 - inspect portable AI context without starting from zero
 - optionally write back into a Mind when you explicitly expose write tools
 
-Manus bridge commands:
+Recommended Manus bridge commands:
 
 | Command | What it does |
 | --- | --- |
-| `cortex-manus --config .cortex/config.toml --check` | Prints bridge diagnostics, exposed tools, and the Manus MCP path before you deploy it. |
-| `cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790` | Runs the hosted Manus bridge locally at `/mcp`. Put it behind HTTPS before connecting it to Manus. |
-| `cortex-manus --config .cortex/config.toml --host 127.0.0.1 --port 8790 --protocol-version 2024-11-05` | Explicitly pins the bridge to the conservative Manus-safe MCP revision if you need to override or verify protocol compatibility. |
-| `cortex-manus --config .cortex/config.toml --host 0.0.0.0 --check` | Verifies your config and intentionally refuses non-loopback startup unless you configured API keys first. |
-| `cortex-manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
+| `cortex connect manus --check` | Checks local Manus bridge readiness, auth availability, and the recommended next steps. |
+| `cortex connect manus --url https://your-https-endpoint.example/mcp --print-config` | Prints the paste-ready Manus custom MCP JSON using your configured Cortex reader key. |
+| `cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790` | Runs the hosted Manus bridge locally at `/mcp`. Put it behind HTTPS before connecting it to Manus. |
+| `cortex serve manus --config .cortex/config.toml --check` | Prints bridge diagnostics, exposed tools, and the Manus MCP path before you deploy it. |
+| `cortex serve manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
+
+The legacy `cortex-manus` entrypoint still works and maps to the same bridge runtime.
 
 If `cortex-manus` is missing after a local source install, reinstall with `python3.11 -m pip install --user --no-build-isolation -e ".[server]"` and add `~/Library/Python/3.11/bin` to `PATH` on macOS if needed. See [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md) for the full troubleshooting steps.
 
