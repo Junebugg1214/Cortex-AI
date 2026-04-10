@@ -4,334 +4,242 @@
 
 # Cortex
 
-You use multiple AI tools.  
-They all think you're a stranger.  
-Cortex gives them the same Mind.
+Cortex is a local-first CLI that gives every AI tool the same Mind.
 
-Cortex is not three unrelated products.
+Use Cortex to:
+- create one portable Mind with durable memory, policy, and mounts
+- attach Brainpacks as specialist knowledge
+- connect Manus, Hermes, Codex, Cursor, and Claude Code with first-class commands
+- serve MCP, API, Manus bridge, and UI runtimes locally
+- repair store and config drift safely with `cortex doctor --fix`
 
-**Cortex is one local-first system for building, versioning, and mounting a portable Mind.**
+## Why Cortex Feels Unified Now
 
-That Mind has four layers:
-- **core state**: identity, preferences, relationships, technical context, and durable memory
-- **attached Brainpacks**: specialist domain cognition that can be composed in when relevant
-- **version history**: review, diff, blame, merge, rollback, and governance over the graph
-- **runtime mounts**: Hermes, OpenClaw, Codex, Cursor, Claude Code, ChatGPT, and other targets
+Cortex is no longer a pile of adjacent features.
 
-The old product surfaces still matter. They just fit into one model now:
-- **Portable AI** feeds and syncs a Mind's core state
-- **Brainpacks** are attached specialist modules on a Mind
-- **Git for AI Memory** is the version and review layer for a Mind
+It has one top-level object and one first-class CLI:
+
+- **Mind**: your portable identity, memory, preferences, policy, and mounts
+- **Brainpacks**: attachable specialist modules that compose into a Mind
+- **Connect**: runtime wiring for Manus and local AI tools
+- **Serve**: live MCP, API, Manus bridge, and UI surfaces
+- **Doctor**: repair and hardening for the local Cortex workspace
+
+Portable AI and Git for AI Memory still matter. They now fit underneath the same model:
+
+- **Portable AI** is the ingest and sync path for a Mind
+- **Git for AI Memory** is the advanced history, review, and governance layer
 
 ## Install
+
+Recommended package install:
+
+```bash
+python3.11 -m pip install "cortex-identity[server]"
+```
+
+Source install from this repository:
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
 python3.11 -m pip install -e ".[server]"
-mkdir -p .cortex
-cp docs/examples/config.toml .cortex/config.toml
-cortex scan --project .
 ```
 
-What each command does:
+Notes:
+- Use `python3.11 -m pip`, not plain `pip`.
+- Cortex supports Python 3.10+, but `python3.11` is the smoothest default for local setup.
+- The `server` extra installs the local runtime surfaces used by `cortex serve`.
 
-| Command | What it does |
-| --- | --- |
-| `git clone https://github.com/Junebugg1214/Cortex-AI.git` | Downloads Cortex from GitHub. |
-| `cd Cortex-AI` | Enters the repo. |
-| `python3.11 -m pip install -e ".[server]"` | Installs the full local CLI, MCP server, UI, and self-hosted server surface. |
-| `mkdir -p .cortex` | Creates the local Cortex state directory. |
-| `cp docs/examples/config.toml .cortex/config.toml` | Copies the starter config for MCP and self-hosted setup. |
-| `cortex scan --project .` | Audits your machine and project for existing AI context, exports, artifacts, and MCP config. |
+## Start Here
 
-Use `python3.11 -m pip`, not plain `pip`. Cortex requires Python 3.10+, and the source install is the most complete path.
-
-If you only want the published package instead of the full source tree:
+Five-minute first run:
 
 ```bash
-python3.11 -m pip install cortex-identity
-```
-
-## Cortex Mind
-
-**A Mind is the top-level object in Cortex.**
-
-It is the thing that persists across tools, composes attached Brainpacks, and gets mounted into runtimes.
-
-Typical Mind-first flow:
-
-```bash
-cortex mind init marc --kind person --owner marc
-cortex mind default marc
-cortex mind ingest marc --from-detected chatgpt claude claude-code codex cursor hermes --project .
-cortex mind remember marc "I prefer concise, implementation-first responses."
-cortex pack init ai-memory --description "Portable AI memory research" --owner marc
-cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse
-cortex pack compile ai-memory --suggest-questions
-cortex mind attach-pack marc ai-memory --always-on --target hermes --target codex --task-term memory
-cortex mind compose marc --to chatgpt --task "memory routing"
-cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
-cortex mind mounts marc
+mkdir cortex-workspace
+cd cortex-workspace
+cortex init --mind marc --owner marc
+cortex mind remember marc "I prefer concise, implementation-first answers."
 cortex mind status marc
+cortex doctor
 ```
 
-Mind commands:
+What this does:
 
 | Command | What it does |
 | --- | --- |
-| `cortex mind init marc --kind person --owner marc` | Creates a new Mind under `.cortex/minds/marc/` with manifest, core-state, branch, policy, attachment, and mount scaffolding. |
-| `cortex mind default marc` | Marks one Mind as the default compatibility target so classic commands like `portable`, `remember`, and `sync --smart` can route through that Mind behind the scenes. |
-| `cortex mind list` | Lists local Minds in the current Cortex store. |
-| `cortex mind status marc` | Shows the Mind manifest, core-state ref, branch status, policy state, attached Brainpacks, and persisted mounts. |
-| `cortex mind ingest marc --from-detected ... --project .` | Adopts detected local context directly into the Mind's core graph and commits it onto the Mind's current branch. |
-| `cortex mind remember marc "..."` | Adds one new fact or preference directly to the Mind's core graph and refreshes persisted mounts from the updated state. |
-| `cortex mind attach-pack marc ai-memory --always-on --target hermes --task-term memory` | Attaches an existing Brainpack to a Mind and records activation metadata for future composition. |
-| `cortex mind detach-pack marc ai-memory` | Detaches a Brainpack from a Mind without deleting the Brainpack itself. |
-| `cortex mind compose marc --to chatgpt --task "memory routing"` | Composes a target-aware runtime slice from the Mind's current base graph plus any attached Brainpacks that match the target and task. |
-| `cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"` | Materializes the composed Mind into direct targets like Hermes, Codex, Cursor, Claude Code, and OpenClaw. |
-| `cortex mind mounts marc` | Lists the persisted mount records for a Mind, including runtime-target metadata and file paths. |
+| `mkdir cortex-workspace && cd cortex-workspace` | Creates a clean workspace for your Cortex store. |
+| `cortex init --mind marc --owner marc` | Creates `.cortex/config.toml`, generates reader and writer API keys, initializes the canonical store, creates the default Mind if needed, and prints the next recommended commands. |
+| `cortex mind remember marc "..."` | Teaches the Mind one durable fact or preference directly. |
+| `cortex mind status marc` | Shows the Mind's manifest, branch, policy, attachments, and mounts. |
+| `cortex doctor` | Checks the local workspace for store or config issues before they become runtime problems. |
 
-## Portable AI
+## First-Class CLI
 
-Portable AI is the **ingest and sync subsystem** for a Mind's core state.
+The default help surface is now intentionally small:
 
-Use it when you want to:
-- detect existing context already on disk
-- adopt that context into a Mind or canonical graph
-- route different slices into different targets
-- keep live runtime context available over MCP
-
-Recommended Mind-first flow:
-
-```bash
-cortex mind default marc
-cortex scan --project .
-cortex mind ingest marc --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --project .
-cortex mind remember marc "We prefer concise, implementation-first answers."
-cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
-cortex mcp --config .cortex/config.toml
-```
-
-Compatibility flow:
-
-```bash
-cortex scan --project .
-cortex portable --from-detected chatgpt claude claude-code codex copilot cursor gemini grok hermes windsurf --to all --project .
-cortex remember "I prefer concise, implementation-first answers." --smart
-cortex sync --smart --project .
-cortex mcp --config .cortex/config.toml --check
-cortex mcp --config .cortex/config.toml
-```
-
-Portable AI commands:
-
-| Command | What it does |
+| Command | Use it when you want to... |
 | --- | --- |
-| `cortex scan --project .` | Detects installed tools, local exports, artifacts, direct instruction files, and MCP config without mutating your graph. |
-| `cortex mind ingest marc --from-detected ... --project .` | Adopts detected local context directly into the selected Mind's core graph. |
-| `cortex portable chatgpt-export.zip --to all --project .` | Ingests a raw export or existing graph and writes routed context across supported tools. |
-| `cortex portable --from-detected ... --to all --project .` | Adopts detected local context with permission, builds the canonical graph, and syncs it everywhere. |
-| `cortex mind remember marc "..."` | Adds one new fact or preference directly to a Mind's core graph. |
-| `cortex remember "..." --smart` | Adds one new fact or preference through the classic portability flow. If a default Mind is configured, this routes through that Mind. |
-| `cortex sync --smart --project .` | Re-routes and re-writes the current portability graph to local targets. If a default Mind is configured, this routes through that Mind. |
-| `cortex status --project .` | Shows stale, missing, or incomplete local context across configured tools. |
-| `cortex build --from package.json --from git-history --from github --sync --smart` | Builds portable context from project files and git history, then syncs it. |
-| `cortex mcp --config .cortex/config.toml --check` | Verifies the local MCP configuration before you run it live. |
-| `cortex mcp --config .cortex/config.toml` | Runs the live MCP server so tools can fetch routed context during conversations. |
+| `cortex init` | bootstrap a canonical `.cortex/` workspace and default Mind |
+| `cortex mind ...` | create, inspect, compose, and mount Minds |
+| `cortex pack ...` | build and manage Brainpacks |
+| `cortex connect ...` | wire Cortex into Manus or local runtimes |
+| `cortex serve ...` | run the live API, MCP, Manus bridge, or UI |
+| `cortex doctor` | diagnose and safely repair local setup issues |
 
-Portable AI notes:
-- `scan` is read-only by default.
-- `portable --from-detected ...` is permissioned adoption, not silent ingestion.
-- if a default Mind is configured with `cortex mind default <name>`, classic `portable`, `remember`, and `sync --smart` route through that Mind's branch-backed graph instead of a separate standalone portability graph.
-- detected local-source adoption redacts common PII by default.
-- over MCP, `portability_scan` is metadata-only by default and does not expose absolute local paths or parse detected export content.
-
-## Manus Bridge
-
-`cortex connect manus` and `cortex serve manus` turn the Manus bridge into a first-class Cortex workflow on top of the existing Mind, Brainpack, and portability tools.
-
-Use it when you want Manus to:
-- compose a Cortex Mind at runtime
-- query Brainpacks as specialist cognition
-- inspect portable AI context without starting from zero
-- optionally write back into a Mind when you explicitly expose write tools
-
-Recommended Manus bridge commands:
-
-| Command | What it does |
-| --- | --- |
-| `cortex connect manus --check` | Checks local Manus bridge readiness, auth availability, and the recommended next steps. |
-| `cortex connect manus --url https://your-https-endpoint.example/mcp --print-config` | Prints the paste-ready Manus custom MCP JSON using your configured Cortex reader key. |
-| `cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790` | Runs the hosted Manus bridge locally at `/mcp`. Put it behind HTTPS before connecting it to Manus. |
-| `cortex serve manus --config .cortex/config.toml --check` | Prints bridge diagnostics, exposed tools, and the Manus MCP path before you deploy it. |
-| `cortex serve manus --config .cortex/config.toml --allow-write-tools --tool mind_mount` | Adds the curated Manus write-tool set and any extra explicitly named tools such as `mind_mount`. |
-
-The legacy `cortex-manus` entrypoint still works and maps to the same bridge runtime.
-
-If `cortex-manus` is missing after a local source install, reinstall with `python3.11 -m pip install --user --no-build-isolation -e ".[server]"` and add `~/Library/Python/3.11/bin` to `PATH` on macOS if needed. See [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md) for the full troubleshooting steps.
-
-## Runtime Connect
-
-`cortex connect` now covers direct local runtimes too, not just Manus.
-
-Use it to wire Cortex MCP into Hermes, Codex, Cursor, and Claude Code first, then materialize actual runtime context with `cortex mind mount` or `cortex sync`.
-
-Recommended direct-runtime commands:
-
-| Command | What it does |
-| --- | --- |
-| `cortex connect hermes --check --project .` | Verifies Hermes config readiness, expected Cortex-managed memory files, and the next mount step. |
-| `cortex connect hermes --install --project .` | Writes or updates `~/.hermes/config.yaml` with the managed `cortex-mcp` entry. |
-| `cortex connect codex --check --project .` | Checks Codex MCP readiness and shows the `AGENTS.md` mount path Cortex will use. |
-| `cortex connect codex --install --project .` | Writes or updates `~/.codex/config.toml` with the Cortex MCP server block. |
-| `cortex connect cursor --check --project .` | Checks Cursor MCP readiness and the `.cursor/rules/cortex.mdc` runtime path. |
-| `cortex connect cursor --install --project .` | Writes or updates `./.cursor/mcp.json` with the Cortex MCP server block. |
-| `cortex connect claude-code --check --project .` | Checks Claude Code MCP readiness and the global/project `CLAUDE.md` mount paths. |
-| `cortex connect claude-code --install --project .` | Writes or updates `./.mcp.json` with the Cortex MCP server block for Claude Code. |
-
-## Brainpacks
-
-Brainpacks are the **specialist cognition subsystem** for a Mind.
-
-They are not a second top-level identity object. They are attachable domain modules that Cortex can compile, query, lint, bundle, and mount on their own or compose into a Mind.
-
-Every Brainpack lives under:
-
-```text
-.cortex/packs/<name>/
-  manifest.toml
-  raw/
-  wiki/
-  graph/
-  claims/
-  unknowns/
-  artifacts/
-  indexes/
-```
-
-Typical Brainpack flow:
-
-```bash
-cortex pack init ai-memory --description "Portable AI memory research" --owner marc
-cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse
-cortex pack compile ai-memory --suggest-questions
-cortex pack query ai-memory "portable agent memory"
-cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report
-cortex pack lint ai-memory
-cortex mind attach-pack marc ai-memory --always-on --target hermes --target codex --task-term memory
-cortex mind compose marc --to hermes --task "memory support"
-cortex mind mount marc --to hermes codex cursor claude-code openclaw --task "support"
-cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip
-```
-
-Brainpack commands:
-
-| Command | What it does |
-| --- | --- |
-| `cortex pack init ai-memory --description "Portable AI memory research" --owner marc` | Creates a new Brainpack skeleton and manifest under `.cortex/packs/ai-memory/`. |
-| `cortex pack list` | Lists local Brainpacks in the current Cortex store. |
-| `cortex pack ingest ai-memory ~/Downloads/papers ~/notes/ai-memory --recurse` | Copies or references local files into the Brainpack source inventory. |
-| `cortex pack compile ai-memory --suggest-questions` | Compiles readable sources into a wiki, graph, claims, and suggested unknowns. |
-| `cortex pack status ai-memory` | Shows source counts, graph size, compile state, artifact counts, lint state, and mount state. |
-| `cortex pack context ai-memory --target hermes --smart` | Renders a routed Brainpack slice for a specific target runtime. |
-| `cortex pack query ai-memory "portable agent memory"` | Searches concepts, claims, wiki pages, unknowns, and existing artifacts. |
-| `cortex pack ask ai-memory "What does this pack say about portable agent memory?" --output report` | Answers against the compiled pack and writes the result back as a durable artifact. |
-| `cortex pack lint ai-memory` | Runs integrity checks for contradictions, duplicates, weak claims, thin articles, and graph health. |
-| `cortex pack mount ai-memory --to hermes openclaw codex cursor claude-code --project . --smart` | Mounts the compiled Brainpack directly into supported runtimes and tools. |
-| `cortex pack export ai-memory --output ./dist/ai-memory.brainpack.zip` | Exports a portable Brainpack bundle archive. |
-| `cortex pack import ./dist/ai-memory.brainpack.zip --store-dir ~/.cortex --as ai-memory-copy` | Imports a Brainpack bundle into another Cortex store under a chosen name. |
-| `cortex mind attach-pack marc ai-memory ...` | Attaches the Brainpack to a Mind so it can be composed selectively or always-on at runtime. |
-| `cortex mind compose marc --to hermes --task "memory support"` | Shows what the Mind plus attached Brainpacks will actually look like for a given runtime and task. |
-
-What `pack mount` does today:
-- Hermes gets pack-derived `USER.md`, `MEMORY.md`, and managed MCP wiring.
-- Codex, Cursor, and Claude Code get the routed Brainpack slice installed into their native instruction files.
-- OpenClaw gets a plugin-readable Brainpack mount registry so the OpenClaw Cortex plugin injects the pack live on each turn.
-
-## Git for AI Memory
-
-Git for AI Memory is the **version history and governance subsystem** for a Mind.
-
-Today the low-level graph commands still operate directly on refs and branches, but the Mind model is what gives those refs a durable identity, mounted targets, and attached specialist cognition.
-
-That means you can:
-- commit snapshots
-- branch risky experiments
-- review changes before merging
-- diff memory versions
-- merge approved work
-- trace where a claim came from
-- roll back a graph when a bad change slips through
-
-Typical Git-for-memory flow:
-
-```bash
-cortex commit portable/context.json -m "Seed canonical context"
-cortex branch atlas-research --switch
-cortex review --against main
-cortex diff main atlas-research
-cortex merge atlas-research --dry-run
-cortex merge atlas-research
-cortex log --branch main
-```
-
-Git-for-memory commands:
-
-| Command | What it does |
-| --- | --- |
-| `cortex commit portable/context.json -m "Seed canonical context"` | Saves a graph snapshot into the local version store with a commit message. |
-| `cortex branch atlas-research --switch` | Creates a new memory branch and switches to it immediately. |
-| `cortex switch main` | Switches the active memory branch. |
-| `cortex review --against main` | Reviews the current branch or graph against a baseline ref and applies review gates. |
-| `cortex diff main atlas-research` | Shows semantic graph differences between two refs or versions. |
-| `cortex merge atlas-research --dry-run` | Previews the merge result before committing it. |
-| `cortex merge atlas-research` | Merges another ref into the current branch. |
-| `cortex log --branch main` | Shows commit history for a branch or the global history view. |
-| `cortex blame portable/context.json --label "Python"` | Traces where a specific fact or node label came from. |
-| `cortex history portable/context.json --label "Python"` | Shows chronological receipts for a fact across stored versions. |
-| `cortex rollback portable/context.json --to <version-id>` | Restores a prior version into a working graph and records the rollback. |
-
-If you want the full versioned-memory surface, run:
+For the full advanced and compatibility surface, run:
 
 ```bash
 cortex --help-all
 ```
 
-## Compatibility Matrix
+That includes legacy and low-level commands such as `portable`, `remember`, `sync`, `build`, `audit`, `server`, `mcp`, `commit`, `branch`, `merge`, and `review`.
 
-| Platform | Direct file / artifact support | MCP support now | Best Cortex path |
-| --- | --- | --- | --- |
-| Claude Desktop | No direct file target | Native | `cortex mcp` |
-| Claude Code | `CLAUDE.md` | Native | `cortex mcp` + `CLAUDE.md` |
-| Claude.ai | Import-ready artifacts | Partial / workspace-dependent | Artifacts first, MCP where available |
-| Codex | `AGENTS.md` | Native | `cortex mcp` + `AGENTS.md` |
-| Cursor | `.cursor/rules/cortex.mdc` | Native | `cortex mcp` + direct rule file |
-| GitHub Copilot | `.github/copilot-instructions.md` | Native | `cortex mcp` + direct instruction file |
-| Gemini CLI | `GEMINI.md` | Native | `cortex mcp` + `GEMINI.md` |
-| Hermes Agent | `~/.hermes/memories/USER.md`, `~/.hermes/memories/MEMORY.md`, `~/.hermes/config.yaml` | Native | `cortex mind mount` or `cortex portable --to hermes` + `cortex mcp` |
-| Windsurf | `.windsurfrules` | Native | `cortex mcp` + direct rule file |
-| ChatGPT | Import-ready artifacts | Partial / beta / plan-dependent | Artifacts first, MCP where available |
-| Grok | Import-ready artifacts | Remote MCP or app-dependent | Artifacts first, MCP where available |
+## Common Workflows
 
-`cortex mcp` is the live path for MCP-capable clients. Direct files and import-ready artifacts remain the safest universal path for everything else.
+### 1. Create and Compose a Mind
+
+```bash
+cortex init --mind marc --owner marc
+cortex mind remember marc "I prefer concise, implementation-first answers."
+cortex mind remember marc "We are building Cortex as a first-class AI CLI."
+cortex mind compose marc --to codex --task "product strategy"
+```
+
+Use this flow when you want one portable Mind to carry across tools instead of restarting from zero in every runtime.
+
+### 2. Add a Brainpack
+
+```bash
+cortex pack init ai-memory --description "Portable AI memory research" --owner marc
+cortex pack ingest ai-memory ~/notes/ai-memory ~/Downloads/papers --recurse
+cortex pack compile ai-memory --suggest-questions
+cortex mind attach-pack marc ai-memory --always-on --target codex --task-term memory
+```
+
+Use Brainpacks when you want specialist knowledge to be compiled once and composed into the Mind only when relevant.
+
+### 3. Connect Local Runtimes
+
+Check before you install:
+
+```bash
+cortex connect hermes --check --project .
+cortex connect codex --check --project .
+cortex connect cursor --check --project .
+cortex connect claude-code --check --project .
+```
+
+Install the Cortex MCP wiring:
+
+```bash
+cortex connect hermes --install --project .
+cortex connect codex --install --project .
+cortex connect cursor --install --project .
+cortex connect claude-code --install --project .
+```
+
+Then materialize the actual Mind into those runtimes:
+
+```bash
+cortex mind mount marc --to hermes codex cursor claude-code --task "support"
+```
+
+### 4. Connect Manus
+
+Use `connect` to prepare the connector and `serve` to run the bridge:
+
+```bash
+cortex connect manus --check
+cortex connect manus --url https://your-https-endpoint.example/mcp --print-config
+cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
+```
+
+Notes:
+- Manus expects an HTTPS MCP endpoint.
+- For local testing, use a tunnel such as ngrok in front of `cortex serve manus`.
+- For persistent production use, host the bridge behind stable HTTPS.
+
+### 5. Run Local Runtime Surfaces
+
+```bash
+cortex serve api --check
+cortex serve mcp --check
+cortex serve manus --check
+cortex serve ui --open
+```
+
+What each surface is for:
+
+| Command | Purpose |
+| --- | --- |
+| `cortex serve api` | Runs the local REST API server. |
+| `cortex serve mcp` | Runs the local Cortex MCP server over stdio. |
+| `cortex serve manus` | Runs the Manus-friendly hosted MCP bridge. |
+| `cortex serve ui` | Launches the local Cortex infrastructure UI. |
+
+## Production-Ready CLI Habits
+
+If you want Cortex to stay reliable as it grows, these are the habits to keep:
+
+| Command | Why it matters |
+| --- | --- |
+| `cortex doctor` | Catch workspace issues early. |
+| `cortex doctor --fix` | Apply safe repairs to first-class store and config issues. |
+| `cortex doctor --fix-store` | Normalize accidental root-level stores back into the canonical `.cortex/` layout. |
+| `cortex connect <target> --check` | Validate runtime readiness before you install or mount. |
+| `cortex serve <surface> --check` | Validate runtime wiring before you expose a live service. |
+| `--format json` | Use machine-readable output in automation and CI. |
+
+Important defaults:
+- Cortex strongly prefers a canonical `.cortex/` store.
+- `cortex init` is idempotent and safe to rerun.
+- `cortex doctor --fix` is the supported path for recovering from common local misconfiguration.
+
+## Compatibility and Legacy Commands
+
+The new CLI is Mind-first, but backward compatibility still exists.
+
+If you already use the older flows:
+- `portable`, `remember`, and `sync --smart` still work
+- if a default Mind is configured, those commands route through that Mind
+- `server` and `mcp` still work as compatibility entrypoints
+- `cortex-manus` still maps to the Manus bridge
+
+The recommended path for new users is still:
+
+```bash
+cortex init
+cortex mind ...
+cortex pack ...
+cortex connect ...
+cortex serve ...
+cortex doctor
+```
 
 ## More Docs
 
-- Mind guide: [docs/MINDS.md](docs/MINDS.md)
-- Platform onboarding: [docs/PLATFORM_ONBOARDING.md](docs/PLATFORM_ONBOARDING.md)
-- Portable AI subsystem: [docs/PORTABILITY.md](docs/PORTABILITY.md)
-- Brainpacks subsystem: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
-- Cortex Mind PRD: [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
-- CLI Unification PRD: [docs/CLI_UNIFICATION_PRD.md](docs/CLI_UNIFICATION_PRD.md)
-- Manus quickstart: [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md)
-- OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
-- OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
-- Hermes quickstart: [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
-- Agent quickstarts: [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
-- Self-hosting: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
-- Threat model: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- [docs/MINDS.md](docs/MINDS.md)
+- [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
+- [docs/PORTABILITY.md](docs/PORTABILITY.md)
+- [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md)
+- [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
+- [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
+- [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
+- [docs/CLI_UNIFICATION_PRD.md](docs/CLI_UNIFICATION_PRD.md)
+- [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
+
+## Contributing
+
+If you are changing Cortex itself rather than just using it:
+
+```bash
+python3.11 -m pip install -e ".[dev,server]"
+python3.11 -m pytest tests -q --tb=short
+ruff check cortex tests
+ruff format cortex tests
+```
 
 ## Uninstall
 
-Cortex writes its managed content inside explicit `CORTEX:START` / `CORTEX:END` markers or dedicated generated files. Your own text outside those markers is left alone. To remove Cortex, delete the generated files you do not want anymore or remove the marked block from mixed files, then delete `.cortex/` and any exported `portable/` directory.
+Delete the workspace you initialized, including `.cortex/`, any exported `portable/` artifacts you no longer want, and any runtime config blocks that Cortex added under its managed markers.

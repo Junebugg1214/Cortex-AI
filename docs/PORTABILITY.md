@@ -164,7 +164,7 @@ Cortex is explicit about how each target works.
 | `grok` | Import-ready artifacts | `portable/grok/context_prompt.md`, `portable/grok/context_prompt.json` |
 
 For a sample generated Claude Code file, see [`docs/examples/CLAUDE.generated.md`](examples/CLAUDE.generated.md).
-That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a contributor guide for working on Cortex itself.
+That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a repository guide for working on Cortex itself.
 
 ## Notes
 
