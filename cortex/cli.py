@@ -46,16 +46,62 @@ if TYPE_CHECKING:
 
 FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "doctor")
 ADVANCED_HELP_NOTE = (
-    "Run `cortex --help-all` for operational, advanced, and compatibility commands such as "
+    "Advanced / compatibility:\n"
+    "  Run `cortex --help-all` for graph/versioning internals and legacy aliases such as "
     "`scan`, `sync`, `status`, `portable`, `remember`, `build`, `audit`, `server`, and `mcp`."
 )
 DEFAULT_HELP_START_HERE = (
     "Start Here:\n"
-    "  cortex init                 Bootstrap a local Cortex workspace\n"
-    "  cortex mind status <mind>   Inspect one portable Mind\n"
-    "  cortex pack list            Inspect Brainpacks\n"
-    "  cortex connect manus        Generate Manus connector setup\n"
-    "  cortex serve manus          Run the local Manus bridge\n"
+    "  1. cortex init\n"
+    '  2. cortex mind remember self "I prefer concise, implementation-first answers."\n'
+    "  3. cortex connect manus\n"
+    "  4. cortex serve manus\n"
+)
+DEFAULT_HELP_SURFACE_MAP = (
+    "Surface Map:\n"
+    "  Core user flows      init, mind, pack, connect\n"
+    "  Runtime / admin      serve, doctor\n"
+    "  Advanced internals   graph/versioning + compatibility aliases via --help-all\n"
+)
+INIT_HELP_EPILOG = (
+    "Bootstrap flow:\n"
+    "  cortex init\n"
+    '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
+    "  cortex connect manus\n"
+)
+MIND_HELP_EPILOG = (
+    "Common Mind flow:\n"
+    "  cortex mind status self\n"
+    '  cortex mind remember self "We are building Cortex as a first-class AI CLI."\n'
+    '  cortex mind compose self --to codex --task "product strategy"\n'
+    "  cortex mind mount self --to codex\n"
+)
+PACK_HELP_EPILOG = (
+    "Common Brainpack flow:\n"
+    "  cortex pack init ai-memory\n"
+    "  cortex pack ingest ai-memory docs/\n"
+    "  cortex pack compile ai-memory\n"
+    "  cortex mind attach-pack self ai-memory\n"
+)
+CONNECT_HELP_EPILOG = (
+    "Connect is runtime wiring only.\n"
+    "Use `cortex mind mount` to materialize Cortex state into a target once the connector is ready.\n\n"
+    "Common connect flow:\n"
+    "  cortex connect manus --check\n"
+    "  cortex connect manus --print-config\n"
+    "  cortex mind mount self --to codex\n"
+)
+SERVE_HELP_EPILOG = (
+    "Runtime / admin surfaces:\n"
+    "  serve api     REST API for programmatic access\n"
+    "  serve mcp     stdio MCP for local agent runtimes\n"
+    "  serve manus   hosted HTTPS-friendly MCP bridge\n"
+    "  serve ui      local infrastructure UI\n\n"
+    "These are runtime/admin commands; day-to-day workflows usually start with `cortex init`,\n"
+    "`cortex mind`, or `cortex connect`.\n"
+)
+DOCTOR_HELP_EPILOG = (
+    "Safety / repair flow:\n  cortex doctor\n  cortex doctor --fix --dry-run\n  cortex doctor --fix-store\n"
 )
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
@@ -124,7 +170,7 @@ class CortexArgumentParser(argparse.ArgumentParser):
         finally:
             action._choices_actions = original_choices_actions
             action.metavar = original_metavar
-        return f"{help_text}\n\n{DEFAULT_HELP_START_HERE}\n{ADVANCED_HELP_NOTE}\n"
+        return f"{help_text}\n\n{DEFAULT_HELP_START_HERE}\n{DEFAULT_HELP_SURFACE_MAP}\n{ADVANCED_HELP_NOTE}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +716,8 @@ def _to_context_json_v5(data: dict) -> dict:
 def build_parser(*, show_all_commands: bool = False):
     parser = CortexArgumentParser(
         prog="cortex",
-        description="Cortex — portable AI context across AI tools.",
+        description="Cortex — one portable Mind across AI tools.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         show_all_commands=show_all_commands,
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON output when supported")
@@ -679,7 +726,13 @@ def build_parser(*, show_all_commands: bool = False):
     sub = parser.add_subparsers(dest="subcommand")
 
     # -- init (first-run setup) -------------------------------------------
-    init = sub.add_parser("init", help="Initialize a first-class local Cortex workspace")
+    init = sub.add_parser(
+        "init",
+        help="Initialize a first-class local Cortex workspace",
+        description="Bootstrap a local Cortex workspace around one default portable Mind.",
+        epilog=INIT_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     init.add_argument("--store-dir", default=None, help="Store directory (default: nearest .cortex or ./ .cortex)")
     init.add_argument("--mind", default="self", help="Default Mind id to create when none exists (default: self)")
     init.add_argument("--label", default="", help="Optional display label for the default Mind")
@@ -701,7 +754,13 @@ def build_parser(*, show_all_commands: bool = False):
     init.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- connect (runtime setup) -----------------------------------------
-    connect = sub.add_parser("connect", help="Prepare first-class runtime connection setup")
+    connect = sub.add_parser(
+        "connect",
+        help="Prepare first-class runtime connection setup",
+        description="Prepare runtime wiring for Cortex without materializing Mind state yet.",
+        epilog=CONNECT_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     connect_sub = connect.add_subparsers(dest="connect_subcommand")
 
     connect_manus = connect_sub.add_parser("manus", help="Generate a Manus custom MCP connector config")
@@ -780,7 +839,13 @@ def build_parser(*, show_all_commands: bool = False):
     _add_connect_runtime_args(connect_claude_code, target_label="Claude Code")
 
     # -- serve (runtime processes) ---------------------------------------
-    serve = sub.add_parser("serve", help="Run local Cortex runtime surfaces")
+    serve = sub.add_parser(
+        "serve",
+        help="Run local Cortex runtime surfaces",
+        description="Run local or hosted Cortex runtime surfaces.",
+        epilog=SERVE_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     serve_sub = serve.add_subparsers(dest="serve_subcommand")
 
     serve_api = serve_sub.add_parser("api", help="Launch the local Cortex REST API server")
@@ -1742,7 +1807,13 @@ def build_parser(*, show_all_commands: bool = False):
     aud.add_argument("--project", "-d", help="Project directory for live manifest comparison (default: cwd)")
     aud.add_argument("--format", choices=["json", "text"], default="text")
 
-    doc = sub.add_parser("doctor", help="Run portability diagnostics for your local Cortex setup")
+    doc = sub.add_parser(
+        "doctor",
+        help="Inspect and repair Cortex store, config, and runtime drift",
+        description="Inspect and repair Cortex store, config, and runtime drift in a local workspace.",
+        epilog=DOCTOR_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     doc.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     doc.add_argument(
@@ -1768,7 +1839,13 @@ def build_parser(*, show_all_commands: bool = False):
     doc.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- mind (top-level portable minds) ----------------------------------
-    mind = sub.add_parser("mind", help="Manage Cortex Minds: portable, versioned, composable agent minds")
+    mind = sub.add_parser(
+        "mind",
+        help="Manage Cortex Minds: portable, versioned, composable agent minds",
+        description="Manage Cortex Minds: durable identity, memory, composition, and mounts.",
+        epilog=MIND_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     mind_sub = mind.add_subparsers(dest="mind_subcommand")
 
     mind_init = mind_sub.add_parser("init", help="Create a new Cortex Mind")
@@ -1940,7 +2017,13 @@ def build_parser(*, show_all_commands: bool = False):
     mind_mounts.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- pack (Brainpacks) -------------------------------------------------
-    pk = sub.add_parser("pack", help="Manage Brainpacks: portable, mountable domain minds")
+    pk = sub.add_parser(
+        "pack",
+        help="Manage Brainpacks: portable, mountable domain minds",
+        description="Manage Brainpacks: reusable specialist knowledge that can attach to a Mind.",
+        epilog=PACK_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     pk_sub = pk.add_subparsers(dest="pack_subcommand")
 
     pk_init = pk_sub.add_parser("init", help="Create a new Brainpack skeleton")
