@@ -1532,6 +1532,174 @@ namespace = "team"
     assert 'store_dir = "."' in config_path.read_text(encoding="utf-8")
 
 
+def test_doctor_fix_store_dry_run_reports_repairs_without_writing(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    root_config = project_dir / "config.toml"
+    root_config.write_text(
+        """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["mind", "init", "marc", "--kind", "person", "--owner", "marc", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["mind", "default", "marc", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["mind", "remember", "marc", "I am Marc Saint-Jour.", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["doctor", "--store-dir", str(project_dir), "--fix-store", "--dry-run", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["status"] == "dry-run"
+    assert {action["action"] for action in payload["repair_actions"]} >= {"move_config", "move_store_entry"}
+    assert payload["repair_conflicts"] == []
+    assert payload["repair_errors"] == []
+    assert root_config.exists()
+    assert (project_dir / "minds" / "marc" / "manifest.json").exists()
+    assert not (project_dir / ".cortex").exists()
+
+
+def test_doctor_fix_reports_partial_when_some_repairs_conflict(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    root_config = project_dir / "config.toml"
+    root_config.write_text(
+        """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["mind", "init", "marc", "--kind", "person", "--owner", "marc", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["mind", "default", "marc", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["mind", "remember", "marc", "I am Marc Saint-Jour.", "--store-dir", str(project_dir)])
+    capsys.readouterr()
+    assert rc == 0
+
+    canonical_store = project_dir / ".cortex"
+    canonical_store.mkdir()
+    (canonical_store / "config.toml").write_text(
+        (
+            """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip()
+            + "\n"
+        ),
+        encoding="utf-8",
+    )
+
+    rc = main(["doctor", "--store-dir", str(project_dir), "--fix-store", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["status"] == "partial"
+    assert any(action["action"] == "move_store_entry" for action in payload["repair_actions"])
+    assert any(conflict["action"] == "move_config" for conflict in payload["repair_conflicts"])
+    assert payload["repair_errors"] == []
+    assert root_config.exists()
+    assert not (project_dir / "minds").exists()
+    assert (canonical_store / "minds" / "marc" / "manifest.json").exists()
+
+
+def test_doctor_fix_reports_failed_when_no_safe_repair_can_run(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "config.toml").write_text(
+        """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+    (project_dir / "minds").mkdir()
+    (project_dir / "minds" / "root.txt").write_text("root-store", encoding="utf-8")
+
+    canonical_store = project_dir / ".cortex"
+    (canonical_store / "minds").mkdir(parents=True)
+    (canonical_store / "minds" / "canonical.txt").write_text("canonical-store", encoding="utf-8")
+    (canonical_store / "config.toml").write_text(
+        """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["doctor", "--store-dir", str(project_dir), "--fix-store", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["status"] == "failed"
+    assert payload["repair_actions"] == []
+    assert {conflict["action"] for conflict in payload["repair_conflicts"]} == {"move_config", "move_store_entry"}
+    assert payload["repair_errors"] == []
+    assert (project_dir / "config.toml").exists()
+    assert (project_dir / "minds" / "root.txt").exists()
+    assert (canonical_store / "minds" / "canonical.txt").exists()
+
+
+def test_doctor_fix_backup_repair_copies_original_config(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    store_dir.mkdir()
+    config_path = store_dir / "config.toml"
+    original = """
+[runtime]
+store_dir = ".cortex"
+
+[mcp]
+namespace = "team"
+""".strip()
+    config_path.write_text(original, encoding="utf-8")
+
+    rc = main(["doctor", "--store-dir", str(store_dir), "--fix", "--backup-repair", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["status"] == "fixed"
+    assert payload["repair_backup_dir"]
+    assert Path(payload["repair_backup_dir"]).exists()
+    assert payload["repair_backup_copies"]
+    assert any(copy["source"] == str(config_path) for copy in payload["repair_backup_copies"])
+
+    backup_config = Path(payload["repair_backup_copies"][0]["backup"])
+    assert backup_config.exists()
+    assert backup_config.read_text(encoding="utf-8").strip() == original
+    assert 'store_dir = "."' in config_path.read_text(encoding="utf-8")
+
+
 def test_switch_generates_target_specific_artifacts(tmp_path, capsys):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
