@@ -162,6 +162,22 @@ class CortexSelfHostConfig:
         }
 
 
+@dataclass(slots=True)
+class CortexStoreDiscovery:
+    store_dir: Path
+    source: str
+    config_path: Path | None = None
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "store_dir": str(self.store_dir),
+            "source": self.source,
+            "config_path": str(self.config_path) if self.config_path else None,
+            "warnings": list(self.warnings),
+        }
+
+
 def _candidate_config_path(
     *,
     explicit_path: str | Path | None,
@@ -176,6 +192,82 @@ def _candidate_config_path(
         return env_path, True
     base_store_dir = _as_optional_path(store_dir) or _as_optional_path(env.get("CORTEX_STORE_DIR")) or Path(".cortex")
     return Path(base_store_dir) / "config.toml", False
+
+
+def _ancestry(start: Path) -> list[Path]:
+    resolved = start.resolve()
+    return [resolved, *resolved.parents]
+
+
+def _discover_store_candidates(start: Path) -> list[Path]:
+    return [candidate / ".cortex" for candidate in _ancestry(start) if (candidate / ".cortex").exists()]
+
+
+def discover_cortex_store(
+    *,
+    start: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CortexStoreDiscovery:
+    env_map = env or os.environ
+    explicit_env_store = _as_optional_path(env_map.get("CORTEX_STORE_DIR"))
+    if explicit_env_store is not None:
+        store_path = explicit_env_store if explicit_env_store.is_absolute() else (Path.cwd() / explicit_env_store)
+        return CortexStoreDiscovery(store_dir=store_path.resolve(), source="env")
+
+    start_path = Path(start or Path.cwd())
+    store_candidates = _discover_store_candidates(start_path)
+    warnings: list[str] = []
+    if len(store_candidates) > 1:
+        warnings.append(
+            "Multiple Cortex stores were detected while walking upward from the current directory; using the nearest one."
+        )
+
+    for candidate in _ancestry(start_path):
+        config_path = candidate / ".cortex" / "config.toml"
+        if config_path.exists():
+            config = load_selfhost_config(config_path=config_path, env={})
+            return CortexStoreDiscovery(
+                store_dir=config.store_dir.resolve(),
+                source="discovered_config",
+                config_path=config.config_path,
+                warnings=tuple(warnings),
+            )
+
+    if store_candidates:
+        return CortexStoreDiscovery(
+            store_dir=store_candidates[0].resolve(),
+            source="discovered_store",
+            config_path=(store_candidates[0] / "config.toml").resolve()
+            if (store_candidates[0] / "config.toml").exists()
+            else None,
+            warnings=tuple(warnings),
+        )
+
+    default_store = (start_path.resolve() / ".cortex").resolve()
+    return CortexStoreDiscovery(
+        store_dir=default_store,
+        source="default",
+        warnings=tuple(warnings),
+    )
+
+
+def resolve_cli_store_dir(
+    store_dir: str | Path | None,
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CortexStoreDiscovery:
+    explicit = _as_optional_path(store_dir)
+    if explicit is None:
+        return discover_cortex_store(start=cwd or Path.cwd(), env=env)
+
+    raw = str(store_dir).strip()
+    if raw == ".cortex":
+        return discover_cortex_store(start=cwd or Path.cwd(), env=env)
+
+    base = cwd or Path.cwd()
+    resolved = explicit if explicit.is_absolute() else (base / explicit)
+    return CortexStoreDiscovery(store_dir=resolved.resolve(), source="cli")
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -420,9 +512,12 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
 __all__ = [
     "ALL_SCOPES",
     "APIKeyConfig",
+    "CortexStoreDiscovery",
     "CortexSelfHostConfig",
     "VALID_SCOPES",
+    "discover_cortex_store",
     "format_startup_diagnostics",
     "load_selfhost_config",
+    "resolve_cli_store_dir",
     "startup_diagnostics",
 ]

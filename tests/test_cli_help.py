@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from cortex.cli import ADVANCED_HELP_NOTE, CORE_PORTABILITY_COMMANDS, build_parser, main
+from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, build_parser, main
 
 
 def _listed_commands(help_text: str) -> set[str]:
@@ -14,12 +14,23 @@ def _listed_commands(help_text: str) -> set[str]:
     return commands
 
 
-def test_default_help_is_portability_first():
+def test_default_help_is_first_class_and_mind_first():
     help_text = build_parser().format_help()
     commands = _listed_commands(help_text)
 
-    assert set(CORE_PORTABILITY_COMMANDS).issubset(commands)
-    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "mind"}.isdisjoint(commands)
+    assert set(FIRST_CLASS_COMMANDS).issubset(commands)
+    assert {
+        "portable",
+        "remember",
+        "build",
+        "audit",
+        "merge",
+        "governance",
+        "remote",
+        "backup",
+        "server",
+        "memory",
+    }.isdisjoint(commands)
     assert ADVANCED_HELP_NOTE in help_text
 
 
@@ -29,8 +40,17 @@ def test_help_all_shows_full_command_list(capsys):
     commands = _listed_commands(out)
 
     assert rc == 0
-    assert set(CORE_PORTABILITY_COMMANDS).issubset(commands)
-    assert {"merge", "governance", "remote", "backup", "server", "ui", "memory", "doctor", "mind", "pack"}.issubset(
-        commands
-    )
+    assert set(FIRST_CLASS_COMMANDS).issubset(commands)
+    assert {
+        "portable",
+        "remember",
+        "build",
+        "audit",
+        "merge",
+        "governance",
+        "remote",
+        "backup",
+        "server",
+        "memory",
+    }.issubset(commands)
     assert ADVANCED_HELP_NOTE not in out

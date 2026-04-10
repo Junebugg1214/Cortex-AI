@@ -110,6 +110,7 @@ class TestPortableCLI:
         home_dir = tmp_path / "home"
         project_dir = tmp_path / "project"
         out_dir = tmp_path / "portable"
+        store_dir = tmp_path / ".cortex"
         monkeypatch.setenv("HOME", str(home_dir))
 
         graph_path = _make_graph_file(tmp_path)
@@ -130,6 +131,8 @@ class TestPortableCLI:
                 str(out_dir),
                 "-d",
                 str(project_dir),
+                "--store-dir",
+                str(store_dir),
             ]
         )
 
@@ -151,6 +154,7 @@ class TestPortableCLI:
 
     def test_portable_extracts_text_input_before_exporting(self, tmp_path, monkeypatch):
         home_dir = tmp_path / "home"
+        store_dir = tmp_path / ".cortex"
         monkeypatch.setenv("HOME", str(home_dir))
 
         input_path = tmp_path / "notes.txt"
@@ -165,7 +169,7 @@ class TestPortableCLI:
         )
         out_dir = tmp_path / "portable"
 
-        rc = main(["portable", str(input_path), "--to", "chatgpt", "-o", str(out_dir)])
+        rc = main(["portable", str(input_path), "--to", "chatgpt", "-o", str(out_dir), "--store-dir", str(store_dir)])
         assert rc == 0
         assert (out_dir / "context.json").exists()
         assert (out_dir / "chatgpt" / "custom_instructions.json").exists()
