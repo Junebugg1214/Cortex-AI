@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import shlex
+import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,6 +41,45 @@ FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "scan", "syn
 ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced and legacy commands."
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
+DOCTOR_STORE_ENTRY_NAMES = (
+    "HEAD",
+    "history.json",
+    "refs",
+    "versions",
+    "minds",
+    "packs",
+    "portable",
+    "claims.jsonl",
+    "governance.json",
+    "remotes.json",
+    "identity.json",
+    "identity.key",
+    "keychain.json",
+    "merge_state.json",
+    "merge_working.json",
+    "federation_state.json",
+    "maintenance_audit.json",
+    "logs",
+    "cortex.db",
+)
+DOCTOR_STORE_SIGNATURE_NAMES = {
+    "HEAD",
+    "history.json",
+    "refs",
+    "versions",
+    "minds",
+    "packs",
+    "cortex.db",
+    "claims.jsonl",
+    "governance.json",
+    "remotes.json",
+    "identity.key",
+    "keychain.json",
+    "merge_state.json",
+    "merge_working.json",
+    "federation_state.json",
+    "maintenance_audit.json",
+}
 
 
 class CortexArgumentParser(argparse.ArgumentParser):
@@ -1430,6 +1470,16 @@ def build_parser(*, show_all_commands: bool = False):
     doc = sub.add_parser("doctor", help="Run portability diagnostics for your local Cortex setup")
     doc.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    doc.add_argument(
+        "--fix",
+        action="store_true",
+        help="Apply safe repairs for first-class Cortex CLI store/config issues",
+    )
+    doc.add_argument(
+        "--fix-store",
+        action="store_true",
+        help="Normalize accidental root-level stores back into a canonical .cortex store",
+    )
     doc.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- mind (top-level portable minds) ----------------------------------
@@ -6286,6 +6336,302 @@ def run_audit(args):
     return 0
 
 
+def _doctor_workspace_paths(store_dir: Path) -> tuple[Path, Path]:
+    resolved = store_dir.resolve()
+    if resolved.name == ".cortex":
+        return resolved.parent, resolved
+    return resolved, (resolved / ".cortex").resolve()
+
+
+def _doctor_store_entries(root: Path) -> list[str]:
+    return [name for name in DOCTOR_STORE_ENTRY_NAMES if (root / name).exists()]
+
+
+def _doctor_has_store_signature(entries: list[str]) -> bool:
+    return any(name in DOCTOR_STORE_SIGNATURE_NAMES for name in entries)
+
+
+def _doctor_raw_config_payload(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    from cortex.config import _load_toml
+
+    if not path.exists():
+        return None, None
+    try:
+        payload = _load_toml(path)
+    except Exception as exc:  # pragma: no cover - parse details vary slightly by interpreter
+        return None, str(exc)
+    return payload, None
+
+
+def _doctor_is_cortex_config(payload: dict[str, Any] | None) -> bool:
+    if not payload:
+        return False
+    return bool({"runtime", "server", "mcp", "auth"} & set(payload))
+
+
+def _doctor_runtime_store_dir(payload: dict[str, Any] | None) -> str | None:
+    if not payload:
+        return None
+    runtime = payload.get("runtime") or {}
+    if not isinstance(runtime, dict):
+        return None
+    value = runtime.get("store_dir")
+    if value is None:
+        return None
+    return str(value).strip()
+
+
+def _doctor_normalize_config_store_dir(config_path: Path, *, desired: str = ".") -> bool:
+    original = config_path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    updated: list[str] = []
+    runtime_found = False
+    in_runtime = False
+    store_written = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_runtime and not store_written:
+                updated.append(f'store_dir = "{desired}"')
+                store_written = True
+            in_runtime = stripped == "[runtime]"
+            runtime_found = runtime_found or in_runtime
+            updated.append(line)
+            continue
+        if in_runtime and "=" in stripped and stripped.split("=", 1)[0].strip() == "store_dir":
+            indent = line[: len(line) - len(line.lstrip())]
+            updated.append(f'{indent}store_dir = "{desired}"')
+            store_written = True
+            continue
+        updated.append(line)
+
+    if in_runtime and not store_written:
+        updated.append(f'store_dir = "{desired}"')
+        store_written = True
+
+    if not runtime_found:
+        updated = ["[runtime]", f'store_dir = "{desired}"', "", *updated]
+        store_written = True
+
+    normalized = "\n".join(updated).strip() + "\n"
+    if normalized == original:
+        return False
+    config_path.write_text(normalized, encoding="utf-8")
+    return True
+
+
+def _doctor_collect_store_diagnosis(store_dir: Path) -> dict[str, Any]:
+    from cortex.config import load_selfhost_config
+
+    resolved_store = store_dir.resolve()
+    workspace_root, canonical_store = _doctor_workspace_paths(resolved_store)
+    root_entries = _doctor_store_entries(workspace_root)
+    has_root_store = _doctor_has_store_signature(root_entries)
+    root_config_path = workspace_root / "config.toml"
+    canonical_config_path = canonical_store / "config.toml"
+    root_config_payload, root_config_error = (
+        _doctor_raw_config_payload(root_config_path) if root_config_path != canonical_config_path else (None, None)
+    )
+    canonical_config_payload, canonical_config_error = _doctor_raw_config_payload(canonical_config_path)
+    root_config_is_cortex = _doctor_is_cortex_config(root_config_payload)
+    issues: list[dict[str, Any]] = []
+
+    if resolved_store != canonical_store and has_root_store:
+        issues.append(
+            {
+                "code": "root_store_layout",
+                "severity": "warning",
+                "message": (
+                    f"The active store resolves to {resolved_store}, not the canonical {canonical_store}. "
+                    "This usually means Cortex runtime files are spilling into the workspace root."
+                ),
+                "fixable": True,
+                "entries": list(root_entries),
+            }
+        )
+
+    if resolved_store == canonical_store and has_root_store:
+        issues.append(
+            {
+                "code": "accidental_second_store",
+                "severity": "warning",
+                "message": (
+                    f"Detected Cortex store artifacts next to the active .cortex store in {workspace_root}. "
+                    "This looks like an accidental second store."
+                ),
+                "fixable": True,
+                "entries": list(root_entries),
+            }
+        )
+
+    if root_config_error and root_config_path != canonical_config_path:
+        issues.append(
+            {
+                "code": "root_config_parse_error",
+                "severity": "warning",
+                "message": f"Could not parse {root_config_path}: {root_config_error}",
+                "fixable": False,
+                "path": str(root_config_path),
+            }
+        )
+    elif root_config_is_cortex:
+        raw_store_dir = _doctor_runtime_store_dir(root_config_payload)
+        issues.append(
+            {
+                "code": "root_config_outside_store",
+                "severity": "warning",
+                "message": (
+                    f"Found a Cortex config outside .cortex at {root_config_path}. "
+                    + (
+                        'Because it uses `store_dir = "."`, it can make Cortex write into the workspace root.'
+                        if raw_store_dir == "."
+                        else "First-class Cortex CLI flows discover `.cortex/config.toml`, not a root-level config.toml."
+                    )
+                ),
+                "fixable": not canonical_config_path.exists(),
+                "path": str(root_config_path),
+                "raw_store_dir": raw_store_dir,
+            }
+        )
+
+    if canonical_config_error:
+        issues.append(
+            {
+                "code": "canonical_config_parse_error",
+                "severity": "warning",
+                "message": f"Could not parse {canonical_config_path}: {canonical_config_error}",
+                "fixable": False,
+                "path": str(canonical_config_path),
+            }
+        )
+    elif canonical_config_path.exists():
+        try:
+            canonical_config = load_selfhost_config(config_path=canonical_config_path, env={})
+        except ValueError as exc:
+            issues.append(
+                {
+                    "code": "canonical_config_invalid",
+                    "severity": "warning",
+                    "message": f"Could not load {canonical_config_path}: {exc}",
+                    "fixable": False,
+                    "path": str(canonical_config_path),
+                }
+            )
+        else:
+            raw_store_dir = _doctor_runtime_store_dir(canonical_config_payload)
+            raw_store_matches_canonical = False
+            if raw_store_dir:
+                raw_store_path = Path(raw_store_dir)
+                if raw_store_path.is_absolute():
+                    raw_store_matches_canonical = raw_store_path.resolve() == canonical_store
+            if canonical_config.store_dir.resolve() != canonical_store:
+                issues.append(
+                    {
+                        "code": "config_store_mismatch",
+                        "severity": "warning",
+                        "message": (
+                            f"{canonical_config_path} resolves store_dir to {canonical_config.store_dir.resolve()}, "
+                            f"but the canonical store is {canonical_store}."
+                        ),
+                        "fixable": True,
+                        "path": str(canonical_config_path),
+                    }
+                )
+            elif raw_store_dir not in (".",) and not raw_store_matches_canonical:
+                issues.append(
+                    {
+                        "code": "config_store_dir_not_dot",
+                        "severity": "warning",
+                        "message": (
+                            f'{canonical_config_path} should pin `[runtime].store_dir = "."` '
+                            "so the active store remains stable and discoverable."
+                        ),
+                        "fixable": True,
+                        "path": str(canonical_config_path),
+                        "raw_store_dir": raw_store_dir,
+                    }
+                )
+
+    return {
+        "active_store_dir": resolved_store,
+        "workspace_root": workspace_root,
+        "canonical_store_dir": canonical_store,
+        "root_store_entries": root_entries,
+        "repairable_root_entries": root_entries if has_root_store else [],
+        "root_config_path": root_config_path if root_config_is_cortex else None,
+        "canonical_config_path": canonical_config_path,
+        "issues": issues,
+    }
+
+
+def _doctor_apply_store_repairs(diagnosis: dict[str, Any]) -> dict[str, Any]:
+    workspace_root = Path(diagnosis["workspace_root"])
+    canonical_store = Path(diagnosis["canonical_store_dir"])
+    root_entries = list(diagnosis["repairable_root_entries"])
+    root_config_path = diagnosis["root_config_path"]
+    canonical_config_path = Path(diagnosis["canonical_config_path"])
+    actions: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    canonical_store.mkdir(parents=True, exist_ok=True)
+
+    if root_config_path is not None:
+        source_config = Path(root_config_path)
+        if source_config.exists() and source_config != canonical_config_path:
+            if canonical_config_path.exists():
+                errors.append(
+                    f"Cannot move {source_config} into {canonical_config_path} because the canonical config already exists."
+                )
+            else:
+                canonical_config_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source_config), str(canonical_config_path))
+                actions.append(
+                    {
+                        "action": "move_config",
+                        "source": str(source_config),
+                        "destination": str(canonical_config_path),
+                    }
+                )
+
+    for name in root_entries:
+        source_path = workspace_root / name
+        destination_path = canonical_store / name
+        if not source_path.exists():
+            continue
+        if destination_path.exists():
+            errors.append(f"Cannot move {source_path} into {destination_path} because the destination already exists.")
+            continue
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), str(destination_path))
+        actions.append(
+            {
+                "action": "move_store_entry",
+                "entry": name,
+                "source": str(source_path),
+                "destination": str(destination_path),
+            }
+        )
+
+    if canonical_config_path.exists():
+        normalized = _doctor_normalize_config_store_dir(canonical_config_path, desired=".")
+        if normalized:
+            actions.append(
+                {
+                    "action": "normalize_config_store_dir",
+                    "path": str(canonical_config_path),
+                    "store_dir": ".",
+                }
+            )
+
+    return {
+        "applied": bool(actions),
+        "store_dir": str(canonical_store),
+        "actions": actions,
+        "errors": errors,
+    }
+
+
 def run_doctor(args):
     from cortex.config import load_selfhost_config
     from cortex.context import _resolve_path
@@ -6293,12 +6639,22 @@ def run_doctor(args):
     from cortex.release import PROJECT_VERSION
 
     selection = _resolve_store_selection(args.store_dir)
-    store_dir = selection.store_dir
+    store_dir = selection.store_dir.resolve()
     project_dir = Path(args.project) if args.project else Path.cwd()
-    state = load_portability_state(store_dir)
-    graph, graph_path = load_canonical_graph(store_dir, state)
-    scan = scan_portability(store_dir=store_dir, project_dir=project_dir)
-    config_path = store_dir / "config.toml"
+    fix_requested = args.fix or args.fix_store
+    diagnosis = _doctor_collect_store_diagnosis(store_dir)
+    repair_report: dict[str, Any] | None = None
+    effective_store_dir = store_dir
+
+    if fix_requested:
+        repair_report = _doctor_apply_store_repairs(diagnosis)
+        effective_store_dir = Path(repair_report["store_dir"]).resolve()
+        diagnosis = _doctor_collect_store_diagnosis(effective_store_dir)
+
+    state = load_portability_state(effective_store_dir)
+    graph, graph_path = load_canonical_graph(effective_store_dir, state)
+    scan = scan_portability(store_dir=effective_store_dir, project_dir=project_dir)
+    config_path = effective_store_dir / "config.toml"
     config = load_selfhost_config(config_path=config_path, env={}) if config_path.exists() else None
 
     try:
@@ -6308,13 +6664,40 @@ def run_doctor(args):
     except Exception:  # pragma: no cover
         crypto_available = False
 
+    issues = diagnosis["issues"]
+    fix_available = any(issue.get("fixable") for issue in issues)
+    repair_actions = repair_report["actions"] if repair_report else []
+    repair_errors = repair_report["errors"] if repair_report else []
+    advice: list[str]
+    if repair_actions:
+        advice = [
+            "Run `cortex doctor` again to confirm the store is stable.",
+            "Run `cortex init` if you still need config or auth bootstrap help.",
+        ]
+    elif fix_requested and not repair_actions and not repair_errors:
+        advice = ["No safe store repairs were needed."]
+    elif fix_available:
+        advice = ["Run `cortex doctor --fix-store` to normalize the active store back into `.cortex/`."]
+    elif not graph.nodes:
+        advice = [
+            "Run `cortex portable <export-or-graph> --to all --project .` to create your first canonical context."
+        ]
+    else:
+        advice = ["Run `cortex scan` to audit coverage or `cortex sync --smart` to refresh every tool."]
+
+    status = "ok"
+    if repair_actions:
+        status = "fixed"
+    elif issues or repair_errors:
+        status = "warn"
+
     payload = {
-        "status": "ok",
+        "status": status,
         "release": PROJECT_VERSION,
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "store_dir": str(store_dir.resolve()),
+        "store_dir": str(effective_store_dir.resolve()),
         "project_dir": str(project_dir.resolve()),
-        "store_source": selection.source,
+        "store_source": selection.source if effective_store_dir == store_dir else "doctor_fix",
         "config_path": str(config.config_path) if config and config.config_path else None,
         "canonical_graph_path": str(graph_path),
         "canonical_graph_exists": graph_path.exists(),
@@ -6330,11 +6713,12 @@ def run_doctor(args):
         },
         "crypto_available": crypto_available,
         "warnings": list(selection.warnings),
-        "advice": (
-            ["Run `cortex portable <export-or-graph> --to all --project .` to create your first canonical context."]
-            if not graph.nodes
-            else ["Run `cortex scan` to audit coverage or `cortex sync --smart` to refresh every tool."]
-        ),
+        "issues": issues,
+        "fix_requested": fix_requested,
+        "fix_available": fix_available,
+        "repair_actions": repair_actions,
+        "repair_errors": repair_errors,
+        "advice": advice,
     }
     if _emit_result(payload, args.format) == 0:
         return 0
@@ -6355,6 +6739,15 @@ def run_doctor(args):
     _echo(f"  Crypto:  {'installed' if crypto_available else 'not installed'}")
     for warning in payload["warnings"]:
         _echo(f"  Warning: {warning}")
+    for issue in payload["issues"]:
+        _echo(f"  Issue:   [{issue['code']}] {issue['message']}")
+    for action in payload["repair_actions"]:
+        description = action.get("action", "repair")
+        if action.get("entry"):
+            description += f" ({action['entry']})"
+        _echo(f"  Repair:  {description}")
+    for error in payload["repair_errors"]:
+        _echo(f"  Repair warning: {error}")
     _echo("  Smart routing:")
     for target, tags in SMART_ROUTE_TAGS.items():
         _echo(f"    {target:<12} → {', '.join(tags)}")

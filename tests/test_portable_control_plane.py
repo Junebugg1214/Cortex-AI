@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 from cortex.cli import main
+from cortex.config import load_selfhost_config
 from cortex.context import CORTEX_END, CORTEX_START
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.hermes_integration import HERMES_CONFIG_END, HERMES_CONFIG_START
@@ -1420,7 +1421,115 @@ def test_doctor_reports_portability_state_and_smart_routing(tmp_path, capsys, mo
     assert payload["status"] == "ok"
     assert payload["canonical_graph_exists"] is True
     assert payload["fact_count"] > 0
+    assert payload["issues"] == []
+    assert payload["fix_available"] is False
     assert "technical_expertise" in payload["smart_routing"]["claude-code"]
+
+
+def test_doctor_fix_store_normalizes_root_store_into_dot_cortex(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    root_config = project_dir / "config.toml"
+    root_config.write_text(
+        """
+[runtime]
+store_dir = "."
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["mind", "init", "marc", "--store-dir", str(project_dir), "--format", "json"])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["mind", "default", "marc", "--store-dir", str(project_dir), "--format", "json"])
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(
+        [
+            "mind",
+            "remember",
+            "marc",
+            "I am Marc Saint-Jour.",
+            "--store-dir",
+            str(project_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["doctor", "--store-dir", str(project_dir), "--format", "json"])
+    before = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert before["status"] == "warn"
+    assert {issue["code"] for issue in before["issues"]} >= {"root_store_layout", "root_config_outside_store"}
+    assert before["fix_available"] is True
+
+    rc = main(["doctor", "--store-dir", str(project_dir), "--fix-store", "--format", "json"])
+    after = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert after["status"] == "fixed"
+    assert after["store_dir"] == str((project_dir / ".cortex").resolve())
+    assert {action["action"] for action in after["repair_actions"]} >= {"move_config", "move_store_entry"}
+    assert after["repair_errors"] == []
+    assert after["issues"] == []
+    assert not root_config.exists()
+    assert not (project_dir / "minds").exists()
+    assert not (project_dir / "versions").exists()
+    assert (project_dir / ".cortex" / "config.toml").exists()
+    assert (project_dir / ".cortex" / "minds" / "marc" / "manifest.json").exists()
+    assert (project_dir / ".cortex" / "versions").exists()
+
+    status_rc = main(["mind", "status", "marc", "--store-dir", str(project_dir / ".cortex"), "--format", "json"])
+    status_payload = json.loads(capsys.readouterr().out)
+
+    assert status_rc == 0
+    assert status_payload["mind"] == "marc"
+    assert status_payload["core_state"]["graph_ref"] == "refs/minds/marc/branches/main"
+
+
+def test_doctor_fix_store_rewrites_canonical_config_mismatch(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    store_dir.mkdir()
+    config_path = store_dir / "config.toml"
+    config_path.write_text(
+        """
+[runtime]
+store_dir = ".cortex"
+
+[mcp]
+namespace = "team"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["doctor", "--store-dir", str(store_dir), "--format", "json"])
+    before = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert before["status"] == "warn"
+    assert {issue["code"] for issue in before["issues"]} >= {"config_store_mismatch"}
+
+    rc = main(["doctor", "--store-dir", str(store_dir), "--fix", "--format", "json"])
+    after = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert after["status"] == "fixed"
+    assert after["repair_errors"] == []
+    assert any(action["action"] == "normalize_config_store_dir" for action in after["repair_actions"])
+    assert after["issues"] == []
+
+    config = load_selfhost_config(config_path=config_path, env={})
+    assert config.store_dir.resolve() == store_dir.resolve()
+    assert 'store_dir = "."' in config_path.read_text(encoding="utf-8")
 
 
 def test_switch_generates_target_specific_artifacts(tmp_path, capsys):
