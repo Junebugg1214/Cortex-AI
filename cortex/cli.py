@@ -37,8 +37,19 @@ if TYPE_CHECKING:
     from cortex.schemas.memory_v1 import GovernanceRuleRecord
     from cortex.upai.identity import UPAIIdentity
 
-FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "scan", "sync", "status", "doctor")
-ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced and legacy commands."
+FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "doctor")
+ADVANCED_HELP_NOTE = (
+    "Run `cortex --help-all` for operational, advanced, and compatibility commands such as "
+    "`scan`, `sync`, `status`, `portable`, `remember`, `build`, `audit`, `server`, and `mcp`."
+)
+DEFAULT_HELP_START_HERE = (
+    "Start Here:\n"
+    "  cortex init                 Bootstrap a local Cortex workspace\n"
+    "  cortex mind status <mind>   Inspect one portable Mind\n"
+    "  cortex pack list            Inspect Brainpacks\n"
+    "  cortex connect manus        Generate Manus connector setup\n"
+    "  cortex serve manus          Run the local Manus bridge\n"
+)
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
 DOCTOR_STORE_ENTRY_NAMES = (
@@ -105,7 +116,7 @@ class CortexArgumentParser(argparse.ArgumentParser):
         finally:
             action._choices_actions = original_choices_actions
             action.metavar = original_metavar
-        return f"{help_text}\n\n{ADVANCED_HELP_NOTE}\n"
+        return f"{help_text}\n\n{DEFAULT_HELP_START_HERE}\n{ADVANCED_HELP_NOTE}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +258,17 @@ def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, st
 
 def _shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
+
+
+def _emit_compatibility_note(command: str, modern_path: str, *, note: str = "", format_name: str | None = None) -> None:
+    if _CLI_QUIET:
+        return
+    if format_name == "json":
+        return
+    message = f"Compatibility note: `cortex {command}` still works, but the first-class path is `{modern_path}`."
+    if note:
+        message += f" {note}"
+    _echo(message, stderr=True)
 
 
 def _select_scoped_api_key(
@@ -1316,7 +1338,11 @@ def build_parser(*, show_all_commands: bool = False):
     cw.add_argument("--interval", type=int, default=30, help="Watch poll interval in seconds (default: 30)")
 
     # -- portable (one-command cross-tool context) -------------------------
-    pt = sub.add_parser("portable", help="One command to carry AI context across supported tools")
+    pt = sub.add_parser(
+        "portable",
+        help="Compatibility command for legacy portability-first context sync",
+        description="Compatibility command for legacy portability-first context sync.",
+    )
     pt.add_argument("input_file", nargs="?", help="Path to a chat export or existing Cortex context graph")
     pt.add_argument(
         "--to",
@@ -1389,7 +1415,11 @@ def build_parser(*, show_all_commands: bool = False):
     )
     pt.add_argument("--format", choices=["json", "text"], default="text")
 
-    scn = sub.add_parser("scan", help="Audit what each supported AI tool knows about you")
+    scn = sub.add_parser(
+        "scan",
+        help="Operational command to inspect runtime context coverage",
+        description="Operational command to inspect runtime context coverage.",
+    )
     scn.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     scn.add_argument("--project", "-d", help="Project directory to inspect (default: cwd)")
     scn.add_argument(
@@ -1400,7 +1430,11 @@ def build_parser(*, show_all_commands: bool = False):
     )
     scn.add_argument("--format", choices=["json", "text"], default="text")
 
-    rem = sub.add_parser("remember", help="Teach Cortex something once and propagate it everywhere")
+    rem = sub.add_parser(
+        "remember",
+        help="Compatibility command for portability-style remember-and-propagate",
+        description="Compatibility command for portability-style remember-and-propagate.",
+    )
     rem.add_argument("statement", help="Plain-language fact or preference to remember")
     rem.add_argument(
         "--to",
@@ -1422,12 +1456,20 @@ def build_parser(*, show_all_commands: bool = False):
     rem.add_argument("--dry-run", action="store_true", help="Preview without writing files")
     rem.add_argument("--format", choices=["json", "text"], default="text")
 
-    sts = sub.add_parser("status", help="Show stale or missing AI context across configured tools")
+    sts = sub.add_parser(
+        "status",
+        help="Operational command to inspect stale or missing runtime context",
+        description="Operational command to inspect stale or missing runtime context.",
+    )
     sts.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     sts.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     sts.add_argument("--format", choices=["json", "text"], default="text")
 
-    bld = sub.add_parser("build", help="Build portable AI context from your existing digital footprint")
+    bld = sub.add_parser(
+        "build",
+        help="Compatibility command for legacy digital-footprint imports",
+        description="Compatibility command for legacy digital-footprint imports.",
+    )
     bld.add_argument(
         "--from",
         dest="sources",
@@ -1462,7 +1504,11 @@ def build_parser(*, show_all_commands: bool = False):
     bld.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
     bld.add_argument("--format", choices=["json", "text"], default="text")
 
-    aud = sub.add_parser("audit", help="Detect conflicts and drift across AI tools and live project context")
+    aud = sub.add_parser(
+        "audit",
+        help="Compatibility command for legacy portability drift diagnostics",
+        description="Compatibility command for legacy portability drift diagnostics.",
+    )
     aud.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
     aud.add_argument("--project", "-d", help="Project directory for live manifest comparison (default: cwd)")
     aud.add_argument("--format", choices=["json", "text"], default="text")
@@ -1826,7 +1872,11 @@ def build_parser(*, show_all_commands: bool = False):
     pk_import.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- ui (local web interface) -----------------------------------------
-    ui = sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
+    ui = sub.add_parser(
+        "ui",
+        help="Compatibility alias for `cortex serve ui`",
+        description="Compatibility alias for `cortex serve ui`.",
+    )
     ui.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     ui.add_argument("--context-file", help="Default context graph file to prefill in the UI")
     ui.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
@@ -1860,7 +1910,11 @@ def build_parser(*, show_all_commands: bool = False):
     bench.add_argument("--output", "-o", help="Optional JSON output path")
 
     # -- server (local REST API) -----------------------------------------
-    srv = sub.add_parser("server", help="Launch the local Cortex REST API server")
+    srv = sub.add_parser(
+        "server",
+        help="Compatibility alias for `cortex serve api`",
+        description="Compatibility alias for `cortex serve api`.",
+    )
     srv.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     srv.add_argument("--context-file", help="Optional default context graph file")
     srv.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
@@ -1870,7 +1924,11 @@ def build_parser(*, show_all_commands: bool = False):
     srv.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
 
     # -- mcp (local Model Context Protocol server) -----------------------
-    mcp = sub.add_parser("mcp", help="Launch the local Cortex MCP server over stdio")
+    mcp = sub.add_parser(
+        "mcp",
+        help="Compatibility alias for `cortex serve mcp`",
+        description="Compatibility alias for `cortex serve mcp`.",
+    )
     mcp.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
     mcp.add_argument("--context-file", help="Optional default context graph file")
     mcp.add_argument(
@@ -5227,6 +5285,13 @@ def run_portable(args):
         sync_targets,
     )
 
+    _emit_compatibility_note(
+        "portable",
+        "cortex mind ingest <mind> --from-detected ...",
+        note="Use `cortex sync` when you only need to refresh already-ingested runtime context.",
+        format_name=getattr(args, "format", None),
+    )
+
     detected_selection = list(getattr(args, "from_detected", []) or [])
     project_dir = Path(args.project) if args.project else Path.cwd()
     detected_payload: dict[str, Any] | None = None
@@ -6220,6 +6285,13 @@ def run_remember(args):
     from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
     from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
+    _emit_compatibility_note(
+        "remember",
+        'cortex mind remember <mind> "..."',
+        note="The default-Mind compatibility layer keeps this command working, but new workflows should target a named Mind directly.",
+        format_name=getattr(args, "format", None),
+    )
+
     store_dir = _resolved_store_dir(args.store_dir)
     project_dir = Path(args.project) if args.project else Path.cwd()
     try:
@@ -6292,6 +6364,13 @@ def run_status(args):
 def run_build(args):
     from cortex.portable_runtime import build_digital_footprint
 
+    _emit_compatibility_note(
+        "build",
+        "cortex mind ingest <mind> --from-detected ...",
+        note="Use `cortex pack` when you want reusable domain knowledge instead of a compatibility-era portability import.",
+        format_name=getattr(args, "format", None),
+    )
+
     store_dir = _resolved_store_dir(args.store_dir)
     try:
         payload = build_digital_footprint(
@@ -6318,6 +6397,13 @@ def run_build(args):
 
 def run_audit(args):
     from cortex.portable_runtime import audit_portability
+
+    _emit_compatibility_note(
+        "audit",
+        "cortex doctor",
+        note="Use `cortex status` for runtime drift checks once your workspace is healthy.",
+        format_name=getattr(args, "format", None),
+    )
 
     store_dir = _resolved_store_dir(args.store_dir)
     payload = audit_portability(
@@ -6923,6 +7009,8 @@ def run_ui(args):
     """Launch the local Cortex infrastructure UI."""
     from cortex.webapp import start_ui_server
 
+    _emit_compatibility_note("ui", "cortex serve ui")
+
     server, url = start_ui_server(
         host=args.host,
         port=args.port,
@@ -6946,6 +7034,8 @@ def run_server(args):
     """Launch the local Cortex REST API server."""
     from cortex.server import main as server_main
 
+    _emit_compatibility_note("server", "cortex serve api")
+
     argv: list[str] = []
     if args.store_dir:
         argv.extend(["--store-dir", args.store_dir])
@@ -6967,6 +7057,8 @@ def run_server(args):
 def run_mcp(args):
     """Launch the local Cortex MCP server over stdio."""
     from cortex.mcp import main as mcp_main
+
+    _emit_compatibility_note("mcp", "cortex serve mcp")
 
     argv: list[str] = []
     if args.store_dir:
