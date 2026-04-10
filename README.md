@@ -302,6 +302,7 @@ cortex --help-all
 - Portable AI subsystem: [docs/PORTABILITY.md](docs/PORTABILITY.md)
 - Brainpacks subsystem: [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
 - Cortex Mind PRD: [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
+- CLI Unification PRD: [docs/CLI_UNIFICATION_PRD.md](docs/CLI_UNIFICATION_PRD.md)
 - Manus quickstart: [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md)
 - OpenClaw quickstart: [docs/OPENCLAW_QUICKSTART.md](docs/OPENCLAW_QUICKSTART.md)
 - OpenClaw native plugin: [docs/OPENCLAW_NATIVE_PLUGIN.md](docs/OPENCLAW_NATIVE_PLUGIN.md)
