@@ -12,7 +12,8 @@ from cortex.claims import ClaimEvent
 from cortex.client import CortexClient
 from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Edge, Node
-from cortex.server import dispatch_api_request
+from cortex.http_hardening import HTTPRequestPolicy
+from cortex.server import dispatch_api_request, make_api_handler
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
 from cortex.storage.sqlite import sqlite_db_path
@@ -70,6 +71,53 @@ class _FakeResponse:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
+
+
+def _invoke_api_handler(
+    handler_cls,
+    *,
+    path: str,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
+):
+    raw = json.dumps(payload).encode("utf-8") if payload is not None else b""
+    handler = handler_cls.__new__(handler_cls)
+    handler.path = path
+    handler.command = method
+    handler.request_version = "HTTP/1.1"
+    handler.rfile = io.BytesIO(raw)
+    handler.wfile = io.BytesIO()
+    handler.client_address = ("127.0.0.1", 8766)
+    resolved_headers = {
+        "Content-Length": str(len(raw)),
+        "Host": "127.0.0.1:8766",
+    }
+    if method == "POST":
+        resolved_headers["Content-Type"] = "application/json"
+    if headers:
+        resolved_headers.update(headers)
+    handler.headers = resolved_headers
+    handler._status = 200
+    handler._headers = {}
+
+    def send_response(code, message=None):  # noqa: ARG001
+        handler._status = code
+
+    def send_header(key, value):
+        handler._headers[key] = value
+
+    def end_headers():
+        return None
+
+    handler.send_response = send_response
+    handler.send_header = send_header
+    handler.end_headers = end_headers
+    if method == "GET":
+        handler.do_GET()
+    else:
+        handler.do_POST()
+    return handler._status, handler._headers, handler.wfile.getvalue().decode("utf-8")
 
 
 def _install_dispatching_urlopen(
@@ -143,6 +191,53 @@ def test_cortex_api_accepts_case_insensitive_bearer_auth(tmp_path):
 
     assert status == 200
     assert response["status"] == "ok"
+
+
+def test_cortex_api_handler_rejects_non_json_post_content_type(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+    handler_cls = make_api_handler(service)
+
+    status, _, body = _invoke_api_handler(
+        handler_cls,
+        path="/v1/review",
+        method="POST",
+        payload={"against": "HEAD"},
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert status == 415
+    assert "application/json" in json.loads(body)["error"]
+
+
+def test_cortex_api_handler_rejects_oversized_json_body(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+    handler_cls = make_api_handler(service, request_policy=HTTPRequestPolicy(max_body_bytes=8))
+
+    status, _, body = _invoke_api_handler(
+        handler_cls,
+        path="/v1/review",
+        method="POST",
+        payload={"against": "HEAD"},
+    )
+
+    assert status == 413
+    assert "exceeds 8 bytes" in json.loads(body)["error"]
+
+
+def test_cortex_api_handler_rate_limits_hosted_requests(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+    handler_cls = make_api_handler(service, request_policy=HTTPRequestPolicy(rate_limit_per_minute=1))
+
+    first_status, _, first_body = _invoke_api_handler(handler_cls, path="/v1/health", method="GET")
+    second_status, _, second_body = _invoke_api_handler(handler_cls, path="/v1/health", method="GET")
+
+    assert first_status == 200
+    assert json.loads(first_body)["status"] == "ok"
+    assert second_status == 429
+    assert "Too many requests" in json.loads(second_body)["error"]
 
 
 def test_cortex_api_metrics_request_ids_and_structured_logs(tmp_path, monkeypatch):

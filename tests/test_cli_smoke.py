@@ -167,6 +167,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "auth_enabled",
         "api_key_count",
         "api_keys",
+        "request_policy",
         "warnings",
     }
     assert api_payload["status"] == "ok"
@@ -174,6 +175,8 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert api_payload["mode"] == "server"
     assert api_payload["runtime_mode"] == "local-single-user"
     assert api_payload["auth_enabled"] is True
+    assert api_payload["request_policy"]["max_body_bytes"] == 1048576
+    assert api_payload["request_policy"]["rate_limit_per_minute"] == 0
 
     mcp_rc = main(["serve", "mcp", "--store-dir", str(store_dir), "--check", "--format", "json"])
     mcp_streams = capsys.readouterr()
@@ -235,12 +238,14 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "auth_enabled",
         "api_key_count",
         "api_keys",
+        "request_policy",
         "warnings",
     }
     assert ui_payload["status"] == "ok"
     assert ui_payload["target"] == "ui"
     assert ui_payload["mode"] == "ui"
     assert ui_payload["runtime_mode"] == "local-single-user"
+    assert ui_payload["request_policy"]["read_timeout_seconds"] == 15.0
 
     manus_rc = main(["serve", "manus", "--store-dir", str(store_dir), "--check", "--format", "json"])
     manus_streams = capsys.readouterr()
@@ -268,6 +273,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "auth_enabled",
         "api_key_count",
         "api_keys",
+        "request_policy",
         "warnings",
         "bridge",
         "bridge_transport",
@@ -285,6 +291,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert manus_payload["bridge"] == "manus_http"
     assert manus_payload["runtime_mode"] == "local-single-user"
     assert manus_payload["protocol_version"] == "2024-11-05"
+    assert manus_payload["request_policy"]["rate_limit_per_minute"] == 0
     assert manus_payload["tool_count"] == len(manus_payload["tools"])
     assert "mind_list" in manus_payload["tools"]
 

@@ -19,6 +19,15 @@ from cortex.config import (
     load_selfhost_config,
     validate_runtime_security,
 )
+from cortex.http_hardening import (
+    HTTPRequestPolicy,
+    HTTPRequestValidationError,
+    InMemoryRateLimiter,
+    apply_read_timeout,
+    enforce_rate_limit,
+    read_json_request,
+    request_policy_for_mode,
+)
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.service import MemoryService
 
@@ -359,9 +368,15 @@ def make_api_handler(
     *,
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
+    request_policy: HTTPRequestPolicy | None = None,
 ):
+    policy = request_policy or HTTPRequestPolicy()
+    rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
+
     class CortexAPIHandler(BaseHTTPRequestHandler):
         server_version = f"CortexAPI/{OPENAPI_VERSION}"
+        _request_policy = policy
+        _rate_limiter = rate_limiter
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -384,12 +399,14 @@ def make_api_handler(
             self.end_headers()
             self.wfile.write(data)
 
-        def _read_json(self) -> dict[str, Any]:
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length) if length else b"{}"
-            return json.loads(raw.decode("utf-8") or "{}")
+        def _write_request_error(self, status: int, message: str) -> None:
+            self._send_json({"status": "error", "error": message}, status=status)
 
         def do_GET(self) -> None:  # noqa: N802
+            apply_read_timeout(self, policy=self._request_policy)
+            if rate_error := enforce_rate_limit(self, limiter=self._rate_limiter):
+                self._write_request_error(429, rate_error)
+                return
             status, response = dispatch_api_request(
                 service,
                 method="GET",
@@ -401,11 +418,20 @@ def make_api_handler(
             self._send_json(response, status=status)
 
         def do_POST(self) -> None:  # noqa: N802
+            apply_read_timeout(self, policy=self._request_policy)
+            if rate_error := enforce_rate_limit(self, limiter=self._rate_limiter):
+                self._write_request_error(429, rate_error)
+                return
+            try:
+                payload = read_json_request(self, policy=self._request_policy, require_object=True)
+            except HTTPRequestValidationError as exc:
+                self._write_request_error(exc.status, exc.message)
+                return
             status, response = dispatch_api_request(
                 service,
                 method="POST",
                 path=self.path,
-                payload=self._read_json(),
+                payload=payload,
                 headers={key: value for key, value in self.headers.items()},
                 api_key=api_key,
                 auth_keys=auth_keys,
@@ -425,6 +451,7 @@ def start_api_server(
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
     allow_unsafe_bind: bool = False,
+    request_policy: HTTPRequestPolicy | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     validate_runtime_security(
         surface="api",
@@ -434,7 +461,11 @@ def start_api_server(
         allow_unsafe_bind=allow_unsafe_bind,
     )
     service = MemoryService(store_dir=store_dir, context_file=context_file)
-    server = ThreadingHTTPServer((host, port), make_api_handler(service, api_key=api_key, auth_keys=auth_keys))
+    policy = request_policy or request_policy_for_mode(runtime_mode)
+    server = ThreadingHTTPServer(
+        (host, port),
+        make_api_handler(service, api_key=api_key, auth_keys=auth_keys, request_policy=policy),
+    )
     actual_host, actual_port = server.server_address
     return server, f"http://{actual_host}:{actual_port}"
 

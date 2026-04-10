@@ -16,6 +16,15 @@ from cortex.config import (
     load_selfhost_config,
     validate_runtime_security,
 )
+from cortex.http_hardening import (
+    HTTPRequestPolicy,
+    HTTPRequestValidationError,
+    InMemoryRateLimiter,
+    apply_read_timeout,
+    enforce_rate_limit,
+    read_json_request,
+    request_policy_for_mode,
+)
 from cortex.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
 
 MANUS_BRIDGE_NAME = "cortex-manus"
@@ -348,8 +357,15 @@ def make_manus_handler(
     *,
     api_keys: tuple[APIKeyConfig, ...] = (),
     protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
+    request_policy: HTTPRequestPolicy | None = None,
 ) -> type[BaseHTTPRequestHandler]:
+    policy = request_policy or HTTPRequestPolicy()
+    rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
+
     class ManusBridgeHandler(BaseHTTPRequestHandler):
+        _request_policy = policy
+        _rate_limiter = rate_limiter
+
         def _write_json(self, status: int, payload: Any) -> None:
             body = _json_bytes(payload)
             self.send_response(status)
@@ -358,7 +374,11 @@ def make_manus_handler(
             self.end_headers()
             self.wfile.write(body)
 
+        def _write_error(self, status: int, message: str, *, code: int = -32000) -> None:
+            self._write_json(status, server._error_response(None, JsonRpcError(code, message)))
+
         def do_GET(self) -> None:  # noqa: N802
+            apply_read_timeout(self, policy=self._request_policy)
             parsed = urlparse(self.path)
             if parsed.path in MANUS_HEALTH_PATHS:
                 self._write_json(
@@ -387,17 +407,19 @@ def make_manus_handler(
             self._write_json(404, {"status": "error", "error": "Not found"})
 
         def do_POST(self) -> None:  # noqa: N802
+            apply_read_timeout(self, policy=self._request_policy)
+            if rate_error := enforce_rate_limit(self, limiter=self._rate_limiter):
+                self._write_error(429, rate_error, code=-32029)
+                return
             parsed = urlparse(self.path)
             if parsed.path not in MANUS_MCP_PATHS:
                 self._write_json(404, {"status": "error", "error": "Not found"})
                 return
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            raw_body = self.rfile.read(length) if length > 0 else b""
             try:
-                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-            except json.JSONDecodeError as exc:
-                response = server._error_response(None, JsonRpcError(-32700, f"Parse error: {exc.msg}"))
-                self._write_json(400, response)
+                payload = read_json_request(self, policy=self._request_policy, require_object=False)
+            except HTTPRequestValidationError as exc:
+                code = -32700 if exc.status == 400 and "JSON" in exc.message else -32000
+                self._write_error(exc.status, exc.message, code=code)
                 return
             status, response = dispatch_manus_request(
                 server,
@@ -428,6 +450,7 @@ def start_manus_bridge_server(
     allow_unsafe_bind: bool = False,
     allow_insecure_no_auth: bool = False,
     protocol_version: str = DEFAULT_MANUS_PROTOCOL_VERSION,
+    request_policy: HTTPRequestPolicy | None = None,
 ) -> tuple[ThreadingHTTPServer, str, tuple[str, ...]]:
     if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
         joined = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
@@ -440,6 +463,7 @@ def start_manus_bridge_server(
         allow_insecure_no_auth=allow_insecure_no_auth,
     )
     server = CortexMCPServer(store_dir=store_dir, context_file=context_file, namespace=namespace)
+    policy = request_policy or request_policy_for_mode(runtime_mode)
     exposed_tools = configure_manus_toolset(
         server,
         include_write_tools=include_write_tools,
@@ -451,6 +475,7 @@ def start_manus_bridge_server(
             server,
             api_keys=api_keys,
             protocol_version=protocol_version,
+            request_policy=policy,
         ),
     )
     actual_host, actual_port = httpd.server_address

@@ -77,6 +77,8 @@ def _invoke_handler(
     handler.rfile = io.BytesIO(json.dumps(payload).encode("utf-8") if payload is not None else b"")
     handler.wfile = io.BytesIO()
     resolved_headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes), "Host": "127.0.0.1:8765"}
+    if method == "POST":
+        resolved_headers["Content-Type"] = "application/json"
     session_token = getattr(handler_cls, "_cortex_ui_session_token", "")
     if session_token:
         resolved_headers["X-Cortex-UI-Session"] = session_token
@@ -85,6 +87,7 @@ def _invoke_handler(
     if headers:
         resolved_headers.update(headers)
     handler.headers = resolved_headers
+    handler.client_address = ("127.0.0.1", 8765)
     handler._status = 200
     handler._headers = {}
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -11,11 +12,13 @@ from pathlib import Path
 import pytest
 
 from cortex.config import APIKeyConfig
+from cortex.http_hardening import HTTPRequestPolicy
 from cortex.manus_bridge import (
     DEFAULT_MANUS_PROTOCOL_VERSION,
     configure_manus_toolset,
     dispatch_manus_request,
     main,
+    make_manus_handler,
     start_manus_bridge_server,
 )
 from cortex.mcp import CortexMCPServer
@@ -42,6 +45,48 @@ def _jsonrpc(method: str, *, request_id: int, params: dict | None = None) -> dic
         "method": method,
         "params": params or {},
     }
+
+
+def _invoke_manus_handler(
+    handler_cls,
+    *,
+    path: str = "/mcp",
+    payload: dict | list | None = None,
+    headers: dict[str, str] | None = None,
+):
+    raw = json.dumps(payload).encode("utf-8") if payload is not None else b""
+    handler = handler_cls.__new__(handler_cls)
+    handler.path = path
+    handler.command = "POST"
+    handler.request_version = "HTTP/1.1"
+    handler.rfile = io.BytesIO(raw)
+    handler.wfile = io.BytesIO()
+    handler.client_address = ("127.0.0.1", 8790)
+    resolved_headers = {
+        "Content-Length": str(len(raw)),
+        "Content-Type": "application/json",
+        "Host": "127.0.0.1:8790",
+    }
+    if headers:
+        resolved_headers.update(headers)
+    handler.headers = resolved_headers
+    handler._status = 200
+    handler._headers = {}
+
+    def send_response(code, message=None):  # noqa: ARG001
+        handler._status = code
+
+    def send_header(key, value):
+        handler._headers[key] = value
+
+    def end_headers():
+        return None
+
+    handler.send_response = send_response
+    handler.send_header = send_header
+    handler.end_headers = end_headers
+    handler.do_POST()
+    return handler._status, handler._headers, handler.wfile.getvalue().decode("utf-8")
 
 
 def test_manus_bridge_default_toolset_supports_initialize_list_and_compose(tmp_path):
@@ -420,6 +465,63 @@ def test_manus_bridge_http_server_supports_auth_and_round_trip(tmp_path):
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
+
+
+def test_manus_bridge_handler_rejects_non_json_content_type(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+    handler_cls = make_manus_handler(server)
+
+    status, _, body = _invoke_manus_handler(
+        handler_cls,
+        payload=_jsonrpc("initialize", request_id=41, params={"protocolVersion": "2024-11-05"}),
+        headers={"Content-Type": "text/plain"},
+    )
+
+    parsed = json.loads(body)
+    assert status == 415
+    assert "application/json" in parsed["error"]["message"]
+
+
+def test_manus_bridge_handler_rejects_oversized_body(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+    handler_cls = make_manus_handler(server, request_policy=HTTPRequestPolicy(max_body_bytes=8))
+
+    status, _, body = _invoke_manus_handler(
+        handler_cls,
+        payload=_jsonrpc("initialize", request_id=42, params={"protocolVersion": "2024-11-05"}),
+    )
+
+    parsed = json.loads(body)
+    assert status == 413
+    assert "exceeds 8 bytes" in parsed["error"]["message"]
+
+
+def test_manus_bridge_handler_rate_limits_hosted_requests(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+    handler_cls = make_manus_handler(server, request_policy=HTTPRequestPolicy(rate_limit_per_minute=1))
+
+    first_status, _, first_body = _invoke_manus_handler(
+        handler_cls,
+        payload=_jsonrpc("initialize", request_id=43, params={"protocolVersion": "2024-11-05"}),
+    )
+    second_status, _, second_body = _invoke_manus_handler(
+        handler_cls,
+        payload=_jsonrpc("tools/list", request_id=44),
+    )
+
+    assert first_status == 200
+    assert "result" in json.loads(first_body)
+    assert second_status == 429
+    assert "Too many requests" in json.loads(second_body)["error"]["message"]
 
 
 def test_manus_bridge_unknown_get_path_returns_404(tmp_path):

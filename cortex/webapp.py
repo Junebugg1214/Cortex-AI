@@ -23,6 +23,15 @@ from cortex.cli import _load_graph
 from cortex.config import APIKeyConfig, is_loopback_host, validate_runtime_security
 from cortex.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
+from cortex.http_hardening import (
+    HTTPRequestPolicy,
+    HTTPRequestValidationError,
+    InMemoryRateLimiter,
+    apply_read_timeout,
+    enforce_rate_limit,
+    read_json_request,
+    request_policy_for_mode,
+)
 from cortex.memory_ops import blame_memory_nodes
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
@@ -2859,6 +2868,7 @@ def make_handler(
     api_keys: tuple[APIKeyConfig, ...] = (),
     allow_local_session: bool = True,
     session_token: str | None = None,
+    request_policy: HTTPRequestPolicy | None = None,
 ):
     def query_value(parsed, key: str, default: str = "") -> str:
         return parse_qs(parsed.query).get(key, [default])[0]
@@ -2885,12 +2895,16 @@ def make_handler(
 
     session_secret = session_token or secrets.token_urlsafe(24)
     rendered_html = UI_HTML.replace(UI_SESSION_PLACEHOLDER, json.dumps(session_secret))
+    policy = request_policy or HTTPRequestPolicy()
+    rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
 
     class MemoryUIHandler(BaseHTTPRequestHandler):
         server_version = "CortexUI/1.0"
         _cortex_ui_session_token = session_secret
         _cortex_ui_local_session_enabled = allow_local_session
         _cortex_ui_api_key_count = len(api_keys)
+        _cortex_ui_request_policy = policy
+        _cortex_ui_rate_limiter = rate_limiter
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -2925,11 +2939,6 @@ def make_handler(
                 self.send_header("X-Request-ID", request_id)
             self.end_headers()
             self.wfile.write(data)
-
-        def _read_json(self) -> dict[str, Any]:
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length) if length else b"{}"
-            return json.loads(raw.decode("utf-8") or "{}")
 
         def _normalized_headers(self) -> dict[str, str]:
             return {str(key).lower(): str(value).strip() for key, value in self.headers.items()}
@@ -3004,12 +3013,27 @@ def make_handler(
                 error=error,
             )
 
+        def _write_request_error(self, status: int, message: str, *, request_id: str) -> None:
+            self._send_json({"status": "error", "error": message}, status=status, request_id=request_id)
+
+        def _check_rate_limit(self) -> str | None:
+            parsed = urlparse(self.path)
+            if not parsed.path.startswith("/api/"):
+                return None
+            return enforce_rate_limit(self, limiter=self._cortex_ui_rate_limiter)
+
         def do_GET(self) -> None:  # noqa: N802
             request_id = uuid4().hex[:16]
             started_at = perf_counter()
             status = 200
             error = ""
             try:
+                apply_read_timeout(self, policy=self._cortex_ui_request_policy)
+                if rate_error := self._check_rate_limit():
+                    status = 429
+                    error = rate_error
+                    self._write_request_error(status, error, request_id=request_id)
+                    return
                 parsed = urlparse(self.path)
                 if parsed.path == "/":
                     self._send_html(rendered_html, request_id=request_id)
@@ -3172,12 +3196,18 @@ def make_handler(
             status = 200
             error = ""
             try:
+                apply_read_timeout(self, policy=self._cortex_ui_request_policy)
+                if rate_error := self._check_rate_limit():
+                    status = 429
+                    error = rate_error
+                    self._write_request_error(status, error, request_id=request_id)
+                    return
                 auth_error = self._authorize_api_request(method="POST")
                 if auth_error is not None:
                     status, error = auth_error
                     self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
                     return
-                payload = self._read_json()
+                payload = read_json_request(self, policy=self._cortex_ui_request_policy, require_object=True)
                 path = self.path
                 if path == "/api/review":
                     self._send_json(backend.review(**payload), request_id=request_id)
@@ -3232,6 +3262,10 @@ def make_handler(
                 if path == "/api/prune":
                     self._send_json(backend.prune(**payload), request_id=request_id)
                     return
+            except HTTPRequestValidationError as exc:
+                status = exc.status
+                error = exc.message
+                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
             except ValueError as exc:
                 status = 400
                 error = str(exc)
@@ -3271,6 +3305,7 @@ def start_ui_server(
     runtime_mode: str = "local-single-user",
     allow_unsafe_bind: bool = False,
     api_keys: tuple[APIKeyConfig, ...] = (),
+    request_policy: HTTPRequestPolicy | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     validate_runtime_security(
         surface="ui",
@@ -3280,12 +3315,14 @@ def start_ui_server(
         allow_unsafe_bind=allow_unsafe_bind,
     )
     backend = MemoryUIBackend(store_dir=store_dir, context_file=context_file)
+    policy = request_policy or request_policy_for_mode(runtime_mode)
     server = ThreadingHTTPServer(
         (host, port),
         make_handler(
             backend,
             api_keys=api_keys,
             allow_local_session=is_loopback_host(host),
+            request_policy=policy,
         ),
     )
     actual_host, actual_port = server.server_address
