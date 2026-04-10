@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 
 from cortex.config import APIKeyConfig
@@ -46,7 +47,7 @@ def authorize_api_key(
             error="Unauthorized: missing API key. Configure Authorization: Bearer <token> or X-API-Key.",
         )
 
-    key = next((item for item in keys if item.token == token), None)
+    key = next((item for item in keys if secrets.compare_digest(item.token, token)), None)
     if key is None:
         return AuthDecision(allowed=False, status_code=401, error="Unauthorized: invalid API key.")
     if required_scope and not key.allows_scope(required_scope):
