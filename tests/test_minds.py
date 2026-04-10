@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
+import time
 
 import pytest
 
+import cortex.minds as minds_module
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
 from cortex.minds import (
@@ -214,6 +217,41 @@ def test_mind_attach_and_detach_pack_updates_status_metadata(tmp_path, monkeypat
     assert detached["attachment_count"] == 0
     assert detached["attached_brainpacks"] == []
     assert detached["attached_mounted_targets"] == []
+
+
+def test_concurrent_mind_attachment_updates_preserve_all_records(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    for index in range(5):
+        init_pack(store_dir, f"pack-{index}", description=f"Pack {index}", owner="marc")
+
+    original_load_attachments = minds_module._load_attachments
+
+    def slow_load_attachments(*args, **kwargs):
+        payload = original_load_attachments(*args, **kwargs)
+        time.sleep(0.02)
+        return payload
+
+    monkeypatch.setattr(minds_module, "_load_attachments", slow_load_attachments)
+
+    errors: list[Exception] = []
+
+    def attach(name: str) -> None:
+        try:
+            attach_pack_to_mind(store_dir, "marc", name)
+        except Exception as exc:  # pragma: no cover - defensive for thread collection
+            errors.append(exc)
+
+    threads = [threading.Thread(target=attach, args=(f"pack-{index}",)) for index in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert errors == []
+    status = mind_status(store_dir, "marc")
+    assert status["attachment_count"] == 5
+    assert sorted(item["pack"] for item in status["attached_brainpacks"]) == [f"pack-{index}" for index in range(5)]
 
 
 def test_mind_ingest_detected_sources_commits_to_mind_branch(tmp_path, monkeypatch):
