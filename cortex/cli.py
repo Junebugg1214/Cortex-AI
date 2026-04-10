@@ -49,6 +49,7 @@ ADVANCED_HELP_NOTE = cli_surface_module.ADVANCED_HELP_NOTE
 CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS
 CortexArgumentParser = cli_surface_module.CortexArgumentParser
 FIRST_CLASS_COMMANDS = cli_surface_module.FIRST_CLASS_COMMANDS
+HELP_TOPIC_TEXT = cli_surface_module.HELP_TOPIC_TEXT
 MIND_HELP_EPILOG = cli_surface_module.MIND_HELP_EPILOG
 PACK_HELP_EPILOG = cli_surface_module.PACK_HELP_EPILOG
 add_setup_and_runtime_parsers = cli_surface_module.add_setup_and_runtime_parsers
@@ -6311,6 +6312,11 @@ def run_init(args):
     return 0
 
 
+def run_help_topic(args):
+    _echo(HELP_TOPIC_TEXT.get(args.topic, HELP_TOPIC_TEXT["overview"]), force=True)
+    return 0
+
+
 def run_scan(args):
     from cortex.portable_runtime import bar, scan_portability
 
@@ -8322,6 +8328,7 @@ def main(argv=None):
         "build",
         "audit",
         "doctor",
+        "help",
         "mind",
         "ui",
         "pack",
@@ -8363,6 +8370,8 @@ def main(argv=None):
 
     if args.subcommand == "init":
         return run_init(args)
+    elif args.subcommand == "help":
+        return run_help_topic(args)
     elif args.subcommand == "connect":
         return run_connect(args)
     elif args.subcommand == "serve":
