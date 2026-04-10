@@ -346,6 +346,20 @@ def test_cortex_api_avoids_duplicate_index_lag_sampling_for_request_logs(tmp_pat
     assert status_calls == 3
 
 
+def test_cortex_api_hides_internal_errors_from_clients(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    service = MemoryService(store_dir=store_dir)
+
+    def boom(self):
+        raise RuntimeError("secret backend path /tmp/cortex-internal")
+
+    monkeypatch.setattr(type(service), "health", boom)
+    status, payload = dispatch_api_request(service, method="GET", path="/v1/health")
+
+    assert status == 500
+    assert payload["error"] == "Internal server error."
+
+
 def test_cortex_client_reports_network_errors_cleanly():
     client = CortexClient("http://cortex.local")
 

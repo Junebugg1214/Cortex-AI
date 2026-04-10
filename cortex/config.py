@@ -206,6 +206,7 @@ class CortexSelfHostConfig:
     config_path: Path | None = None
     server_host: str = "127.0.0.1"
     server_port: int = 8766
+    external_base_url: str | None = None
     runtime_mode: str = "local-single-user"
     mcp_namespace: str | None = None
     api_keys: tuple[APIKeyConfig, ...] = field(default_factory=tuple)
@@ -217,6 +218,7 @@ class CortexSelfHostConfig:
             "config_path": str(self.config_path) if self.config_path else None,
             "server_host": self.server_host,
             "server_port": self.server_port,
+            "external_base_url": self.external_base_url,
             "runtime_mode": self.runtime_mode,
             "mcp_namespace": self.mcp_namespace,
             "api_keys": [item.to_safe_dict() for item in self.api_keys],
@@ -427,6 +429,7 @@ def load_selfhost_config(
     config_path: str | Path | None = None,
     server_host: str | None = None,
     server_port: int | None = None,
+    external_base_url: str | None = None,
     runtime_mode: str | None = None,
     api_key: str | None = None,
     mcp_namespace: str | None = None,
@@ -483,6 +486,13 @@ def load_selfhost_config(
         if server_port is not None
         else env_map.get("CORTEX_SERVER_PORT", "") or server_table.get("port") or 8766
     )
+    configured_external_base_url = (
+        str(external_base_url).strip()
+        if external_base_url is not None
+        else env_map.get("CORTEX_EXTERNAL_BASE_URL", "").strip()
+        or str(server_table.get("external_base_url", "")).strip()
+        or None
+    )
     configured_mcp_namespace = (
         str(mcp_namespace).strip()
         if mcp_namespace is not None
@@ -501,6 +511,7 @@ def load_selfhost_config(
         config_path=resolved_config_path.resolve() if resolved_config_path and resolved_config_path.exists() else None,
         server_host=_normalize_server_host(configured_host),
         server_port=_normalize_server_port(configured_port),
+        external_base_url=configured_external_base_url,
         runtime_mode=_normalize_runtime_mode(configured_runtime_mode),
         mcp_namespace=normalize_resource_namespace(configured_mcp_namespace),
         api_keys=configured_keys,
