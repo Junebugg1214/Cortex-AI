@@ -7844,6 +7844,7 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
     _validate_bridge_security(
         host=config.server_host,
         api_keys=config.api_keys,
+        namespace=config.mcp_namespace,
         runtime_mode=config.runtime_mode,
         allow_unsafe_bind=args.allow_unsafe_bind,
     )

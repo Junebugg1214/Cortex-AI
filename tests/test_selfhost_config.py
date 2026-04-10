@@ -163,6 +163,37 @@ namespaces = ["team"]
     assert "super-secret-token" not in diagnostics
 
 
+def test_hosted_service_diagnostics_call_out_reverse_proxy_and_bind_scope(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[runtime]
+store_dir = ".cortex"
+mode = "hosted-service"
+
+[server]
+host = "0.0.0.0"
+
+[mcp]
+namespace = "team"
+
+[[auth.keys]]
+name = "reader"
+token = "reader-token"
+scopes = ["read"]
+namespaces = ["team"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_selfhost_config(config_path=config_path, env={})
+    diagnostics = format_startup_diagnostics(config, mode="manus")
+
+    assert "Bind:      network" in diagnostics
+    assert "Namespace: team" in diagnostics
+    assert "HTTPS reverse proxy" in diagnostics
+
+
 def test_resolve_cli_store_dir_prefers_nearest_configured_store(tmp_path):
     workspace = tmp_path / "workspace"
     nested = workspace / "apps" / "cortex"

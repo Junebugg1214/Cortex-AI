@@ -567,6 +567,9 @@ def test_manus_bridge_allows_hosted_service_non_loopback_with_auth(tmp_path):
 store_dir = "{store_dir}"
 mode = "hosted-service"
 
+[mcp]
+namespace = "team"
+
 [[auth.keys]]
 name = "reader"
 token = "reader-token"
@@ -579,6 +582,31 @@ namespaces = ["team"]
     rc = main(["--config", str(config_path), "--host", "0.0.0.0", "--check"])
 
     assert rc == 0
+
+
+def test_manus_bridge_hosted_service_non_loopback_requires_namespace(tmp_path, capsys):
+    store_dir = tmp_path / ".cortex"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""
+[runtime]
+store_dir = "{store_dir}"
+mode = "hosted-service"
+
+[[auth.keys]]
+name = "reader"
+token = "reader-token"
+scopes = ["read"]
+namespaces = ["team"]
+""".strip(),
+        encoding="utf-8",
+    )
+
+    rc = main(["--config", str(config_path), "--host", "0.0.0.0", "--check"])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert "without a pinned namespace" in captured.err
 
 
 def test_manus_bridge_check_outputs_mcp_path_and_tool_count(tmp_path, capsys):
