@@ -1559,12 +1559,39 @@ def _mind_summary(store_dir: Path, manifest: MindManifest) -> dict[str, Any]:
     }
 
 
+def _mind_list_item(store_dir: Path, manifest: MindManifest, *, configured_default: str | None) -> dict[str, Any]:
+    core_state = _read_json(
+        mind_core_state_path(store_dir, manifest.id),
+        default={"graph_ref": mind_branch_ref(manifest.id, manifest.current_branch)},
+    )
+    attachments = _read_json(mind_attachments_path(store_dir, manifest.id), default={"brainpacks": []})
+    mounts = _read_json(mind_mounts_path(store_dir, manifest.id), default={"mounts": []})
+    return {
+        "mind": manifest.id,
+        "namespace": manifest.namespace,
+        "label": manifest.label,
+        "kind": manifest.kind,
+        "owner": manifest.owner,
+        "current_branch": manifest.current_branch,
+        "default_policy": manifest.default_policy,
+        "graph_ref": str(core_state.get("graph_ref") or ""),
+        "attachment_count": len(attachments.get("brainpacks", [])),
+        "mount_count": len(mounts.get("mounts", [])),
+        "updated_at": manifest.updated_at,
+        "is_default": manifest.id == configured_default,
+    }
+
+
 def list_minds(store_dir: Path, *, namespace: str | None = None) -> dict[str, Any]:
     root = _minds_root(store_dir)
     if not root.exists():
         return {"status": "ok", "count": 0, "minds": []}
 
     minds: list[dict[str, Any]] = []
+    try:
+        configured_default = resolve_default_mind(store_dir)
+    except (FileNotFoundError, ValueError):
+        configured_default = None
     for child in sorted(root.iterdir(), key=lambda item: item.name.lower()):
         if not child.is_dir():
             continue
@@ -1577,23 +1604,7 @@ def list_minds(store_dir: Path, *, namespace: str | None = None) -> dict[str, An
             continue
         if not resource_namespace_matches(manifest.namespace, namespace):
             continue
-        summary = _mind_summary(store_dir, manifest)
-        minds.append(
-            {
-                "mind": summary["mind"],
-                "namespace": summary["namespace"],
-                "label": summary["manifest"]["label"],
-                "kind": summary["manifest"]["kind"],
-                "owner": summary["manifest"]["owner"],
-                "current_branch": summary["manifest"]["current_branch"],
-                "default_policy": summary["manifest"]["default_policy"],
-                "graph_ref": summary["graph_ref"],
-                "attachment_count": summary["attachment_count"],
-                "mount_count": summary["mount_count"],
-                "updated_at": summary["manifest"]["updated_at"],
-                "is_default": summary["is_default"],
-            }
-        )
+        minds.append(_mind_list_item(store_dir, manifest, configured_default=configured_default))
     return {"status": "ok", "count": len(minds), "minds": minds}
 
 
