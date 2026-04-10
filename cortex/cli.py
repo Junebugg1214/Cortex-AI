@@ -383,8 +383,7 @@ def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, st
         'scopes = ["write", "branch", "merge", "index"]\n'
         f'namespaces = ["{namespace}"]\n'
     )
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(payload, encoding="utf-8")
+    atomic_write_text(config_path, payload, encoding="utf-8", file_mode=0o600)
     return reader_token, writer_token
 
 
@@ -7111,8 +7110,12 @@ def run_connect_manus(args):
     connector_config_path = ""
     if args.write_config:
         target_path = Path(args.write_config).expanduser().resolve()
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(json.dumps(connector_config_full, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(
+            target_path,
+            json.dumps(connector_config_full, indent=2) + "\n",
+            encoding="utf-8",
+            file_mode=0o600,
+        )
         connector_config_path = str(target_path)
     next_steps = [f"Run `{serve_command}`."]
     if not args.url:
