@@ -724,6 +724,7 @@ def _persist_mind_core_graph(
     *,
     message: str,
     source: str,
+    acquire_lock: bool = True,
 ) -> dict[str, Any]:
     from cortex.storage import get_storage_backend
     from cortex.upai.identity import UPAIIdentity
@@ -734,7 +735,8 @@ def _persist_mind_core_graph(
     branch_name = mind_branch_name(mind_id, branch)
     identity_path = store_dir / "identity.json"
     identity = UPAIIdentity.load(store_dir) if identity_path.exists() else None
-    with locked_path(_store_lock_path(store_dir)):
+
+    def _persist() -> dict[str, Any]:
         commit = backend.versions.commit(graph, message, source=source, identity=identity, branch=branch_name)
 
         branches_payload = _load_branches(store_dir, mind_id, manifest)
@@ -752,14 +754,19 @@ def _persist_mind_core_graph(
         core_state["categories"] = _graph_categories(graph)
         _write_json(mind_core_state_path(store_dir, mind_id), core_state)
         _replace_manifest(store_dir, mind_id, updated_at=_iso_now())
-    return {
-        "branch": branch,
-        "branch_name": branch_name,
-        "graph_ref": core_state["graph_ref"],
-        "version_id": commit.version_id,
-        "node_count": len(graph.nodes),
-        "edge_count": len(graph.edges),
-    }
+        return {
+            "branch": branch,
+            "branch_name": branch_name,
+            "graph_ref": core_state["graph_ref"],
+            "version_id": commit.version_id,
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges),
+        }
+
+    if acquire_lock:
+        with locked_path(_store_lock_path(store_dir)):
+            return _persist()
+    return _persist()
 
 
 def adopt_graph_into_mind(
@@ -772,16 +779,18 @@ def adopt_graph_into_mind(
 ) -> dict[str, Any]:
     from cortex.portable_runtime import merge_graphs
 
-    manifest = load_mind_manifest(store_dir, mind_id)
-    base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
-    merged_graph = merge_graphs(base_graph, graph)
-    persisted = _persist_mind_core_graph(
-        store_dir,
-        mind_id,
-        merged_graph,
-        message=message.strip() or f"Adopt context into Mind `{manifest.id}`",
-        source=source,
-    )
+    with locked_path(_store_lock_path(store_dir)):
+        manifest = load_mind_manifest(store_dir, mind_id)
+        base_graph, base_graph_ref, base_graph_source = _resolve_core_graph(store_dir, mind_id)
+        merged_graph = merge_graphs(base_graph, graph)
+        persisted = _persist_mind_core_graph(
+            store_dir,
+            mind_id,
+            merged_graph,
+            message=message.strip() or f"Adopt context into Mind `{manifest.id}`",
+            source=source,
+            acquire_lock=False,
+        )
     return {
         "status": "ok",
         "mind": manifest.id,
