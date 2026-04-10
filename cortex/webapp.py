@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from cortex.cli import _load_graph
+from cortex.config import validate_runtime_security
 from cortex.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.memory_ops import blame_memory_nodes
@@ -3184,7 +3185,15 @@ def start_ui_server(
     store_dir: str | Path = ".cortex",
     context_file: str | Path | None = None,
     open_browser: bool = False,
+    runtime_mode: str = "local-single-user",
+    allow_unsafe_bind: bool = False,
 ) -> tuple[ThreadingHTTPServer, str]:
+    validate_runtime_security(
+        surface="ui",
+        host=host,
+        runtime_mode=runtime_mode,
+        allow_unsafe_bind=allow_unsafe_bind,
+    )
     backend = MemoryUIBackend(store_dir=store_dir, context_file=context_file)
     server = ThreadingHTTPServer((host, port), make_handler(backend))
     actual_host, actual_port = server.server_address

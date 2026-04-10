@@ -43,6 +43,7 @@ namespaces = ["team"]
     assert config.context_file == (config_dir / "context.json").resolve()
     assert config.server_host == "0.0.0.0"
     assert config.server_port == 9911
+    assert config.runtime_mode == "local-single-user"
     assert config.mcp_namespace == "team"
     assert config.api_keys[0].name == "reader"
     assert config.api_keys[0].scopes == ("read",)
@@ -133,11 +134,12 @@ port = 70000
     assert "Server port must be between 0 and 65535" in error
 
 
-def test_format_startup_diagnostics_mentions_local_trust_mode(tmp_path):
+def test_format_startup_diagnostics_mentions_runtime_mode(tmp_path):
     config = load_selfhost_config(store_dir=tmp_path / ".cortex", env={})
     diagnostics = format_startup_diagnostics(config, mode="server")
 
-    assert "local trust mode" in diagnostics
+    assert "Runtime:   local-single-user" in diagnostics
+    assert "loopback binds" in diagnostics
     assert "API v1" in diagnostics
 
 
