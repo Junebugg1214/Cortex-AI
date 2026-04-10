@@ -7199,15 +7199,22 @@ def run_connect_manus(args):
 
     warnings: list[str] = list(selection.warnings)
     errors: list[str] = []
+    config_output_requested = bool(args.print_config or args.write_config)
     if not args.url:
-        warnings.append("No public HTTPS URL was provided yet; the printed config uses a placeholder bridge URL.")
+        if config_output_requested:
+            errors.append("A real public HTTPS URL is required before Cortex can generate a Manus connector config.")
+        else:
+            warnings.append("No public HTTPS URL was provided yet; the check output uses a placeholder bridge URL.")
     elif not mcp_url.startswith("https://"):
         errors.append("Manus custom MCP servers must use an HTTPS URL.")
 
     if read_key is None:
-        warnings.append(
-            "No read-scoped API key was found; the printed config uses a <reader-token> placeholder until you add or select one."
-        )
+        if config_output_requested:
+            errors.append("A read-scoped API key is required before Cortex can generate a Manus connector config.")
+        else:
+            warnings.append(
+                "No read-scoped API key was found yet; add one before generating a final Manus connector config."
+            )
 
     def _mask_token(token: str) -> str:
         if token.startswith("<") and token.endswith(">"):
@@ -7251,7 +7258,8 @@ def run_connect_manus(args):
         }
     }
     connector_config_path = ""
-    if args.write_config:
+    config_ready = bool(args.url and mcp_url.startswith("https://") and read_key is not None)
+    if args.write_config and config_ready:
         target_path = Path(args.write_config).expanduser().resolve()
         atomic_write_text(
             target_path,
@@ -7265,7 +7273,11 @@ def run_connect_manus(args):
         next_steps.append(
             "Expose the local Manus bridge over HTTPS, then rerun `cortex connect manus --url https://... --print-config`."
         )
-    elif connector_config_path:
+    if read_key is None:
+        next_steps.append(
+            "Add a read-scoped API key in `.cortex/config.toml`, then rerun `cortex connect manus --url https://... --print-config`."
+        )
+    if connector_config_path:
         next_steps.append(f"Use `{connector_config_path}` as the paste-ready Manus MCP JSON source.")
     elif args.print_config:
         if args.reveal_secret:
@@ -7298,7 +7310,7 @@ def run_connect_manus(args):
         "errors": errors,
         "next_steps": next_steps,
     }
-    if args.print_config:
+    if args.print_config and config_ready:
         payload["connector_config"] = connector_config
     if connector_config_path:
         payload["connector_config_path"] = connector_config_path
@@ -7320,7 +7332,7 @@ def run_connect_manus(args):
         _echo(f"  Warning:  {message}")
     for message in errors:
         _echo(f"  Error:    {message}")
-    if args.print_config:
+    if args.print_config and config_ready:
         _echo("")
         _echo("Manus MCP JSON preview:")
         _echo(json.dumps(connector_config, indent=2))

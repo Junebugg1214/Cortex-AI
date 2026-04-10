@@ -567,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    diagnostics = format_startup_diagnostics(config, mode="server")
+    diagnostics = format_startup_diagnostics(config, mode="manus")
     tool_lines = "\n".join(f"    - {name}" for name in exposed_tools)
     if args.check:
         print(

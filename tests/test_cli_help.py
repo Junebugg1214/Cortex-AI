@@ -142,6 +142,17 @@ def test_server_and_mcp_commands_print_compatibility_hints(tmp_path, capsys):
     assert "cortex serve mcp" in mcp_streams.err
 
 
+def test_argparse_required_argument_errors_include_task_hints(capsys):
+    parser = build_parser()
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.parse_args(["mind", "status"])
+    status_error = capsys.readouterr().err
+
+    assert "the following arguments are required: name" in status_error
+    assert "Try: cortex mind list" in status_error
+
+
 def test_portable_remember_build_and_audit_print_compatibility_hints(tmp_path, capsys, monkeypatch):
     home_dir = tmp_path / "home"
     project_dir = tmp_path / "project"
