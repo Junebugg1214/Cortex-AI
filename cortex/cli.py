@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     import tomli as tomllib
 
 from cortex.adapters import ADAPTERS
+from cortex.atomic_io import atomic_write_text
 from cortex.compat import upgrade_v4_to_v5
 from cortex.config import RUNTIME_MODES
 from cortex.contradictions import ContradictionEngine
@@ -1599,6 +1600,16 @@ def build_parser(*, show_all_commands: bool = False):
         "--fix-store",
         action="store_true",
         help="Normalize accidental root-level stores back into a canonical .cortex store",
+    )
+    doc.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview safe doctor repairs without writing changes",
+    )
+    doc.add_argument(
+        "--backup-repair",
+        action="store_true",
+        help="Copy touched store/config files into a doctor-backups snapshot before applying repairs",
     )
     doc.add_argument("--format", choices=["json", "text"], default="text")
 
@@ -6548,7 +6559,7 @@ def _doctor_runtime_store_dir(payload: dict[str, Any] | None) -> str | None:
     return str(value).strip()
 
 
-def _doctor_normalize_config_store_dir(config_path: Path, *, desired: str = ".") -> bool:
+def _doctor_render_normalized_config_store_dir(config_path: Path, *, desired: str = ".") -> str | None:
     original = config_path.read_text(encoding="utf-8")
     lines = original.splitlines()
     updated: list[str] = []
@@ -6582,10 +6593,35 @@ def _doctor_normalize_config_store_dir(config_path: Path, *, desired: str = ".")
         store_written = True
 
     normalized = "\n".join(updated).strip() + "\n"
-    if normalized == original:
+    if normalized == original.strip() + "\n":
+        return None
+    return normalized
+
+
+def _doctor_normalize_config_store_dir(config_path: Path, *, desired: str = ".") -> bool:
+    normalized = _doctor_render_normalized_config_store_dir(config_path, desired=desired)
+    if normalized is None:
         return False
-    config_path.write_text(normalized, encoding="utf-8")
+    atomic_write_text(config_path, normalized, encoding="utf-8")
     return True
+
+
+def _doctor_repair_backup_dir(canonical_store: Path) -> Path:
+    return canonical_store / "doctor-backups" / secrets.token_hex(6)
+
+
+def _doctor_backup_copy(source: Path, *, backup_dir: Path, workspace_root: Path) -> str:
+    try:
+        relative = source.resolve().relative_to(workspace_root.resolve())
+    except ValueError:
+        relative = Path(source.name)
+    destination = backup_dir / relative
+    if source.is_dir():
+        shutil.copytree(source, destination)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return str(destination)
 
 
 def _doctor_collect_store_diagnosis(store_dir: Path) -> dict[str, Any]:
@@ -6732,70 +6768,141 @@ def _doctor_collect_store_diagnosis(store_dir: Path) -> dict[str, Any]:
     }
 
 
-def _doctor_apply_store_repairs(diagnosis: dict[str, Any]) -> dict[str, Any]:
+def _doctor_apply_store_repairs(
+    diagnosis: dict[str, Any],
+    *,
+    dry_run: bool = False,
+    backup_repair: bool = False,
+) -> dict[str, Any]:
     workspace_root = Path(diagnosis["workspace_root"])
     canonical_store = Path(diagnosis["canonical_store_dir"])
     root_entries = list(diagnosis["repairable_root_entries"])
     root_config_path = diagnosis["root_config_path"]
     canonical_config_path = Path(diagnosis["canonical_config_path"])
     actions: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
     errors: list[str] = []
+    backup_copies: list[dict[str, Any]] = []
+    backup_dir = ""
 
-    canonical_store.mkdir(parents=True, exist_ok=True)
+    planned_backups: list[Path] = []
+    if root_config_path is not None:
+        source_config = Path(root_config_path)
+        if source_config.exists() and source_config != canonical_config_path:
+            planned_backups.append(source_config)
+    for name in root_entries:
+        source_path = workspace_root / name
+        if source_path.exists():
+            planned_backups.append(source_path)
+    if (
+        canonical_config_path.exists()
+        and _doctor_render_normalized_config_store_dir(canonical_config_path, desired=".") is not None
+    ):
+        planned_backups.append(canonical_config_path)
+
+    if backup_repair and planned_backups and not dry_run:
+        backup_root = _doctor_repair_backup_dir(canonical_store)
+        for source in planned_backups:
+            try:
+                copied_path = _doctor_backup_copy(source, backup_dir=backup_root, workspace_root=workspace_root)
+            except Exception as exc:
+                errors.append(f"Could not back up {source}: {exc}")
+            else:
+                backup_dir = str(backup_root)
+                backup_copies.append({"source": str(source), "backup": copied_path})
+
+    if not dry_run:
+        canonical_store.mkdir(parents=True, exist_ok=True)
 
     if root_config_path is not None:
         source_config = Path(root_config_path)
         if source_config.exists() and source_config != canonical_config_path:
+            action = {
+                "action": "move_config",
+                "source": str(source_config),
+                "destination": str(canonical_config_path),
+                "dry_run": bool(dry_run),
+            }
             if canonical_config_path.exists():
-                errors.append(
-                    f"Cannot move {source_config} into {canonical_config_path} because the canonical config already exists."
+                conflicts.append(
+                    {
+                        **action,
+                        "reason": "destination_exists",
+                        "message": (
+                            f"Cannot move {source_config} into {canonical_config_path} because the canonical config already exists."
+                        ),
+                    }
                 )
+            elif dry_run:
+                actions.append(action)
             else:
                 canonical_config_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(source_config), str(canonical_config_path))
-                actions.append(
-                    {
-                        "action": "move_config",
-                        "source": str(source_config),
-                        "destination": str(canonical_config_path),
-                    }
-                )
+                actions.append(action)
 
     for name in root_entries:
         source_path = workspace_root / name
         destination_path = canonical_store / name
         if not source_path.exists():
+            skipped.append(
+                {
+                    "action": "move_store_entry",
+                    "entry": name,
+                    "source": str(source_path),
+                    "destination": str(destination_path),
+                    "reason": "source_missing",
+                }
+            )
             continue
+        action = {
+            "action": "move_store_entry",
+            "entry": name,
+            "source": str(source_path),
+            "destination": str(destination_path),
+            "dry_run": bool(dry_run),
+        }
         if destination_path.exists():
-            errors.append(f"Cannot move {source_path} into {destination_path} because the destination already exists.")
+            conflicts.append(
+                {
+                    **action,
+                    "reason": "destination_exists",
+                    "message": f"Cannot move {source_path} into {destination_path} because the destination already exists.",
+                }
+            )
+            continue
+        if dry_run:
+            actions.append(action)
             continue
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source_path), str(destination_path))
-        actions.append(
-            {
-                "action": "move_store_entry",
-                "entry": name,
-                "source": str(source_path),
-                "destination": str(destination_path),
-            }
-        )
+        actions.append(action)
 
     if canonical_config_path.exists():
-        normalized = _doctor_normalize_config_store_dir(canonical_config_path, desired=".")
-        if normalized:
-            actions.append(
-                {
-                    "action": "normalize_config_store_dir",
-                    "path": str(canonical_config_path),
-                    "store_dir": ".",
-                }
-            )
+        normalized_text = _doctor_render_normalized_config_store_dir(canonical_config_path, desired=".")
+        if normalized_text is not None:
+            action = {
+                "action": "normalize_config_store_dir",
+                "path": str(canonical_config_path),
+                "store_dir": ".",
+                "dry_run": bool(dry_run),
+            }
+            if dry_run:
+                actions.append(action)
+            else:
+                atomic_write_text(canonical_config_path, normalized_text, encoding="utf-8")
+                actions.append(action)
 
     return {
-        "applied": bool(actions),
+        "applied": bool(actions) and not dry_run,
+        "dry_run": bool(dry_run),
         "store_dir": str(canonical_store),
         "actions": actions,
+        "skipped": skipped,
+        "conflicts": conflicts,
         "errors": errors,
+        "backup_dir": backup_dir,
+        "backup_copies": backup_copies,
     }
 
 
@@ -6814,9 +6921,14 @@ def run_doctor(args):
     effective_store_dir = store_dir
 
     if fix_requested:
-        repair_report = _doctor_apply_store_repairs(diagnosis)
+        repair_report = _doctor_apply_store_repairs(
+            diagnosis,
+            dry_run=args.dry_run,
+            backup_repair=args.backup_repair,
+        )
         effective_store_dir = Path(repair_report["store_dir"]).resolve()
-        diagnosis = _doctor_collect_store_diagnosis(effective_store_dir)
+        if not args.dry_run:
+            diagnosis = _doctor_collect_store_diagnosis(effective_store_dir)
 
     state = load_portability_state(effective_store_dir)
     graph, graph_path = load_canonical_graph(effective_store_dir, state)
@@ -6834,9 +6946,26 @@ def run_doctor(args):
     issues = diagnosis["issues"]
     fix_available = any(issue.get("fixable") for issue in issues)
     repair_actions = repair_report["actions"] if repair_report else []
+    repair_skipped = repair_report["skipped"] if repair_report else []
+    repair_conflicts = repair_report["conflicts"] if repair_report else []
     repair_errors = repair_report["errors"] if repair_report else []
+    repair_backup_dir = repair_report["backup_dir"] if repair_report else ""
+    repair_backup_copies = repair_report["backup_copies"] if repair_report else []
     advice: list[str]
-    if repair_actions:
+    if args.dry_run and fix_requested:
+        advice = [
+            "Review the planned repair actions, then rerun `cortex doctor --fix` or `--fix-store` without `--dry-run`.",
+        ]
+    elif repair_conflicts and repair_actions:
+        advice = [
+            "Resolve the reported repair conflicts, then rerun `cortex doctor --fix`.",
+            "Run `cortex doctor` again after cleanup to confirm the store is stable.",
+        ]
+    elif repair_conflicts or repair_errors:
+        advice = [
+            "Resolve the reported repair conflicts or errors, then rerun `cortex doctor --fix`.",
+        ]
+    elif repair_actions:
         advice = [
             "Run `cortex doctor` again to confirm the store is stable.",
             "Run `cortex init` if you still need config or auth bootstrap help.",
@@ -6853,9 +6982,13 @@ def run_doctor(args):
         advice = ["Run `cortex scan` to audit coverage or `cortex sync --smart` to refresh every tool."]
 
     status = "ok"
-    if repair_actions:
+    if args.dry_run and fix_requested:
+        status = "dry-run"
+    elif repair_conflicts or repair_errors:
+        status = "partial" if repair_actions else "failed"
+    elif repair_actions:
         status = "fixed"
-    elif issues or repair_errors:
+    elif issues:
         status = "warn"
 
     payload = {
@@ -6884,7 +7017,11 @@ def run_doctor(args):
         "fix_requested": fix_requested,
         "fix_available": fix_available,
         "repair_actions": repair_actions,
+        "repair_skipped": repair_skipped,
+        "repair_conflicts": repair_conflicts,
         "repair_errors": repair_errors,
+        "repair_backup_dir": repair_backup_dir,
+        "repair_backup_copies": repair_backup_copies,
         "advice": advice,
     }
     if _emit_result(payload, args.format) == 0:
@@ -6912,9 +7049,23 @@ def run_doctor(args):
         description = action.get("action", "repair")
         if action.get("entry"):
             description += f" ({action['entry']})"
+        if action.get("dry_run"):
+            description += " [dry-run]"
         _echo(f"  Repair:  {description}")
+    for skipped in payload["repair_skipped"]:
+        description = skipped.get("action", "repair")
+        if skipped.get("entry"):
+            description += f" ({skipped['entry']})"
+        _echo(f"  Repair skipped: {description} [{skipped.get('reason', 'skipped')}]")
+    for conflict in payload["repair_conflicts"]:
+        description = conflict.get("action", "repair")
+        if conflict.get("entry"):
+            description += f" ({conflict['entry']})"
+        _echo(f"  Repair conflict: {description} [{conflict.get('reason', 'conflict')}]")
     for error in payload["repair_errors"]:
         _echo(f"  Repair warning: {error}")
+    if payload["repair_backup_dir"]:
+        _echo(f"  Repair backup: {payload['repair_backup_dir']}")
     _echo("  Smart routing:")
     for target, tags in SMART_ROUTE_TAGS.items():
         _echo(f"    {target:<12} → {', '.join(tags)}")
