@@ -36,17 +36,21 @@ def locked_path(path: Path) -> Iterator[Path]:
         lock.release()
 
 
-def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8", file_mode: int | None = None) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, raw_temp_path = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     temp_path = Path(raw_temp_path)
     try:
+        if file_mode is not None and hasattr(os, "fchmod"):
+            os.fchmod(fd, file_mode)
         with os.fdopen(fd, "w", encoding=encoding) as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, target)
+        if file_mode is not None:
+            os.chmod(target, file_mode)
     except Exception:
         try:
             temp_path.unlink()
@@ -55,8 +59,8 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
         raise
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+def atomic_write_json(path: Path, payload: dict[str, Any], *, file_mode: int | None = None) -> None:
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8", file_mode=file_mode)
 
 
 __all__ = [

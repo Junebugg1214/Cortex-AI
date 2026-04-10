@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import threading
 import time
 
@@ -927,6 +929,8 @@ def test_cli_init_bootstraps_default_store_and_mind_json(tmp_path, capsys, monke
     assert init_payload["created_mind_id"] == "marc"
     assert init_payload["namespace"] == "team"
     assert (store_dir / "config.toml").exists()
+    if os.name != "nt":
+        assert stat.S_IMODE((store_dir / "config.toml").stat().st_mode) == 0o600
     assert listing["count"] == 1
     assert listing["minds"][0]["mind"] == "marc"
 

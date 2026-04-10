@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -85,6 +87,8 @@ def test_connect_manus_can_write_full_config_to_file(tmp_path, capsys):
     assert payload["connector_config_path"] == str(output_path.resolve())
     assert written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"].startswith("cortex-reader-")
     assert "..." not in written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"]
+    if os.name != "nt":
+        assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
 
 
 def test_connect_manus_can_reveal_secret_explicitly(tmp_path, capsys):
