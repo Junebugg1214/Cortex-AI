@@ -110,6 +110,8 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
     assert "day-to-day workflows usually start with `cortex init`" in serve_help
     assert "store, config, and runtime drift" in doctor_help
     assert "cortex doctor --fix-store" in doctor_help
+    assert "cortex doctor --portability" in doctor_help
+    assert "--portability" in doctor_help
 
 
 def _write_graph(path):

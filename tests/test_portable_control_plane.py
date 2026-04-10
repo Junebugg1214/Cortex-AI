@@ -1423,7 +1423,54 @@ def test_doctor_reports_portability_state_and_smart_routing(tmp_path, capsys, mo
     assert payload["fact_count"] > 0
     assert payload["issues"] == []
     assert payload["fix_available"] is False
-    assert "technical_expertise" in payload["smart_routing"]["claude-code"]
+    assert payload["workspace"]["active_store_dir"] == str(store_dir.resolve())
+    assert payload["runtime"]["runtime_mode"] == "local-single-user"
+    assert payload["graph"]["exists"] is True
+    assert payload["portability"]["included"] is True
+    assert "technical_expertise" in payload["portability"]["smart_routing"]["claude-code"]
+
+
+def test_doctor_text_mode_is_health_first_by_default(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    rc = main(
+        [
+            "remember",
+            "We use Vitest and prefer direct technical answers.",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+        ]
+    )
+    capsys.readouterr()
+    assert rc == 0
+
+    rc = main(["doctor", "--project", str(project_dir), "--store-dir", str(store_dir)])
+    streams = capsys.readouterr()
+
+    assert rc == 0
+    assert "Cortex doctor" in streams.out
+    assert "Workspace" in streams.out
+    assert "Config" in streams.out
+    assert "Runtime" in streams.out
+    assert "Graph" in streams.out
+    assert "Portability" not in streams.out
+    assert "cortex doctor --portability" in streams.out
+    assert "cortex portable" not in streams.out
+    assert "cortex scan" not in streams.out
+
+    rc = main(["doctor", "--project", str(project_dir), "--store-dir", str(store_dir), "--portability"])
+    portability_streams = capsys.readouterr()
+
+    assert rc == 0
+    assert "Portability" in portability_streams.out
+    assert "technical_expertise" in portability_streams.out
 
 
 def test_doctor_fix_store_normalizes_root_store_into_dot_cortex(tmp_path, capsys):
@@ -1471,6 +1518,7 @@ namespace = "team"
     assert before["status"] == "warn"
     assert {issue["code"] for issue in before["issues"]} >= {"root_store_layout", "root_config_outside_store"}
     assert before["fix_available"] is True
+    assert before["store"]["canonical_store_dir"] == str((project_dir / ".cortex").resolve())
 
     rc = main(["doctor", "--store-dir", str(project_dir), "--fix-store", "--format", "json"])
     after = json.loads(capsys.readouterr().out)
@@ -1478,6 +1526,7 @@ namespace = "team"
     assert rc == 0
     assert after["status"] == "fixed"
     assert after["store_dir"] == str((project_dir / ".cortex").resolve())
+    assert after["workspace"]["active_store_dir"] == str((project_dir / ".cortex").resolve())
     assert {action["action"] for action in after["repair_actions"]} >= {"move_config", "move_store_entry"}
     assert after["repair_errors"] == []
     assert after["issues"] == []
@@ -1517,6 +1566,7 @@ namespace = "team"
     assert rc == 0
     assert before["status"] == "warn"
     assert {issue["code"] for issue in before["issues"]} >= {"config_store_mismatch"}
+    assert "config_store_mismatch" in before["config"]["issue_codes"]
 
     rc = main(["doctor", "--store-dir", str(store_dir), "--fix", "--format", "json"])
     after = json.loads(capsys.readouterr().out)
