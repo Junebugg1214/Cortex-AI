@@ -19,7 +19,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+    import tomli as tomllib
 
 from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
