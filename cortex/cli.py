@@ -6882,7 +6882,7 @@ def _doctor_apply_store_repairs(
 
 
 def run_doctor(args):
-    from cortex.config import load_selfhost_config
+    from cortex.config import CortexSelfHostConfig, load_selfhost_config, startup_diagnostics
     from cortex.context import _resolve_path
     from cortex.portable_runtime import SMART_ROUTE_TAGS, load_canonical_graph, load_portability_state, scan_portability
     from cortex.release import PROJECT_VERSION
@@ -6907,9 +6907,25 @@ def run_doctor(args):
 
     state = load_portability_state(effective_store_dir)
     graph, graph_path = load_canonical_graph(effective_store_dir, state)
-    scan = scan_portability(store_dir=effective_store_dir, project_dir=project_dir)
+    include_portability = bool(args.portability or args.format == "json")
+    scan = scan_portability(store_dir=effective_store_dir, project_dir=project_dir) if include_portability else None
     config_path = effective_store_dir / "config.toml"
-    config = load_selfhost_config(config_path=config_path, env={}) if config_path.exists() else None
+    runtime_config_error = ""
+    try:
+        config = load_selfhost_config(
+            store_dir=effective_store_dir, config_path=config_path if config_path.exists() else None, env={}
+        )
+    except ValueError as exc:
+        runtime_config_error = str(exc)
+        config = CortexSelfHostConfig(
+            store_dir=effective_store_dir, config_path=config_path if config_path.exists() else None
+        )
+    runtime_diagnostics = startup_diagnostics(config, mode="server")
+    if runtime_config_error:
+        runtime_diagnostics["warnings"] = [
+            *runtime_diagnostics["warnings"],
+            f"Config load fallback: {runtime_config_error}",
+        ]
 
     try:
         import nacl  # noqa: F401
@@ -6951,10 +6967,14 @@ def run_doctor(args):
         advice = ["Run `cortex doctor --fix-store` to normalize the active store back into `.cortex/`."]
     elif not graph.nodes:
         advice = [
-            "Run `cortex portable <export-or-graph> --to all --project .` to create your first canonical context."
+            "Run `cortex init` if this workspace still needs a default Mind and config bootstrap.",
+            'Then run `cortex mind remember self "..."` or `cortex mind ingest self --from-detected ...` to create canonical memory.',
         ]
     else:
-        advice = ["Run `cortex scan` to audit coverage or `cortex sync --smart` to refresh every tool."]
+        advice = [
+            "Run `cortex connect <runtime> --check` to verify runtime wiring before you mount or serve Cortex state.",
+            "Run `cortex doctor --portability` when you need tool coverage and smart-routing detail.",
+        ]
 
     status = "ok"
     if args.dry_run and fix_requested:
@@ -6970,6 +6990,65 @@ def run_doctor(args):
         "status": status,
         "release": PROJECT_VERSION,
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "workspace": {
+            "project_dir": str(project_dir.resolve()),
+            "active_store_dir": str(effective_store_dir.resolve()),
+            "canonical_store_dir": str(Path(diagnosis["canonical_store_dir"]).resolve()),
+            "workspace_root": str(Path(diagnosis["workspace_root"]).resolve()),
+            "store_source": selection.source if effective_store_dir == store_dir else "doctor_fix",
+            "warnings": list(selection.warnings),
+        },
+        "store": {
+            "active_store_dir": str(effective_store_dir.resolve()),
+            "canonical_store_dir": str(Path(diagnosis["canonical_store_dir"]).resolve()),
+            "root_store_entries": list(diagnosis["root_store_entries"]),
+            "repairable_root_entries": list(diagnosis["repairable_root_entries"]),
+            "issue_codes": [
+                issue["code"] for issue in issues if issue["code"] in {"root_store_layout", "accidental_second_store"}
+            ],
+        },
+        "config": {
+            "path": str(config.config_path) if config and config.config_path else None,
+            "exists": bool(config_path.exists()),
+            "runtime_store_dir": _doctor_runtime_store_dir(_doctor_raw_config_payload(config_path)[0])
+            if config_path.exists()
+            else None,
+            "issue_codes": [
+                issue["code"]
+                for issue in issues
+                if issue["code"]
+                in {
+                    "root_config_parse_error",
+                    "root_config_outside_store",
+                    "canonical_config_parse_error",
+                    "canonical_config_invalid",
+                    "config_store_mismatch",
+                    "config_store_dir_not_dot",
+                }
+            ],
+        },
+        "runtime": runtime_diagnostics,
+        "graph": {
+            "path": str(graph_path),
+            "exists": graph_path.exists(),
+            "fact_count": len(graph.nodes),
+        },
+        "portability": {
+            "included": include_portability,
+            "coverage": scan["coverage"] if scan else None,
+            "configured_tools": [tool["target"] for tool in scan["tools"] if tool["configured"]] if scan else [],
+            "smart_routing": SMART_ROUTE_TAGS if scan else {},
+        },
+        "repairs": {
+            "fix_requested": fix_requested,
+            "fix_available": fix_available,
+            "actions": repair_actions,
+            "skipped": repair_skipped,
+            "conflicts": repair_conflicts,
+            "errors": repair_errors,
+            "backup_dir": repair_backup_dir,
+            "backup_copies": repair_backup_copies,
+        },
         "store_dir": str(effective_store_dir.resolve()),
         "project_dir": str(project_dir.resolve()),
         "store_source": selection.source if effective_store_dir == store_dir else "doctor_fix",
@@ -6977,9 +7056,9 @@ def run_doctor(args):
         "canonical_graph_path": str(graph_path),
         "canonical_graph_exists": graph_path.exists(),
         "fact_count": len(graph.nodes),
-        "coverage": scan["coverage"],
-        "configured_tools": [tool["target"] for tool in scan["tools"] if tool["configured"]],
-        "smart_routing": SMART_ROUTE_TAGS,
+        "coverage": scan["coverage"] if scan else None,
+        "configured_tools": [tool["target"] for tool in scan["tools"] if tool["configured"]] if scan else [],
+        "smart_routing": SMART_ROUTE_TAGS if scan else {},
         "sample_paths": {
             "claude-code": str(_resolve_path("{home}/.claude/CLAUDE.md", str(project_dir))),
             "codex": str(_resolve_path("{project}/AGENTS.md", str(project_dir))),
@@ -7002,50 +7081,89 @@ def run_doctor(args):
     if _emit_result(payload, args.format) == 0:
         return 0
 
-    _echo("Cortex portability diagnostics:")
-    _echo(f"  Release: {payload['release']}")
-    _echo(f"  Python:  {payload['python']}")
-    _echo(f"  Store:   {payload['store_dir']}")
-    _echo(f"  Source:  {payload['store_source']}")
-    if payload["config_path"]:
-        _echo(f"  Config:  {payload['config_path']}")
-    _echo(f"  Project: {payload['project_dir']}")
-    _echo(
-        f"  Graph:   {payload['canonical_graph_path']} ({'present' if payload['canonical_graph_exists'] else 'missing'})"
-    )
-    _echo(f"  Facts:   {payload['fact_count']}")
-    _echo(f"  Coverage: {round(payload['coverage'] * 100)}%")
-    _echo(f"  Crypto:  {'installed' if crypto_available else 'not installed'}")
+    _echo("Cortex doctor")
+    _echo(f"  Status:   {payload['status']}")
+    _echo(f"  Release:  {payload['release']}")
+    _echo(f"  Python:   {payload['python']}")
+    _echo("")
+    _echo("Workspace")
+    _echo(f"  Project:         {payload['workspace']['project_dir']}")
+    _echo(f"  Active store:    {payload['workspace']['active_store_dir']}")
+    _echo(f"  Canonical store: {payload['workspace']['canonical_store_dir']}")
+    _echo(f"  Store source:    {payload['workspace']['store_source']}")
     for warning in payload["warnings"]:
-        _echo(f"  Warning: {warning}")
+        _echo(f"  Warning:         {warning}")
+    _echo("")
+    _echo("Config")
+    _echo(f"  Path:            {payload['config']['path'] or '(none)'}")
+    _echo(f"  Exists:          {'yes' if payload['config']['exists'] else 'no'}")
+    if payload["config"]["runtime_store_dir"]:
+        _echo(f"  runtime.store_dir: {payload['config']['runtime_store_dir']}")
+    _echo("")
+    _echo("Runtime")
+    _echo(f"  Mode:            {payload['runtime']['runtime_mode']}")
+    _echo(f"  Auth enabled:    {'yes' if payload['runtime']['auth_enabled'] else 'no'}")
+    _echo(f"  API keys:        {payload['runtime']['api_key_count']}")
+    _echo(f"  Bind scope:      {payload['runtime']['bind_scope']}")
+    if payload["runtime"]["mcp_namespace"]:
+        _echo(f"  MCP namespace:   {payload['runtime']['mcp_namespace']}")
+    if payload["runtime"].get("request_policy"):
+        request_policy = payload["runtime"]["request_policy"]
+        rate_limit = request_policy["rate_limit_per_minute"]
+        rate_limit_text = f"{rate_limit}/min" if rate_limit else "disabled"
+        _echo(
+            "  Requests:        "
+            + f"max {request_policy['max_body_bytes']} bytes, "
+            + f"timeout {request_policy['read_timeout_seconds']}s, "
+            + f"rate limit {rate_limit_text}"
+        )
+    _echo(f"  Crypto:          {'installed' if crypto_available else 'not installed'}")
+    for warning in payload["runtime"]["warnings"]:
+        _echo(f"  Runtime warning: {warning}")
+    _echo("")
+    _echo("Graph")
+    _echo(f"  Path:            {payload['graph']['path']}")
+    _echo(f"  Present:         {'yes' if payload['graph']['exists'] else 'no'}")
+    _echo(f"  Facts:           {payload['graph']['fact_count']}")
+    _echo("")
+    if args.portability:
+        _echo("Portability")
+        _echo(f"  Coverage:        {round((payload['portability']['coverage'] or 0.0) * 100)}%")
+        _echo(f"  Configured tools: {', '.join(payload['portability']['configured_tools']) or '(none)'}")
+        if payload["portability"]["smart_routing"]:
+            _echo("  Smart routing:")
+            for target, tags in payload["portability"]["smart_routing"].items():
+                _echo(f"    {target:<12} -> {', '.join(tags)}")
+        _echo("")
+    _echo("Issues")
+    if not payload["issues"]:
+        _echo("  none")
     for issue in payload["issues"]:
-        _echo(f"  Issue:   [{issue['code']}] {issue['message']}")
+        _echo(f"  [{issue['code']}] {issue['message']}")
     for action in payload["repair_actions"]:
         description = action.get("action", "repair")
         if action.get("entry"):
             description += f" ({action['entry']})"
         if action.get("dry_run"):
             description += " [dry-run]"
-        _echo(f"  Repair:  {description}")
+        _echo(f"  Repair action:   {description}")
     for skipped in payload["repair_skipped"]:
         description = skipped.get("action", "repair")
         if skipped.get("entry"):
             description += f" ({skipped['entry']})"
-        _echo(f"  Repair skipped: {description} [{skipped.get('reason', 'skipped')}]")
+        _echo(f"  Repair skipped:  {description} [{skipped.get('reason', 'skipped')}]")
     for conflict in payload["repair_conflicts"]:
         description = conflict.get("action", "repair")
         if conflict.get("entry"):
             description += f" ({conflict['entry']})"
         _echo(f"  Repair conflict: {description} [{conflict.get('reason', 'conflict')}]")
     for error in payload["repair_errors"]:
-        _echo(f"  Repair warning: {error}")
+        _echo(f"  Repair warning:  {error}")
     if payload["repair_backup_dir"]:
-        _echo(f"  Repair backup: {payload['repair_backup_dir']}")
-    _echo("  Smart routing:")
-    for target, tags in SMART_ROUTE_TAGS.items():
-        _echo(f"    {target:<12} → {', '.join(tags)}")
+        _echo(f"  Repair backup:   {payload['repair_backup_dir']}")
+    _echo("")
     for hint in payload["advice"]:
-        _echo(f"  Next: {hint}")
+        _echo(f"Next: {hint}")
     return 0
 
 

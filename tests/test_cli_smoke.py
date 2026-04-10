@@ -308,6 +308,56 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert manus_payload["tool_count"] == len(manus_payload["tools"])
     assert "mind_list" in manus_payload["tools"]
 
+    doctor_rc = main(["doctor", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    doctor_streams = capsys.readouterr()
+    doctor_payload = json.loads(doctor_streams.out)
+
+    assert doctor_rc == 0
+    assert doctor_streams.err == ""
+    assert set(doctor_payload) == {
+        "status",
+        "release",
+        "python",
+        "workspace",
+        "store",
+        "config",
+        "runtime",
+        "graph",
+        "portability",
+        "repairs",
+        "store_dir",
+        "project_dir",
+        "store_source",
+        "config_path",
+        "canonical_graph_path",
+        "canonical_graph_exists",
+        "fact_count",
+        "coverage",
+        "configured_tools",
+        "smart_routing",
+        "sample_paths",
+        "crypto_available",
+        "warnings",
+        "issues",
+        "fix_requested",
+        "fix_available",
+        "repair_actions",
+        "repair_skipped",
+        "repair_conflicts",
+        "repair_errors",
+        "repair_backup_dir",
+        "repair_backup_copies",
+        "advice",
+    }
+    assert doctor_payload["status"] == "ok"
+    assert doctor_payload["workspace"]["active_store_dir"] == str(store_dir.resolve())
+    assert doctor_payload["config"]["exists"] is True
+    assert doctor_payload["runtime"]["runtime_mode"] == "local-single-user"
+    assert doctor_payload["graph"]["exists"] is False
+    assert doctor_payload["portability"]["included"] is True
+    assert doctor_payload["repairs"]["fix_requested"] is False
+    assert doctor_payload["repairs"]["fix_available"] is False
+
 
 def test_init_treats_explicit_workspace_root_as_canonical_dot_cortex(tmp_path, capsys):
     project_dir = tmp_path / "project"

@@ -61,7 +61,11 @@ SERVE_HELP_EPILOG = (
     "`cortex mind`, or `cortex connect`.\n"
 )
 DOCTOR_HELP_EPILOG = (
-    "Safety / repair flow:\n  cortex doctor\n  cortex doctor --fix --dry-run\n  cortex doctor --fix-store\n"
+    "Health / repair flow:\n"
+    "  cortex doctor\n"
+    "  cortex doctor --fix --dry-run\n"
+    "  cortex doctor --fix-store\n"
+    "  cortex doctor --portability\n"
 )
 CONNECT_RUNTIME_TARGETS = ("hermes", "codex", "cursor", "claude-code")
 
@@ -280,7 +284,7 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
         epilog=DOCTOR_HELP_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    doc.add_argument("--store-dir", default=".cortex", help="Portability state directory (default: .cortex)")
+    doc.add_argument("--store-dir", default=".cortex", help="Store directory to inspect (default: .cortex)")
     doc.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     doc.add_argument(
         "--fix",
@@ -301,5 +305,10 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
         "--backup-repair",
         action="store_true",
         help="Copy touched store/config files into a doctor-backups snapshot before applying repairs",
+    )
+    doc.add_argument(
+        "--portability",
+        action="store_true",
+        help="Include tool coverage and smart-routing details in the doctor report",
     )
     doc.add_argument("--format", choices=["json", "text"], default="text")
