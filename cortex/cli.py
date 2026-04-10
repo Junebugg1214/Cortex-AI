@@ -9,7 +9,10 @@ Usage:
 """
 
 import argparse
+import getpass
 import json
+import os
+import secrets
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,8 +35,8 @@ if TYPE_CHECKING:
     from cortex.schemas.memory_v1 import GovernanceRuleRecord
     from cortex.upai.identity import UPAIIdentity
 
-CORE_PORTABILITY_COMMANDS = ("scan", "extract", "sync", "remember", "status", "query")
-ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced commands."
+FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "scan", "sync", "status", "doctor", "ui")
+ADVANCED_HELP_NOTE = "Run `cortex --help-all` for advanced and legacy commands."
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
 _CLI_QUIET = False
 
@@ -54,8 +57,8 @@ class CortexArgumentParser(argparse.ArgumentParser):
         original_choices_actions = action._choices_actions
         original_metavar = action.metavar
         filtered_map = {choice.dest: choice for choice in original_choices_actions}
-        action._choices_actions = [filtered_map[name] for name in CORE_PORTABILITY_COMMANDS if name in filtered_map]
-        action.metavar = "{" + ",".join(CORE_PORTABILITY_COMMANDS) + "}"
+        action._choices_actions = [filtered_map[name] for name in FIRST_CLASS_COMMANDS if name in filtered_map]
+        action.metavar = "{" + ",".join(FIRST_CLASS_COMMANDS) + "}"
         try:
             help_text = super().format_help().rstrip()
         finally:
@@ -144,6 +147,61 @@ def _extract_global_flags(argv: list[str]) -> tuple[list[str], bool, bool]:
             continue
         cleaned.append(token)
     return cleaned, force_json, quiet
+
+
+def _resolve_store_selection(store_dir: str | Path | None):
+    from cortex.config import resolve_cli_store_dir
+
+    return resolve_cli_store_dir(store_dir, cwd=Path.cwd(), env=os.environ)
+
+
+def _resolved_store_dir(store_dir: str | Path | None) -> Path:
+    return _resolve_store_selection(store_dir).store_dir
+
+
+def _default_owner_name() -> str:
+    return getpass.getuser().strip() or "owner"
+
+
+def _default_mind_label(owner: str) -> str:
+    try:
+        import pwd
+
+        gecos = pwd.getpwuid(os.getuid()).pw_gecos.split(",", 1)[0].strip()
+    except Exception:  # pragma: no cover - platform-dependent
+        gecos = ""
+    return gecos or owner.replace("-", " ").replace("_", " ").title() or "Self"
+
+
+def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, str]:
+    reader_token = f"cortex-reader-{secrets.token_hex(24)}"
+    writer_token = f"cortex-writer-{secrets.token_hex(24)}"
+    payload = (
+        "[runtime]\n"
+        'store_dir = "."\n'
+        "\n"
+        "[server]\n"
+        'host = "127.0.0.1"\n'
+        "port = 8766\n"
+        "\n"
+        "[mcp]\n"
+        f'namespace = "{namespace}"\n'
+        "\n"
+        "[[auth.keys]]\n"
+        'name = "reader"\n'
+        f'token = "{reader_token}"\n'
+        'scopes = ["read"]\n'
+        f'namespaces = ["{namespace}"]\n'
+        "\n"
+        "[[auth.keys]]\n"
+        'name = "writer"\n'
+        f'token = "{writer_token}"\n'
+        'scopes = ["write", "branch", "merge", "index"]\n'
+        f'namespaces = ["{namespace}"]\n'
+    )
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(payload, encoding="utf-8")
+    return reader_token, writer_token
 
 
 def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
@@ -303,6 +361,28 @@ def build_parser(*, show_all_commands: bool = False):
     parser.add_argument("--quiet", action="store_true", help="Suppress human-readable success output")
     parser.add_argument("--help-all", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="subcommand")
+
+    # -- init (first-run setup) -------------------------------------------
+    init = sub.add_parser("init", help="Initialize a first-class local Cortex workspace")
+    init.add_argument("--store-dir", default=None, help="Store directory (default: nearest .cortex or ./ .cortex)")
+    init.add_argument("--mind", default="self", help="Default Mind id to create when none exists (default: self)")
+    init.add_argument("--label", default="", help="Optional display label for the default Mind")
+    init.add_argument("--owner", default="", help="Optional owner label for the default Mind")
+    init.add_argument(
+        "--kind",
+        choices=["person", "agent", "project", "team"],
+        default="person",
+        help="Default Mind kind (default: person)",
+    )
+    init.add_argument(
+        "--default-policy",
+        default="professional",
+        choices=list(BUILTIN_POLICIES.keys()),
+        help="Default disclosure policy for the default Mind",
+    )
+    init.add_argument("--namespace", default="team", help="Default MCP/API namespace (default: team)")
+    init.add_argument("--no-mind", action="store_true", help="Skip Mind creation and only initialize the store/config")
+    init.add_argument("--format", choices=["json", "text"], default="text")
 
     # -- migrate (default) --------------------------------------------------
     mig = sub.add_parser("migrate", help="Full pipeline: extract then import")
@@ -5158,7 +5238,7 @@ def run_pack(args):
         render_pack_context,
     )
 
-    store_dir = Path(args.store_dir)
+    store_dir = _resolved_store_dir(args.store_dir)
 
     if args.pack_subcommand == "init":
         try:
@@ -5480,8 +5560,9 @@ def run_mind(args):
         set_default_mind,
     )
 
+    store_dir = _resolved_store_dir(args.store_dir)
+
     if args.mind_subcommand == "init":
-        store_dir = Path(args.store_dir)
         try:
             payload = init_mind(
                 store_dir,
@@ -5499,7 +5580,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "list":
-        store_dir = Path(args.store_dir)
         payload = list_minds(store_dir)
         if _emit_result(payload, args.format) == 0:
             return 0
@@ -5517,7 +5597,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "default":
-        store_dir = Path(args.store_dir)
         try:
             if args.clear:
                 payload = clear_default_mind(store_dir)
@@ -5536,7 +5615,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "ingest":
-        store_dir = Path(args.store_dir)
         project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
         try:
             redactor = _build_pii_redactor(
@@ -5584,7 +5662,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "status":
-        store_dir = Path(args.store_dir)
         try:
             payload = mind_status(store_dir, args.name)
         except (FileNotFoundError, ValueError) as exc:
@@ -5622,7 +5699,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "remember":
-        store_dir = Path(args.store_dir)
         try:
             payload = remember_on_mind(
                 store_dir,
@@ -5656,7 +5732,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "attach-pack":
-        store_dir = Path(args.store_dir)
         try:
             payload = attach_pack_to_mind(
                 store_dir,
@@ -5677,7 +5752,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "detach-pack":
-        store_dir = Path(args.store_dir)
         try:
             payload = detach_pack_from_mind(
                 store_dir,
@@ -5693,7 +5767,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "compose":
-        store_dir = Path(args.store_dir)
         try:
             payload = compose_mind(
                 store_dir,
@@ -5732,7 +5805,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "mount":
-        store_dir = Path(args.store_dir)
         try:
             payload = mount_mind(
                 store_dir,
@@ -5759,7 +5831,6 @@ def run_mind(args):
         return 0
 
     if args.mind_subcommand == "mounts":
-        store_dir = Path(args.store_dir)
         try:
             payload = list_mind_mounts(store_dir, args.name)
         except (FileNotFoundError, ValueError) as exc:
@@ -5787,11 +5858,115 @@ def run_mind(args):
     )
 
 
+def run_init(args):
+    from cortex.config import load_selfhost_config
+    from cortex.minds import default_mind_status, init_mind, list_minds, set_default_mind
+
+    selection = _resolve_store_selection(args.store_dir)
+    store_dir = selection.store_dir
+    store_dir.mkdir(parents=True, exist_ok=True)
+    config_path = store_dir / "config.toml"
+
+    config_created = False
+    reader_token = ""
+    if not config_path.exists():
+        reader_token, _writer_token = _write_default_config(config_path, namespace=args.namespace)
+        config_created = True
+
+    try:
+        config = load_selfhost_config(config_path=config_path, env={})
+    except ValueError as exc:
+        return _error(str(exc))
+
+    created_mind = False
+    created_mind_id = ""
+    default_mind = ""
+    owner = args.owner.strip() or _default_owner_name()
+    label = args.label.strip() or _default_mind_label(owner)
+
+    if not args.no_mind:
+        try:
+            current_default = default_mind_status(store_dir)
+        except (FileNotFoundError, ValueError):
+            current_default = {"configured": False, "mind": ""}
+
+        if current_default.get("configured"):
+            default_mind = str(current_default["mind"])
+        else:
+            known_minds = [item["mind"] for item in list_minds(store_dir)["minds"]]
+            target_mind = (args.mind or "self").strip() or "self"
+            if len(known_minds) == 1:
+                target_mind = known_minds[0]
+            if target_mind not in known_minds:
+                try:
+                    init_mind(
+                        store_dir,
+                        target_mind,
+                        kind=args.kind,
+                        label=label,
+                        owner=owner,
+                        default_policy=args.default_policy,
+                    )
+                except (FileExistsError, ValueError) as exc:
+                    return _error(str(exc))
+                created_mind = True
+                created_mind_id = target_mind
+            try:
+                payload = set_default_mind(store_dir, target_mind)
+            except (FileNotFoundError, ValueError) as exc:
+                return _error(str(exc))
+            default_mind = str(payload["mind"])
+
+    next_steps = []
+    if default_mind:
+        next_steps.append(f'cortex mind remember {default_mind} "I prefer concise technical answers."')
+        next_steps.append(f"cortex mind status {default_mind}")
+    next_steps.append("cortex doctor")
+
+    payload = {
+        "status": "ok",
+        "store_dir": str(store_dir.resolve()),
+        "store_source": selection.source,
+        "config_path": str(config_path.resolve()),
+        "config_created": config_created,
+        "auth_keys_created": 2 if config_created else 0,
+        "default_mind": default_mind,
+        "created_mind": created_mind,
+        "created_mind_id": created_mind_id,
+        "namespace": config.mcp_namespace or args.namespace,
+        "warnings": list(selection.warnings),
+        "next_steps": next_steps,
+    }
+    if _emit_result(payload, args.format) == 0:
+        return 0
+
+    _echo(f"Initialized Cortex at {payload['store_dir']}")
+    _echo(f"  config: {payload['config_path']}" + (" (created)" if config_created else " (reused)"))
+    _echo(f"  store source: {payload['store_source']}")
+    if default_mind:
+        _echo(f"  default Mind: {default_mind}" + (" (created)" if created_mind else " (reused)"))
+    else:
+        _echo("  default Mind: not configured")
+    if config_created:
+        _echo("  auth keys: generated reader + writer tokens")
+    for warning in payload["warnings"]:
+        _echo(f"  warning: {warning}")
+    _echo("")
+    _echo("Next:")
+    for step in next_steps:
+        _echo(f"  {step}")
+    if reader_token:
+        _echo("")
+        _echo("Important: keep the generated API keys from config.toml private.")
+    return 0
+
+
 def run_scan(args):
     from cortex.portable_runtime import bar, scan_portability
 
+    store_dir = _resolved_store_dir(args.store_dir)
     payload = scan_portability(
-        store_dir=Path(args.store_dir),
+        store_dir=store_dir,
         project_dir=Path(args.project) if args.project else Path.cwd(),
         extra_roots=[Path(root) for root in args.search_root],
     )
@@ -5827,7 +6002,7 @@ def run_remember(args):
     from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
     from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
-    store_dir = Path(args.store_dir)
+    store_dir = _resolved_store_dir(args.store_dir)
     project_dir = Path(args.project) if args.project else Path.cwd()
     try:
         default_mind = resolve_default_mind(store_dir)
@@ -5871,8 +6046,9 @@ def run_remember(args):
 def run_status(args):
     from cortex.portable_runtime import status_portability
 
+    store_dir = _resolved_store_dir(args.store_dir)
     payload = status_portability(
-        store_dir=Path(args.store_dir),
+        store_dir=store_dir,
         project_dir=Path(args.project) if args.project else Path.cwd(),
     )
     if _emit_result(payload, args.format) == 0:
@@ -5898,11 +6074,12 @@ def run_status(args):
 def run_build(args):
     from cortex.portable_runtime import build_digital_footprint
 
+    store_dir = _resolved_store_dir(args.store_dir)
     try:
         payload = build_digital_footprint(
             sources=args.sources,
             inputs=args.inputs,
-            store_dir=Path(args.store_dir),
+            store_dir=store_dir,
             project_dir=Path(args.project) if args.project else Path.cwd(),
             search_roots=[Path(root) for root in args.search_root],
             sync_after=args.sync,
@@ -5924,8 +6101,9 @@ def run_build(args):
 def run_audit(args):
     from cortex.portable_runtime import audit_portability
 
+    store_dir = _resolved_store_dir(args.store_dir)
     payload = audit_portability(
-        store_dir=Path(args.store_dir),
+        store_dir=store_dir,
         project_dir=Path(args.project) if args.project else Path.cwd(),
     )
     if _emit_result(payload, args.format) == 0:
@@ -5941,15 +6119,19 @@ def run_audit(args):
 
 
 def run_doctor(args):
+    from cortex.config import load_selfhost_config
     from cortex.context import _resolve_path
     from cortex.portable_runtime import SMART_ROUTE_TAGS, load_canonical_graph, load_portability_state, scan_portability
     from cortex.release import PROJECT_VERSION
 
-    store_dir = Path(args.store_dir)
+    selection = _resolve_store_selection(args.store_dir)
+    store_dir = selection.store_dir
     project_dir = Path(args.project) if args.project else Path.cwd()
     state = load_portability_state(store_dir)
     graph, graph_path = load_canonical_graph(store_dir, state)
     scan = scan_portability(store_dir=store_dir, project_dir=project_dir)
+    config_path = store_dir / "config.toml"
+    config = load_selfhost_config(config_path=config_path, env={}) if config_path.exists() else None
 
     try:
         import nacl  # noqa: F401
@@ -5964,6 +6146,8 @@ def run_doctor(args):
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "store_dir": str(store_dir.resolve()),
         "project_dir": str(project_dir.resolve()),
+        "store_source": selection.source,
+        "config_path": str(config.config_path) if config and config.config_path else None,
         "canonical_graph_path": str(graph_path),
         "canonical_graph_exists": graph_path.exists(),
         "fact_count": len(graph.nodes),
@@ -5977,6 +6161,7 @@ def run_doctor(args):
             "hermes": str(_resolve_path("{home}/.hermes/memories/USER.md", str(project_dir))),
         },
         "crypto_available": crypto_available,
+        "warnings": list(selection.warnings),
         "advice": (
             ["Run `cortex portable <export-or-graph> --to all --project .` to create your first canonical context."]
             if not graph.nodes
@@ -5990,6 +6175,9 @@ def run_doctor(args):
     _echo(f"  Release: {payload['release']}")
     _echo(f"  Python:  {payload['python']}")
     _echo(f"  Store:   {payload['store_dir']}")
+    _echo(f"  Source:  {payload['store_source']}")
+    if payload["config_path"]:
+        _echo(f"  Config:  {payload['config_path']}")
     _echo(f"  Project: {payload['project_dir']}")
     _echo(
         f"  Graph:   {payload['canonical_graph_path']} ({'present' if payload['canonical_graph_exists'] else 'missing'})"
@@ -5997,6 +6185,8 @@ def run_doctor(args):
     _echo(f"  Facts:   {payload['fact_count']}")
     _echo(f"  Coverage: {round(payload['coverage'] * 100)}%")
     _echo(f"  Crypto:  {'installed' if crypto_available else 'not installed'}")
+    for warning in payload["warnings"]:
+        _echo(f"  Warning: {warning}")
     _echo("  Smart routing:")
     for target, tags in SMART_ROUTE_TAGS.items():
         _echo(f"    {target:<12} → {', '.join(tags)}")
@@ -6012,7 +6202,7 @@ def run_ui(args):
     server, url = start_ui_server(
         host=args.host,
         port=args.port,
-        store_dir=args.store_dir,
+        store_dir=str(_resolved_store_dir(args.store_dir)),
         context_file=args.context_file,
         open_browser=args.open,
     )
@@ -6275,6 +6465,7 @@ def main(argv=None):
     # Default-subcommand routing: if the first arg is not a known subcommand,
     # treat it as a file path and route to the "migrate" subcommand.
     known_subcommands = (
+        "init",
         "extract",
         "ingest",
         "import",
@@ -6357,7 +6548,9 @@ def main(argv=None):
         elif args.subcommand not in {"extract"}:
             return _error(f"`--json` is not supported for '{args.subcommand}'.")
 
-    if args.subcommand == "extract":
+    if args.subcommand == "init":
+        return run_init(args)
+    elif args.subcommand == "extract":
         return run_extract(args)
     elif args.subcommand == "ingest":
         return run_ingest(args)

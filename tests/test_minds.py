@@ -806,6 +806,52 @@ def test_cli_mind_default_round_trip_json(tmp_path, capsys):
     assert clear_payload["configured"] is False
 
 
+def test_cli_init_bootstraps_default_store_and_mind_json(tmp_path, capsys, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+
+    init_rc = main(
+        [
+            "init",
+            "--mind",
+            "marc",
+            "--owner",
+            "marc",
+            "--label",
+            "Marc",
+            "--format",
+            "json",
+        ]
+    )
+    init_payload = json.loads(capsys.readouterr().out)
+
+    repeat_rc = main(["init", "--mind", "marc", "--format", "json"])
+    repeat_payload = json.loads(capsys.readouterr().out)
+
+    store_dir = workspace / ".cortex"
+    listing = list_minds(store_dir)
+
+    assert init_rc == 0
+    assert init_payload["status"] == "ok"
+    assert init_payload["store_dir"] == str(store_dir.resolve())
+    assert init_payload["store_source"] == "default"
+    assert init_payload["config_created"] is True
+    assert init_payload["auth_keys_created"] == 2
+    assert init_payload["default_mind"] == "marc"
+    assert init_payload["created_mind"] is True
+    assert init_payload["created_mind_id"] == "marc"
+    assert init_payload["namespace"] == "team"
+    assert (store_dir / "config.toml").exists()
+    assert listing["count"] == 1
+    assert listing["minds"][0]["mind"] == "marc"
+
+    assert repeat_rc == 0
+    assert repeat_payload["config_created"] is False
+    assert repeat_payload["created_mind"] is False
+    assert repeat_payload["default_mind"] == "marc"
+
+
 def test_cli_mind_ingest_from_detected_json(tmp_path, capsys, monkeypatch):
     store_dir = tmp_path / ".cortex"
     home_dir = tmp_path / "home"
