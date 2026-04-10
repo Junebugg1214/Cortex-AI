@@ -163,6 +163,16 @@ def test_default_mind_round_trip(tmp_path):
     assert resolve_default_mind(store_dir) is None
 
 
+def test_unscoped_minds_round_trip_namespace_as_none(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    status = mind_status(store_dir, "marc")
+
+    assert status["namespace"] is None
+    assert status["manifest"]["namespace"] is None
+
+
 def test_mind_attach_and_detach_pack_updates_status_metadata(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     project_dir = tmp_path / "project"

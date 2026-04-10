@@ -100,6 +100,16 @@ def test_pack_namespace_filters_and_enforces_access(tmp_path):
         pack_status(store_dir, "team-b-pack", namespace="team-a")
 
 
+def test_unscoped_packs_round_trip_namespace_as_none(tmp_path):
+    store_dir = tmp_path / ".cortex"
+
+    init_pack(store_dir, "ai-memory", description="Portable AI memory research", owner="marc")
+    status = pack_status(store_dir, "ai-memory")
+
+    assert status["namespace"] is None
+    assert status["manifest"]["namespace"] is None
+
+
 def test_pack_query_and_ask_write_back_artifact(tmp_path):
     store_dir = tmp_path / ".cortex"
     source = tmp_path / "memory.md"

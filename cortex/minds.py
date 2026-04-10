@@ -11,6 +11,7 @@ from typing import Any
 
 from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
 from cortex.graph import CortexGraph
+from cortex.namespaces import describe_resource_namespace, normalize_resource_namespace, resource_namespace_matches
 
 MINDS_DIRNAME = "minds"
 MIND_KINDS = ("person", "agent", "project", "team")
@@ -56,7 +57,7 @@ class MindManifest:
     label: str
     kind: str
     owner: str
-    namespace: str
+    namespace: str | None
     created_at: str
     updated_at: str
     default_branch: str = DEFAULT_BRANCH
@@ -93,31 +94,10 @@ def _default_label(mind_id: str) -> str:
     return " ".join(part.capitalize() for part in parts) or mind_id
 
 
-def _normalize_namespace(value: str | None) -> str:
-    cleaned = str(value or "").strip().strip("/")
-    if not cleaned:
-        return ""
-    if cleaned == "*" or " " in cleaned or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", cleaned):
-        raise ValueError(
-            "Namespaces must use letters, numbers, '.', '-', '_', or '/' and must not contain spaces or '*'."
-        )
-    return cleaned
-
-
-def _namespace_matches(item_namespace: str, requested_namespace: str | None) -> bool:
-    if not requested_namespace:
-        return True
-    normalized_item = _normalize_namespace(item_namespace)
-    normalized_requested = _normalize_namespace(requested_namespace)
-    return bool(normalized_item) and (
-        normalized_item == normalized_requested or normalized_item.startswith(f"{normalized_requested}/")
-    )
-
-
 def _require_mind_namespace(manifest: MindManifest, namespace: str | None) -> None:
-    if _namespace_matches(manifest.namespace, namespace):
+    if resource_namespace_matches(manifest.namespace, namespace):
         return
-    raise PermissionError(f"Mind '{manifest.id}' is outside namespace '{_normalize_namespace(namespace)}'.")
+    raise PermissionError(f"Mind '{manifest.id}' is outside namespace '{describe_resource_namespace(namespace)}'.")
 
 
 def _read_json(path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
@@ -204,7 +184,7 @@ def load_mind_manifest(store_dir: Path, mind_id: str) -> MindManifest:
         label=str(payload["label"]),
         kind=str(payload["kind"]),
         owner=str(payload.get("owner") or ""),
-        namespace=_normalize_namespace(str(payload.get("namespace") or "")),
+        namespace=normalize_resource_namespace(payload.get("namespace")),
         created_at=str(payload["created_at"]),
         updated_at=str(payload["updated_at"]),
         default_branch=str(payload.get("default_branch") or DEFAULT_BRANCH),
@@ -314,7 +294,7 @@ def init_mind(
     kind: str = "person",
     label: str = "",
     owner: str = "",
-    namespace: str = "",
+    namespace: str | None = None,
     default_policy: str = DEFAULT_POLICY,
 ) -> dict[str, Any]:
     normalized_id = _validate_mind_id(mind_id)
@@ -329,7 +309,7 @@ def init_mind(
         label=label.strip() or _default_label(normalized_id),
         kind=normalized_kind,
         owner=owner.strip(),
-        namespace=_normalize_namespace(namespace),
+        namespace=normalize_resource_namespace(namespace),
         created_at=created_at,
         updated_at=created_at,
         default_policy=default_policy.strip() or DEFAULT_POLICY,
@@ -520,9 +500,9 @@ def attach_pack_to_mind(
     from cortex.packs import load_manifest as load_pack_manifest
 
     pack_manifest = load_pack_manifest(store_dir, pack_name)
-    if not _namespace_matches(pack_manifest.namespace, namespace):
+    if not resource_namespace_matches(pack_manifest.namespace, namespace):
         raise PermissionError(
-            f"Brainpack '{pack_manifest.name}' is outside namespace '{_normalize_namespace(namespace)}'."
+            f"Brainpack '{pack_manifest.name}' is outside namespace '{describe_resource_namespace(namespace)}'."
         )
     now = _iso_now()
     updated = False
@@ -1595,7 +1575,7 @@ def list_minds(store_dir: Path, *, namespace: str | None = None) -> dict[str, An
             manifest = load_mind_manifest(store_dir, child.name)
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
             continue
-        if not _namespace_matches(manifest.namespace, namespace):
+        if not resource_namespace_matches(manifest.namespace, namespace):
             continue
         summary = _mind_summary(store_dir, manifest)
         minds.append(
