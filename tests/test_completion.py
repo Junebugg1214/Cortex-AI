@@ -28,7 +28,17 @@ class TestGetSubcommands:
 
     def test_known_subcommands_present(self, parser):
         subs = _get_subcommands(parser)
-        for expected in ("query", "migrate", "extract", "import", "identity", "rotate", "completion"):
+        for expected in (
+            "query",
+            "migrate",
+            "extract",
+            "import",
+            "identity",
+            "rotate",
+            "completion",
+            "connect",
+            "serve",
+        ):
             assert expected in subs, f"Missing subcommand: {expected}"
 
 
