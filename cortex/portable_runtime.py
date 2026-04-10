@@ -18,6 +18,7 @@ try:  # pragma: no cover - Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
+from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.coding import enrich_project
 from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
@@ -474,7 +475,8 @@ def load_portability_state(store_dir: Path) -> PortabilityState:
 def save_portability_state(store_dir: Path, state: PortabilityState) -> Path:
     ensure_state_dirs(store_dir)
     path = portability_state_path(store_dir)
-    path.write_text(json.dumps(state.to_dict(), indent=2) + "\n", encoding="utf-8")
+    with locked_path(path):
+        atomic_write_text(path, json.dumps(state.to_dict(), indent=2) + "\n", encoding="utf-8")
     return path
 
 
@@ -505,8 +507,8 @@ def _graph_fact_rows(graph: CortexGraph) -> list[dict[str, Any]]:
 
 
 def _write_graph(path: Path, graph: CortexGraph) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
+    with locked_path(path):
+        atomic_write_text(path, json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
 
 
 def _load_graph(path: Path) -> CortexGraph | None:

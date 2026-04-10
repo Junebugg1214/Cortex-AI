@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.graph import CortexGraph, Node, _normalize_label
 from cortex.semantic_diff import semantic_diff_graphs
 
@@ -96,18 +97,19 @@ class VersionStore:
 
     def _bootstrap_refs(self) -> None:
         self._ensure_dirs()
-        if self.head_path.exists():
-            return
+        with locked_path(self.store_dir):
+            if self.head_path.exists():
+                return
 
-        history = self._load_history()
-        branch = "main"
-        branch_path = self._branch_path(branch)
-        branch_path.parent.mkdir(parents=True, exist_ok=True)
-        if history:
-            branch_path.write_text(history[-1]["version_id"])
-        elif not branch_path.exists():
-            branch_path.write_text("")
-        self.head_path.write_text(f"ref: refs/heads/{branch}")
+            history = self._load_history()
+            branch = "main"
+            branch_path = self._branch_path(branch)
+            branch_path.parent.mkdir(parents=True, exist_ok=True)
+            if history:
+                atomic_write_text(branch_path, history[-1]["version_id"])
+            elif not branch_path.exists():
+                atomic_write_text(branch_path, "")
+            atomic_write_text(self.head_path, f"ref: refs/heads/{branch}")
 
     def _current_ref(self) -> str:
         self._bootstrap_refs()
@@ -128,7 +130,7 @@ class VersionStore:
         self._ensure_dirs()
         path = self._branch_path(branch)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(version_id or "")
+        atomic_write_text(path, version_id or "")
 
     def current_branch(self) -> str:
         ref = self._current_ref()
@@ -143,7 +145,7 @@ class VersionStore:
 
     def _save_history(self, history: list[dict]) -> None:
         self._ensure_dirs()
-        self.history_path.write_text(json.dumps(history, indent=2))
+        atomic_write_text(self.history_path, json.dumps(history, indent=2))
 
     def _ancestry_ids(self, start_version: str | None) -> list[str]:
         if not start_version:
@@ -190,39 +192,39 @@ class VersionStore:
         graph_hash = hashlib.sha256(graph_bytes).hexdigest()
         version_id = graph_hash[:32]
 
-        # Determine parent
-        history = self._load_history()
-        branch = branch or self.current_branch()
-        resolved_parent = parent_id if parent_id is not None else self._read_ref(branch)
-
         # Sign if identity available
         signature = None
         if identity is not None:
             signature = identity.sign(graph_hash.encode("utf-8"))
 
-        # Save snapshot
-        snapshot_path = self.versions_dir / f"{version_id}.json"
-        snapshot_path.write_text(json.dumps(graph_data, indent=2))
+        with locked_path(self.store_dir):
+            history = self._load_history()
+            resolved_branch = branch or self.current_branch()
+            resolved_parent = parent_id if parent_id is not None else self._read_ref(resolved_branch)
 
-        # Create version record
-        version = ContextVersion(
-            version_id=version_id,
-            parent_id=resolved_parent,
-            merge_parent_ids=list(merge_parent_ids or []),
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            branch=branch,
-            source=source,
-            message=message,
-            graph_hash=graph_hash,
-            node_count=len(graph.nodes),
-            edge_count=len(graph.edges),
-            signature=signature,
-        )
+            # Save snapshot
+            snapshot_path = self.versions_dir / f"{version_id}.json"
+            atomic_write_text(snapshot_path, json.dumps(graph_data, indent=2))
 
-        # Append to history
-        history.append(version.to_dict())
-        self._save_history(history)
-        self._write_ref(branch, version_id)
+            # Create version record
+            version = ContextVersion(
+                version_id=version_id,
+                parent_id=resolved_parent,
+                merge_parent_ids=list(merge_parent_ids or []),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                branch=resolved_branch,
+                source=source,
+                message=message,
+                graph_hash=graph_hash,
+                node_count=len(graph.nodes),
+                edge_count=len(graph.edges),
+                signature=signature,
+            )
+
+            # Append to history
+            history.append(version.to_dict())
+            self._save_history(history)
+            self._write_ref(resolved_branch, version_id)
 
         return version
 
@@ -358,21 +360,23 @@ class VersionStore:
 
     def create_branch(self, branch: str, from_ref: str = "HEAD", switch: bool = False) -> str | None:
         self._bootstrap_refs()
-        path = self._branch_path(branch)
-        if path.exists():
-            raise ValueError(f"Branch already exists: {branch}")
-        start = self.resolve_ref(from_ref)
-        self._write_ref(branch, start)
-        if switch:
-            self.switch_branch(branch)
-        return start
+        with locked_path(self.store_dir):
+            path = self._branch_path(branch)
+            if path.exists():
+                raise ValueError(f"Branch already exists: {branch}")
+            start = self.resolve_ref(from_ref)
+            self._write_ref(branch, start)
+            if switch:
+                self.switch_branch(branch)
+            return start
 
     def switch_branch(self, branch: str) -> str | None:
         self._bootstrap_refs()
         path = self._branch_path(branch)
         if not path.exists():
             raise ValueError(f"Branch not found: {branch}")
-        self.head_path.write_text(f"ref: refs/heads/{branch}")
+        with locked_path(self.store_dir):
+            atomic_write_text(self.head_path, f"ref: refs/heads/{branch}")
         return self._read_ref(branch)
 
     def resolve_version_id(self, prefix: str) -> str | None:
