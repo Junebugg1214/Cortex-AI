@@ -120,6 +120,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
         "status",
         "target",
         "store_dir",
+        "store_source",
         "config_path",
         "namespace",
         "connector_name",
@@ -150,6 +151,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(api_payload) == {
         "status",
         "target",
+        "store_source",
         "allow_unsafe_bind",
         "mode",
         "project_version",
@@ -187,6 +189,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(mcp_payload) == {
         "status",
         "target",
+        "store_source",
         "allow_unsafe_bind",
         "mode",
         "project_version",
@@ -221,6 +224,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(ui_payload) == {
         "status",
         "target",
+        "store_source",
         "allow_unsafe_bind",
         "mode",
         "project_version",
@@ -256,6 +260,7 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert set(manus_payload) == {
         "status",
         "target",
+        "store_source",
         "allow_unsafe_bind",
         "mode",
         "project_version",
@@ -294,6 +299,21 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert manus_payload["request_policy"]["rate_limit_per_minute"] == 0
     assert manus_payload["tool_count"] == len(manus_payload["tools"])
     assert "mind_list" in manus_payload["tools"]
+
+
+def test_init_treats_explicit_workspace_root_as_canonical_dot_cortex(tmp_path, capsys):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    rc = main(["init", "--store-dir", str(project_dir), "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["store_dir"] == str((project_dir / ".cortex").resolve())
+    assert payload["store_source"] == "cli_workspace"
+    assert any("canonical `.cortex` store" in warning for warning in payload["warnings"])
+    assert (project_dir / ".cortex" / "config.toml").exists()
+    assert not (project_dir / "config.toml").exists()
 
 
 def test_legacy_cli_compatibility_flows_still_work_with_json_contracts(tmp_path, capsys, monkeypatch):

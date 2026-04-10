@@ -210,13 +210,167 @@ def _extract_global_flags(argv: list[str]) -> tuple[list[str], bool, bool]:
 
 
 def _resolve_store_selection(store_dir: str | Path | None):
-    from cortex.config import resolve_cli_store_dir
+    from cortex.config import CortexStoreDiscovery, resolve_cli_store_dir
 
-    return resolve_cli_store_dir(store_dir, cwd=Path.cwd(), env=os.environ)
+    selection = resolve_cli_store_dir(store_dir, cwd=Path.cwd(), env=os.environ)
+    warnings = list(selection.warnings)
+    if selection.config_path and selection.config_path.parent.name == ".cortex":
+        canonical_store = selection.config_path.parent.resolve()
+        if selection.store_dir.resolve() != canonical_store:
+            warnings.append(
+                f"{selection.config_path} resolves store_dir to {selection.store_dir.resolve()}, not the canonical {canonical_store}. "
+                "Run `cortex doctor --fix` to normalize it."
+            )
+    if warnings == list(selection.warnings):
+        return selection
+    return CortexStoreDiscovery(
+        store_dir=selection.store_dir,
+        source=selection.source,
+        config_path=selection.config_path,
+        warnings=tuple(warnings),
+    )
+
+
+def _resolve_first_class_store_selection(store_dir: str | Path | None, *, command: str):
+    from cortex.config import CortexStoreDiscovery
+
+    selection = _resolve_store_selection(store_dir)
+    if store_dir is None:
+        return selection
+
+    raw = str(store_dir).strip()
+    if not raw:
+        return selection
+
+    explicit = Path(raw).expanduser()
+    resolved = explicit if explicit.is_absolute() else (Path.cwd() / explicit)
+    resolved = resolved.resolve()
+    if resolved.name == ".cortex":
+        return selection
+
+    root_entries = _doctor_store_entries(resolved)
+    root_config_path = resolved / "config.toml"
+    root_config_payload, root_config_error = _doctor_raw_config_payload(root_config_path)
+    if _doctor_has_store_signature(root_entries) or root_config_error or _doctor_is_cortex_config(root_config_payload):
+        raise ValueError(
+            f"Refusing to use {resolved} as the active store for `cortex {command}`. "
+            "First-class Cortex CLI flows expect the canonical `.cortex/` layout. "
+            f"Run `cortex doctor --store-dir {resolved} --fix-store` or pass {resolved / '.cortex'} explicitly."
+        )
+
+    canonical_store = (resolved / ".cortex").resolve()
+    warnings = list(selection.warnings)
+    warnings.append(
+        f"Interpreting explicit store path {resolved} as a workspace root; using {canonical_store} as the canonical `.cortex` store."
+    )
+    config_path = (canonical_store / "config.toml").resolve() if (canonical_store / "config.toml").exists() else None
+    return CortexStoreDiscovery(
+        store_dir=canonical_store,
+        source="cli_workspace",
+        config_path=config_path,
+        warnings=tuple(warnings),
+    )
 
 
 def _resolved_store_dir(store_dir: str | Path | None) -> Path:
     return _resolve_store_selection(store_dir).store_dir
+
+
+def _load_first_class_runtime_config(
+    *,
+    command: str,
+    store_dir: str | Path | None = None,
+    context_file: str | Path | None = None,
+    config_path: str | Path | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    runtime_mode: str | None = None,
+    namespace: str | None = None,
+    api_key: str | None = None,
+):
+    from cortex.config import CortexStoreDiscovery, load_selfhost_config
+
+    explicit_config = Path(config_path).expanduser().resolve() if config_path else None
+    if explicit_config is not None:
+        config = load_selfhost_config(
+            store_dir=store_dir,
+            context_file=context_file,
+            config_path=explicit_config,
+            server_host=host,
+            server_port=port,
+            runtime_mode=runtime_mode,
+            mcp_namespace=namespace,
+            api_key=api_key,
+            env={},
+        )
+        selection = CortexStoreDiscovery(
+            store_dir=config.store_dir.resolve(),
+            source="explicit_config",
+            config_path=config.config_path,
+            warnings=tuple(),
+        )
+        return config, selection
+
+    selection = _resolve_first_class_store_selection(store_dir, command=command)
+    config = load_selfhost_config(
+        store_dir=selection.store_dir,
+        context_file=context_file,
+        config_path=selection.config_path,
+        server_host=host,
+        server_port=port,
+        runtime_mode=runtime_mode,
+        mcp_namespace=namespace,
+        api_key=api_key,
+        env={},
+    )
+    return config, selection
+
+
+def _runtime_forward_argv(
+    *,
+    selection,
+    explicit_config_path: str | None = None,
+    context_file: str | None = None,
+    namespace: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    runtime_mode: str | None = None,
+    api_key: str | None = None,
+    allow_unsafe_bind: bool = False,
+    allow_write_tools: bool = False,
+    tools: list[str] | tuple[str, ...] = (),
+    protocol_version: str | None = None,
+    check: bool = False,
+):
+    argv: list[str] = []
+    config_arg = explicit_config_path or (str(selection.config_path) if selection.config_path else None)
+    if config_arg:
+        argv.extend(["--config", config_arg])
+    else:
+        argv.extend(["--store-dir", str(selection.store_dir)])
+    if context_file:
+        argv.extend(["--context-file", context_file])
+    if namespace:
+        argv.extend(["--namespace", namespace])
+    if host:
+        argv.extend(["--host", host])
+    if port is not None:
+        argv.extend(["--port", str(port)])
+    if runtime_mode:
+        argv.extend(["--runtime-mode", runtime_mode])
+    if api_key:
+        argv.extend(["--api-key", api_key])
+    if allow_unsafe_bind:
+        argv.append("--allow-unsafe-bind")
+    if allow_write_tools:
+        argv.append("--allow-write-tools")
+    for tool in tools:
+        argv.extend(["--tool", tool])
+    if protocol_version:
+        argv.extend(["--protocol-version", protocol_version])
+    if check:
+        argv.append("--check")
+    return argv
 
 
 def _default_owner_name() -> str:
@@ -6237,7 +6391,10 @@ def run_init(args):
     from cortex.config import load_selfhost_config
     from cortex.minds import default_mind_status, init_mind, list_minds, set_default_mind
 
-    selection = _resolve_store_selection(args.store_dir)
+    try:
+        selection = _resolve_first_class_store_selection(args.store_dir, command="init")
+    except ValueError as exc:
+        return _error(str(exc))
     store_dir = selection.store_dir
     store_dir.mkdir(parents=True, exist_ok=True)
     config_path = store_dir / "config.toml"
@@ -7075,16 +7232,15 @@ def run_doctor(args):
 
 
 def run_connect_manus(args):
-    from cortex.config import load_selfhost_config
-
     try:
-        config = load_selfhost_config(
+        config, selection = _load_first_class_runtime_config(
+            command="connect manus",
             store_dir=args.store_dir,
             context_file=args.context_file,
             config_path=args.config,
-            server_host=args.host,
-            server_port=args.port,
-            mcp_namespace=args.namespace,
+            host=args.host,
+            port=args.port,
+            namespace=args.namespace,
         )
         read_key = _select_scoped_api_key(
             config,
@@ -7105,7 +7261,7 @@ def run_connect_manus(args):
         port=args.port,
     )
 
-    warnings: list[str] = []
+    warnings: list[str] = list(selection.warnings)
     errors: list[str] = []
     if not args.url:
         warnings.append("No public HTTPS URL was provided yet; the printed config uses a placeholder bridge URL.")
@@ -7188,6 +7344,7 @@ def run_connect_manus(args):
         "status": status,
         "target": "manus",
         "store_dir": str(config.store_dir.resolve()),
+        "store_source": selection.source,
         "config_path": str(config.config_path) if config.config_path else None,
         "namespace": config.mcp_namespace,
         "connector_name": connector_name,
@@ -7212,6 +7369,7 @@ def run_connect_manus(args):
     _echo("Cortex ↔ Manus")
     _echo(f"  Status:   {status}")
     _echo(f"  Store:    {payload['store_dir']}")
+    _echo(f"  Source:   {payload['store_source']}")
     if payload["config_path"]:
         _echo(f"  Config:   {payload['config_path']}")
     _echo(f"  URL:      {mcp_url}")
@@ -7448,7 +7606,6 @@ def _connect_runtime_next_steps(
 
 
 def run_connect_runtime_target(args, *, target: str):
-    from cortex.config import load_selfhost_config
     from cortex.hermes_integration import ensure_cortex_mcp_config
     from cortex.portable_runtime import display_name, scan_portability
 
@@ -7457,14 +7614,15 @@ def run_connect_runtime_target(args, *, target: str):
     errors: list[str] = []
 
     try:
-        runtime_config = load_selfhost_config(
+        runtime_config, selection = _load_first_class_runtime_config(
+            command=f"connect {target}",
             store_dir=args.store_dir,
             config_path=args.config,
-            env={},
         )
     except ValueError as exc:
         return _error(str(exc))
 
+    warnings.extend(selection.warnings)
     store_dir = runtime_config.store_dir.resolve()
     explicit_config_path = Path(args.config).expanduser().resolve() if getattr(args, "config", None) else None
     if explicit_config_path is not None and not explicit_config_path.exists():
@@ -7540,6 +7698,7 @@ def run_connect_runtime_target(args, *, target: str):
         "target": target,
         "display_name": display_name(target),
         "store_dir": str(store_dir),
+        "store_source": selection.source,
         "config_path": str(shared_config_path) if shared_config_exists else None,
         "project_dir": str(project_dir.resolve()),
         "mcp_command": _shell_join(["cortex-mcp", "--config", str(shared_config_path)]),
@@ -7577,6 +7736,7 @@ def run_connect_runtime_target(args, *, target: str):
     _echo(f"Cortex ↔ {payload['display_name']}")
     _echo(f"  Status:      {payload['status']}")
     _echo(f"  Store:       {payload['store_dir']}")
+    _echo(f"  Store src:   {payload['store_source']}")
     _echo(f"  MCP config:  {payload['mcp_config_path']}")
     if payload["config_path"]:
         _echo(f"  Cortex cfg:  {payload['config_path']}")
@@ -7617,6 +7777,7 @@ def run_connect(args):
 
 def _load_runtime_check_config(
     *,
+    command: str,
     store_dir: str | None,
     context_file: str | None,
     config_path: str | None,
@@ -7626,29 +7787,32 @@ def _load_runtime_check_config(
     namespace: str | None = None,
     api_key: str | None = None,
 ):
-    from cortex.config import load_selfhost_config
-
-    return load_selfhost_config(
+    return _load_first_class_runtime_config(
+        command=command,
         store_dir=store_dir,
         context_file=context_file,
         config_path=config_path,
-        server_host=host,
-        server_port=port,
+        host=host,
+        port=port,
         runtime_mode=runtime_mode,
-        mcp_namespace=namespace,
+        namespace=namespace,
         api_key=api_key,
     )
 
 
-def _serve_check_payload(*, target: str, mode: str, config, allow_unsafe_bind: bool = False) -> dict[str, Any]:
+def _serve_check_payload(
+    *, target: str, mode: str, config, selection, allow_unsafe_bind: bool = False
+) -> dict[str, Any]:
     from cortex.config import startup_diagnostics
 
     diagnostics = startup_diagnostics(config, mode=mode)
+    warnings = [*selection.warnings, *diagnostics["warnings"]]
     return {
         "status": "ok",
         "target": target,
+        "store_source": selection.source,
         "allow_unsafe_bind": bool(allow_unsafe_bind),
-        **diagnostics,
+        **{**diagnostics, "warnings": warnings},
     }
 
 
@@ -7662,7 +7826,8 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
         select_manus_tools,
     )
 
-    config = _load_runtime_check_config(
+    config, selection = _load_runtime_check_config(
+        command="serve manus",
         store_dir=args.store_dir,
         context_file=args.context_file,
         config_path=args.config,
@@ -7688,7 +7853,13 @@ def _serve_manus_check_payload(args) -> dict[str, Any]:
         extra_tools=args.tool,
     )
     return {
-        **_serve_check_payload(target="manus", mode="manus", config=config, allow_unsafe_bind=args.allow_unsafe_bind),
+        **_serve_check_payload(
+            target="manus",
+            mode="manus",
+            config=config,
+            selection=selection,
+            allow_unsafe_bind=args.allow_unsafe_bind,
+        ),
         "bridge": "manus_http",
         "bridge_transport": "http",
         "bridge_https_required": True,
@@ -7713,31 +7884,35 @@ def run_serve_manus(args):
         _emit_result(payload, "json")
         return 0
 
-    argv: list[str] = []
-    if args.store_dir:
-        argv.extend(["--store-dir", args.store_dir])
-    if args.context_file:
-        argv.extend(["--context-file", args.context_file])
-    if args.namespace:
-        argv.extend(["--namespace", args.namespace])
-    if args.config:
-        argv.extend(["--config", args.config])
-    if args.host:
-        argv.extend(["--host", args.host])
-    if args.port is not None:
-        argv.extend(["--port", str(args.port)])
-    for tool in args.tool:
-        argv.extend(["--tool", tool])
-    if args.allow_write_tools:
-        argv.append("--allow-write-tools")
-    if args.runtime_mode:
-        argv.extend(["--runtime-mode", args.runtime_mode])
-    if args.allow_unsafe_bind:
-        argv.append("--allow-unsafe-bind")
-    if args.protocol_version:
-        argv.extend(["--protocol-version", args.protocol_version])
-    if args.check:
-        argv.append("--check")
+    try:
+        _config, selection = _load_runtime_check_config(
+            command="serve manus",
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            host=args.host,
+            port=args.port,
+            runtime_mode=args.runtime_mode,
+            namespace=args.namespace,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+    for warning in selection.warnings:
+        _echo(f"Warning: {warning}", stderr=True)
+    argv = _runtime_forward_argv(
+        selection=selection,
+        explicit_config_path=args.config,
+        context_file=args.context_file,
+        namespace=args.namespace,
+        host=args.host,
+        port=args.port,
+        runtime_mode=args.runtime_mode,
+        allow_unsafe_bind=args.allow_unsafe_bind,
+        allow_write_tools=args.allow_write_tools,
+        tools=args.tool,
+        protocol_version=args.protocol_version,
+        check=args.check,
+    )
     return manus_main(argv)
 
 
@@ -7762,7 +7937,8 @@ def run_ui(args):
         _emit_compatibility_note("ui", "cortex serve ui")
 
     try:
-        config = _load_runtime_check_config(
+        config, selection = _load_runtime_check_config(
+            command="serve ui",
             store_dir=args.store_dir,
             context_file=args.context_file,
             config_path=getattr(args, "config", None),
@@ -7788,13 +7964,18 @@ def run_ui(args):
             target="ui",
             mode="ui",
             config=config,
+            selection=selection,
             allow_unsafe_bind=args.allow_unsafe_bind,
         )
         _emit_result(payload, "json")
         return 0
     if args.check:
         _echo(format_startup_diagnostics(config, mode="ui"), force=True)
+        for warning in selection.warnings:
+            _echo(f"  Warning: {warning}", force=True)
         return 0
+    for warning in selection.warnings:
+        _echo(f"Warning: {warning}", stderr=True)
 
     server, url = start_ui_server(
         host=config.server_host,
@@ -7828,7 +8009,8 @@ def run_server(args):
 
     if args.check and args.format == "json":
         try:
-            config = _load_runtime_check_config(
+            config, selection = _load_runtime_check_config(
+                command="serve api",
                 store_dir=args.store_dir,
                 context_file=args.context_file,
                 config_path=args.config,
@@ -7848,6 +8030,7 @@ def run_server(args):
                 target="api",
                 mode="server",
                 config=config,
+                selection=selection,
                 allow_unsafe_bind=args.allow_unsafe_bind,
             )
         except ValueError as exc:
@@ -7855,25 +8038,32 @@ def run_server(args):
         _emit_result(payload, "json")
         return 0
 
-    argv: list[str] = []
-    if args.store_dir:
-        argv.extend(["--store-dir", args.store_dir])
-    if args.context_file:
-        argv.extend(["--context-file", args.context_file])
-    if args.host:
-        argv.extend(["--host", args.host])
-    if args.port is not None:
-        argv.extend(["--port", str(args.port)])
-    if args.runtime_mode:
-        argv.extend(["--runtime-mode", args.runtime_mode])
-    if args.api_key:
-        argv.extend(["--api-key", args.api_key])
-    if args.config:
-        argv.extend(["--config", args.config])
-    if args.allow_unsafe_bind:
-        argv.append("--allow-unsafe-bind")
-    if args.check:
-        argv.append("--check")
+    try:
+        _config, selection = _load_runtime_check_config(
+            command="serve api",
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            host=args.host,
+            port=args.port,
+            runtime_mode=args.runtime_mode,
+            api_key=args.api_key,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+    for warning in selection.warnings:
+        _echo(f"Warning: {warning}", stderr=True)
+    argv = _runtime_forward_argv(
+        selection=selection,
+        explicit_config_path=args.config,
+        context_file=args.context_file,
+        host=args.host,
+        port=args.port,
+        runtime_mode=args.runtime_mode,
+        api_key=args.api_key,
+        allow_unsafe_bind=args.allow_unsafe_bind,
+        check=args.check,
+    )
     return server_main(argv)
 
 
@@ -7886,32 +8076,43 @@ def run_mcp(args):
 
     if args.check and args.format == "json":
         try:
+            config, selection = _load_runtime_check_config(
+                command="serve mcp",
+                store_dir=args.store_dir,
+                context_file=args.context_file,
+                config_path=args.config,
+                namespace=args.namespace,
+            )
             payload = _serve_check_payload(
                 target="mcp",
                 mode="mcp",
-                config=_load_runtime_check_config(
-                    store_dir=args.store_dir,
-                    context_file=args.context_file,
-                    config_path=args.config,
-                    namespace=args.namespace,
-                ),
+                config=config,
+                selection=selection,
             )
         except ValueError as exc:
             return _error(str(exc))
         _emit_result(payload, "json")
         return 0
 
-    argv: list[str] = []
-    if args.store_dir:
-        argv.extend(["--store-dir", args.store_dir])
-    if args.context_file:
-        argv.extend(["--context-file", args.context_file])
-    if args.namespace:
-        argv.extend(["--namespace", args.namespace])
-    if args.config:
-        argv.extend(["--config", args.config])
-    if args.check:
-        argv.append("--check")
+    try:
+        _config, selection = _load_runtime_check_config(
+            command="serve mcp",
+            store_dir=args.store_dir,
+            context_file=args.context_file,
+            config_path=args.config,
+            namespace=args.namespace,
+        )
+    except ValueError as exc:
+        return _error(str(exc))
+    for warning in selection.warnings:
+        _echo(f"Warning: {warning}", stderr=True)
+    argv = _runtime_forward_argv(
+        selection=selection,
+        explicit_config_path=args.config,
+        context_file=args.context_file,
+        namespace=args.namespace,
+        check=args.check,
+    )
     return mcp_main(argv)
 
 

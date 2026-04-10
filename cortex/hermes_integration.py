@@ -266,13 +266,12 @@ def ensure_cortex_mcp_config(store_dir: Path, *, dry_run: bool = False) -> Path:
     if config_path.exists():
         return config_path
     if not dry_run:
-        escaped_store_dir = str(store_dir).replace("\\", "\\\\").replace('"', '\\"')
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
             "\n".join(
                 [
                     "[runtime]",
-                    f'store_dir = "{escaped_store_dir}"',
+                    'store_dir = "."',
                     "",
                     "[mcp]",
                     'namespace = ""',
