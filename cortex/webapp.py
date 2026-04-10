@@ -8,6 +8,7 @@ history, governance, remote sync, indexing, and maintenance operations.
 from __future__ import annotations
 
 import json
+import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,8 +18,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+from cortex.auth import authorize_api_key
 from cortex.cli import _load_graph
-from cortex.config import validate_runtime_security
+from cortex.config import APIKeyConfig, is_loopback_host, validate_runtime_security
 from cortex.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.memory_ops import blame_memory_nodes
@@ -31,6 +33,10 @@ from cortex.storage.base import StorageBackend
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+UI_SESSION_HEADER = "X-Cortex-UI-Session"
+UI_SESSION_PLACEHOLDER = "__CORTEX_UI_SESSION_TOKEN__"
 
 
 class MemoryUIBackend:
@@ -1403,6 +1409,7 @@ UI_HTML = """<!doctype html>
   </div>
 
   <script>
+    const uiSessionToken = __CORTEX_UI_SESSION_TOKEN__;
     let defaultContext = "";
     let workspaceState = {
       meta: null,
@@ -1436,6 +1443,9 @@ UI_HTML = """<!doctype html>
 
     async function api(path, options = {}) {
       const headers = { ...(options.headers || {}) };
+      if (uiSessionToken) {
+        headers["X-Cortex-UI-Session"] = uiSessionToken;
+      }
       if (options.body !== undefined) {
         headers["Content-Type"] = "application/json";
       }
@@ -2843,7 +2853,13 @@ UI_HTML = """<!doctype html>
 """
 
 
-def make_handler(backend: MemoryUIBackend):
+def make_handler(
+    backend: MemoryUIBackend,
+    *,
+    api_keys: tuple[APIKeyConfig, ...] = (),
+    allow_local_session: bool = True,
+    session_token: str | None = None,
+):
     def query_value(parsed, key: str, default: str = "") -> str:
         return parse_qs(parsed.query).get(key, [default])[0]
 
@@ -2867,8 +2883,14 @@ def make_handler(backend: MemoryUIBackend):
             return False
         raise ValueError(f"Invalid boolean for {key}: {raw}")
 
+    session_secret = session_token or secrets.token_urlsafe(24)
+    rendered_html = UI_HTML.replace(UI_SESSION_PLACEHOLDER, json.dumps(session_secret))
+
     class MemoryUIHandler(BaseHTTPRequestHandler):
         server_version = "CortexUI/1.0"
+        _cortex_ui_session_token = session_secret
+        _cortex_ui_local_session_enabled = allow_local_session
+        _cortex_ui_api_key_count = len(api_keys)
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -2909,6 +2931,57 @@ def make_handler(backend: MemoryUIBackend):
             raw = self.rfile.read(length) if length else b"{}"
             return json.loads(raw.decode("utf-8") or "{}")
 
+        def _normalized_headers(self) -> dict[str, str]:
+            return {str(key).lower(): str(value).strip() for key, value in self.headers.items()}
+
+        def _origin_matches_host(self, headers: dict[str, str]) -> bool:
+            origin = headers.get("origin", "").strip()
+            if not origin:
+                return False
+            host = headers.get("x-forwarded-host", "").strip() or headers.get("host", "").strip()
+            if not host:
+                return False
+            proto = headers.get("x-forwarded-proto", "").strip() or "http"
+            parsed_origin = urlparse(origin)
+            return f"{parsed_origin.scheme}://{parsed_origin.netloc}" == f"{proto}://{host}"
+
+        def _authorize_api_request(self, *, method: str) -> tuple[int, str] | None:
+            parsed = urlparse(self.path)
+            if not parsed.path.startswith("/api/"):
+                return None
+
+            headers = self._normalized_headers()
+            required_scope = "read" if method == "GET" else "write"
+            decision = None
+            if api_keys:
+                decision = authorize_api_key(
+                    keys=api_keys,
+                    headers=headers,
+                    required_scope=required_scope,
+                    namespace=None,
+                    namespace_required=False,
+                )
+                if decision.allowed:
+                    return None
+
+            session_header = headers.get(UI_SESSION_HEADER.lower(), "")
+            if allow_local_session and session_header and secrets.compare_digest(session_header, session_secret):
+                if method == "POST" and not self._origin_matches_host(headers):
+                    return (
+                        403,
+                        "Forbidden: browser session POST requests must include an Origin matching the current host.",
+                    )
+                return None
+
+            if decision is not None and decision.error and "missing API key" not in decision.error:
+                return decision.status_code, decision.error
+            if allow_local_session:
+                return (
+                    401,
+                    "Unauthorized: missing API key or local UI session token. Browser requests should send X-Cortex-UI-Session.",
+                )
+            return 401, "Unauthorized: missing API key."
+
         def _log_request(
             self,
             *,
@@ -2939,7 +3012,12 @@ def make_handler(backend: MemoryUIBackend):
             try:
                 parsed = urlparse(self.path)
                 if parsed.path == "/":
-                    self._send_html(UI_HTML, request_id=request_id)
+                    self._send_html(rendered_html, request_id=request_id)
+                    return
+                auth_error = self._authorize_api_request(method="GET")
+                if auth_error is not None:
+                    status, error = auth_error
+                    self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
                     return
                 if parsed.path == "/api/meta":
                     self._send_json(backend.meta(), request_id=request_id)
@@ -3094,6 +3172,11 @@ def make_handler(backend: MemoryUIBackend):
             status = 200
             error = ""
             try:
+                auth_error = self._authorize_api_request(method="POST")
+                if auth_error is not None:
+                    status, error = auth_error
+                    self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                    return
                 payload = self._read_json()
                 path = self.path
                 if path == "/api/review":
@@ -3187,15 +3270,24 @@ def start_ui_server(
     open_browser: bool = False,
     runtime_mode: str = "local-single-user",
     allow_unsafe_bind: bool = False,
+    api_keys: tuple[APIKeyConfig, ...] = (),
 ) -> tuple[ThreadingHTTPServer, str]:
     validate_runtime_security(
         surface="ui",
         host=host,
         runtime_mode=runtime_mode,
+        api_keys=api_keys,
         allow_unsafe_bind=allow_unsafe_bind,
     )
     backend = MemoryUIBackend(store_dir=store_dir, context_file=context_file)
-    server = ThreadingHTTPServer((host, port), make_handler(backend))
+    server = ThreadingHTTPServer(
+        (host, port),
+        make_handler(
+            backend,
+            api_keys=api_keys,
+            allow_local_session=is_loopback_host(host),
+        ),
+    )
     actual_host, actual_port = server.server_address
     url = f"http://{actual_host}:{actual_port}/"
     if open_browser:

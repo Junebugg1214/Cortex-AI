@@ -62,14 +62,29 @@ def _write_graph(path: Path, graph: CortexGraph) -> None:
     path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
 
 
-def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dict | None = None):
+def _invoke_handler(
+    handler_cls,
+    *,
+    path: str,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
+):
     handler = handler_cls.__new__(handler_cls)
     handler.path = path
     handler.command = method
     handler.request_version = "HTTP/1.1"
     handler.rfile = io.BytesIO(json.dumps(payload).encode("utf-8") if payload is not None else b"")
     handler.wfile = io.BytesIO()
-    handler.headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes)}
+    resolved_headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes), "Host": "127.0.0.1:8765"}
+    session_token = getattr(handler_cls, "_cortex_ui_session_token", "")
+    if session_token:
+        resolved_headers["X-Cortex-UI-Session"] = session_token
+        if method == "POST":
+            resolved_headers["Origin"] = "http://127.0.0.1:8765"
+    if headers:
+        resolved_headers.update(headers)
+    handler.headers = resolved_headers
     handler._status = 200
     handler._headers = {}
 

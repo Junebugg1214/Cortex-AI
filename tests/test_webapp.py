@@ -2,6 +2,7 @@ import io
 import json
 
 from cortex.claims import ClaimEvent, ClaimLedger
+from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Node
 from cortex.minds import attach_pack_to_mind, init_mind, mount_mind, remember_on_mind, set_default_mind
 from cortex.packs import ask_pack, compile_pack, ingest_pack, init_pack, lint_pack
@@ -15,14 +16,29 @@ def _write_graph(path, graph: CortexGraph) -> None:
     path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
 
 
-def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dict | None = None):
+def _invoke_handler(
+    handler_cls,
+    *,
+    path: str,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
+):
     handler = handler_cls.__new__(handler_cls)
     handler.path = path
     handler.command = method
     handler.request_version = "HTTP/1.1"
     handler.rfile = io.BytesIO(json.dumps(payload).encode("utf-8") if payload is not None else b"")
     handler.wfile = io.BytesIO()
-    handler.headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes)}
+    resolved_headers = {"Content-Length": str(handler.rfile.getbuffer().nbytes), "Host": "127.0.0.1:8765"}
+    session_token = getattr(handler_cls, "_cortex_ui_session_token", "")
+    if session_token:
+        resolved_headers["X-Cortex-UI-Session"] = session_token
+        if method == "POST":
+            resolved_headers["Origin"] = "http://127.0.0.1:8765"
+    if headers:
+        resolved_headers.update(headers)
+    handler.headers = resolved_headers
     handler._status = 200
     handler._headers = {}
 
@@ -390,6 +406,81 @@ def test_webapp_handler_exposes_operations_endpoints(tmp_path):
     assert prune_status["status"] == "ok"
     assert audit["entries"] == []
     assert metrics["requests_total"] >= 5
+
+
+def test_webapp_handler_requires_local_session_or_api_key_for_api_requests(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    ui_backend = MemoryUIBackend(store_dir=store_dir)
+    handler_cls = make_handler(ui_backend)
+
+    status, _, body = _invoke_handler(
+        handler_cls,
+        path="/api/meta",
+        method="GET",
+        headers={"X-Cortex-UI-Session": ""},
+    )
+
+    assert status == 401
+    assert "local UI session token" in json.loads(body)["error"]
+
+
+def test_webapp_handler_rejects_browser_post_when_origin_mismatches(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.91))
+    backend.versions.commit(graph, "baseline")
+
+    ui_backend = MemoryUIBackend(store_dir=store_dir, backend=backend)
+    handler_cls = make_handler(ui_backend)
+
+    status, _, body = _invoke_handler(
+        handler_cls,
+        path="/api/index/rebuild",
+        method="POST",
+        payload={"ref": "HEAD", "all_refs": False},
+        headers={"Origin": "https://evil.example"},
+    )
+
+    assert status == 403
+    assert "Origin matching the current host" in json.loads(body)["error"]
+
+
+def test_webapp_handler_accepts_api_key_for_scripted_access(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    graph = CortexGraph()
+    graph.add_node(Node(id="n1", label="Project Atlas", tags=["active_priorities"], confidence=0.91))
+    backend.versions.commit(graph, "baseline")
+
+    ui_backend = MemoryUIBackend(store_dir=store_dir, backend=backend)
+    handler_cls = make_handler(
+        ui_backend,
+        api_keys=(
+            APIKeyConfig(name="reader", token="reader-token", scopes=("read",), namespaces=("team",)),
+            APIKeyConfig(name="writer", token="writer-token", scopes=("write",), namespaces=("team",)),
+        ),
+        allow_local_session=False,
+    )
+
+    meta_status, _, meta_body = _invoke_handler(
+        handler_cls,
+        path="/api/meta",
+        method="GET",
+        headers={"X-API-Key": "reader-token"},
+    )
+    rebuild_status, _, rebuild_body = _invoke_handler(
+        handler_cls,
+        path="/api/index/rebuild",
+        method="POST",
+        payload={"ref": "HEAD", "all_refs": False},
+        headers={"X-API-Key": "writer-token", "Origin": ""},
+    )
+
+    assert meta_status == 200
+    assert json.loads(meta_body)["status"] == "ok"
+    assert rebuild_status == 200
+    assert json.loads(rebuild_body)["rebuilt"] == 1
 
 
 def test_webapp_handler_exposes_portability_endpoints(tmp_path):
