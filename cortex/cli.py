@@ -15,14 +15,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from cortex import cli_entrypoint as cli_entrypoint_module
 from cortex import cli_graph_commands as cli_graph_commands_module
 from cortex import cli_mind_pack_commands as cli_mind_pack_commands_module
+from cortex import cli_misc_commands as cli_misc_commands_module
 from cortex import cli_parser as cli_parser_module
 from cortex import cli_portable_commands as cli_portable_commands_module
 from cortex import cli_runtime_commands as cli_runtime_commands_module
 from cortex import cli_surface as cli_surface_module
 from cortex import cli_workspace_commands as cli_workspace_commands_module
-from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
 from cortex.extract_memory import (
     AggressiveExtractor,
@@ -326,6 +327,15 @@ def _portable_cli_context() -> cli_portable_commands_module.PortableCliContext:
     )
 
 
+def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
+    return cli_misc_commands_module.MiscCliContext(
+        build_parser=build_parser,
+        echo=_echo,
+        error=_error,
+        missing_path_error=_missing_path_error,
+    )
+
+
 def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
     from cortex.import_memory import (
         export_claude_memories,
@@ -482,6 +492,81 @@ def _emit_result(result, output_format: str) -> int:
 # ---------------------------------------------------------------------------
 
 build_parser = cli_parser_module.build_parser
+
+
+def _set_cli_quiet(value: bool) -> None:
+    global _CLI_QUIET
+    _CLI_QUIET = value
+
+
+def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
+    return cli_entrypoint_module.EntryPointCliContext(
+        build_parser=build_parser,
+        error=_error,
+        extract_global_flags=_extract_global_flags,
+        set_cli_quiet=_set_cli_quiet,
+        handlers={
+            "init": run_init,
+            "help": run_help_topic,
+            "connect": run_connect,
+            "serve": run_serve,
+            "extract": run_extract,
+            "ingest": run_ingest,
+            "import": run_import,
+            "memory": run_memory,
+            "query": run_query,
+            "stats": run_stats,
+            "timeline": run_timeline,
+            "contradictions": run_contradictions,
+            "drift": run_drift,
+            "diff": run_diff,
+            "blame": run_blame,
+            "history": run_history,
+            "claim": run_claim,
+            "checkout": run_checkout,
+            "rollback": run_rollback,
+            "identity": run_identity,
+            "commit": run_commit,
+            "branch": run_branch,
+            "switch": run_switch,
+            "merge": run_merge,
+            "review": run_review,
+            "log": run_log,
+            "governance": run_governance,
+            "remote": run_remote,
+            "sync": run_sync,
+            "verify": run_verify,
+            "gaps": run_gaps,
+            "digest": run_digest,
+            "viz": run_viz,
+            "watch": run_watch,
+            "sync-schedule": run_sync_schedule,
+            "extract-coding": run_extract_coding,
+            "context-hook": run_context_hook,
+            "context-export": run_context_export,
+            "pull": run_pull,
+            "rotate": run_rotate,
+            "context-write": run_context_write,
+            "portable": run_portable,
+            "scan": run_scan,
+            "remember": run_remember,
+            "status": run_status,
+            "build": run_build,
+            "audit": run_audit,
+            "doctor": run_doctor,
+            "mind": run_mind,
+            "pack": run_pack,
+            "ui": run_ui,
+            "benchmark": run_benchmark,
+            "backup": run_backup,
+            "openapi": run_openapi,
+            "release-notes": run_release_notes,
+            "server": run_server,
+            "mcp": run_mcp,
+            "completion": run_completion,
+            "migrate": run_migrate,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1168,6 +1253,38 @@ def run_portable(args):
     return cli_portable_commands_module.run_portable(args, ctx=_portable_cli_context())
 
 
+def run_memory(args):
+    if args.memory_subcommand == "conflicts":
+        return run_memory_conflicts(args)
+    if args.memory_subcommand == "show":
+        return run_memory_show(args)
+    if args.memory_subcommand == "forget":
+        return run_memory_forget(args)
+    if args.memory_subcommand == "retract":
+        return run_memory_retract(args)
+    if args.memory_subcommand == "set":
+        return run_memory_set(args)
+    if args.memory_subcommand == "resolve":
+        return run_memory_resolve(args)
+    print("Specify a memory subcommand: conflicts, show, forget, retract, set, resolve")
+    return 1
+
+
+def run_claim(args):
+    if args.claim_subcommand == "log":
+        return run_claim_log(args)
+    if args.claim_subcommand == "show":
+        return run_claim_show(args)
+    if args.claim_subcommand == "accept":
+        return run_claim_accept(args)
+    if args.claim_subcommand == "reject":
+        return run_claim_reject(args)
+    if args.claim_subcommand == "supersede":
+        return run_claim_supersede(args)
+    print("Specify a claim subcommand: log, show, accept, reject, supersede")
+    return 1
+
+
 def _mind_pack_cli_context() -> cli_mind_pack_commands_module.MindPackCliContext:
     return cli_mind_pack_commands_module.MindPackCliContext(
         emit_result=_emit_result,
@@ -1356,99 +1473,19 @@ def run_backup(args):
 
 
 def run_stats(args):
-    """Show statistics for a context file."""
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
-
-    with open(input_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    version = data.get("schema_version", "")
-    if version.startswith("5"):
-        graph = CortexGraph.from_v5_json(data)
-    else:
-        graph = upgrade_v4_to_v5(data)
-
-    st = graph.stats()
-    print(f"Nodes: {st['node_count']}")
-    print(f"Edges: {st['edge_count']}")
-    print(f"Avg degree: {st['avg_degree']}")
-    if st.get("isolated_nodes", 0) > 0:
-        print(f"Isolated nodes (0 edges): {st['isolated_nodes']}")
-    if st["tag_distribution"]:
-        print("Tag distribution:")
-        for tag, count in sorted(st["tag_distribution"].items(), key=lambda x: -x[1]):
-            print(f"  {tag}: {count}")
-    if st.get("relation_distribution"):
-        print("Relation distribution:")
-        for rel, count in sorted(st["relation_distribution"].items(), key=lambda x: -x[1]):
-            print(f"  {rel}: {count}")
-    if st.get("top_central_nodes"):
-        print(f"Top central nodes: {', '.join(st['top_central_nodes'])}")
-    return 0
+    return cli_misc_commands_module.run_stats(args, ctx=_misc_cli_context())
 
 
 def run_pull(args):
-    """Import a platform export file back into a CortexGraph."""
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        print(f"File not found: {input_path}")
-        return 1
-
-    adapter = ADAPTERS.get(args.from_platform)
-    if adapter is None:
-        print(f"Unknown platform: {args.from_platform}")
-        return 1
-
-    try:
-        graph = adapter.pull(input_path)
-    except Exception as e:
-        print(f"Error parsing {input_path}: {e}")
-        return 1
-
-    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_graph.json")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(graph.export_v5(), indent=2), encoding="utf-8")
-
-    st = graph.stats()
-    print(f"Imported from {args.from_platform}: {st['node_count']} nodes, {st['edge_count']} edges")
-    print(f"Saved to: {output_path}")
-    return 0
+    return cli_misc_commands_module.run_pull(args, ctx=_misc_cli_context())
 
 
 def run_rotate(args):
-    """Rotate UPAI identity key."""
-    from cortex.upai.identity import UPAIIdentity
-    from cortex.upai.keychain import Keychain
-
-    store_dir = Path(args.store_dir)
-    if not (store_dir / "identity.json").exists():
-        print(f"No identity found in {store_dir}. Run: cortex identity --init")
-        return 1
-
-    identity = UPAIIdentity.load(store_dir)
-    kc = Keychain(store_dir)
-
-    new_identity, proof = kc.rotate(identity, reason=args.reason)
-    print(f"Old DID: {identity.did}")
-    print(f"New DID: {new_identity.did}")
-    print(f"Reason: {args.reason}")
-    if proof:
-        print(f"Revocation proof: {proof[:32]}...")
-    print("Identity rotated successfully.")
-    return 0
+    return cli_misc_commands_module.run_rotate(args, ctx=_misc_cli_context())
 
 
 def run_completion(args):
-    """Generate shell completion script."""
-    from cortex.completion import generate_completion
-
-    parser = build_parser()
-    script = generate_completion(parser, args.shell)
-    print(script)
-    return 0
+    return cli_misc_commands_module.run_completion(args, ctx=_misc_cli_context())
 
 
 # ---------------------------------------------------------------------------
@@ -1457,247 +1494,7 @@ def run_completion(args):
 
 
 def main(argv=None):
-    global _CLI_QUIET
-
-    if argv is None:
-        argv = sys.argv[1:]
-    else:
-        argv = list(argv)
-
-    argv, force_json, quiet = _extract_global_flags(argv)
-    _CLI_QUIET = quiet or force_json
-
-    # Default-subcommand routing: if the first arg is not a known subcommand,
-    # treat it as a file path and route to the "migrate" subcommand.
-    known_subcommands = (
-        "init",
-        "connect",
-        "serve",
-        "extract",
-        "ingest",
-        "import",
-        "memory",
-        "migrate",
-        "query",
-        "stats",
-        "timeline",
-        "contradictions",
-        "drift",
-        "diff",
-        "blame",
-        "history",
-        "claim",
-        "checkout",
-        "rollback",
-        "identity",
-        "commit",
-        "branch",
-        "switch",
-        "merge",
-        "review",
-        "log",
-        "governance",
-        "remote",
-        "sync",
-        "verify",
-        "gaps",
-        "digest",
-        "viz",
-        "watch",
-        "sync-schedule",
-        "extract-coding",
-        "context-hook",
-        "context-export",
-        "context-write",
-        "portable",
-        "scan",
-        "remember",
-        "status",
-        "build",
-        "audit",
-        "doctor",
-        "help",
-        "mind",
-        "ui",
-        "pack",
-        "benchmark",
-        "server",
-        "mcp",
-        "backup",
-        "openapi",
-        "release-notes",
-        "rotate",
-        "pull",
-        "completion",
-        "-h",
-        "--help",
-        "--help-all",
-    )
-    if argv and argv[0] not in known_subcommands:
-        argv = ["migrate"] + list(argv)
-
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    setattr(args, "json_output", force_json)
-    setattr(args, "quiet", quiet)
-
-    if getattr(args, "help_all", False):
-        parser.show_all_commands = True
-        print(parser.format_help(), end="")
-        return 0
-
-    if args.subcommand is None:
-        parser.print_help()
-        return 1
-
-    if force_json:
-        if hasattr(args, "format"):
-            args.format = "json"
-        elif args.subcommand not in {"extract"}:
-            return _error(f"`--json` is not supported for '{args.subcommand}'.")
-
-    if args.subcommand == "init":
-        return run_init(args)
-    elif args.subcommand == "help":
-        return run_help_topic(args)
-    elif args.subcommand == "connect":
-        return run_connect(args)
-    elif args.subcommand == "serve":
-        return run_serve(args)
-    elif args.subcommand == "extract":
-        return run_extract(args)
-    elif args.subcommand == "ingest":
-        return run_ingest(args)
-    elif args.subcommand == "import":
-        return run_import(args)
-    elif args.subcommand == "memory":
-        if args.memory_subcommand == "conflicts":
-            return run_memory_conflicts(args)
-        elif args.memory_subcommand == "show":
-            return run_memory_show(args)
-        elif args.memory_subcommand == "forget":
-            return run_memory_forget(args)
-        elif args.memory_subcommand == "retract":
-            return run_memory_retract(args)
-        elif args.memory_subcommand == "set":
-            return run_memory_set(args)
-        elif args.memory_subcommand == "resolve":
-            return run_memory_resolve(args)
-        print("Specify a memory subcommand: conflicts, show, forget, retract, set, resolve")
-        return 1
-    elif args.subcommand == "query":
-        return run_query(args)
-    elif args.subcommand == "stats":
-        return run_stats(args)
-    elif args.subcommand == "timeline":
-        return run_timeline(args)
-    elif args.subcommand == "contradictions":
-        return run_contradictions(args)
-    elif args.subcommand == "drift":
-        return run_drift(args)
-    elif args.subcommand == "diff":
-        return run_diff(args)
-    elif args.subcommand == "blame":
-        return run_blame(args)
-    elif args.subcommand == "history":
-        return run_history(args)
-    elif args.subcommand == "claim":
-        if args.claim_subcommand == "log":
-            return run_claim_log(args)
-        elif args.claim_subcommand == "show":
-            return run_claim_show(args)
-        elif args.claim_subcommand == "accept":
-            return run_claim_accept(args)
-        elif args.claim_subcommand == "reject":
-            return run_claim_reject(args)
-        elif args.claim_subcommand == "supersede":
-            return run_claim_supersede(args)
-        print("Specify a claim subcommand: log, show, accept, reject, supersede")
-        return 1
-    elif args.subcommand == "checkout":
-        return run_checkout(args)
-    elif args.subcommand == "rollback":
-        return run_rollback(args)
-    elif args.subcommand == "identity":
-        return run_identity(args)
-    elif args.subcommand == "commit":
-        return run_commit(args)
-    elif args.subcommand == "branch":
-        return run_branch(args)
-    elif args.subcommand == "switch":
-        return run_switch(args)
-    elif args.subcommand == "merge":
-        return run_merge(args)
-    elif args.subcommand == "review":
-        return run_review(args)
-    elif args.subcommand == "log":
-        return run_log(args)
-    elif args.subcommand == "governance":
-        return run_governance(args)
-    elif args.subcommand == "remote":
-        return run_remote(args)
-    elif args.subcommand == "sync":
-        return run_sync(args)
-    elif args.subcommand == "verify":
-        return run_verify(args)
-    elif args.subcommand == "gaps":
-        return run_gaps(args)
-    elif args.subcommand == "digest":
-        return run_digest(args)
-    elif args.subcommand == "viz":
-        return run_viz(args)
-    elif args.subcommand == "watch":
-        return run_watch(args)
-    elif args.subcommand == "sync-schedule":
-        return run_sync_schedule(args)
-    elif args.subcommand == "extract-coding":
-        return run_extract_coding(args)
-    elif args.subcommand == "context-hook":
-        return run_context_hook(args)
-    elif args.subcommand == "context-export":
-        return run_context_export(args)
-    elif args.subcommand == "pull":
-        return run_pull(args)
-    elif args.subcommand == "rotate":
-        return run_rotate(args)
-    elif args.subcommand == "context-write":
-        return run_context_write(args)
-    elif args.subcommand == "portable":
-        return run_portable(args)
-    elif args.subcommand == "scan":
-        return run_scan(args)
-    elif args.subcommand == "remember":
-        return run_remember(args)
-    elif args.subcommand == "status":
-        return run_status(args)
-    elif args.subcommand == "build":
-        return run_build(args)
-    elif args.subcommand == "audit":
-        return run_audit(args)
-    elif args.subcommand == "doctor":
-        return run_doctor(args)
-    elif args.subcommand == "mind":
-        return run_mind(args)
-    elif args.subcommand == "pack":
-        return run_pack(args)
-    elif args.subcommand == "ui":
-        return run_ui(args)
-    elif args.subcommand == "benchmark":
-        return run_benchmark(args)
-    elif args.subcommand == "backup":
-        return run_backup(args)
-    elif args.subcommand == "openapi":
-        return run_openapi(args)
-    elif args.subcommand == "release-notes":
-        return run_release_notes(args)
-    elif args.subcommand == "server":
-        return run_server(args)
-    elif args.subcommand == "mcp":
-        return run_mcp(args)
-    elif args.subcommand == "completion":
-        return run_completion(args)
-    else:
-        return run_migrate(args)
+    return cli_entrypoint_module.main(argv, ctx=_entrypoint_cli_context())
 
 
 if __name__ == "__main__":

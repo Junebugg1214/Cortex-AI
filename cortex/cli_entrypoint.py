@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""CLI entrypoint and top-level dispatch for Cortex."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping
+
+KNOWN_SUBCOMMANDS = (
+    "init",
+    "connect",
+    "serve",
+    "extract",
+    "ingest",
+    "import",
+    "memory",
+    "migrate",
+    "query",
+    "stats",
+    "timeline",
+    "contradictions",
+    "drift",
+    "diff",
+    "blame",
+    "history",
+    "claim",
+    "checkout",
+    "rollback",
+    "identity",
+    "commit",
+    "branch",
+    "switch",
+    "merge",
+    "review",
+    "log",
+    "governance",
+    "remote",
+    "sync",
+    "verify",
+    "gaps",
+    "digest",
+    "viz",
+    "watch",
+    "sync-schedule",
+    "extract-coding",
+    "context-hook",
+    "context-export",
+    "context-write",
+    "portable",
+    "scan",
+    "remember",
+    "status",
+    "build",
+    "audit",
+    "doctor",
+    "help",
+    "mind",
+    "ui",
+    "pack",
+    "benchmark",
+    "server",
+    "mcp",
+    "backup",
+    "openapi",
+    "release-notes",
+    "rotate",
+    "pull",
+    "completion",
+    "-h",
+    "--help",
+    "--help-all",
+)
+
+
+@dataclass(frozen=True)
+class EntryPointCliContext:
+    """Callbacks supplied by the public CLI facade."""
+
+    build_parser: Callable[..., Any]
+    error: Callable[..., int]
+    extract_global_flags: Callable[[list[str]], tuple[list[str], bool, bool]]
+    set_cli_quiet: Callable[[bool], None]
+    handlers: Mapping[str, Callable[[Any], int]]
+
+
+def _route_default_subcommand(argv: list[str]) -> list[str]:
+    if argv and argv[0] not in KNOWN_SUBCOMMANDS:
+        return ["migrate", *argv]
+    return argv
+
+
+def _apply_json_mode(args: Any, *, force_json: bool, ctx: EntryPointCliContext) -> int | None:
+    if not force_json:
+        return None
+    if hasattr(args, "format"):
+        args.format = "json"
+        return None
+    if args.subcommand not in {"extract"}:
+        return ctx.error(f"`--json` is not supported for '{args.subcommand}'.")
+    return None
+
+
+def main(argv=None, *, ctx: EntryPointCliContext) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    else:
+        argv = list(argv)
+
+    argv, force_json, quiet = ctx.extract_global_flags(argv)
+    ctx.set_cli_quiet(quiet or force_json)
+    argv = _route_default_subcommand(argv)
+
+    parser = ctx.build_parser()
+    args = parser.parse_args(argv)
+    setattr(args, "json_output", force_json)
+    setattr(args, "quiet", quiet)
+
+    if getattr(args, "help_all", False):
+        parser.show_all_commands = True
+        print(parser.format_help(), end="")
+        return 0
+
+    if args.subcommand is None:
+        parser.print_help()
+        return 1
+
+    json_error = _apply_json_mode(args, force_json=force_json, ctx=ctx)
+    if json_error is not None:
+        return json_error
+
+    handler = ctx.handlers.get(args.subcommand)
+    if handler is not None:
+        return handler(args)
+    return ctx.handlers["migrate"](args)
