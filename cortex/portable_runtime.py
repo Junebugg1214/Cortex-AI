@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import copy
 import fnmatch
 import hashlib
 import json
 import os
 import re
-import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -19,7 +17,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.coding import enrich_project
 from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path, write_context
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
@@ -35,6 +32,13 @@ from cortex.portability import (
     build_instruction_pack,
     export_artifact_targets,
 )
+from cortex.portable_builders import (
+    build_git_history_graph,
+    build_github_graph,
+    build_project_graph,
+    build_resume_graph,
+)
+from cortex.portable_graphs import extract_graph_from_statement, merge_graphs
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
 
 STATE_VERSION = "1.0"
@@ -311,29 +315,6 @@ SMART_ROUTE_TAGS = {
         "user_preferences",
         "domain_knowledge",
     ],
-}
-
-FRAMEWORK_LABELS = {
-    "next": "Next.js",
-    "react": "React",
-    "tailwindcss": "Tailwind CSS",
-    "prisma": "Prisma",
-    "@trpc/server": "tRPC",
-    "@trpc/client": "tRPC",
-    "vitest": "Vitest",
-    "jest": "Jest",
-    "vite": "Vite",
-    "fastapi": "FastAPI",
-    "uvicorn": "Uvicorn",
-    "django": "Django",
-    "flask": "Flask",
-    "sqlalchemy": "SQLAlchemy",
-    "pydantic": "Pydantic",
-    "tokio": "Tokio",
-    "axum": "Axum",
-    "serde": "Serde",
-    "sqlx": "SQLx",
-    "docker": "Docker",
 }
 
 
@@ -1218,10 +1199,6 @@ def _mcp_metadata_text(target: str, source: dict[str, Any]) -> str:
     return f"{display_name(target)} has {server_count} MCP servers configured."
 
 
-def _clone_graph(graph: CortexGraph) -> CortexGraph:
-    return CortexGraph.from_v5_json(graph.export_v5())
-
-
 def _graph_from_hermes_paths(paths: list[str]) -> CortexGraph:
     merged = CortexGraph()
     for raw_path in paths:
@@ -1235,99 +1212,6 @@ def _graph_from_hermes_paths(paths: list[str]) -> CortexGraph:
             ),
         )
     return merged
-
-
-def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[str] = set()
-    deduped: list[dict[str, Any]] = []
-    for item in items:
-        key = json.dumps(item, sort_keys=True, ensure_ascii=False)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(dict(item))
-    return deduped
-
-
-def merge_graphs(base: CortexGraph, incoming: CortexGraph) -> CortexGraph:
-    merged = _clone_graph(base)
-    existing_by_label = {node.label.lower(): node for node in merged.nodes.values()}
-    id_map: dict[str, str] = {}
-
-    for new_node in incoming.nodes.values():
-        existing = existing_by_label.get(new_node.label.lower())
-        if existing is None:
-            merged.add_node(copy.deepcopy(new_node))
-            existing_by_label[new_node.label.lower()] = merged.nodes[new_node.id]
-            id_map[new_node.id] = new_node.id
-            continue
-
-        id_map[new_node.id] = existing.id
-        existing.confidence = max(existing.confidence, new_node.confidence)
-        existing.mention_count += max(new_node.mention_count, 1)
-        existing.tags = list(dict.fromkeys(existing.tags + new_node.tags))
-        existing.aliases = list(dict.fromkeys(existing.aliases + new_node.aliases))
-        existing.metrics = list(dict.fromkeys(existing.metrics + new_node.metrics))
-        existing.timeline = list(dict.fromkeys(existing.timeline + new_node.timeline))
-        existing.source_quotes = list(dict.fromkeys(existing.source_quotes + new_node.source_quotes))
-        existing.provenance = _dedupe_dicts(existing.provenance + new_node.provenance)
-        existing.properties = {**existing.properties, **new_node.properties}
-        if len(new_node.brief) > len(existing.brief):
-            existing.brief = new_node.brief
-        if len(new_node.full_description) > len(existing.full_description):
-            existing.full_description = new_node.full_description
-        if new_node.status:
-            existing.status = new_node.status
-        if new_node.valid_from and (not existing.valid_from or new_node.valid_from < existing.valid_from):
-            existing.valid_from = new_node.valid_from
-        if new_node.valid_to and (not existing.valid_to or new_node.valid_to > existing.valid_to):
-            existing.valid_to = new_node.valid_to
-        if new_node.first_seen and (not existing.first_seen or new_node.first_seen < existing.first_seen):
-            existing.first_seen = new_node.first_seen
-        if new_node.last_seen and (not existing.last_seen or new_node.last_seen > existing.last_seen):
-            existing.last_seen = new_node.last_seen
-
-    for edge in incoming.edges.values():
-        src = id_map.get(edge.source_id, edge.source_id)
-        tgt = id_map.get(edge.target_id, edge.target_id)
-        if src not in merged.nodes or tgt not in merged.nodes:
-            continue
-        edge_copy = copy.deepcopy(edge)
-        edge_copy.source_id = src
-        edge_copy.target_id = tgt
-        merged.add_edge(edge_copy)
-
-    return merged
-
-
-def create_fallback_graph(statement: str, *, tags: list[str] | None = None, confidence: float = 0.85) -> CortexGraph:
-    graph = CortexGraph()
-    cleaned = " ".join(statement.split()).strip()
-    label = cleaned[:72].rstrip(".")
-    node_tags = tags or ["active_priorities"]
-    graph.add_node(
-        Node(
-            id=make_node_id_with_tag(label, node_tags[0]),
-            label=label,
-            tags=node_tags,
-            confidence=confidence,
-            brief=cleaned,
-            full_description=cleaned,
-            provenance=[{"source": "portable.remember", "method": "manual"}],
-        )
-    )
-    return graph
-
-
-def extract_graph_from_statement(statement: str, *, confidence: float = 0.85) -> CortexGraph:
-    extractor = AggressiveExtractor()
-    extractor.extract_from_text(statement)
-    extractor.post_process()
-    payload = extractor.context.export()
-    graph = upgrade_v4_to_v5(payload)
-    if graph.nodes:
-        return graph
-    return create_fallback_graph(statement, confidence=confidence)
 
 
 def extract_graph_from_detected_sources(
@@ -1405,321 +1289,6 @@ def extract_graph_from_detected_sources(
         "skipped_sources": skipped_sources,
         "detected_sources": detected,
     }
-
-
-def _package_dependencies(data: dict[str, Any]) -> dict[str, str]:
-    dependencies: dict[str, str] = {}
-    for key in ("dependencies", "devDependencies", "peerDependencies"):
-        block = data.get(key, {})
-        if not isinstance(block, dict):
-            continue
-        for name, version in block.items():
-            dependencies[str(name)] = str(version)
-    return dependencies
-
-
-def _manifest_signals(project_dir: Path) -> tuple[list[str], dict[str, str], list[str]]:
-    labels: list[str] = []
-    versions: dict[str, str] = {}
-    notes: list[str] = []
-
-    package_json = project_dir / "package.json"
-    if package_json.exists():
-        try:
-            data = json.loads(package_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            data = {}
-        if isinstance(data, dict):
-            dependencies = _package_dependencies(data)
-            for dep, version in dependencies.items():
-                label = FRAMEWORK_LABELS.get(dep)
-                if label is None:
-                    continue
-                labels.append(label)
-                versions[label] = version
-            if dependencies:
-                notes.append("package.json")
-
-    pyproject = project_dir / "pyproject.toml"
-    if pyproject.exists():
-        try:
-            text = pyproject.read_text(encoding="utf-8")
-        except OSError:
-            text = ""
-        for dep, label in FRAMEWORK_LABELS.items():
-            if dep.lower() in text.lower():
-                labels.append(label)
-                versions.setdefault(label, "")
-        if text:
-            notes.append("pyproject.toml")
-
-    cargo = project_dir / "Cargo.toml"
-    if cargo.exists():
-        try:
-            text = cargo.read_text(encoding="utf-8")
-        except OSError:
-            text = ""
-        for dep, label in FRAMEWORK_LABELS.items():
-            if dep.lower() in text.lower():
-                labels.append(label)
-                versions.setdefault(label, "")
-        if text:
-            notes.append("Cargo.toml")
-
-    if (project_dir / ".github" / "workflows").is_dir():
-        labels.append("GitHub Actions")
-    if (project_dir / "Dockerfile").exists() or (project_dir / "docker-compose.yml").exists():
-        labels.append("Docker")
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for label in labels:
-        key = label.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(label)
-    return deduped, versions, notes
-
-
-def build_project_graph(project_dir: Path) -> tuple[CortexGraph, dict[str, Any]]:
-    graph = CortexGraph()
-    metadata = enrich_project(str(project_dir))
-    repo_name = metadata.name or project_dir.name
-    detected_labels, versions, notes = _manifest_signals(project_dir)
-
-    summary: dict[str, Any] = {
-        "project": repo_name,
-        "languages": list(metadata.languages),
-        "frameworks": list(detected_labels),
-        "notes": list(notes),
-    }
-
-    graph.add_node(
-        Node(
-            id=make_node_id_with_tag(repo_name, "active_priorities"),
-            label=repo_name,
-            tags=["active_priorities"],
-            confidence=0.9,
-            brief=f"Active project: {repo_name}" + (f" - {metadata.description}" if metadata.description else ""),
-            full_description=metadata.readme_summary or metadata.description,
-            provenance=[{"source": str(project_dir), "method": "project_metadata"}],
-        )
-    )
-
-    for language in metadata.languages:
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag(language, "technical_expertise"),
-                label=language,
-                tags=["technical_expertise"],
-                confidence=0.86,
-                brief=f"Uses {language}",
-                provenance=[{"source": str(project_dir), "method": "project_manifest"}],
-            )
-        )
-
-    for label in detected_labels:
-        version = versions.get(label, "")
-        brief = f"{label} {version}".strip()
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag(label, "technical_expertise"),
-                label=label,
-                tags=["technical_expertise"],
-                confidence=0.88,
-                brief=brief,
-                provenance=[{"source": str(project_dir), "method": "project_manifest"}],
-            )
-        )
-
-    if metadata.description:
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag(f"{repo_name} purpose", "domain_knowledge"),
-                label=f"{repo_name} purpose",
-                tags=["domain_knowledge"],
-                confidence=0.8,
-                brief=metadata.description[:220],
-                full_description=metadata.readme_summary or metadata.description,
-                provenance=[{"source": str(project_dir), "method": "readme"}],
-            )
-        )
-
-    return graph, summary
-
-
-def _extract_resume_text(path: Path) -> str:
-    if path.suffix.lower() in {".txt", ".md", ".markdown", ".rst"}:
-        return path.read_text(encoding="utf-8", errors="replace")
-    if path.suffix.lower() == ".json":
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            return json.dumps(payload, indent=2)
-        return str(payload)
-    if path.suffix.lower() == ".pdf":
-        try:
-            from pypdf import PdfReader  # type: ignore
-
-            reader = PdfReader(str(path))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
-            return path.read_bytes().decode("utf-8", errors="ignore")
-    return path.read_text(encoding="utf-8", errors="replace")
-
-
-def build_resume_graph(path: Path) -> tuple[CortexGraph, dict[str, Any]]:
-    text = _extract_resume_text(path)
-    graph = extract_graph_from_statement(text, confidence=0.82)
-    summary = {"source": str(path), "chars": len(text)}
-    return graph, summary
-
-
-def _git(args: list[str], *, cwd: Path) -> str:
-    proc = subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        return ""
-    return proc.stdout.strip()
-
-
-def _find_git_repos(search_roots: list[Path]) -> list[Path]:
-    repos: list[Path] = []
-    seen: set[str] = set()
-    for root in search_roots:
-        root = root.resolve()
-        if (root / ".git").exists():
-            key = str(root)
-            if key not in seen:
-                seen.add(key)
-                repos.append(root)
-        for git_dir in root.glob("*/.git"):
-            repo = git_dir.parent.resolve()
-            key = str(repo)
-            if key not in seen:
-                seen.add(key)
-                repos.append(repo)
-    return repos
-
-
-def build_github_graph(search_roots: list[Path]) -> tuple[CortexGraph, dict[str, Any]]:
-    graph = CortexGraph()
-    repos = _find_git_repos(search_roots)
-    repo_summaries: list[dict[str, Any]] = []
-
-    for repo in repos:
-        remote = _git(["remote", "get-url", "origin"], cwd=repo)
-        if remote and "github.com" not in remote:
-            continue
-        repo_graph, summary = build_project_graph(repo)
-        graph = merge_graphs(graph, repo_graph)
-        repo_summaries.append(summary)
-
-    all_languages = sorted({lang for summary in repo_summaries for lang in summary.get("languages", [])})
-    all_frameworks = sorted({label for summary in repo_summaries for label in summary.get("frameworks", [])})
-    summary = {
-        "repo_count": len(repo_summaries),
-        "languages": all_languages,
-        "frameworks": all_frameworks,
-        "repos": [summary.get("project", "") for summary in repo_summaries],
-    }
-    return graph, summary
-
-
-def build_git_history_graph(project_dir: Path) -> tuple[CortexGraph, dict[str, Any]]:
-    graph = CortexGraph()
-    log_output = _git(["log", "--pretty=format:%H%x1f%s%x1f%ad", "--date=iso", "-n", "200"], cwd=project_dir)
-    summary = {
-        "commit_count": 0,
-        "active_hours": [],
-        "patterns": [],
-    }
-    if not log_output:
-        return graph, summary
-
-    lines = [line for line in log_output.splitlines() if line.strip()]
-    summary["commit_count"] = len(lines)
-    hour_counts: dict[int, int] = {}
-    conventional = 0
-    test_commits = 0
-    descriptive = 0
-
-    for line in lines:
-        parts = line.split("\x1f")
-        if len(parts) != 3:
-            continue
-        _, subject, timestamp = parts
-        if re.match(r"^(feat|fix|docs|refactor|test|chore|ci|build)(\(.+\))?:", subject.strip().lower()):
-            conventional += 1
-        if re.search(r"\b(test|pytest|vitest|jest)\b", subject, re.IGNORECASE):
-            test_commits += 1
-        if len(subject.split()) >= 5:
-            descriptive += 1
-        try:
-            parsed = datetime.fromisoformat(timestamp.strip())
-            hour_counts[parsed.hour] = hour_counts.get(parsed.hour, 0) + 1
-        except ValueError:
-            continue
-
-    active_hours = [hour for hour, _ in sorted(hour_counts.items(), key=lambda item: (-item[1], item[0]))[:3]]
-    summary["active_hours"] = active_hours
-
-    if conventional >= max(5, len(lines) // 4):
-        summary["patterns"].append("Conventional commits")
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag("Conventional commits", "user_preferences"),
-                label="Conventional commits",
-                tags=["user_preferences"],
-                confidence=0.76,
-                brief="Commit messages usually follow conventional commit prefixes",
-                provenance=[{"source": str(project_dir), "method": "git_history"}],
-            )
-        )
-    if test_commits >= max(3, len(lines) // 8):
-        summary["patterns"].append("Testing-focused workflow")
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag("Testing-focused workflow", "user_preferences"),
-                label="Testing-focused workflow",
-                tags=["user_preferences"],
-                confidence=0.72,
-                brief="Git history frequently references tests and verification",
-                provenance=[{"source": str(project_dir), "method": "git_history"}],
-            )
-        )
-    if descriptive >= max(5, len(lines) // 3):
-        summary["patterns"].append("Descriptive commit style")
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag("Descriptive commit style", "communication_preferences"),
-                label="Descriptive commit style",
-                tags=["communication_preferences"],
-                confidence=0.68,
-                brief="Commit messages are usually sentence-like and descriptive",
-                provenance=[{"source": str(project_dir), "method": "git_history"}],
-            )
-        )
-
-    if active_hours:
-        hours_label = ", ".join(f"{hour:02d}:00" for hour in active_hours)
-        graph.add_node(
-            Node(
-                id=make_node_id_with_tag("Peak coding hours", "user_preferences"),
-                label="Peak coding hours",
-                tags=["user_preferences"],
-                confidence=0.65,
-                brief=f"Most active commit hours: {hours_label}",
-                provenance=[{"source": str(project_dir), "method": "git_history"}],
-            )
-        )
-
-    return graph, summary
 
 
 def load_canonical_graph(store_dir: Path, state: PortabilityState | None = None) -> tuple[CortexGraph, Path]:
