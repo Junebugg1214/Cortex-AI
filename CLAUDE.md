@@ -48,8 +48,10 @@ cortex ui --store-dir .cortex
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-python3 -m pytest tests/
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pytest tests/
 ruff check cortex/ tests/
 ruff format cortex/ tests/
 ```
