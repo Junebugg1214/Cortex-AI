@@ -1,285 +1,419 @@
-[![PyPI](https://img.shields.io/pypi/v/cortex-identity)](https://pypi.org/project/cortex-identity/)
-[![Python](https://img.shields.io/pypi/pyversions/cortex-identity)](https://pypi.org/project/cortex-identity/)
-[![License](https://img.shields.io/github/license/Junebugg1214/Cortex-AI)](https://github.com/Junebugg1214/Cortex-AI/blob/main/LICENSE)
+# Your AI memory. Versioned. Portable. Yours.
 
-# Cortex
+Cortex gives your tools one user-owned Mind, with commits, branches, mounts, and portable exports on disk instead of memory locked inside one product.
 
-Cortex is a local-first CLI that gives every AI tool the same Mind.
+[![PyPI version](https://img.shields.io/pypi/v/cortex-identity)](https://pypi.org/project/cortex-identity/)
 
-It is strongest today as:
-- a single-user local runtime
-- a small-team self-hosted memory layer with explicit operator control
+[![Python versions](https://img.shields.io/pypi/pyversions/cortex-identity)](https://pypi.org/project/cortex-identity/) [![License: MIT](https://img.shields.io/github/license/Junebugg1214/Cortex-AI)](LICENSE)
 
-It is not positioned as:
-- a hosted multi-tenant Cortex cloud
-- a no-ops public internet service with automatic enterprise controls
+[![GitHub stars](https://img.shields.io/github/stars/Junebugg1214/Cortex-AI?style=social)](https://github.com/Junebugg1214/Cortex-AI/stargazers)
 
-Use Cortex to:
-- create one portable Mind with durable memory, policy, and mounts
-- attach Brainpacks as specialist knowledge
-- connect Manus, Hermes, Codex, Cursor, and Claude Code with first-class commands
-- serve MCP, API, Manus bridge, and UI runtimes locally
-- repair store and config drift safely with `cortex doctor --fix`
+You've taught one model how you work.
+You open another tool because the task changed.
+Your stack, constraints, and preferences stay behind in a product-specific memory system.
+So you restate the same context again, or you keep working with the wrong context attached.
 
-## Why Cortex Feels Unified Now
+## See it in 30 seconds
 
-Cortex is no longer a pile of adjacent features.
+```bash
+$ cortex init
+# Initialized Cortex at ./.cortex
+#   config: ./.cortex/config.toml (created)
+#   store source: default
+#   default Mind: self (created)
+#   auth keys: generated reader + writer tokens
 
-It has one top-level object and one first-class CLI:
+$ cortex mind remember self "We use TypeScript and Supabase."
+# Mind `self` remembered:
+#   We use TypeScript and Supabase.
+#   branch main · 3 nodes · 0 edges
+#   no persisted mounts to refresh.
 
-- **Mind**: your portable identity, memory, preferences, policy, and mounts
-- **Brainpacks**: attachable specialist modules that compose into a Mind
-- **Connect**: runtime wiring for Manus and local AI tools
-- **Serve**: live MCP, API, Manus bridge, and UI surfaces
-- **Doctor**: repair and hardening for the local Cortex workspace
+$ cortex mind compose self --to codex --task "product strategy"
+# Mind `self` → Codex
+#   branch main · 2 routed facts · 0 attached packs included · professional
+#
+# ## Shared AI Context
+# **Tech Stack:** Typescript (0.8), Supabase (0.8)
 
-Portable AI and Git for AI Memory still matter. They now fit underneath the same model:
-
-- **Portable AI** is the ingest and sync path for a Mind
-- **Git for AI Memory** is the advanced history, review, and governance layer
+$ cortex mind mount self --to codex --task "product strategy"
+# Mounted Mind `self`:
+#   codex        ok  Updated 1 file(s)
+#     → ./AGENTS.md
+#   total persisted mounts: 1
+```
 
 ## Install
 
-Recommended package install:
+### 1. pip
 
 ```bash
-python3.11 -m pip install "cortex-identity[server]"
+python3.11 -m pip install cortex-identity
 ```
 
-Source install from this repository:
+### 2. pipx
+
+```bash
+pipx install cortex-identity
+```
+
+### 3. From source
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
-python3.11 -m pip install -e ".[server]"
+python3.11 -m pip install -e ".[dev]"
 ```
 
-Notes:
-- Use `python3.11 -m pip`, not plain `pip`.
-- Cortex supports Python 3.10+, but `python3.11` is the smoothest default for local setup.
-- The `server` extra installs the local runtime surfaces used by `cortex serve`.
-
-## Start Here
-
-Five-minute first run:
+Verify it worked:
 
 ```bash
-mkdir cortex-workspace
-cd cortex-workspace
-cortex init
-cortex mind remember self "I prefer concise, implementation-first answers."
-cortex mind status self
-cortex doctor
+cortex --help
+# Expected: Cortex — one portable Mind across AI tools.
 ```
 
-What this does:
+Today Cortex is strongest as a local-first CLI and an operator-managed self-host deployment. It is not a hosted memory cloud.
 
-| Command | What it does |
+## Core concepts
+
+Think of Cortex as Git-style state management for the part of AI work you keep rebuilding: the memory itself.
+
+| Concept | Plain-English definition |
 | --- | --- |
-| `mkdir cortex-workspace && cd cortex-workspace` | Creates a clean workspace for your Cortex store. |
-| `cortex init` | Creates `.cortex/config.toml`, generates reader and writer API keys, initializes the canonical store, creates the default Mind `self` if needed, and prints the next recommended commands. |
-| `cortex mind remember self "..."` | Teaches the default Mind one durable fact or preference directly. |
-| `cortex mind status self` | Shows the default Mind's manifest, branch, policy, attachments, and mounts. |
-| `cortex doctor` | Checks the local workspace for store or config issues before they become runtime problems. |
+| Mind | Your named memory context: identity, preferences, attached Brainpacks, mounts, and runtime slices. |
+| Memory commit | A saved graph snapshot you can diff, review, blame, and restore later. |
+| Branch | A separate line of memory history so a client, experiment, or migration does not leak into main. |
+| Brainpack | A compiled specialist knowledge pack you can attach to a Mind or mount directly into tools. |
+| Portability | Writing the right context slice to each tool instead of copying one blob everywhere. |
+| Export / import | Turning raw chats into Cortex graphs, or turning Cortex graphs into target-specific files and bundles. |
 
-## First-Class CLI
+## Command reference
 
-The default help surface is now intentionally small:
+### Memory operations
 
-| Command | Use it when you want to... |
-| --- | --- |
-| `cortex init` | bootstrap a canonical `.cortex/` workspace and default Mind |
-| `cortex mind ...` | create, inspect, compose, and mount Minds |
-| `cortex pack ...` | build and manage Brainpacks |
-| `cortex connect ...` | wire Cortex into Manus or local runtimes |
-| `cortex serve ...` | run the live API, MCP, Manus bridge, or UI |
-| `cortex doctor` | diagnose and safely repair local setup issues |
+`$ cortex init`
+→ Create or reuse `.cortex`, write `config.toml`, and create the default `self` Mind.
+→ Most useful flag: `--mind` if you want a different default Mind id on day one.
 
-For the full advanced and compatibility surface, run:
+`$ cortex mind remember self "We use TypeScript and Supabase."`
+→ Add one durable fact or preference directly to a Mind.
+→ Most useful flag: `--message` if you want the graph update to carry an explicit commit message.
+
+`$ cortex pack init ai-memory --description "Portable AI memory research"`
+→ Create a Brainpack skeleton under `.cortex/packs/ai-memory/`.
+→ Most useful flag: `--owner` if the pack belongs to a specific person or team.
+
+`$ cortex pack ingest ai-memory docs/ --recurse`
+→ Copy or reference raw source material into a Brainpack.
+→ Most useful flag: `--type note` when auto-detection guesses the wrong source type.
+
+`$ cortex pack compile ai-memory --suggest-questions`
+→ Compile a Brainpack into wiki pages, graph data, claims, unknowns, and artifacts.
+→ Most useful flag: `--suggest-questions` to surface the gaps the pack still cannot answer.
+
+`$ cortex commit context.json -m "Initial memory snapshot"`
+→ Save a graph snapshot into the version store as an immutable commit.
+→ Most useful flag: `--source` when you want the commit labeled as `merge`, `manual`, or `extraction`.
+
+`$ cortex log --limit 10`
+→ Show recent version history for the current branch.
+→ Most useful flag: `--all` when you want global history instead of branch ancestry only.
+
+`$ cortex diff 65fc26ac ddccb0de`
+→ Compare two stored versions and see structural plus semantic change summaries.
+→ Most useful flag: `--format json` if you want to pipe the diff into automation.
+
+`$ cortex rollback context.json --at 2026-04-10T14:30:00Z`
+→ Restore a graph file to the latest stored version at or before a timestamp.
+→ Most useful flag: `--to` when you already know the exact version id you want back.
+
+### Branching
+
+`$ cortex mind init acme --kind project --label "ACME rollout"`
+→ Create a separate Mind for a client, project, or agent instead of piling everything into `self`.
+→ Most useful flag: `--default-policy` when this Mind should use a stricter disclosure policy than the default.
+
+`$ cortex branch client/acme --switch`
+→ Create a new memory branch and move to it immediately.
+→ Most useful flag: `--from main` when the new branch should start from a ref other than `HEAD`.
+
+`$ cortex switch main`
+→ Move the active version store back to another branch.
+→ Most useful flag: `-c` when you want `switch` to create the branch if it does not exist yet.
+
+`$ cortex merge client/acme --dry-run`
+→ Preview what would happen if you merged another branch into the current branch.
+→ Most useful flag: `--conflicts` when you want to inspect pending conflicts without attempting a new merge.
+
+`$ cortex review --against main`
+→ Review the current branch or a graph file against a baseline ref before you merge it.
+→ Most useful flag: `--fail-on blocking,contradictions` to make review failures explicit in CI.
+
+### Portability
+
+`$ cortex switch --from chatgpt-export.zip --to claude --output portable`
+→ Convert one tool's export into another tool's import-ready context files.
+→ Most useful flag: `--input-format openai` if auto-detection guesses the wrong source format.
+
+`$ cortex portable notes.txt --input-format text --to claude-code codex --project .`
+→ Extract context from a raw source and write target-specific files for multiple tools.
+→ Most useful flag: `--max-chars` when you need tighter context windows for instruction files.
+
+`$ cortex import context.json --to claude --output portable`
+→ Turn an existing Cortex graph into target-specific artifacts without re-extracting it first.
+→ Most useful flag: `--dry-run` to see what would be written before touching the filesystem.
+
+`$ cortex sync --smart --project .`
+→ Refresh already-ingested runtime context using the router instead of copying one giant block everywhere.
+→ Most useful flag: `--policy technical` when coding tools should receive a tighter disclosure slice.
+
+`$ cortex mind compose self --to codex --task "incident follow-up"`
+→ Preview the exact runtime slice a Mind would send to a target for a specific task.
+→ Most useful flag: `--smart` to let Cortex choose a tighter routed slice for that target.
+
+`$ cortex mind mount self --to codex cursor claude-code --task "incident follow-up"`
+→ Materialize a Mind into one or more local tools.
+→ Most useful flag: `--project .` when the target uses project-scoped files such as `AGENTS.md`.
+
+`$ cortex connect codex --install --project .`
+→ Install Cortex MCP and runtime wiring for Codex before you mount a Mind into it.
+→ Most useful flag: `--check` when you want readiness diagnostics without writing config.
+
+`$ cortex connect manus --check`
+→ Validate the local Manus bridge setup, auth shape, and expected HTTPS endpoint.
+→ Most useful flag: `--url https://your-host.example/mcp` once you have a public bridge endpoint.
+
+`$ cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790`
+→ Run the Manus-friendly hosted MCP bridge locally so a tunnel or reverse proxy can expose it.
+→ Most useful flag: `--check` before you bind the process for real.
+
+`$ cortex pack export ai-memory --output dist/ai-memory.brainpack.zip`
+→ Export a compiled Brainpack as a portable bundle archive.
+→ Most useful flag: `--no-verify` only when you are deliberately skipping the post-write bundle verification step.
+
+`$ cortex pack import dist/ai-memory.brainpack.zip`
+→ Import a Brainpack bundle into the local store.
+→ Most useful flag: `--store-dir ~/.cortex` when you are importing into a different Cortex store.
+
+### Inspection
+
+`$ cortex doctor`
+→ Check store, config, runtime mode, bind scope, and repairable drift in the current workspace.
+→ Most useful flag: `--fix --dry-run` when you want to preview repairs before Cortex writes anything.
+
+`$ cortex mind status self`
+→ Show a Mind's manifest, branch, policy, attachments, and mounts.
+→ Most useful flag: `--format json` if another tool needs to inspect the state programmatically.
+
+`$ cortex pack status ai-memory`
+→ Show Brainpack source counts, compile state, artifacts, and lint summary.
+→ Most useful flag: `--format json` when you want machine-readable pack health in CI.
+
+`$ cortex scan --project .`
+→ Inspect local tool files and exports without mutating the store.
+→ Most useful flag: `--search-root ~/Downloads` when the export you want sits outside the project directory.
+
+`$ cortex status --project .`
+→ Show which configured tools are stale or missing routed context.
+→ Most useful flag: `--format json` when you want to gate a workflow on fresh mounts.
+
+`$ cortex memory show context.json --tag technical_expertise`
+→ Inspect nodes from a graph file without opening the JSON by hand.
+→ Most useful flag: `--label "Supabase"` when you want to inspect one exact node.
+
+`$ cortex query context.json --search "Supabase" --limit 5`
+→ Search a graph across labels, aliases, and descriptions.
+→ Most useful flag: `--dsl` when you want the query language instead of keyword search.
+
+`$ cortex history context.json --label "Supabase" --limit 10`
+→ Walk the receipt timeline for one node across stored versions.
+→ Most useful flag: `--source extraction` when you want receipts from one source type only.
+
+`$ cortex blame context.json --label "Supabase" --limit 10`
+→ Trace a node back to the commit lineage that introduced it.
+→ Most useful flag: `--ref main` when you want blame against a specific branch ancestry.
+
+### Governance
+
+`$ cortex verify signed-export.json`
+→ Verify a signed export file before you trust or import it.
+→ Most useful flag: none; this command is intentionally small and does one thing.
+
+`$ cortex governance check --actor agent/coder --action write --namespace main`
+→ Ask whether a given actor may perform an action in a namespace right now.
+→ Most useful flag: `--against main` when approval gating depends on semantic diff against a baseline.
+
+`$ cortex governance allow protect-main --action write --namespace main --require-approval`
+→ Create or replace a governance rule for a namespace or branch.
+→ Most useful flag: `--approval-below-confidence 0.75` when low-confidence writes should require review.
+
+`$ cortex remote push origin --branch main`
+→ Push a local memory branch to a configured remote store.
+→ Most useful flag: `--to-branch release/main` when the remote branch name should differ from the local one.
+
+`$ cortex remote pull origin --branch main --into-branch remotes/origin/main`
+→ Pull a remote branch into a local branch for review or merge.
+→ Most useful flag: `--switch` when you want to move to the updated local branch immediately.
+
+`$ cortex backup export --store-dir .cortex --output backups/pre-change.zip`
+→ Create a verified archive of the current store before a risky change.
+→ Most useful flag: `--no-verify` only for controlled debug cases where you do not want the post-write verification step.
+
+`$ cortex backup verify backups/pre-change.zip`
+→ Confirm a backup archive is valid before you restore it.
+→ Most useful flag: none; verification should stay explicit and simple.
+
+## Real workflows
+
+### Workflow A: I'm switching from ChatGPT to Claude mid-project
 
 ```bash
-cortex --help-all
+$ cortex switch --from chatgpt-export.zip --to claude --output portable --dry-run
+# Portable switch ready: chatgpt -> claude
+#   claude: portable/claude/claude_preferences.txt, portable/claude/claude_memories.json [dry-run]
+
+$ cortex switch --from chatgpt-export.zip --to claude --output portable
+# Portable switch ready: chatgpt -> claude
+#   claude: portable/claude/claude_preferences.txt, portable/claude/claude_memories.json [created]
 ```
 
-That includes legacy and low-level commands such as `portable`, `remember`, `sync`, `build`, `audit`, `server`, `mcp`, `commit`, `branch`, `merge`, and `review`.
-
-## Common Workflows
-
-### 1. Create and Compose a Mind
+### Workflow B: I want a separate memory context for a client engagement
 
 ```bash
-cortex init
-cortex mind remember self "I prefer concise, implementation-first answers."
-cortex mind remember self "We are building Cortex as a first-class AI CLI."
-cortex mind compose self --to codex --task "product strategy"
+$ cortex init
+# Initialized Cortex at ./.cortex
+#   default Mind: self (created)
+
+$ cortex mind init acme --kind project --label "ACME rollout"
+# Created Mind `acme` at ./.cortex/minds/acme
+
+$ cortex mind remember acme "Infrastructure must stay in us-east-1 and meet SOC 2."
+# Mind `acme` remembered:
+#   Infrastructure must stay in us-east-1 and meet SOC 2.
+#   branch main · 1 nodes · 0 edges
+#   no persisted mounts to refresh.
+
+$ cortex mind status acme
+# Mind `acme`
+#   ACME rollout · project
+#   branch main · 0 attached Brainpacks · 0 attached pack mounts · 0 direct mind mounts · professional · non-default
+#   graph ref: refs/minds/acme/branches/main
+
+$ cortex mind mount acme --to codex --task "client handoff"
+# Mounted Mind `acme`:
+#   codex        ok  Updated 0 file(s)
+#   total persisted mounts: 1
 ```
 
-Use this flow when you want one portable Mind to carry across tools instead of restarting from zero in every runtime.
-
-### 2. Add a Brainpack
+### Workflow C: Something went wrong — I need to roll back my AI memory to yesterday
 
 ```bash
-cortex pack init ai-memory --description "Portable AI memory research"
-cortex pack ingest ai-memory ~/notes/ai-memory ~/Downloads/papers --recurse
-cortex pack compile ai-memory --suggest-questions
-cortex mind attach-pack self ai-memory --always-on --target codex --task-term memory
+$ cortex extract notes.txt --output context.json
+# Loading: notes.txt
+# Format: text
+# Extracted 2 topics across 2 categories
+# Saved to: context.json
+
+$ cortex commit context.json -m "Initial memory snapshot"
+# Committed: 65fc26accf0373d4d8990f24341c9263
+#   Branch: main
+#   Message: Initial memory snapshot
+
+$ cortex commit context.json -m "Expand stack memory"
+# Committed: ddccb0dea118f1dbb0d415909d9efea5
+#   Branch: main
+#   Message: Expand stack memory
+
+$ cortex log --limit 2
+# * ddccb0dea118f1dbb0d415909d9efea5  2026-04-11T05:28:02+00:00  [manual] (main)
+#     Expand stack memory
+# * 65fc26accf0373d4d8990f24341c9263  2026-04-11T05:28:01+00:00  [manual] (main)
+#     Initial memory snapshot
+
+$ cortex rollback context.json --to 65fc26ac
+# Rolled back main to aa0af1625b548afc315bbf32c17e15c1 as new commit aa0af1625b548afc315bbf32c17e15c1.
+#   Wrote restored graph to context.json
 ```
 
-Use Brainpacks when you want specialist knowledge to be compiled once and composed into the Mind only when relevant.
+## Why Cortex instead of ...
 
-### 3. Connect Local Runtimes
+| Feature | Cortex | ChatGPT Memory | Claude Projects | Mem0 |
+| --- | --- | --- | --- | --- |
+| Portability across platforms | ✓ | ✗ | ✗ | ~ |
+| Version control / rollback | ✓ | ~ | ✗ | ✗ |
+| CLI-native workflow | ✓ | ✗ | ✗ | ~ |
+| Open source | ✓ | ✗ | ✗ | ✓ |
+| Local-first / no vendor lock-in | ✓ | ✗ | ✗ | ~ |
+| Exportable format | ✓ | ✗ | ✗ | ✓ |
 
-Check before you install:
+## Architecture in one diagram
 
-```bash
-cortex connect hermes --check --project .
-cortex connect codex --check --project .
-cortex connect cursor --check --project .
-cortex connect claude-code --check --project .
+```text
+                raw chats / notes / exports / tool files
+     ┌──────────────┬──────────────┬──────────────┬──────────────┐
+     │ ChatGPT ZIP  │ Claude files │ Local notes  │ Repo context  │
+     └──────┬───────┴──────┬───────┴──────┬───────┴──────┬───────┘
+            │              │              │              │
+            └──────────────┴──── extract / portable / switch ───────┘
+                                           │
+                                           ▼
+                              ┌──────────────────────────┐
+                              │   Cortex commit graph    │
+                              │   cortex.graph           │
+                              │   commit / diff / merge  │
+                              │   blame / history        │
+                              └─────────────┬────────────┘
+                                            │
+                           ┌────────────────┼────────────────┐
+                           │                │                │
+                           ▼                ▼                ▼
+                  ┌────────────────┐ ┌──────────────┐ ┌──────────────┐
+                  │ Minds          │ │ Brainpacks   │ │ Claims /     │
+                  │ minds/         │ │ packs/       │ │ versions /   │
+                  │ compose/mount  │ │ compile/query│ │ backups      │
+                  └────────┬───────┘ └──────┬───────┘ └──────┬───────┘
+                           │                │                │
+                           └────────────┬───┴────────────────┘
+                                        │
+                                        ▼
+                              ┌──────────────────────────┐
+                              │      Local store         │
+                              │        .cortex/          │
+                              │  filesystem or SQLite    │
+                              └─────────────┬────────────┘
+                                            │
+                    ┌───────────────────────┼────────────────────────┐
+                    │                       │                        │
+                    ▼                       ▼                        ▼
+          ┌────────────────┐    ┌────────────────────┐    ┌────────────────┐
+          │ direct mounts  │    │ runtime surfaces   │    │ import/export  │
+          │ AGENTS.md      │    │ serve api / mcp    │    │ Claude files   │
+          │ CLAUDE.md      │    │ serve manus / ui   │    │ ChatGPT files  │
+          │ Cursor rules   │    │ cortexd / MCP      │    │ Brainpack ZIPs │
+          │ Hermes memory  │    │ bridge + local UI  │    │ signed exports │
+          └────────────────┘    └────────────────────┘    └────────────────┘
 ```
-
-Install the Cortex MCP wiring:
-
-```bash
-cortex connect hermes --install --project .
-cortex connect codex --install --project .
-cortex connect cursor --install --project .
-cortex connect claude-code --install --project .
-```
-
-Then materialize the actual Mind into those runtimes:
-
-```bash
-cortex mind mount self --to hermes codex cursor claude-code --task "support"
-```
-
-### 4. Connect Manus
-
-Use `connect` to prepare the connector and `serve` to run the bridge:
-
-```bash
-cortex connect manus --check
-cortex connect manus --url https://your-https-endpoint.example/mcp --write-config ./manus-mcp.json
-cortex serve manus --config .cortex/config.toml --host 127.0.0.1 --port 8790
-```
-
-Notes:
-- Manus expects an HTTPS MCP endpoint.
-- `--print-config` now masks secrets by default; use `--write-config <path>` for a paste-ready file or `--reveal-secret` only when you explicitly want the live token printed.
-- For local testing, use a tunnel such as ngrok in front of `cortex serve manus`.
-- For persistent production use, host the bridge behind stable HTTPS.
-
-### 5. Run Local Runtime Surfaces
-
-```bash
-cortex serve api --check
-cortex serve mcp --check
-cortex serve manus --check
-cortex serve ui --open
-```
-
-What each surface is for:
-
-| Command | Purpose |
-| --- | --- |
-| `cortex serve api` | Runs the local REST API server. |
-| `cortex serve mcp` | Runs the local Cortex MCP server over stdio. |
-| `cortex serve manus` | Runs the Manus-friendly hosted MCP bridge. |
-| `cortex serve ui` | Launches the local Cortex infrastructure UI. |
-
-## Deployment Modes
-
-### Local Single-User
-
-This is the default and recommended starting point.
-
-Use it when:
-- Cortex runs on your laptop or workstation
-- the store stays user-owned and local
-- runtime surfaces bind to loopback like `127.0.0.1`
-- you want the simplest, safest operating model
-
-### Hosted Service
-
-Use this only when you are intentionally operating Cortex as a self-hosted service for a person, team, or workflow.
-
-Hosted mode means:
-- API keys should be configured before you bind beyond loopback
-- HTTPS should terminate at a reverse proxy you control
-- Manus and other shared bridges should prefer a pinned namespace
-- you, not Cortex, are the operator responsible for network policy and deployment hygiene
-
-Read these before exposing Cortex beyond localhost:
-- [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
-- [docs/OPERATIONS.md](docs/OPERATIONS.md)
-
-## Operational Safety
-
-If you want Cortex to stay reliable as it grows, these are the habits to keep:
-
-| Command | Why it matters |
-| --- | --- |
-| `cortex doctor` | Catch workspace issues early. |
-| `cortex doctor --fix` | Apply safe repairs to first-class store and config issues. |
-| `cortex doctor --fix-store` | Normalize accidental root-level stores back into the canonical `.cortex/` layout. |
-| `cortex connect <target> --check` | Validate runtime readiness before you install or mount. |
-| `cortex serve <surface> --check` | Validate runtime wiring before you expose a live service. |
-| `--format json` | Use machine-readable output in automation and CI. |
-
-Important defaults:
-- Cortex strongly prefers a canonical `.cortex/` store.
-- `cortex init` is idempotent and safe to rerun.
-- `cortex doctor --fix` is the supported path for recovering from common local misconfiguration.
-- `local-single-user` is the default runtime mode.
-- hosted binds should be treated as an operator decision, not the default dev path.
-
-## Compatibility and Legacy Commands
-
-The new CLI is Mind-first, but backward compatibility still exists.
-
-If you already use the older flows:
-- `portable`, `remember`, and `sync --smart` still work
-- if a default Mind is configured, those commands route through that Mind
-- `server` and `mcp` still work as compatibility entrypoints
-- `cortex-manus` still maps to the Manus bridge
-
-The recommended path for new users is still:
-
-```bash
-cortex init
-cortex mind ...
-cortex pack ...
-cortex connect ...
-cortex serve ...
-cortex doctor
-```
-
-## More Docs
-
-- [docs/MINDS.md](docs/MINDS.md)
-- [docs/BRAINPACKS.md](docs/BRAINPACKS.md)
-- [docs/PORTABILITY.md](docs/PORTABILITY.md)
-- [docs/MANUS_QUICKSTART.md](docs/MANUS_QUICKSTART.md)
-- [docs/HERMES_QUICKSTART.md](docs/HERMES_QUICKSTART.md)
-- [docs/AGENT_QUICKSTARTS.md](docs/AGENT_QUICKSTARTS.md)
-- [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
-- [docs/OPERATIONS.md](docs/OPERATIONS.md)
-- [docs/CLI_UNIFICATION_PRD.md](docs/CLI_UNIFICATION_PRD.md)
-- [docs/CORTEX_MIND_PRD.md](docs/CORTEX_MIND_PRD.md)
 
 ## Contributing
 
-If you are changing Cortex itself rather than just using it:
+Cortex is for developers who already feel the pain of rebuilt AI context: people switching between ChatGPT, Claude, Codex, Cursor, Hermes, local MCP tools, or self-hosted agents and wanting one memory layer they can inspect, diff, and control. If that problem bothers you enough that you keep sketching your own solution on napkins, you will probably care about this repo.
+
+You can get a dev environment up in under five commands:
 
 ```bash
-python3.11 -m pip install -e ".[dev,server]"
-python3.11 -m pytest tests -q --tb=short
+git clone https://github.com/Junebugg1214/Cortex-AI.git
+cd Cortex-AI
+python3.11 -m pip install -e ".[dev]"
 ruff check cortex tests
-ruff format cortex tests
+python3.11 -m pytest tests -q --tb=short
 ```
 
-## Uninstall
+There are no public open issues at the moment. The highest-leverage roadmap work is already named in the repo: `pack-native Q&A loops`, `bundle-aware UI flows`, and `clean-machine install-path verification for runtime adapters and self-host surfaces`. If you want to help, start there, or tighten a rough edge in `docs/SELF_HOSTING.md`, `docs/OPERATIONS.md`, or the first-run CLI paths.
 
-Delete the workspace you initialized, including `.cortex/`, any exported `portable/` artifacts you no longer want, and any runtime config blocks that Cortex added under its managed markers.
+## Footer
+
+License: [MIT](LICENSE)
+PyPI: [cortex-identity](https://pypi.org/project/cortex-identity/)
+Issues: [GitHub Issues](https://github.com/Junebugg1214/Cortex-AI/issues)
+
+If this saves you one rebuild of context, it already paid for itself.
