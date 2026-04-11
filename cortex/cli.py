@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from cortex import cli_entrypoint as cli_entrypoint_module
+from cortex import cli_extract_commands as cli_extract_commands_module
 from cortex import cli_graph_commands as cli_graph_commands_module
 from cortex import cli_mind_pack_commands as cli_mind_pack_commands_module
 from cortex import cli_misc_commands as cli_misc_commands_module
@@ -24,15 +25,6 @@ from cortex import cli_portable_commands as cli_portable_commands_module
 from cortex import cli_runtime_commands as cli_runtime_commands_module
 from cortex import cli_surface as cli_surface_module
 from cortex import cli_workspace_commands as cli_workspace_commands_module
-from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import (
-    AggressiveExtractor,
-    PIIRedactor,
-    build_eval_compat_view,
-    load_file,
-    merge_contexts,
-)
-from cortex.graph import CortexGraph
 
 ADVANCED_HELP_NOTE = cli_surface_module.ADVANCED_HELP_NOTE
 CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS
@@ -327,6 +319,17 @@ def _portable_cli_context() -> cli_portable_commands_module.PortableCliContext:
     )
 
 
+def _extract_cli_context() -> cli_extract_commands_module.ExtractCliContext:
+    return cli_extract_commands_module.ExtractCliContext(
+        echo=_echo,
+        error=_error,
+        is_quiet=lambda: _CLI_QUIET,
+        load_graph=_load_graph,
+        missing_path_error=_missing_path_error,
+        permission_error=_permission_error,
+    )
+
+
 def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
     return cli_misc_commands_module.MiscCliContext(
         build_parser=build_parser,
@@ -336,146 +339,8 @@ def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
     )
 
 
-def _export_dispatch() -> dict[str, tuple[object, str, bool]]:
-    from cortex.import_memory import (
-        export_claude_memories,
-        export_claude_preferences,
-        export_full_json,
-        export_google_docs,
-        export_notion,
-        export_notion_database_json,
-        export_summary,
-        export_system_prompt,
-    )
-
-    return {
-        "claude-preferences": (export_claude_preferences, "claude_preferences.txt", False),
-        "claude-memories": (export_claude_memories, "claude_memories.json", True),
-        "system-prompt": (export_system_prompt, "system_prompt.txt", False),
-        "notion": (export_notion, "notion_page.md", False),
-        "notion-db": (export_notion_database_json, "notion_database.json", True),
-        "gdocs": (export_google_docs, "google_docs.html", False),
-        "summary": (export_summary, "summary.md", False),
-        "full": (export_full_json, "full_export.json", True),
-    }
-
-
-def _confidence_thresholds() -> dict[str, float]:
-    from cortex.import_memory import CONFIDENCE_THRESHOLDS
-
-    return CONFIDENCE_THRESHOLDS
-
-
-def _normalized_context_cls():
-    from cortex.import_memory import NormalizedContext
-
-    return NormalizedContext
-
-
 def _run_extraction(extractor, data, fmt):
-    """Route *data* through the correct extractor method and return the v4 dict."""
-    if fmt == "openai":
-        extractor.process_openai_export(data)
-    elif fmt == "gemini":
-        extractor.process_gemini_export(data)
-    elif fmt == "perplexity":
-        extractor.process_perplexity_export(data)
-    elif fmt == "grok":
-        extractor.process_grok_export(data)
-    elif fmt == "cursor":
-        extractor.process_cursor_export(data)
-    elif fmt == "windsurf":
-        extractor.process_windsurf_export(data)
-    elif fmt == "copilot":
-        extractor.process_copilot_export(data)
-    elif fmt in ("jsonl", "claude_code"):
-        extractor.process_jsonl_messages(data)
-    elif fmt == "api_logs":
-        extractor.process_api_logs(data)
-    elif fmt == "messages":
-        extractor.process_messages_list(data)
-    elif fmt == "text":
-        extractor.process_plain_text(data)
-    else:
-        if isinstance(data, list):
-            extractor.process_messages_list(data)
-        elif isinstance(data, dict) and "messages" in data:
-            extractor.process_messages_list(data["messages"])
-        else:
-            extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
-
-    extractor.post_process()
-    return extractor.context.export()
-
-
-def _write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):
-    """Write the requested formats to *output_dir*. Returns list of (label, path)."""
-    export_dispatch = _export_dispatch()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    outputs = []
-    for key in format_keys:
-        export_fn, filename, is_json = export_dispatch[key]
-        path = output_dir / filename
-        result = export_fn(ctx, min_conf)
-        if is_json:
-            path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        else:
-            path.write_text(result, encoding="utf-8")
-        outputs.append((key, path))
-        if verbose:
-            print(f"   wrote {path}")
-    return outputs
-
-
-def _finalize_extraction_output(
-    v4_output: dict,
-    *,
-    input_path: Path,
-    fmt: str,
-    store_dir: Path | None = None,
-    record_claims: bool = True,
-    extra_metadata: dict[str, Any] | None = None,
-) -> tuple[dict, int]:
-    from cortex.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
-    from cortex.storage import get_storage_backend
-
-    graph = upgrade_v4_to_v5(v4_output)
-    source = extraction_source_label(input_path)
-    claim_count = 0
-    metadata = {"input_format": fmt, "input_file": str(input_path)}
-    metadata.update(dict(extra_metadata or {}))
-
-    if record_claims:
-        stamp_graph_provenance(
-            graph,
-            source=source,
-            method="extract",
-            metadata=metadata,
-        )
-        if store_dir is not None:
-            ledger = get_storage_backend(store_dir).claims
-            events = record_graph_claims(
-                graph,
-                ledger,
-                op="assert",
-                source=source,
-                method="extract",
-                metadata=metadata,
-            )
-            claim_count = len(events)
-
-    result = graph.export_v4()
-    if "conflicts" in v4_output:
-        result["conflicts"] = list(v4_output.get("conflicts", []))
-    if "redaction_summary" in v4_output:
-        result["redaction_summary"] = v4_output["redaction_summary"]
-    result.update(build_eval_compat_view(result))
-    return result, claim_count
-
-
-def _to_context_json_v5(data: dict) -> dict:
-    """Normalize extraction output into the pinned portable context.json format."""
-    return upgrade_v4_to_v5(data).export_v5()
+    return cli_extract_commands_module.run_extraction(extractor, data, fmt)
 
 
 def _emit_result(result, output_format: str) -> int:
@@ -579,490 +444,39 @@ def _load_detected_sources_or_error(
     *,
     project_dir: Path,
     announce: bool = True,
-    redactor: PIIRedactor | None = None,
+    redactor=None,
 ) -> dict[str, Any] | None:
-    detected_selection = list(getattr(args, "from_detected", []) or [])
-    if not detected_selection:
-        return None
-
-    from cortex.portable_runtime import extract_graph_from_detected_sources
-
-    if announce:
-        _echo("Loading detected local sources")
-    try:
-        detected_payload = extract_graph_from_detected_sources(
-            targets=detected_selection,
-            store_dir=Path(args.store_dir),
-            project_dir=project_dir,
-            extra_roots=[Path(root) for root in getattr(args, "search_root", [])],
-            include_config_metadata=bool(getattr(args, "include_config_metadata", False)),
-            include_unmanaged_text=bool(getattr(args, "include_unmanaged_text", False)),
-            redactor=redactor,
-        )
-    except Exception as exc:
-        raise ValueError(str(exc)) from exc
-
-    selected_sources = detected_payload["selected_sources"]
-    if selected_sources:
-        return detected_payload
-
-    skipped = detected_payload["skipped_sources"]
-    metadata_hint = (
-        " Add `--include-config-metadata` if you want MCP setup metadata too."
-        if any(item.get("reason") == "metadata_only" for item in skipped)
-        else ""
-    )
-    unmanaged_hint = (
-        " Add `--include-unmanaged-text` if you want to ingest text outside Cortex markers from instruction files."
-        if any(item.get("reason") == "unmanaged_only" for item in skipped)
-        else ""
-    )
-    raise ValueError(
-        "No detected sources were approved for extraction.\n"
-        f"Hint: Run `cortex scan` first and select an adoptable target.{metadata_hint}{unmanaged_hint}"
+    return cli_extract_commands_module.load_detected_sources_or_error(
+        args,
+        project_dir=project_dir,
+        announce=announce,
+        redactor=redactor,
+        ctx=_extract_cli_context(),
     )
 
 
-def _graph_category_stats(graph: CortexGraph) -> dict[str, Any]:
-    categories = graph.export_v4().get("categories", {})
-    return {
-        "total": sum(len(items) for items in categories.values()),
-        "by_category": {name: len(items) for name, items in categories.items()},
-    }
+def _graph_category_stats(graph) -> dict[str, Any]:
+    return cli_extract_commands_module.graph_category_stats(graph)
 
 
-def _build_pii_redactor(args, *, default_enabled: bool = False) -> PIIRedactor | None:
-    enabled = bool(getattr(args, "redact", False) or default_enabled)
-    if not enabled:
-        return None
-
-    custom_patterns = None
-    patterns_path = getattr(args, "redact_patterns", None)
-    if patterns_path:
-        pp = Path(patterns_path)
-        if not pp.exists():
-            raise FileNotFoundError(pp)
-        with pp.open("r", encoding="utf-8") as handle:
-            custom_patterns = json.load(handle)
-    return PIIRedactor(custom_patterns)
+def _build_pii_redactor(args, *, default_enabled: bool = False):
+    return cli_extract_commands_module.build_pii_redactor(args, default_enabled=default_enabled)
 
 
 def run_extract(args):
-    """Extract context from an export file and save as JSON."""
-    detected_selection = list(getattr(args, "from_detected", []) or [])
-    project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
-
-    if detected_selection and args.input_file:
-        return _error("Use either an input file or `--from-detected`, not both.")
-    if not detected_selection and not args.input_file:
-        return _error("Provide an export file or use `--from-detected`.")
-
-    input_path: Path | None = None
-    fmt = "detected" if detected_selection else "auto"
-    detected_payload: dict[str, Any] | None = None
-    try:
-        redactor = _build_pii_redactor(
-            args,
-            default_enabled=bool(detected_selection and not getattr(args, "no_redact_detected", False)),
-        )
-    except FileNotFoundError as exc:
-        return _missing_path_error(Path(exc.args[0]), label="Redaction patterns file")
-
-    if redactor is not None and not bool(getattr(args, "json_output", False)):
-        if detected_selection and not args.redact:
-            _echo("PII redaction enabled for detected local sources")
-        else:
-            _echo("PII redaction enabled")
-
-    if detected_selection:
-        try:
-            detected_payload = _load_detected_sources_or_error(
-                args,
-                project_dir=project_dir,
-                announce=not _CLI_QUIET and not bool(getattr(args, "json_output", False)),
-                redactor=redactor,
-            )
-        except ValueError as exc:
-            lines = str(exc).splitlines()
-            return _error(lines[0], hint="\n".join(lines[1:]) or None)
-        selected_sources = detected_payload["selected_sources"]
-        result = detected_payload["graph"].export_v4()
-        input_path = project_dir / "detected_sources.json"
-        if not bool(getattr(args, "json_output", False)):
-            _echo(
-                f"Detected sources: {len(selected_sources)} selected, "
-                f"{len(detected_payload['skipped_sources'])} skipped"
-            )
-    else:
-        input_path = Path(args.input_file)
-        if not input_path.exists():
-            return _missing_path_error(input_path, label="Export file")
-
-        _echo(f"Loading: {input_path}")
-        try:
-            data, detected_format = load_file(input_path)
-        except PermissionError:
-            return _permission_error(input_path, action="read the export file")
-        except Exception as exc:
-            return _error(str(exc))
-
-        fmt = args.format if args.format != "auto" else detected_format
-        _echo(f"Format: {fmt}")
-
-    if not detected_selection:
-        extractor = AggressiveExtractor(redactor=redactor)
-
-        # Merge
-        if args.merge:
-            merge_path = Path(args.merge)
-            if merge_path.exists():
-                _echo(f"Merging with existing context: {merge_path}")
-                extractor = merge_contexts(merge_path, extractor)
-            else:
-                _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
-
-        result = _run_extraction(extractor, data, fmt)
-        stats = extractor.context.stats()
-    else:
-        if args.merge:
-            merge_path = Path(args.merge)
-            if merge_path.exists():
-                existing = _load_graph(merge_path)
-                if existing is not None:
-                    from cortex.portable_runtime import merge_graphs
-
-                    result = merge_graphs(existing, upgrade_v4_to_v5(result)).export_v4()
-            else:
-                _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
-        stats = _graph_category_stats(upgrade_v4_to_v5(result))
-    claim_count = 0
-    if not args.no_claims:
-        result, claim_count = _finalize_extraction_output(
-            result,
-            input_path=input_path,
-            fmt=fmt,
-            store_dir=Path(args.store_dir),
-            record_claims=True,
-            extra_metadata=(
-                {
-                    "detected_sources": [
-                        {
-                            "target": item["target"],
-                            "kind": item["kind"],
-                            "path": item["path"],
-                        }
-                        for item in (detected_payload["selected_sources"] if detected_payload else [])
-                    ],
-                    "include_config_metadata": bool(getattr(args, "include_config_metadata", False)),
-                }
-                if detected_payload is not None
-                else None
-            ),
-        )
-    v5_output = _to_context_json_v5(result)
-    payload = {
-        "status": "ok",
-        "input_file": str(input_path),
-        "output_file": str(
-            Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-        ),
-        "input_format": fmt,
-        "schema_version": v5_output["schema_version"],
-        "stats": stats,
-        "claim_count": claim_count,
-    }
-    if detected_payload is not None:
-        payload["selected_sources"] = detected_payload["selected_sources"]
-        payload["skipped_sources"] = detected_payload["skipped_sources"]
-        payload["detected_source_count"] = len(detected_payload["detected_sources"])
-    json_only = bool(getattr(args, "json_output", False))
-    if not json_only:
-        _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
-    if (args.stats or args.verbose) and not json_only:
-        for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
-            _echo(f"   {cat}: {count}")
-
-    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(v5_output, f, indent=2)
-    except PermissionError:
-        return _permission_error(output_path, action="write context.json")
-    except OSError as exc:
-        return _error(f"Could not write {output_path}: {exc}")
-    if json_only:
-        _echo(json.dumps(payload, indent=2), force=True)
-    else:
-        _echo(f"Saved to: {output_path}")
-        if not args.no_claims:
-            _echo(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
-    return 0
+    return cli_extract_commands_module.run_extract(args, ctx=_extract_cli_context())
 
 
 def run_ingest(args):
-    """Normalize connector input and extract it into Cortex memory."""
-    from cortex.connectors import connector_to_text
-
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        return _missing_path_error(input_path, label="Connector input")
-
-    _echo(f"Loading connector input: {input_path}")
-    try:
-        normalized_text = connector_to_text(args.kind, input_path)
-    except PermissionError:
-        return _permission_error(input_path, action="read connector input")
-    except Exception as exc:
-        return _error(str(exc))
-
-    if args.preview:
-        _echo(normalized_text.rstrip("\n"))
-        return 0
-
-    redactor = None
-    if args.redact:
-        custom_patterns = None
-        if args.redact_patterns:
-            pp = Path(args.redact_patterns)
-            if not pp.exists():
-                return _missing_path_error(pp, label="Redaction patterns file")
-            with open(pp, "r", encoding="utf-8") as f:
-                custom_patterns = json.load(f)
-        redactor = PIIRedactor(custom_patterns)
-        _echo("PII redaction enabled")
-
-    extractor = AggressiveExtractor(redactor=redactor)
-
-    if args.merge:
-        merge_path = Path(args.merge)
-        if merge_path.exists():
-            _echo(f"Merging with existing context: {merge_path}")
-            extractor = merge_contexts(merge_path, extractor)
-        else:
-            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
-
-    result = extractor.process_plain_text(normalized_text)
-    claim_count = 0
-    if not args.no_claims:
-        result, claim_count = _finalize_extraction_output(
-            result,
-            input_path=input_path,
-            fmt=f"connector:{args.kind}",
-            store_dir=Path(args.store_dir),
-            record_claims=True,
-        )
-
-    stats = extractor.context.stats()
-    _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
-    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}_context.json")
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(_to_context_json_v5(result), f, indent=2)
-    except PermissionError:
-        return _permission_error(output_path, action="write context.json")
-    except OSError as exc:
-        return _error(f"Could not write {output_path}: {exc}")
-    _echo(f"Saved to: {output_path}")
-    if not args.no_claims:
-        _echo(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
-    return 0
+    return cli_extract_commands_module.run_ingest(args, ctx=_extract_cli_context())
 
 
 def run_import(args):
-    """Import a context JSON file and export to platform formats."""
-    NormalizedContext = _normalized_context_cls()
-    confidence_thresholds = _confidence_thresholds()
-
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        return _missing_path_error(input_path, label="Context file")
-
-    _echo(f"Loading: {input_path}")
-    ctx = NormalizedContext.load(input_path)
-    min_conf = confidence_thresholds[args.confidence]
-    format_keys = PLATFORM_FORMATS[args.to]
-    output_dir = Path(args.output)
-
-    if args.dry_run:
-        _echo("\nDRY RUN PREVIEW")
-        export_dispatch = _export_dispatch()
-        for key in format_keys:
-            export_fn, filename, is_json = export_dispatch[key]
-            result = export_fn(ctx, min_conf)
-            _echo(f"\n--- {key} ({filename}) ---")
-            text = json.dumps(result, indent=2) if is_json else result
-            for line in text.split("\n")[:30]:
-                _echo(line)
-        return 0
-
-    try:
-        outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
-    except PermissionError:
-        return _permission_error(output_dir, action="write exported files")
-    except OSError as exc:
-        return _error(f"Could not write export files into {output_dir}: {exc}")
-
-    _echo(f"\nExported {len(outputs)} files to {output_dir}/:")
-    for key, path in outputs:
-        _echo(f"   {key}: {path.name}")
-    return 0
+    return cli_extract_commands_module.run_import(args, ctx=_extract_cli_context())
 
 
 def run_migrate(args):
-    """Full pipeline: extract from export file, then import to platform formats."""
-    NormalizedContext = _normalized_context_cls()
-    confidence_thresholds = _confidence_thresholds()
-
-    input_path = Path(args.input_file)
-    if not input_path.exists():
-        return _missing_path_error(input_path, label="Input file")
-
-    # --- Extract phase ---
-    _echo(f"Loading: {input_path}")
-    try:
-        data, detected_format = load_file(input_path)
-    except PermissionError:
-        return _permission_error(input_path, action="read the input file")
-    except Exception as exc:
-        return _error(str(exc))
-
-    fmt = args.input_format if args.input_format != "auto" else detected_format
-    _echo(f"Format: {fmt}")
-
-    # PII redactor
-    redactor = None
-    if args.redact:
-        custom_patterns = None
-        if args.redact_patterns:
-            pp = Path(args.redact_patterns)
-            if not pp.exists():
-                return _missing_path_error(pp, label="Redaction patterns file")
-            with open(pp, "r", encoding="utf-8") as f:
-                custom_patterns = json.load(f)
-        redactor = PIIRedactor(custom_patterns)
-        _echo("PII redaction enabled")
-
-    extractor = AggressiveExtractor(redactor=redactor)
-
-    # Merge
-    if args.merge:
-        merge_path = Path(args.merge)
-        if merge_path.exists():
-            _echo(f"Merging with existing context: {merge_path}")
-            extractor = merge_contexts(merge_path, extractor)
-        else:
-            _echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
-
-    v4_data = _run_extraction(extractor, data, fmt)
-    claim_count = 0
-    if not args.no_claims and not args.dry_run:
-        v4_data, claim_count = _finalize_extraction_output(
-            v4_data,
-            input_path=input_path,
-            fmt=fmt,
-            store_dir=Path(args.store_dir),
-            record_claims=True,
-        )
-
-    stats = extractor.context.stats()
-    _echo(f"Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
-    if args.stats or args.verbose:
-        for cat, count in sorted(stats["by_category"].items(), key=lambda x: -x[1]):
-            _echo(f"   {cat}: {count}")
-
-    # --- Save intermediate context.json ---
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.schema == "v5":
-        graph = upgrade_v4_to_v5(v4_data)
-
-        # --- Smart edge discovery (Phase 4, opt-in) ---
-        if getattr(args, "discover_edges", False):
-            from cortex.centrality import apply_centrality_boost, compute_centrality
-            from cortex.cooccurrence import discover_edges as discover_cooccurrence
-            from cortex.dedup import deduplicate
-            from cortex.edge_extraction import discover_all_edges
-
-            messages = getattr(extractor, "all_user_text", None)
-
-            # 1. Pattern-based + proximity edge extraction
-            new_edges = discover_all_edges(graph, messages=messages)
-            for edge in new_edges:
-                graph.add_edge(edge)
-
-            # 2. Co-occurrence edges (if messages available)
-            cooc_count = 0
-            if messages and len(messages) >= 3:
-                cooc_edges = discover_cooccurrence(messages, graph)
-                for edge in cooc_edges:
-                    graph.add_edge(edge)
-                cooc_count = len(cooc_edges)
-
-            # 3. Graph-aware dedup
-            merged = deduplicate(graph)
-
-            # 4. Centrality boost
-            scores = compute_centrality(graph)
-            apply_centrality_boost(graph, scores)
-
-            if args.verbose:
-                print(
-                    f"   Smart edges: +{len(new_edges)} pattern"
-                    f", +{cooc_count} co-occurrence"
-                    f", {len(merged)} merges, centrality applied"
-                )
-
-            if getattr(args, "llm", False):
-                print("   --llm: LLM-assisted extraction not yet implemented (stub)")
-
-        v5_data = graph.export_v5()
-        ctx_path = output_dir / "context.json"
-        with open(ctx_path, "w", encoding="utf-8") as f:
-            json.dump(v5_data, f, indent=2)
-        if args.verbose:
-            gs = graph.stats()
-            _echo(f"   v5 graph: {gs['node_count']} nodes, {gs['edge_count']} edges")
-            _echo(f"   saved v5 context: {ctx_path}")
-    else:
-        _echo("Warning: --schema v4 is deprecated. Prefer the default v5 context.json.", stderr=True, force=True)
-        ctx_path = output_dir / "context.json"
-        with open(ctx_path, "w", encoding="utf-8") as f:
-            json.dump(v4_data, f, indent=2)
-        if args.verbose:
-            _echo(f"   saved intermediate context: {ctx_path}")
-
-    # --- Import phase (in-memory handoff) ---
-    ctx = NormalizedContext.from_v4(v4_data)
-    min_conf = confidence_thresholds[args.confidence]
-    format_keys = PLATFORM_FORMATS[args.to]
-
-    if args.dry_run:
-        _echo("\nDRY RUN PREVIEW")
-        export_dispatch = _export_dispatch()
-        for key in format_keys:
-            export_fn, filename, is_json = export_dispatch[key]
-            result = export_fn(ctx, min_conf)
-            _echo(f"\n--- {key} ({filename}) ---")
-            text = json.dumps(result, indent=2) if is_json else result
-            for line in text.split("\n")[:30]:
-                _echo(line)
-        return 0
-
-    try:
-        outputs = _write_exports(ctx, min_conf, format_keys, output_dir, args.verbose)
-    except PermissionError:
-        return _permission_error(output_dir, action="write exported files")
-    except OSError as exc:
-        return _error(f"Could not write export files into {output_dir}: {exc}")
-
-    _echo(f"\nExported {len(outputs) + 1} files to {output_dir}/:")
-    _echo("   context: context.json")
-    for key, path in outputs:
-        _echo(f"   {key}: {path.name}")
-    if not args.no_claims and not args.dry_run:
-        _echo(f"   claims: {claim_count} event(s) -> {Path(args.store_dir) / 'claims.jsonl'}")
-    return 0
+    return cli_extract_commands_module.run_migrate(args, ctx=_extract_cli_context())
 
 
 def _graph_cli_context() -> cli_graph_commands_module.GraphCliContext:
