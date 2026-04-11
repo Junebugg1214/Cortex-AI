@@ -5,6 +5,7 @@ import re
 
 import pytest
 
+import cortex.cli as cli_module
 from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, build_parser, main
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 
@@ -162,6 +163,24 @@ def test_argparse_required_argument_errors_include_task_hints(capsys):
 
     assert "the following arguments are required: name" in status_error
     assert "Try: cortex mind list" in status_error
+
+
+def test_unknown_first_arg_routes_to_migrate(monkeypatch, tmp_path):
+    called = {}
+    input_path = tmp_path / "chat-export.json"
+    input_path.write_text("{}", encoding="utf-8")
+
+    def fake_run_migrate(args):
+        called["input_file"] = args.input_file
+        called["to"] = args.to
+        return 73
+
+    monkeypatch.setattr(cli_module, "run_migrate", fake_run_migrate)
+
+    rc = main([str(input_path)])
+
+    assert rc == 73
+    assert called == {"input_file": str(input_path), "to": "all"}
 
 
 def test_topic_help_surfaces_beginner_and_legacy_guidance(capsys):
