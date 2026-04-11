@@ -7,18 +7,22 @@ Thank you for your interest in contributing to Cortex! This guide will help you 
 - Python 3.10+
 - Git
 
+Examples below use `python3.11` so contributors do not accidentally pick up an older system `python3`/`pip` on macOS. Any supported Python 3.10+ interpreter is fine.
+
 ## Setup
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
-pip install -e ".[dev]"
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
 ## Running Tests
 
 ```bash
-python3 -m pytest tests/
+python -m pytest tests/
 ```
 
 The full CLI/library suite should pass before you open a PR.
@@ -64,7 +68,7 @@ tests/                  # CLI/core-library test suite
 
 3. **Run the full test suite** before submitting:
    ```bash
-   python3 -m pytest tests/
+   python -m pytest tests/
    ```
 
 4. **Keep commits focused** — one logical change per commit.
