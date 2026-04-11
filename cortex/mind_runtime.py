@@ -472,8 +472,7 @@ def mount_mind(
     openclaw_store_dir: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    from cortex.packs import default_output_dir
-    from cortex.portable_runtime import canonical_target_name, sync_targets
+    from cortex.portable_runtime import canonical_target_name, default_output_dir, sync_targets
 
     manifest = load_mind_manifest(store_dir, mind_id)
     _require_mind_namespace(manifest, namespace)

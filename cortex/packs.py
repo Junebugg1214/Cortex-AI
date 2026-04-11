@@ -3,27 +3,18 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
-import shutil
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
-from zipfile import ZIP_DEFLATED, ZipFile
 
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python <3.11 fallback
     import tomli as tomllib
 
-from cortex.graph import make_node_id
 from cortex.namespaces import describe_resource_namespace, normalize_resource_namespace, resource_namespace_matches
-from cortex.portable_runtime import (
-    canonical_target_name,
-    default_output_dir,
-    sync_targets,
-)
 
 PACKS_DIRNAME = "packs"
 BRAINPACK_BUNDLE_FORMAT_VERSION = "1"
@@ -401,31 +392,6 @@ def _unique_destination(base_dir: Path, relative_path: Path) -> Path:
         counter += 1
 
 
-def _iter_source_files(path: Path, *, recurse: bool) -> list[Path]:
-    if path.is_file():
-        return [path]
-    if not path.is_dir():
-        raise FileNotFoundError(path)
-    if recurse:
-        return sorted(item for item in path.rglob("*") if item.is_file())
-    return sorted(item for item in path.iterdir() if item.is_file())
-
-
-def _source_type_for(path: Path, override: str) -> str:
-    if override != "auto":
-        return override
-    suffix = path.suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
-        return "image"
-    if suffix in {".csv", ".tsv", ".parquet"}:
-        return "dataset"
-    if suffix in {".md", ".txt", ".rst"}:
-        return "note"
-    if suffix in {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs"}:
-        return "repo"
-    return "article"
-
-
 def _read_text_if_possible(path: Path) -> tuple[str, bool]:
     if path.suffix.lower() in TEXT_EXTENSIONS:
         try:
@@ -441,6 +407,12 @@ def _read_text_if_possible(path: Path) -> tuple[str, bool]:
     return "", False
 
 
+def _pack_ingest_module():
+    from cortex import pack_ingest
+
+    return pack_ingest
+
+
 def ingest_pack(
     store_dir: Path,
     name: str,
@@ -450,293 +422,24 @@ def ingest_pack(
     source_type: str = "auto",
     recurse: bool = False,
 ) -> dict[str, Any]:
-    pack_name = _validate_pack_name(name)
-    root = pack_path(store_dir, pack_name)
-    if not root.exists():
-        raise FileNotFoundError(f"Brainpack '{pack_name}' does not exist.")
-    raw_root = root / "raw"
-    index_payload = _read_json(source_index_path(store_dir, pack_name), default={"pack": pack_name, "sources": []})
-    existing = {str(item["source_path"]): dict(item) for item in index_payload.get("sources", [])}
-    ingested: list[dict[str, Any]] = []
-    for raw_input in paths:
-        source = Path(raw_input).expanduser().resolve()
-        if not source.exists():
-            raise FileNotFoundError(source)
-        input_root = source if source.is_dir() else source.parent
-        for item in _iter_source_files(source, recurse=recurse):
-            stored_path = ""
-            if mode == "copy":
-                relative = item.relative_to(input_root) if source.is_dir() else Path(item.name)
-                if source.is_dir():
-                    relative = Path(_safe_stem(source)) / relative
-                destination = _unique_destination(raw_root, relative)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, destination)
-                stored_path = str(destination.relative_to(root))
-            text_preview, text_eligible = _read_text_if_possible(item)
-            record = {
-                "id": make_node_id(f"{pack_name}:{item}"),
-                "source_path": str(item),
-                "stored_path": stored_path,
-                "mode": mode,
-                "type": _source_type_for(item, source_type),
-                "mime_type": mimetypes.guess_type(item.name)[0] or "",
-                "size_bytes": item.stat().st_size,
-                "ingested_at": _iso_now(),
-                "text_eligible": text_eligible,
-                "preview": " ".join(text_preview.strip().split())[:240] if text_preview else "",
-            }
-            existing[str(item)] = record
-            ingested.append(record)
-
-    payload = {"pack": pack_name, "sources": sorted(existing.values(), key=lambda item: item["source_path"])}
-    _write_json(source_index_path(store_dir, pack_name), payload)
-    _replace_manifest(store_dir, pack_name, updated_at=_iso_now())
-    return {
-        "status": "ok",
-        "pack": pack_name,
-        "mode": mode,
-        "ingested": ingested,
-        "ingested_count": len(ingested),
-        "source_count": len(payload["sources"]),
-    }
-
-
-def _iter_pack_files(root: Path) -> list[Path]:
-    paths: list[Path] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        if path.name in SKIP_NAMES or path.name.endswith(".lock"):
-            continue
-        paths.append(path)
-    return paths
-
-
-def _rewrite_pack_name_metadata(root: Path, *, target_name: str) -> None:
-    manifest = _load_manifest_from_root(root)
-    renamed_manifest = BrainpackManifest(
-        name=target_name,
-        description=manifest.description,
-        owner=manifest.owner,
-        namespace=manifest.namespace,
-        created_at=manifest.created_at,
-        updated_at=_iso_now(),
-        default_policy=manifest.default_policy,
-        auto_backlink=manifest.auto_backlink,
-        auto_promote_claims=manifest.auto_promote_claims,
-        store_outputs=manifest.store_outputs,
-        max_summary_chars=manifest.max_summary_chars,
-        suggest_questions=manifest.suggest_questions,
-        source_glob=manifest.source_glob,
-        default_tags=manifest.default_tags,
+    return _pack_ingest_module().ingest_pack(
+        store_dir,
+        name,
+        paths,
+        mode=mode,
+        source_type=source_type,
+        recurse=recurse,
     )
-    _write_manifest(root / "manifest.toml", renamed_manifest)
-    for relative in (
-        Path("indexes") / "sources.json",
-        Path("indexes") / "compile.json",
-        Path("indexes") / "source_index.json",
-        Path("claims") / "claims.json",
-        Path("unknowns") / "open_questions.json",
-        Path("indexes") / "lint.json",
-    ):
-        path = root / relative
-        if not path.exists():
-            continue
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict) and "pack" in payload:
-            payload["pack"] = target_name
-            _write_json(path, payload)
 
 
-def _materialize_referenced_sources(bundle_root: Path) -> tuple[int, list[str]]:
-    sources_index = bundle_root / "indexes" / "sources.json"
-    compiled_index = bundle_root / "indexes" / "source_index.json"
-    if not sources_index.exists():
-        return 0, []
+def _pack_bundles_module():
+    from cortex import pack_bundles
 
-    ingest_payload = json.loads(sources_index.read_text(encoding="utf-8"))
-    compiled_payload = (
-        json.loads(compiled_index.read_text(encoding="utf-8")) if compiled_index.exists() else {"sources": []}
-    )
-    compiled_by_source = {
-        str(item.get("source_path") or ""): dict(item)
-        for item in compiled_payload.get("sources", [])
-        if item.get("source_path")
-    }
-    materialized = 0
-    missing: list[str] = []
-    raw_root = bundle_root / "raw" / "bundled-references"
-    raw_root.mkdir(parents=True, exist_ok=True)
-
-    for record in ingest_payload.get("sources", []):
-        if str(record.get("stored_path") or "").strip():
-            continue
-        source_path_value = str(record.get("source_path") or "").strip()
-        if not source_path_value:
-            continue
-        source_path = Path(source_path_value)
-        if not source_path.exists() or not source_path.is_file():
-            missing.append(source_path_value)
-            continue
-        destination = _unique_destination(
-            raw_root,
-            Path(_safe_stem(source_path.parent)) / source_path.name,
-        )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, destination)
-        relative = destination.relative_to(bundle_root)
-        record["stored_path"] = str(relative)
-        record["mode"] = "copy"
-        compiled_record = compiled_by_source.get(source_path_value)
-        if compiled_record is not None:
-            compiled_record["stored_path"] = str(relative)
-            compiled_record["mode"] = "copy"
-        materialized += 1
-
-    _write_json(sources_index, ingest_payload)
-    if compiled_index.exists():
-        rewritten_sources = []
-        for item in compiled_payload.get("sources", []):
-            source_path_value = str(item.get("source_path") or "")
-            rewritten_sources.append(compiled_by_source.get(source_path_value, item))
-        compiled_payload["sources"] = rewritten_sources
-        _write_json(compiled_index, compiled_payload)
-    return materialized, missing
-
-
-def _bundle_manifest_for_pack(bundle_root: Path, *, verification_warnings: list[str]) -> dict[str, Any]:
-    manifest = _load_manifest_from_root(bundle_root)
-    compile_meta = _read_json(
-        bundle_root / "indexes" / "compile.json",
-        default={
-            "compile_status": "idle",
-            "compiled_at": "",
-            "source_count": 0,
-            "text_source_count": 0,
-            "graph_nodes": 0,
-            "graph_edges": 0,
-            "article_count": 0,
-            "claim_count": 0,
-            "unknown_count": 0,
-            "artifact_count": 0,
-        },
-    )
-    files = _iter_pack_files(bundle_root)
-    return {
-        "format_version": BRAINPACK_BUNDLE_FORMAT_VERSION,
-        "created_at": _iso_now(),
-        "pack_name": manifest.name,
-        "manifest": {
-            "name": manifest.name,
-            "description": manifest.description,
-            "owner": manifest.owner,
-            "default_policy": manifest.default_policy,
-            "created_at": manifest.created_at,
-            "updated_at": manifest.updated_at,
-        },
-        "compile_status": str(compile_meta.get("compile_status") or "idle"),
-        "compiled_at": str(compile_meta.get("compiled_at") or ""),
-        "file_count": len(files),
-        "verification_warnings": verification_warnings,
-        "files": [
-            {
-                "path": str(path.relative_to(bundle_root)),
-                "size": path.stat().st_size,
-                "sha256": _sha256_file(path),
-            }
-            for path in files
-        ],
-    }
-
-
-def _read_pack_bundle_manifest(archive_path: str | Path) -> dict[str, Any]:
-    path = Path(archive_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Brainpack bundle not found: {path}")
-    with ZipFile(path, "r") as archive:
-        try:
-            payload = json.loads(archive.read(BRAINPACK_BUNDLE_MANIFEST).decode("utf-8"))
-        except KeyError as exc:
-            raise ValueError(f"Brainpack bundle is missing {BRAINPACK_BUNDLE_MANIFEST}: {path}") from exc
-    if str(payload.get("format_version") or "") != BRAINPACK_BUNDLE_FORMAT_VERSION:
-        raise ValueError(
-            f"Unsupported Brainpack bundle format: {payload.get('format_version') or 'unknown'} for {path}"
-        )
-    if not str(payload.get("pack_name") or "").strip():
-        raise ValueError(f"Brainpack bundle is missing a pack_name: {path}")
-    return payload
-
-
-def _safe_bundle_members(archive: ZipFile) -> list[tuple[str, PurePosixPath]]:
-    members: list[tuple[str, PurePosixPath]] = []
-    for info in archive.infolist():
-        name = info.filename
-        if name == BRAINPACK_BUNDLE_MANIFEST:
-            continue
-        if not name.startswith(BRAINPACK_BUNDLE_PREFIX):
-            raise ValueError(f"Brainpack bundle contains unexpected entry outside '{BRAINPACK_BUNDLE_PREFIX}': {name}")
-        if info.is_dir():
-            continue
-        relative = PurePosixPath(name[len(BRAINPACK_BUNDLE_PREFIX) :])
-        parts = [part for part in relative.parts if part not in ("", ".")]
-        if not parts:
-            continue
-        if any(part == ".." for part in parts):
-            raise ValueError(f"Brainpack bundle contains unsafe path traversal entry: {name}")
-        members.append((name, PurePosixPath(*parts)))
-    return members
+    return pack_bundles
 
 
 def verify_pack_bundle(archive_path: str | Path) -> dict[str, Any]:
-    path = Path(archive_path)
-    manifest = _read_pack_bundle_manifest(path)
-    with ZipFile(path, "r") as archive:
-        members = _safe_bundle_members(archive)
-        mismatches: list[dict[str, Any]] = []
-        actual_paths = {str(relative_path.as_posix()) for _, relative_path in members}
-        expected_paths = {str(item["path"]) for item in manifest.get("files", [])}
-        for missing in sorted(expected_paths - actual_paths):
-            mismatches.append({"path": missing, "reason": "missing"})
-        for extra in sorted(actual_paths - expected_paths):
-            mismatches.append({"path": extra, "reason": "unexpected"})
-        for item in manifest.get("files", []):
-            if str(item["path"]) not in actual_paths:
-                continue
-            archive_name = f"{BRAINPACK_BUNDLE_PREFIX}{item['path']}"
-            try:
-                payload = archive.read(archive_name)
-            except KeyError:
-                mismatches.append({"path": item["path"], "reason": "missing"})
-                continue
-            actual_hash = _sha256_bytes(payload)
-            if actual_hash != item["sha256"]:
-                mismatches.append(
-                    {
-                        "path": item["path"],
-                        "reason": "sha256_mismatch",
-                        "expected": item["sha256"],
-                        "actual": actual_hash,
-                    }
-                )
-            if len(payload) != int(item["size"]):
-                mismatches.append(
-                    {
-                        "path": item["path"],
-                        "reason": "size_mismatch",
-                        "expected": int(item["size"]),
-                        "actual": len(payload),
-                    }
-                )
-    return {
-        "status": "ok",
-        "archive": str(path),
-        "valid": not mismatches,
-        "pack": str(manifest.get("pack_name") or ""),
-        "file_count": int(manifest.get("file_count") or len(manifest.get("files", []))),
-        "mismatches": mismatches,
-        "warnings": list(manifest.get("verification_warnings") or []),
-    }
+    return _pack_bundles_module().verify_pack_bundle(archive_path)
 
 
 def export_pack_bundle(
@@ -747,40 +450,13 @@ def export_pack_bundle(
     verify: bool = True,
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    manifest = load_manifest(store_dir, name)
-    _require_pack_namespace(manifest, namespace)
-    source_root = pack_path(store_dir, name)
-    destination = Path(output_path)
-    if destination.exists() and destination.is_dir():
-        destination = destination / f"{manifest.name}.brainpack.zip"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory(prefix="cortex_brainpack_export_") as tmp_dir:
-        bundle_root = Path(tmp_dir) / manifest.name
-        shutil.copytree(source_root, bundle_root)
-        materialized_reference_sources, missing_reference_sources = _materialize_referenced_sources(bundle_root)
-        bundle_manifest = _bundle_manifest_for_pack(
-            bundle_root,
-            verification_warnings=missing_reference_sources,
-        )
-        with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
-            archive.writestr(BRAINPACK_BUNDLE_MANIFEST, json.dumps(bundle_manifest, indent=2, ensure_ascii=False))
-            for item in bundle_manifest["files"]:
-                archive.write(bundle_root / item["path"], arcname=f"{BRAINPACK_BUNDLE_PREFIX}{item['path']}")
-
-    verification = verify_pack_bundle(destination) if verify else None
-    if verification is not None and not verification["valid"]:
-        raise ValueError(f"Brainpack bundle verification failed for {destination}")
-    return {
-        "status": "ok",
-        "pack": manifest.name,
-        "archive": str(destination),
-        "file_count": int(bundle_manifest["file_count"]),
-        "materialized_reference_sources": materialized_reference_sources,
-        "missing_reference_sources": missing_reference_sources,
-        "verified": verification["valid"] if verification is not None else False,
-        "verification": verification,
-    }
+    return _pack_bundles_module().export_pack_bundle(
+        store_dir,
+        name,
+        output_path,
+        verify=verify,
+        namespace=namespace,
+    )
 
 
 def import_pack_bundle(
@@ -790,108 +466,22 @@ def import_pack_bundle(
     as_name: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    archive = Path(archive_path)
-    manifest = _read_pack_bundle_manifest(archive)
-    verification = verify_pack_bundle(archive)
-    if not verification["valid"]:
-        raise ValueError(f"Brainpack bundle verification failed for {archive}")
-
-    bundle_name = _validate_pack_name(str(manifest.get("pack_name") or ""))
-    target_name = _validate_pack_name(as_name) if as_name else bundle_name
-    destination = pack_path(store_dir, target_name)
-    if destination.exists():
-        raise FileExistsError(
-            f"Brainpack '{target_name}' already exists. Choose a different name with `--as` or remove the existing pack."
-        )
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory(prefix="cortex_brainpack_import_") as tmp_dir:
-        tmp_root = Path(tmp_dir) / bundle_name
-        with ZipFile(archive, "r") as zip_archive:
-            members = _safe_bundle_members(zip_archive)
-            for archive_name, relative_path in members:
-                target = tmp_root / Path(relative_path)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zip_archive.read(archive_name))
-        if not (tmp_root / "manifest.toml").exists():
-            raise ValueError(f"Brainpack bundle is missing manifest.toml content: {archive}")
-        if target_name != bundle_name:
-            renamed_root = tmp_root.parent / target_name
-            tmp_root.rename(renamed_root)
-            tmp_root = renamed_root
-            _rewrite_pack_name_metadata(tmp_root, target_name=target_name)
-        if namespace:
-            manifest_payload = _load_manifest_from_root(tmp_root)
-            namespaced_manifest = BrainpackManifest(
-                name=manifest_payload.name,
-                description=manifest_payload.description,
-                owner=manifest_payload.owner,
-                namespace=normalize_resource_namespace(namespace),
-                created_at=manifest_payload.created_at,
-                updated_at=_iso_now(),
-                default_policy=manifest_payload.default_policy,
-                auto_backlink=manifest_payload.auto_backlink,
-                auto_promote_claims=manifest_payload.auto_promote_claims,
-                store_outputs=manifest_payload.store_outputs,
-                max_summary_chars=manifest_payload.max_summary_chars,
-                suggest_questions=manifest_payload.suggest_questions,
-                source_glob=manifest_payload.source_glob,
-                default_tags=manifest_payload.default_tags,
-            )
-            _write_manifest(tmp_root / "manifest.toml", namespaced_manifest)
-        shutil.copytree(tmp_root, destination)
-
-    status = pack_status(store_dir, target_name, namespace=namespace)
-    return {
-        "status": "ok",
-        "archive": str(archive),
-        "pack": target_name,
-        "original_pack": bundle_name,
-        "path": str(destination),
-        "verified": verification["valid"],
-        "verification": verification,
-        "source_count": status["source_count"],
-        "artifact_count": status["artifact_count"],
-        "compile_status": status["compile_status"],
-    }
-
-
-def pack_mounts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
-    manifest = load_manifest(store_dir, name)
-    _require_pack_namespace(manifest, namespace)
-    payload = _read_json(pack_mounts_path(store_dir, name), default={})
-    if payload:
-        return payload
-    return {
-        "status": "ok",
-        "pack": name,
-        "mount_count": 0,
-        "mounts": [],
-    }
-
-
-def _load_openclaw_mount_registry(openclaw_store_dir: Path) -> dict[str, Any]:
-    return _read_json(
-        openclaw_mount_registry_path(openclaw_store_dir),
-        default={"status": "ok", "mount_count": 0, "mounts": []},
+    return _pack_bundles_module().import_pack_bundle(
+        archive_path,
+        store_dir,
+        as_name=as_name,
+        namespace=namespace,
     )
 
 
-def _write_openclaw_mount_registry(openclaw_store_dir: Path, payload: dict[str, Any]) -> Path:
-    path = openclaw_mount_registry_path(openclaw_store_dir)
-    _write_json(path, payload)
-    return path
+def _pack_mounts_module():
+    from cortex import pack_mounts as pack_mounts_module
+
+    return pack_mounts_module
 
 
-def _record_pack_mounts(store_dir: Path, name: str, mounts: list[dict[str, Any]]) -> dict[str, Any]:
-    payload = {
-        "status": "ok",
-        "pack": name,
-        "mount_count": len(mounts),
-        "mounts": mounts,
-    }
-    _write_json(pack_mounts_path(store_dir, name), payload)
-    return payload
+def pack_mounts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
+    return _pack_mounts_module().pack_mounts(store_dir, name, namespace=namespace)
 
 
 def mount_pack(
@@ -906,105 +496,17 @@ def mount_pack(
     openclaw_store_dir: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    from cortex.pack_runtime import _load_compiled_graph
-
-    manifest = load_manifest(store_dir, name)
-    _require_pack_namespace(manifest, namespace)
-    graph = _load_compiled_graph(store_dir, name)
-    if not targets:
-        raise ValueError("Specify at least one mount target.")
-
-    resolved: list[str] = []
-    for raw_target in targets:
-        lowered = raw_target.strip().lower()
-        target = lowered if lowered == OPENCLAW_MOUNT_TARGET else canonical_target_name(lowered)
-        if target not in SUPPORTED_PACK_MOUNT_TARGETS:
-            raise ValueError(f"Unsupported Brainpack mount target: {raw_target}")
-        if target not in resolved:
-            resolved.append(target)
-
-    project_path = str(Path(project_dir).resolve()) if project_dir else ""
-    output_dir = default_output_dir(store_dir) / "packs" / manifest.name
-    graph_file = graph_path(store_dir, name)
-    mount_results: list[dict[str, Any]] = []
-
-    file_targets = [target for target in resolved if target != OPENCLAW_MOUNT_TARGET]
-    if file_targets:
-        sync_payload = sync_targets(
-            graph,
-            targets=file_targets,
-            store_dir=store_dir,
-            project_dir=project_path,
-            output_dir=output_dir,
-            graph_path=graph_file,
-            policy_name=policy_name,
-            smart=smart,
-            max_chars=max_chars,
-            persist_state=False,
-        )
-        mount_results.extend(
-            {
-                "target": str(item["target"]),
-                "status": str(item["status"]),
-                "paths": list(item.get("paths", [])),
-                "note": str(item.get("note", "")),
-                "mode": str(item.get("mode", "smart" if smart else "full")),
-                "route_tags": list(item.get("route_tags", [])),
-                "mounted_at": _iso_now(),
-            }
-            for item in sync_payload.get("targets", [])
-        )
-
-    if OPENCLAW_MOUNT_TARGET in resolved:
-        openclaw_root = (
-            Path(openclaw_store_dir).expanduser().resolve()
-            if openclaw_store_dir
-            else _default_openclaw_store_dir().resolve()
-        )
-        registry = _load_openclaw_mount_registry(openclaw_root)
-        mounts = [
-            dict(item)
-            for item in registry.get("mounts", [])
-            if str(item.get("name") or "").strip() and str(item.get("name")) != manifest.name
-        ]
-        pack_entry = {
-            "name": manifest.name,
-            "smart": smart,
-            "policy": policy_name,
-            "max_chars": max_chars,
-            "project_dir": project_path,
-            "source_graph_path": str(graph_file),
-            "mounted_at": _iso_now(),
-            "enabled": True,
-        }
-        mounts.append(pack_entry)
-        registry_payload = {
-            "status": "ok",
-            "mount_count": len(mounts),
-            "mounts": mounts,
-        }
-        registry_path = _write_openclaw_mount_registry(openclaw_root, registry_payload)
-        mount_results.append(
-            {
-                "target": OPENCLAW_MOUNT_TARGET,
-                "status": "ok",
-                "paths": [str(registry_path)],
-                "note": f"Registered Brainpack `{manifest.name}` for OpenClaw plugin runtime injection.",
-                "mode": "smart" if smart else "full",
-                "route_tags": [],
-                "mounted_at": pack_entry["mounted_at"],
-            }
-        )
-
-    mounts_payload = _record_pack_mounts(store_dir, name, mount_results)
-    return {
-        "status": "ok",
-        "pack": manifest.name,
-        "targets": mount_results,
-        "mount_count": len(mount_results),
-        "mounts_path": str(pack_mounts_path(store_dir, name)),
-        "mounts": mounts_payload["mounts"],
-    }
+    return _pack_mounts_module().mount_pack(
+        store_dir,
+        name,
+        targets=targets,
+        project_dir=project_dir,
+        smart=smart,
+        policy_name=policy_name,
+        max_chars=max_chars,
+        openclaw_store_dir=openclaw_store_dir,
+        namespace=namespace,
+    )
 
 
 def _compact_summary(text: str, *, limit: int) -> str:
