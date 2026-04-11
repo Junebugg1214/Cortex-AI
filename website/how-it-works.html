@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How Cortex Works | Minds, Brainpacks, and Mounts</title>
+    <meta
+      name="description"
+      content="Understand Cortex through its core product model: portable Minds, Brainpacks, version history, and runtime mounts."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">C</span>
+          <span class="brand-text">Cortex</span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span>
+          <span></span>
+        </button>
+        <nav class="site-nav" id="site-nav">
+          <a href="./index.html">Home</a>
+          <a href="./how-it-works.html" aria-current="page">How It Works</a>
+          <a href="./learn.html">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="inner-page">
+        <section class="page-hero">
+          <div class="eyebrow">Product model</div>
+          <h1>Cortex turns three separate ideas into one understandable system.</h1>
+          <p>
+            Portable AI context, Brainpacks, and Git-for-memory history all converge around one
+            top-level object: the Mind. That is the key to understanding what Cortex is actually for.
+          </p>
+        </section>
+
+        <section class="section">
+          <div class="diagram-shell">
+            <div class="diagram-core">
+              <span class="diagram-label">Top-level object</span>
+              <h2>Mind</h2>
+              <p>A portable, versioned, composable memory object that can survive tool changes.</p>
+            </div>
+            <div class="diagram-ring">
+              <article>
+                <span>Core state</span>
+                <p>Identity, preferences, project memory, constraints, and durable context.</p>
+              </article>
+              <article>
+                <span>Brainpacks</span>
+                <p>Specialist modules that Cortex activates by target and task.</p>
+              </article>
+              <article>
+                <span>History</span>
+                <p>Commit, branch, diff, review, merge, rollback, blame, and restore.</p>
+              </article>
+              <article>
+                <span>Mounts</span>
+                <p>Rendered slices for tools, agent runtimes, and self-hosted services.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section split-section">
+          <div class="section-heading">
+            <div class="eyebrow">Plain-English explanation</div>
+            <h2>What each subsystem is doing</h2>
+          </div>
+
+          <div class="story-grid">
+            <article class="story-card">
+              <h3>Portable AI</h3>
+              <p>
+                This is how a Mind learns. Cortex scans existing context, ingests durable facts, and
+                keeps runtime context synchronized without requiring you to paste the same setup over
+                and over.
+              </p>
+            </article>
+            <article class="story-card">
+              <h3>Brainpacks</h3>
+              <p>
+                Brainpacks are specialist cognition layers. Raw sources go in, Cortex compiles them
+                into a small wiki, graph, claims, unknowns, artifacts, and mountable context.
+              </p>
+            </article>
+            <article class="story-card">
+              <h3>Git for AI Memory</h3>
+              <p>
+                Cortex treats memory as something that should be reviewable and reversible. That is
+                why branch, diff, merge, review, and rollback are core product behaviors, not extras.
+              </p>
+            </article>
+            <article class="story-card">
+              <h3>Mounts and composition</h3>
+              <p>
+                Cortex does not send one giant instruction blob everywhere. It composes the right
+                memory slice for a target, task, policy, and attached Brainpacks, then mounts it.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading centered">
+            <div class="eyebrow">Runtime loop</div>
+            <h2>What happens when someone actually uses Cortex?</h2>
+          </div>
+
+          <div class="timeline">
+            <article class="timeline-item">
+              <span class="timeline-step">1</span>
+              <div>
+                <h3>Create or choose a Mind</h3>
+                <p>
+                  This becomes the persistent memory container for a person, project, agent, or team.
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <span class="timeline-step">2</span>
+              <div>
+                <h3>Ingest base context</h3>
+                <p>
+                  Teach the Mind direct facts, import existing context, or route classic portability
+                  commands through it.
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <span class="timeline-step">3</span>
+              <div>
+                <h3>Attach Brainpacks when needed</h3>
+                <p>
+                  Add specialist knowledge packs with activation rules for specific tools or tasks.
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <span class="timeline-step">4</span>
+              <div>
+                <h3>Branch risky work</h3>
+                <p>
+                  Create isolated lines of memory history so experiments or project-specific changes do
+                  not leak into the main state.
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <span class="timeline-step">5</span>
+              <div>
+                <h3>Compose and mount</h3>
+                <p>
+                  Render the exact memory slice for Codex, Cursor, Claude Code, MCP, or a self-hosted
+                  runtime and materialize it into the environment.
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <div class="eyebrow">CLI example</div>
+            <h2>A concise end-to-end flow</h2>
+          </div>
+
+          <div class="terminal-panel large">
+            <div class="terminal-topbar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <pre><code>$ cortex mind init marc --kind person --owner marc
+$ cortex mind remember marc "I prefer concise, implementation-first responses."
+$ cortex pack init ai-memory --description "Portable AI memory research" --owner marc
+$ cortex pack compile ai-memory --suggest-questions
+$ cortex mind attach-pack marc ai-memory --always-on --target codex --task-term memory
+$ cortex mind compose marc --to codex --task "memory routing"
+$ cortex mind mount marc --to codex cursor claude-code --task "launch prep"</code></pre>
+          </div>
+        </section>
+
+        <section class="section callout-row">
+          <article class="callout">
+            <div class="eyebrow">Good fit</div>
+            <h3>When Cortex makes sense</h3>
+            <p>
+              You need durable context across tools, want control over storage, care about reviewable
+              memory changes, or need specialist knowledge that can mount selectively.
+            </p>
+          </article>
+          <article class="callout alternate">
+            <div class="eyebrow">Not the pitch</div>
+            <h3>What Cortex is not trying to be</h3>
+            <p>
+              It is not positioned as a hosted memory cloud or a generic multi-tenant SaaS. The
+              strongest story today is local-first and operator-managed self-hosting.
+            </p>
+          </article>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div>
+          <strong>Cortex</strong>
+          <p>Your AI memory. Versioned. Portable. Yours.</p>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Home</a>
+          <a href="./how-it-works.html">How It Works</a>
+          <a href="./learn.html">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">Repository</a>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learn Cortex | Quickstart, Docs, and Deployment Paths</title>
+    <meta
+      name="description"
+      content="Learn Cortex through install paths, first commands, agent quickstarts, and self-host deployment guidance."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">C</span>
+          <span class="brand-text">Cortex</span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span>
+          <span></span>
+        </button>
+        <nav class="site-nav" id="site-nav">
+          <a href="./index.html">Home</a>
+          <a href="./how-it-works.html">How It Works</a>
+          <a href="./learn.html" aria-current="page">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="inner-page">
+        <section class="page-hero">
+          <div class="eyebrow">Learning path</div>
+          <h1>Help people get from “what is Cortex?” to “I can actually use this.”</h1>
+          <p>
+            This page is a friendlier on-ramp into the repo’s existing docs. It gives newcomers a
+            clear path through install, first commands, agent loops, and self-host deployment.
+          </p>
+        </section>
+
+        <section class="section split-section">
+          <div class="docs-stack">
+            <article class="docs-card primary">
+              <div class="eyebrow">Fastest intro</div>
+              <h2>See it in 30 seconds</h2>
+              <div class="terminal-panel compact">
+                <div class="terminal-topbar">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <pre><code>$ cortex init
+$ cortex mind remember self "We use TypeScript and Supabase."
+$ cortex mind compose self --to codex --task "product strategy"
+$ cortex mind mount self --to codex</code></pre>
+              </div>
+            </article>
+
+            <article class="docs-card">
+              <div class="eyebrow">Install</div>
+              <h3>Supported entry points</h3>
+              <ul class="check-list">
+                <li><code>python3.11 -m pip install cortex-identity</code></li>
+                <li><code>pipx install cortex-identity</code></li>
+                <li><code>python3.11 -m pip install -e ".[dev]"</code> from source</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="entry-grid">
+            <article class="entry-card">
+              <h3>Quickstart</h3>
+              <p>The best first stop for beta setup, recommended install paths, and a 5-minute local runtime.</p>
+              <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/docs/BETA_QUICKSTART.md" target="_blank" rel="noreferrer">
+                Open beta quickstart
+              </a>
+            </article>
+            <article class="entry-card">
+              <h3>Agent loops</h3>
+              <p>Use the higher-level session layer for remember, search, branch-per-task, and review-aware commits.</p>
+              <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/docs/AGENT_QUICKSTARTS.md" target="_blank" rel="noreferrer">
+                Open agent quickstarts
+              </a>
+            </article>
+            <article class="entry-card">
+              <h3>Self-hosting</h3>
+              <p>Run Cortex as a local runtime or operator-managed service with scoped keys and deliberate exposure.</p>
+              <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/docs/SELF_HOSTING.md" target="_blank" rel="noreferrer">
+                Open self-hosting guide
+              </a>
+            </article>
+            <article class="entry-card">
+              <h3>Minds & Brainpacks</h3>
+              <p>Understand the core product model before diving into every command surface.</p>
+              <a href="https://github.com/Junebugg1214/Cortex-AI/blob/main/docs/MINDS.md" target="_blank" rel="noreferrer">
+                Open Minds docs
+              </a>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading centered">
+            <div class="eyebrow">Suggested path</div>
+            <h2>A clearer onboarding sequence</h2>
+            <p>
+              People new to Cortex usually do better with a product-first path instead of jumping
+              straight into every command group at once.
+            </p>
+          </div>
+
+          <div class="path-grid">
+            <article class="path-card">
+              <span>01</span>
+              <h3>Understand the promise</h3>
+              <p>Read the homepage and “How It Works” page to get the portable Mind model.</p>
+            </article>
+            <article class="path-card">
+              <span>02</span>
+              <h3>Run first commands</h3>
+              <p>Initialize Cortex, remember a fact, compose a slice, and mount it into one tool.</p>
+            </article>
+            <article class="path-card">
+              <span>03</span>
+              <h3>Pick an adoption path</h3>
+              <p>CLI only, agent SDK sessions, MCP tooling, or a self-hosted runtime.</p>
+            </article>
+            <article class="path-card">
+              <span>04</span>
+              <h3>Go deeper</h3>
+              <p>Use the underlying docs for Brainpacks, operations, portability, and threat model details.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section callout-row">
+          <article class="callout">
+            <div class="eyebrow">For builders</div>
+            <h3>Use Cortex when continuity matters more than novelty</h3>
+            <p>
+              Cortex becomes especially valuable once work spans multiple tools, long time horizons,
+              or specialist context that should not vanish with a new session.
+            </p>
+          </article>
+          <article class="callout alternate">
+            <div class="eyebrow">For contributors</div>
+            <h3>The website should stay aligned with the docs</h3>
+            <p>
+              This site should explain the product clearly, while the repo docs remain the deeper
+              source of truth for commands, APIs, operations, and deployment specifics.
+            </p>
+          </article>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div>
+          <strong>Cortex</strong>
+          <p>Your AI memory. Versioned. Portable. Yours.</p>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Home</a>
+          <a href="./how-it-works.html">How It Works</a>
+          <a href="./learn.html">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">Repository</a>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

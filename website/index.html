@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cortex | Portable Mind Infrastructure for AI Tools</title>
+    <meta
+      name="description"
+      content="Cortex gives your AI tools one portable, versioned Mind so your context survives tool changes, experiments, and long-running work."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand" href="./index.html">
+          <span class="brand-mark">C</span>
+          <span class="brand-text">Cortex</span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span>
+          <span></span>
+        </button>
+        <nav class="site-nav" id="site-nav">
+          <a href="./index.html" aria-current="page">Home</a>
+          <a href="./how-it-works.html">How It Works</a>
+          <a href="./learn.html">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="hero-copy">
+            <div class="eyebrow">Portable AI memory, without the lock-in</div>
+            <h1>Give every AI tool the same <span>versioned Mind</span>.</h1>
+            <p class="hero-lead">
+              Cortex exists for the moment when your work outgrows one chat window. It keeps your
+              preferences, project state, specialist knowledge, and operating context portable,
+              reviewable, and mounted into the tools you actually use.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="./learn.html">Start Learning</a>
+              <a class="button button-secondary" href="./how-it-works.html">See the Model</a>
+            </div>
+            <ul class="hero-points">
+              <li>Local-first storage you control</li>
+              <li>Git-style history for memory changes</li>
+              <li>Target-aware mounts for Codex, Claude Code, Cursor, and more</li>
+            </ul>
+          </div>
+
+          <div class="hero-stage">
+            <div class="stage-card stage-card-top">
+              <div class="stage-label">Problem</div>
+              <h2>Context gets trapped inside individual tools</h2>
+              <p>
+                You switch from ChatGPT to Codex to Claude Code and suddenly your constraints,
+                stack, and long-term project memory disappear.
+              </p>
+              <div class="stage-tags">
+                <span>repeated setup</span>
+                <span>stale memory</span>
+                <span>tool lock-in</span>
+              </div>
+            </div>
+            <div class="stage-arrow">↓</div>
+            <div class="stage-card stage-card-bottom">
+              <div class="stage-label accent">Cortex</div>
+              <h2>One Mind, many runtime compositions</h2>
+              <p>
+                Cortex keeps a durable base Mind, attaches Brainpacks when needed, versions memory
+                changes, and renders the right slice for each target and task.
+              </p>
+              <div class="progress-track">
+                <span class="progress-bar"></span>
+              </div>
+              <div class="stage-footer">
+                <span>compose</span>
+                <span>branch</span>
+                <span>mount</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading centered">
+            <div class="eyebrow">Why Cortex was made</div>
+            <h2>The problem is not “AI memory.” The problem is <span>memory continuity.</span></h2>
+            <p>
+              Teams and individuals are already teaching tools how they work. The failure is that
+              this context is usually stored in product-specific silos, copied by hand, or trusted
+              without review.
+            </p>
+          </div>
+
+          <div class="problem-grid">
+            <article class="info-panel">
+              <h3>Before Cortex</h3>
+              <ul class="check-list muted">
+                <li>Each assistant starts from scratch or from stale instructions</li>
+                <li>Important context is hidden in chats, exports, and project files</li>
+                <li>Switching tools means rebuilding the same memory over and over</li>
+                <li>There is no clear diff, blame, review, or rollback for memory changes</li>
+              </ul>
+            </article>
+            <article class="info-panel bright">
+              <h3>After Cortex</h3>
+              <ul class="check-list">
+                <li>Your persistent Mind lives on disk, not inside one vendor product</li>
+                <li>Memory changes can be branched, reviewed, merged, and restored</li>
+                <li>Specialist Brainpacks attach only when the task actually needs them</li>
+                <li>Each runtime gets the right slice instead of one giant generic blob</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">
+            <div class="eyebrow">Core model</div>
+            <h2>Cortex is built around one top-level object: the <span>Mind.</span></h2>
+            <p>
+              The Mind turns Cortex’s product surfaces into one understandable system: portable AI
+              context, Brainpacks, and Git-style memory history all become properties of the same
+              durable object.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card mint">
+              <div class="card-kicker">Layer 01</div>
+              <h3>Core state</h3>
+              <p>Identity, preferences, project facts, relationships, constraints, and durable context.</p>
+            </article>
+            <article class="feature-card coral">
+              <div class="card-kicker">Layer 02</div>
+              <h3>Brainpacks</h3>
+              <p>Specialist cognition packs that Cortex compiles, attaches, routes, and mounts by task.</p>
+            </article>
+            <article class="feature-card sky">
+              <div class="card-kicker">Layer 03</div>
+              <h3>Version history</h3>
+              <p>Commit, branch, diff, review, merge, rollback, and blame over the underlying graph.</p>
+            </article>
+            <article class="feature-card sand">
+              <div class="card-kicker">Layer 04</div>
+              <h3>Runtime mounts</h3>
+              <p>Materialized slices for Codex, Claude Code, Cursor, MCP clients, and self-hosted flows.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section architecture-section">
+          <div class="section-heading centered">
+            <div class="eyebrow">How it works</div>
+            <h2>From raw context to runtime-ready memory</h2>
+            <p>
+              Cortex does not just store notes. It composes, governs, and routes memory so the
+              right context arrives in the right place at the right time.
+            </p>
+          </div>
+
+          <div class="architecture-flow">
+            <div class="flow-node active">
+              <span class="flow-step">01</span>
+              <h3>Ingest</h3>
+              <p>Scan tools, imports, repos, notes, and chats into durable memory candidates.</p>
+            </div>
+            <div class="flow-node">
+              <span class="flow-step">02</span>
+              <h3>Version</h3>
+              <p>Track memory changes with commits, branches, review, diff, and rollback.</p>
+            </div>
+            <div class="flow-node">
+              <span class="flow-step">03</span>
+              <h3>Compose</h3>
+              <p>Blend base Mind state with attached Brainpacks, policy rules, and task routing.</p>
+            </div>
+            <div class="flow-node">
+              <span class="flow-step">04</span>
+              <h3>Mount</h3>
+              <p>Write target-specific context into local tools and self-hosted runtimes.</p>
+            </div>
+          </div>
+
+          <div class="terminal-panel">
+            <div class="terminal-topbar">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <pre><code>$ cortex init
+$ cortex mind remember self "We use TypeScript and Supabase."
+$ cortex mind compose self --to codex --task "product strategy"
+$ cortex mind mount self --to codex cursor claude-code --task "launch prep"</code></pre>
+          </div>
+        </section>
+
+        <section class="section tabs-section">
+          <div class="section-heading">
+            <div class="eyebrow">Use cases</div>
+            <h2>Different workflows need different <span>memory behavior.</span></h2>
+            <p>
+              Cortex is useful when you need continuity across tools, safer long-running memory, or
+              specialized context that can travel with the work.
+            </p>
+          </div>
+
+          <div class="tab-shell" data-tabs>
+            <div class="tab-list" role="tablist" aria-label="Cortex use cases">
+              <button class="tab-button is-active" type="button" role="tab" aria-selected="true" data-tab="builders">
+                Builders
+              </button>
+              <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operators">
+                Operators
+              </button>
+              <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="researchers">
+                Researchers
+              </button>
+              <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="teams">
+                Small Teams
+              </button>
+            </div>
+
+            <div class="tab-panels">
+              <article class="tab-panel is-active" data-panel="builders">
+                <h3>For people building with multiple AI coding tools</h3>
+                <p>
+                  Keep your stack, conventions, and active project state portable as you move
+                  between coding agents. Mount the same Mind into Codex, Cursor, Claude Code, or an
+                  MCP client without rewriting your background every time.
+                </p>
+              </article>
+              <article class="tab-panel" data-panel="operators">
+                <h3>For self-hosted memory infrastructure</h3>
+                <p>
+                  Run Cortex locally or as an operator-managed service. Keep the store on disk you
+                  control, use scoped API keys, and expose only the surfaces you intend to expose.
+                </p>
+              </article>
+              <article class="tab-panel" data-panel="researchers">
+                <h3>For specialist knowledge that should stay durable</h3>
+                <p>
+                  Turn notes, repositories, and source files into Brainpacks, then attach them to a
+                  Mind so Cortex can route expert context only when the task actually calls for it.
+                </p>
+              </article>
+              <article class="tab-panel" data-panel="teams">
+                <h3>For teams that want shared patterns without a hosted memory cloud</h3>
+                <p>
+                  Cortex gives small teams a self-hosted way to manage namespaces, branch risky
+                  memory changes, review them, and keep durable context aligned across workflows.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section learn-strip">
+          <div class="learn-copy">
+            <div class="eyebrow">Learn faster</div>
+            <h2>Start with the story, then go deeper into the docs.</h2>
+            <p>
+              The landing page explains the product. The rest of the site gives people a clear path
+              to the actual model, commands, and deployment surfaces already in the repo.
+            </p>
+          </div>
+          <div class="learn-links">
+            <a class="learn-card" href="./how-it-works.html">
+              <strong>How Cortex Works</strong>
+              <span>Minds, Brainpacks, branches, mounts, and composition</span>
+            </a>
+            <a class="learn-card" href="./learn.html">
+              <strong>Quickstart & Docs</strong>
+              <span>Install, first commands, agent loops, and self-hosting paths</span>
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div>
+          <strong>Cortex</strong>
+          <p>Your AI memory. Versioned. Portable. Yours.</p>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Home</a>
+          <a href="./how-it-works.html">How It Works</a>
+          <a href="./learn.html">Learn</a>
+          <a href="https://github.com/Junebugg1214/Cortex-AI" target="_blank" rel="noreferrer">Repository</a>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
