@@ -203,8 +203,12 @@ def test_detect_conflicts_does_not_treat_distinct_work_history_nodes_as_same_ent
 
 def test_severity_identity_conflicts_are_critical():
     graph = _graph_with(
-        _node("Jordan Lee", "identity", confidence=0.9, source="doc-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Jordan Li", "identity", confidence=0.6, source="doc-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Jordan Lee", "identity", confidence=0.9, source="doc-a", method="extract", timestamp="2026-01-01T00:00:00Z"
+        ),
+        _node(
+            "Jordan Li", "identity", confidence=0.6, source="doc-b", method="extract", timestamp="2026-01-02T00:00:00Z"
+        ),
     )
 
     proposal = detect_conflicts(
@@ -220,8 +224,22 @@ def test_severity_identity_conflicts_are_critical():
 
 def test_severity_professional_conflicts_are_high():
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.9, source="resume-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.8, source="resume-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.9,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.8,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
 
     proposal = detect_conflicts(
@@ -237,8 +255,22 @@ def test_severity_professional_conflicts_are_high():
 
 def test_severity_medical_keyword_conflicts_are_high():
     graph = _graph_with(
-        _node("Medication: penicillin", "mentions", confidence=0.7, source="intake-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Medication: none", "mentions", confidence=0.6, source="intake-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Medication: penicillin",
+            "mentions",
+            confidence=0.7,
+            source="intake-a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Medication: none",
+            "mentions",
+            confidence=0.6,
+            source="intake-b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
 
     proposal = detect_conflicts(
@@ -254,8 +286,22 @@ def test_severity_medical_keyword_conflicts_are_high():
 
 def test_severity_financial_keyword_conflicts_are_high():
     graph = _graph_with(
-        _node("Salary expectation: 150k", "mentions", confidence=0.7, source="note-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Salary expectation: 180k", "mentions", confidence=0.6, source="note-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Salary expectation: 150k",
+            "mentions",
+            confidence=0.7,
+            source="note-a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Salary expectation: 180k",
+            "mentions",
+            confidence=0.6,
+            source="note-b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
 
     proposal = detect_conflicts(
@@ -271,8 +317,22 @@ def test_severity_financial_keyword_conflicts_are_high():
 
 def test_severity_preference_conflicts_are_low():
     graph = _graph_with(
-        _node("Use bullet points", "communication_preferences", confidence=0.7, source="pref-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Use prose only", "communication_preferences", confidence=0.6, source="pref-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Use bullet points",
+            "communication_preferences",
+            confidence=0.7,
+            source="pref-a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Use prose only",
+            "communication_preferences",
+            confidence=0.6,
+            source="pref-b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
 
     proposal = detect_conflicts(
@@ -289,8 +349,22 @@ def test_severity_preference_conflicts_are_low():
 def test_monitor_auto_resolves_low_conflicts_above_threshold_on_default_mind(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Prefers terse answers", "communication_preferences", confidence=0.99, source="manual", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Prefers detailed explanations", "communication_preferences", confidence=0.01, source="import", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Prefers terse answers",
+            "communication_preferences",
+            confidence=0.99,
+            source="manual",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Prefers detailed explanations",
+            "communication_preferences",
+            confidence=0.01,
+            source="import",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "personal", graph)
 
@@ -313,14 +387,26 @@ def test_monitor_auto_resolves_low_conflicts_above_threshold_on_default_mind(tmp
 def test_monitor_auto_resolve_clears_pending_queue(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Keep messages short", "user_preferences", confidence=0.99, source="manual", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Prefer very long messages", "user_preferences", confidence=0.01, source="import", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Keep messages short",
+            "user_preferences",
+            confidence=0.99,
+            source="manual",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Prefer very long messages",
+            "user_preferences",
+            confidence=0.01,
+            source="import",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "personal", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     monitor.run_cycle()
 
     assert load_pending_conflicts(store_dir) == []
@@ -329,14 +415,26 @@ def test_monitor_auto_resolve_clears_pending_queue(tmp_path):
 def test_monitor_queues_low_conflicts_below_threshold(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Use short replies", "communication_preferences", confidence=0.8, source="pref-a", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Use medium replies", "communication_preferences", confidence=0.78, source="pref-b", method="manual", timestamp="2026-04-09T12:00:00Z"),
+        _node(
+            "Use short replies",
+            "communication_preferences",
+            confidence=0.8,
+            source="pref-a",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Use medium replies",
+            "communication_preferences",
+            confidence=0.78,
+            source="pref-b",
+            method="manual",
+            timestamp="2026-04-09T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "personal", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     result = monitor.run_cycle()
 
     assert result["auto_resolved"] == 0
@@ -347,14 +445,26 @@ def test_monitor_queues_low_conflicts_below_threshold(tmp_path):
 def test_monitor_queues_high_conflicts_without_auto_resolving(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Senior Engineer", "professional_context", confidence=0.99, source="resume-a", method="extract", timestamp="2026-04-10T12:00:00Z"),
-        _node("Product Designer", "professional_context", confidence=0.01, source="resume-b", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Senior Engineer",
+            "professional_context",
+            confidence=0.99,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Product Designer",
+            "professional_context",
+            confidence=0.01,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "career", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     result = monitor.run_cycle()
 
     assert result["auto_resolved"] == 0
@@ -365,14 +475,26 @@ def test_monitor_queues_high_conflicts_without_auto_resolving(tmp_path):
 def test_monitor_queues_critical_conflicts_without_auto_resolving(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Jordan Lee", "identity", confidence=0.99, source="passport", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Jordan Li", "identity", confidence=0.01, source="profile", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Jordan Lee",
+            "identity",
+            confidence=0.99,
+            source="passport",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Jordan Li",
+            "identity",
+            confidence=0.01,
+            source="profile",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "identity", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     result = monitor.run_cycle()
 
     assert result["auto_resolved"] == 0
@@ -383,14 +505,26 @@ def test_monitor_queues_critical_conflicts_without_auto_resolving(tmp_path):
 def test_monitor_can_operate_on_canonical_graph_without_default_mind(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Use terse answers", "communication_preferences", confidence=0.99, source="manual", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Use essay answers", "communication_preferences", confidence=0.01, source="import", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Use terse answers",
+            "communication_preferences",
+            confidence=0.99,
+            source="manual",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Use essay answers",
+            "communication_preferences",
+            confidence=0.01,
+            source="import",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_canonical(store_dir, graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     result = monitor.run_cycle()
     updated_graph, _ = load_canonical_graph(store_dir)
 
@@ -401,8 +535,22 @@ def test_monitor_can_operate_on_canonical_graph_without_default_mind(tmp_path):
 def test_conflict_status_reports_active_monitors_and_pending_conflicts(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.9, source="a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.8, source="b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.9,
+            source="a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.8,
+            source="b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "career", graph)
 
@@ -422,14 +570,26 @@ def test_conflict_status_reports_active_monitors_and_pending_conflicts(tmp_path)
 def test_review_pending_conflicts_applies_selected_candidate(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.95, source="resume-a", method="extract", timestamp="2026-04-10T12:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.15, source="resume-b", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.95,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.15,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "career", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     monitor.run_cycle()
 
     review = review_pending_conflicts(
@@ -448,14 +608,26 @@ def test_review_pending_conflicts_applies_selected_candidate(tmp_path):
 def test_review_pending_conflicts_can_skip_items(tmp_path):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.95, source="resume-a", method="extract", timestamp="2026-04-10T12:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.15, source="resume-b", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.95,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.15,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "career", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     monitor.run_cycle()
 
     review = review_pending_conflicts(
@@ -500,8 +672,22 @@ def test_professional_history_flags_detect_temporal_gap():
 
 def test_professional_history_flags_detect_conflict_flags():
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.8, source="resume-a", method="extract", timestamp="2026-01-01T00:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.75, source="resume-b", method="extract", timestamp="2026-01-02T00:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.8,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-01-01T00:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.75,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-02T00:00:00Z",
+        ),
     )
 
     flags = professional_history_flags(graph)
@@ -512,8 +698,22 @@ def test_professional_history_flags_detect_conflict_flags():
 def test_agent_cli_monitor_once_json_contract(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Use terse answers", "communication_preferences", confidence=0.9, source="a", method="manual", timestamp="2026-04-10T12:00:00Z"),
-        _node("Use long answers", "communication_preferences", confidence=0.85, source="b", method="manual", timestamp="2026-04-09T12:00:00Z"),
+        _node(
+            "Use terse answers",
+            "communication_preferences",
+            confidence=0.9,
+            source="a",
+            method="manual",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Use long answers",
+            "communication_preferences",
+            confidence=0.85,
+            source="b",
+            method="manual",
+            timestamp="2026-04-09T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "personal", graph)
 
@@ -528,14 +728,26 @@ def test_agent_cli_monitor_once_json_contract(tmp_path, capsys):
 def test_agent_cli_status_json_shows_pending_conflicts(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
     graph = _graph_with(
-        _node("Engineer", "professional_context", confidence=0.95, source="resume-a", method="extract", timestamp="2026-04-10T12:00:00Z"),
-        _node("Designer", "professional_context", confidence=0.15, source="resume-b", method="extract", timestamp="2026-01-01T12:00:00Z"),
+        _node(
+            "Engineer",
+            "professional_context",
+            confidence=0.95,
+            source="resume-a",
+            method="extract",
+            timestamp="2026-04-10T12:00:00Z",
+        ),
+        _node(
+            "Designer",
+            "professional_context",
+            confidence=0.15,
+            source="resume-b",
+            method="extract",
+            timestamp="2026-01-01T12:00:00Z",
+        ),
     )
     _seed_default_mind(store_dir, "career", graph)
 
-    monitor = ConflictMonitor(
-        ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs")
-    )
+    monitor = ConflictMonitor(ConflictMonitorConfig(store_dir=store_dir, interactive=False, log_dir=tmp_path / "logs"))
     monitor.run_cycle()
 
     rc = main(["agent", "status", "--store-dir", str(store_dir), "--format", "json"])

@@ -53,8 +53,21 @@ def _seed_mind(store_dir: Path, mind_id: str, graph: CortexGraph) -> None:
 
 def _professional_graph() -> CortexGraph:
     return _graph_with(
-        _node("Staff Engineer", "professional_context", brief="Current title", status="active", valid_from="2024-01-01T00:00:00Z"),
-        _node("Engineer at Acme", "work_history", brief="2021-2023", status="historical", valid_from="2021-01-01T00:00:00Z", valid_to="2023-12-31T00:00:00Z"),
+        _node(
+            "Staff Engineer",
+            "professional_context",
+            brief="Current title",
+            status="active",
+            valid_from="2024-01-01T00:00:00Z",
+        ),
+        _node(
+            "Engineer at Acme",
+            "work_history",
+            brief="2021-2023",
+            status="historical",
+            valid_from="2021-01-01T00:00:00Z",
+            valid_to="2023-12-31T00:00:00Z",
+        ),
         _node("Python", "technical_expertise", brief="Primary language"),
         _node("Publication: Distributed Systems Paper", "business_context", brief="Peer-reviewed publication"),
         _node("Certification: AWS Solutions Architect", "business_context", brief="Professional certification"),

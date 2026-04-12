@@ -54,9 +54,7 @@ def normalize_output_format(value: str) -> OutputFormat:
         "summary": OutputFormat.SUMMARY,
     }
     if cleaned not in alias_map:
-        raise ValueError(
-            "output_format must be one of: pack, brief, cv, onboarding-doc, or summary."
-        )
+        raise ValueError("output_format must be one of: pack, brief, cv, onboarding-doc, or summary.")
     return alias_map[cleaned]
 
 

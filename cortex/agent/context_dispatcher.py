@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
 from cortex.agent.conflict_monitor import professional_history_flags
 from cortex.agent.events import (
     AgentEvent,
@@ -22,11 +21,11 @@ from cortex.agent.events import (
     normalize_delivery_target,
     normalize_output_format,
 )
+from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
 from cortex.graph import CortexGraph, Node
 from cortex.mind_runtime import _compose_graph_for_target
 from cortex.minds import resolve_default_mind
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
-
 
 DEFAULT_OUTPUT_DIRNAME = "output"
 
@@ -467,7 +466,9 @@ def _build_cv_payload(mind_id: str, graph: CortexGraph) -> tuple[str, dict[str, 
         markdown.append("- No professional-history gaps or conflicts detected.")
     else:
         for flag in flags:
-            markdown.append(f"- [{flag.get('type', 'flag')}] {flag.get('summary', flag.get('label', flag.get('kind', '')))}")
+            markdown.append(
+                f"- [{flag.get('type', 'flag')}] {flag.get('summary', flag.get('label', flag.get('kind', '')))}"
+            )
     markdown.append("")
     payload = {
         "mind": mind_id,
@@ -584,7 +585,9 @@ class ContextDispatcher:
             output_format = normalize_output_format(
                 str(payload.get("output_format", "onboarding_doc" if new_stage in {"launch", "release"} else "pack"))
             )
-            audience_id = str(payload.get("audience_id", "onboarding" if output_format is OutputFormat.ONBOARDING_DOC else "team")).strip()
+            audience_id = str(
+                payload.get("audience_id", "onboarding" if output_format is OutputFormat.ONBOARDING_DOC else "team")
+            ).strip()
             mind_id = str(payload.get("mind_id") or payload.get("project_id") or "").strip()
         elif event.event_type is EventType.SCHEDULED_REVIEW:
             output_format = normalize_output_format(str(payload.get("output_format", "brief")))

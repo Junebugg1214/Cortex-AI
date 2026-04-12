@@ -6,7 +6,6 @@ import json
 import os
 import sys
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -17,10 +16,9 @@ from uuid import uuid4
 from cortex.atomic_io import atomic_write_json, locked_path
 from cortex.graph import CATEGORY_ORDER, CortexGraph, Node
 from cortex.intelligence import GapAnalyzer
-from cortex.minds import _persist_mind_core_graph, load_mind_core_graph, resolve_default_mind
 from cortex.mind_runtime import _refresh_mind_mounts
+from cortex.minds import _persist_mind_core_graph, load_mind_core_graph, resolve_default_mind
 from cortex.portable_runtime import load_canonical_graph, load_portability_state, save_canonical_graph
-
 
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
 SCOPE_SCALAR_TAGS = frozenset(
@@ -340,8 +338,14 @@ def _iter_fact_variants(graph: CortexGraph, *, scope_entity: str) -> list[FactVa
         primary = _clean_value(node.properties.get("attribute", "")) or _primary_tag(node)
         label_pair = _label_key_value(node, primary)
         attribute = label_pair[0] if label_pair is not None else primary
-        entity = scope_entity if label_pair is not None else _entity_for_node(node, scope_entity=scope_entity, attribute=attribute)
-        base_value = _clean_value(node.properties.get("value", "")) or (label_pair[1] if label_pair is not None else _clean_value(node.label))
+        entity = (
+            scope_entity
+            if label_pair is not None
+            else _entity_for_node(node, scope_entity=scope_entity, attribute=attribute)
+        )
+        base_value = _clean_value(node.properties.get("value", "")) or (
+            label_pair[1] if label_pair is not None else _clean_value(node.label)
+        )
         if base_value:
             variants.append(
                 FactVariant(
@@ -848,10 +852,7 @@ class ConflictMonitor:
             auto_resolve_threshold=self.config.auto_resolve_threshold,
         )
 
-        pending = {
-            proposal.conflict_id: proposal
-            for proposal in load_pending_conflicts(self.store_dir)
-        }
+        pending = {proposal.conflict_id: proposal for proposal in load_pending_conflicts(self.store_dir)}
 
         auto_resolved = 0
         queued = 0
@@ -950,9 +951,7 @@ def professional_history_flags(graph: CortexGraph) -> list[dict[str, Any]]:
         flags.append({"type": "temporal_gap", **gap})
 
     employment_nodes = [
-        node
-        for node in graph.nodes.values()
-        if "work_history" in node.tags or "professional_context" in node.tags
+        node for node in graph.nodes.values() if "work_history" in node.tags or "professional_context" in node.tags
     ]
     dated_nodes = [
         node

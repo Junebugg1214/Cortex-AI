@@ -14,7 +14,13 @@ from cortex.agent.conflict_monitor import (
     review_pending_conflicts,
 )
 from cortex.agent.context_dispatcher import ContextDispatcher, dispatcher_status
-from cortex.agent.events import AgentEvent, DeliveryTarget, EventType, normalize_delivery_target, normalize_output_format
+from cortex.agent.events import (
+    AgentEvent,
+    DeliveryTarget,
+    EventType,
+    normalize_delivery_target,
+    normalize_output_format,
+)
 
 
 @dataclass(frozen=True)

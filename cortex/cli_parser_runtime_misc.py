@@ -126,7 +126,9 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
         help="Confidence delta required for low-severity auto-resolution (default: 0.85)",
     )
     agent_monitor.add_argument("--once", action="store_true", help="Run one monitor cycle and exit")
-    agent_monitor.add_argument("--no-prompt", action="store_true", help="Queue review-required conflicts without prompting")
+    agent_monitor.add_argument(
+        "--no-prompt", action="store_true", help="Queue review-required conflicts without prompting"
+    )
     agent_monitor.add_argument("--format", choices=["json", "text"], default="text")
 
     agent_compile = agent_sub.add_parser("compile", help="Manually compile audience-specific context")
