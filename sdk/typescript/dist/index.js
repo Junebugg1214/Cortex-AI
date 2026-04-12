@@ -163,6 +163,79 @@ export class CortexClient {
     return this.request("GET", "/v1/openapi.json");
   }
 
+  agentStatus() {
+    return this.request("GET", "/v1/agent/status");
+  }
+
+  agentMonitorRun({ mindId = "", autoResolveThreshold = 0.85, logDir = "" } = {}) {
+    return this.request("POST", "/v1/agent/monitor/run", {
+      payload: {
+        mind_id: mindId,
+        auto_resolve_threshold: autoResolveThreshold,
+        log_dir: logDir
+      }
+    });
+  }
+
+  agentCompile({
+    mindId,
+    audienceId = "",
+    outputFormat = "brief",
+    delivery = "local_file",
+    webhookUrl = "",
+    outputDir = ""
+  }) {
+    return this.request("POST", "/v1/agent/compile", {
+      payload: {
+        mind_id: mindId,
+        audience_id: audienceId,
+        output_format: outputFormat,
+        delivery,
+        webhook_url: webhookUrl,
+        output_dir: outputDir
+      }
+    });
+  }
+
+  agentDispatch({ event, payload, outputDir = "" }) {
+    return this.request("POST", "/v1/agent/dispatch", {
+      payload: {
+        event,
+        payload,
+        output_dir: outputDir
+      }
+    });
+  }
+
+  agentSchedule({
+    mindId,
+    audienceId,
+    cronExpression,
+    outputFormat,
+    delivery = "local_file",
+    webhookUrl = ""
+  }) {
+    return this.request("POST", "/v1/agent/schedule", {
+      payload: {
+        mind_id: mindId,
+        audience_id: audienceId,
+        cron_expression: cronExpression,
+        output_format: outputFormat,
+        delivery,
+        webhook_url: webhookUrl
+      }
+    });
+  }
+
+  agentReviewConflicts({ decisions = [], logDir = "" } = {}) {
+    return this.request("POST", "/v1/agent/conflicts/review", {
+      payload: {
+        decisions,
+        log_dir: logDir
+      }
+    });
+  }
+
   indexStatus({ ref = "HEAD" } = {}) {
     return this.request("GET", "/v1/index/status", { params: { ref } });
   }

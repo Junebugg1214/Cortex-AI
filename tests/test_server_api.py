@@ -725,6 +725,116 @@ def test_cortex_api_agent_namespace_filters_status_and_blocks_cross_namespace(tm
     assert "outside namespace 'team-a'" in compile_payload["error"]
 
 
+def test_cortex_client_agent_compile_dispatch_schedule_and_status_surface(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "personal",
+        _agent_node("Staff Engineer", "professional_context", brief="Current title", status="active"),
+        _agent_node("Python", "technical_expertise", brief="Primary language"),
+        _agent_node(
+            "Achievement: launched platform migration",
+            "active_priorities",
+            brief="Major delivery outcome",
+        ),
+    )
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    status = client.agent_status()
+    compile_payload = client.agent_compile(
+        mind_id="personal",
+        audience_id="recruiter",
+        output_format="cv",
+        output_dir=str(tmp_path / "output"),
+    )
+    dispatch_payload = client.agent_dispatch(
+        event="MANUAL_TRIGGER",
+        payload={
+            "mind_id": "personal",
+            "audience_id": "team",
+            "output_format": "summary",
+        },
+        output_dir=str(tmp_path / "output-dispatch"),
+    )
+    schedule_payload = client.agent_schedule(
+        mind_id="personal",
+        audience_id="team",
+        cron_expression="0 9 * * 1",
+        output_format="brief",
+    )
+    updated_status = client.agent_status()
+
+    assert status["pending_count"] == 0
+    assert compile_payload["rule"]["output_format"] == "cv"
+    assert len(compile_payload["artifacts"]) == 2
+    assert dispatch_payload["rule"]["output_format"] == "summary"
+    assert dispatch_payload["artifacts"]
+    assert schedule_payload["schedule"]["mind_id"] == "personal"
+    assert updated_status["scheduled_count"] == 1
+
+
+def test_cortex_client_agent_monitor_run_and_review_conflicts_surface(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "career",
+        _agent_node("Engineer", "professional_context", source="resume-a"),
+        _agent_node("Designer", "professional_context", source="resume-b", timestamp="2026-04-09T12:00:00Z"),
+    )
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local")
+    monitor_payload = client.agent_monitor_run(mind_id="career", auto_resolve_threshold=0.9)
+    conflict_id = monitor_payload["proposals"][0]["conflict_id"]
+    winning_value = monitor_payload["proposals"][0]["candidates"][0]["value"]
+    review_payload = client.agent_review_conflicts(decisions=[{"conflict_id": conflict_id, "candidate_rank": 1}])
+    status_payload = client.agent_status()
+    graph_payload = load_mind_core_graph(store_dir, "career")
+    labels = sorted(node.label for node in graph_payload["graph"].nodes.values() if "professional_context" in node.tags)
+
+    assert monitor_payload["queued"] == 1
+    assert review_payload["resolved"] == 1
+    assert status_payload["pending_count"] == 0
+    assert labels == [winning_value]
+
+
+def test_cortex_client_agent_surface_respects_namespace_headers(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(store_dir, "alpha", _agent_node("Alpha", "professional_context"), namespace="team-a")
+    _seed_mind(store_dir, "beta", _agent_node("Beta", "professional_context"), namespace="team-b")
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    service.agent_schedule(
+        mind_id="alpha",
+        audience_id="team",
+        cron_expression="0 9 * * 1",
+        output_format="brief",
+        namespace="team-a",
+    )
+    service.agent_schedule(
+        mind_id="beta",
+        audience_id="team",
+        cron_expression="0 10 * * 1",
+        output_format="brief",
+        namespace="team-b",
+    )
+    _install_dispatching_urlopen(monkeypatch, service)
+
+    client = CortexClient("http://cortex.local", namespace="team-a")
+    status_payload = client.agent_status()
+
+    assert status_payload["scheduled_count"] == 1
+    assert status_payload["scheduled_dispatches"][0]["mind_id"] == "alpha"
+
+    with pytest.raises(RuntimeError, match="outside namespace 'team-a'"):
+        client.agent_compile(mind_id="beta", output_format="summary")
+
+
 def test_cortex_api_claim_assert_retract_and_materialize(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
