@@ -5,7 +5,7 @@ from pathlib import Path
 from cortex.cli import build_parser, main
 from cortex.graph import CortexGraph, Node
 from cortex.mcp import CortexMCPServer
-from cortex.minds import attach_pack_to_mind, init_mind
+from cortex.minds import _persist_mind_core_graph, attach_pack_to_mind, init_mind, load_mind_core_graph
 from cortex.packs import compile_pack, ingest_pack, init_pack
 from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
 from cortex.release import API_VERSION, PROJECT_VERSION
@@ -17,6 +17,45 @@ def _graph_with_node(node: Node) -> CortexGraph:
     graph = CortexGraph()
     graph.add_node(node)
     return graph
+
+
+def _graph_with(*nodes: Node) -> CortexGraph:
+    graph = CortexGraph()
+    for node in nodes:
+        graph.add_node(node)
+    return graph
+
+
+def _agent_node(
+    label: str,
+    tags: str | list[str],
+    *,
+    confidence: float = 0.9,
+    source: str = "resume",
+    timestamp: str = "2026-04-10T12:00:00Z",
+    **kwargs,
+) -> Node:
+    tag_list = [tags] if isinstance(tags, str) else list(tags)
+    payload = {
+        "id": kwargs.pop("id", f"{tag_list[0]}:{label}".replace(" ", "_").lower()),
+        "label": label,
+        "tags": tag_list,
+        "confidence": confidence,
+        "provenance": [{"source": source, "method": "extract", "timestamp": timestamp}],
+    }
+    payload.update(kwargs)
+    return Node(**payload)
+
+
+def _seed_mind(store_dir: Path, mind_id: str, *nodes: Node, namespace: str | None = None) -> None:
+    init_mind(store_dir, mind_id, kind="person", owner="marc", namespace=namespace)
+    _persist_mind_core_graph(
+        store_dir,
+        mind_id,
+        _graph_with(*nodes),
+        message=f"seed {mind_id}",
+        source="tests.mcp.agent",
+    )
 
 
 def _initialize(server: CortexMCPServer, *, protocol_version: str = "2025-11-25") -> dict:
@@ -82,6 +121,12 @@ def test_mcp_initialize_and_list_tools(tmp_path):
         "portability_scan",
         "portability_status",
         "portability_audit",
+        "agent_status",
+        "agent_monitor_run",
+        "agent_compile",
+        "agent_dispatch",
+        "agent_schedule",
+        "agent_review_conflicts",
         "mind_list",
         "mind_status",
         "mind_ingest",
@@ -405,6 +450,138 @@ def test_mcp_namespace_filters_mind_and_pack_tools(tmp_path):
     assert pack_list_payload["packs"][0]["namespace"] == "team-b"
     assert denied_status["isError"] is True
     assert "outside namespace 'team-a'" in denied_status["structuredContent"]["error"]
+
+
+def test_mcp_agent_compile_schedule_and_status_surface(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "personal",
+        _agent_node("Staff Engineer", "professional_context", brief="Current title", status="active"),
+        _agent_node("Python", "technical_expertise", brief="Primary language"),
+        _agent_node("Achievement: launched platform migration", "active_priorities", brief="Major outcome"),
+    )
+    server = CortexMCPServer(service=MemoryService(store_dir=store_dir, backend=backend))
+    _initialize(server)
+
+    compile_payload = _tool_call(
+        server,
+        tool="agent_compile",
+        arguments={"mind_id": "personal", "output_format": "cv", "output_dir": str(tmp_path / "output")},
+        request_id=120,
+    )["result"]["structuredContent"]
+    dispatch_payload = _tool_call(
+        server,
+        tool="agent_dispatch",
+        arguments={
+            "event": "MANUAL_TRIGGER",
+            "payload": {
+                "mind_id": "personal",
+                "audience_id": "team",
+                "output_format": "summary",
+            },
+            "output_dir": str(tmp_path / "dispatch-output"),
+        },
+        request_id=121,
+    )["result"]["structuredContent"]
+    schedule_payload = _tool_call(
+        server,
+        tool="agent_schedule",
+        arguments={
+            "mind_id": "personal",
+            "audience_id": "team",
+            "cron_expression": "0 9 * * 1",
+            "output_format": "brief",
+        },
+        request_id=122,
+    )["result"]["structuredContent"]
+    status_payload = _tool_call(server, tool="agent_status", request_id=123)["result"]["structuredContent"]
+
+    assert compile_payload["status"] == "ok"
+    assert compile_payload["rule"]["output_format"] == "cv"
+    assert len(compile_payload["artifacts"]) == 2
+    assert dispatch_payload["status"] == "ok"
+    assert dispatch_payload["rule"]["output_format"] == "summary"
+    assert dispatch_payload["artifacts"]
+    assert schedule_payload["schedule"]["mind_id"] == "personal"
+    assert status_payload["scheduled_count"] == 1
+
+
+def test_mcp_agent_monitor_run_and_review_conflicts(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "career",
+        _agent_node("Engineer", "professional_context", source="resume-a"),
+        _agent_node("Designer", "professional_context", source="resume-b", timestamp="2026-04-09T12:00:00Z"),
+    )
+    server = CortexMCPServer(service=MemoryService(store_dir=store_dir, backend=backend))
+    _initialize(server)
+
+    monitor_payload = _tool_call(
+        server,
+        tool="agent_monitor_run",
+        arguments={"mind_id": "career"},
+        request_id=124,
+    )["result"]["structuredContent"]
+    conflict_id = monitor_payload["proposals"][0]["conflict_id"]
+    winning_value = monitor_payload["proposals"][0]["candidates"][0]["value"]
+    review_payload = _tool_call(
+        server,
+        tool="agent_review_conflicts",
+        arguments={"decisions": [{"conflict_id": conflict_id, "candidate_rank": 1}]},
+        request_id=125,
+    )["result"]["structuredContent"]
+    status_payload = _tool_call(server, tool="agent_status", request_id=126)["result"]["structuredContent"]
+    graph_payload = load_mind_core_graph(store_dir, "career")
+    labels = sorted(node.label for node in graph_payload["graph"].nodes.values() if "professional_context" in node.tags)
+
+    assert monitor_payload["queued"] == 1
+    assert review_payload["resolved"] == 1
+    assert status_payload["pending_count"] == 0
+    assert labels == [winning_value]
+
+
+def test_mcp_agent_tools_respect_namespace_filters(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(store_dir, "alpha", _agent_node("Alpha", "professional_context"), namespace="team-a")
+    _seed_mind(store_dir, "beta", _agent_node("Beta", "professional_context"), namespace="team-b")
+    service = MemoryService(store_dir=store_dir, backend=backend)
+    service.agent_schedule(
+        mind_id="alpha",
+        audience_id="team",
+        cron_expression="0 9 * * 1",
+        output_format="brief",
+        namespace="team-a",
+    )
+    service.agent_schedule(
+        mind_id="beta",
+        audience_id="team",
+        cron_expression="0 10 * * 1",
+        output_format="brief",
+        namespace="team-b",
+    )
+
+    server = CortexMCPServer(service=service)
+    _initialize(server)
+
+    status_payload = _tool_call(server, tool="agent_status", arguments={"namespace": "team-a"}, request_id=127)[
+        "result"
+    ]["structuredContent"]
+    denied_compile = _tool_call(
+        server,
+        tool="agent_compile",
+        arguments={"mind_id": "beta", "output_format": "summary", "namespace": "team-a"},
+        request_id=128,
+    )["result"]
+
+    assert status_payload["scheduled_count"] == 1
+    assert status_payload["scheduled_dispatches"][0]["mind_id"] == "alpha"
+    assert denied_compile["isError"] is True
+    assert "outside namespace 'team-a'" in denied_compile["structuredContent"]["error"]
 
 
 def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch):

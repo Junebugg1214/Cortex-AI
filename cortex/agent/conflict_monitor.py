@@ -786,6 +786,87 @@ def review_pending_conflicts(
     }
 
 
+def review_pending_conflicts_with_decisions(
+    store_dir: Path,
+    decisions: list[dict[str, Any]],
+    *,
+    log_dir: Path = DEFAULT_LOG_DIR,
+    allowed_conflict_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Apply explicit review decisions to queued conflicts without prompting."""
+    pending = load_pending_conflicts(store_dir)
+    if not pending:
+        return {"status": "ok", "reviewed": 0, "resolved": 0, "remaining": 0}
+
+    allowed = set(allowed_conflict_ids or ())
+    target_pending = [proposal for proposal in pending if not allowed_conflict_ids or proposal.conflict_id in allowed]
+    if not target_pending:
+        return {"status": "ok", "reviewed": 0, "resolved": 0, "remaining": len(pending)}
+
+    decision_map: dict[str, dict[str, Any]] = {}
+    for item in decisions:
+        if not isinstance(item, dict):
+            continue
+        conflict_id = str(item.get("conflict_id", "")).strip()
+        if not conflict_id:
+            continue
+        if allowed_conflict_ids and conflict_id not in allowed:
+            continue
+        decision_map[conflict_id] = dict(item)
+
+    target_ids = {proposal.conflict_id for proposal in target_pending}
+    target_by_scope: dict[str, list[ConflictProposal]] = {}
+    for proposal in target_pending:
+        target_by_scope.setdefault(proposal.graph_scope, []).append(proposal)
+
+    resolved_ids: set[str] = set()
+    resolved_count = 0
+    for proposals in target_by_scope.values():
+        graph_context = _load_graph_context(store_dir, requested_mind_id=proposals[0].mind_id)
+        changed = False
+        for proposal in proposals:
+            decision = decision_map.get(proposal.conflict_id)
+            if not decision or bool(decision.get("skip", False)):
+                continue
+            try:
+                candidate_rank = int(decision.get("candidate_rank", 0))
+            except (TypeError, ValueError):
+                continue
+            try:
+                selected = next(candidate for candidate in proposal.candidates if candidate.rank == candidate_rank)
+            except StopIteration:
+                continue
+            _apply_candidate(graph_context.graph, proposal, selected)
+            proposal.resolution_outcome = "user_resolved"
+            proposal.auto_resolved = False
+            changed = True
+            resolved_count += 1
+            resolved_ids.add(proposal.conflict_id)
+            _write_log(
+                log_dir,
+                kind="resolution",
+                conflict_id=proposal.conflict_id,
+                outcome="user_resolved",
+                payload=proposal.to_dict(),
+            )
+        if changed:
+            graph_context.persist(
+                graph_context.graph,
+                f"Resolve {resolved_count} queued agent conflict(s) for {graph_context.graph_scope}",
+            )
+
+    remaining = [proposal for proposal in pending if proposal.conflict_id not in resolved_ids]
+    _save_pending_conflicts(store_dir, remaining)
+    remaining_target = [proposal for proposal in remaining if proposal.conflict_id in target_ids]
+    return {
+        "status": "ok",
+        "reviewed": len(target_pending),
+        "resolved": resolved_count,
+        "remaining": len(remaining_target),
+        "remaining_total": len(remaining),
+    }
+
+
 class ConflictMonitor:
     """Background loop that detects and queues graph conflicts."""
 
@@ -1008,4 +1089,5 @@ __all__ = [
     "load_pending_conflicts",
     "professional_history_flags",
     "review_pending_conflicts",
+    "review_pending_conflicts_with_decisions",
 ]

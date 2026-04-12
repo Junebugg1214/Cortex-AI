@@ -220,6 +220,8 @@ def dispatch_api_request(
                 status, response = 200, service.prune_audit(limit=_query_int(query, "limit", 50))
             elif parsed.path == "/v1/openapi.json":
                 status, response = 200, service.openapi(server_url=external_base_url)
+            elif parsed.path == "/v1/agent/status":
+                status, response = 200, service.agent_status(namespace=namespace)
             elif parsed.path == "/v1/nodes":
                 status, response = (
                     200,
@@ -294,6 +296,16 @@ def dispatch_api_request(
         if method == "POST":
             if parsed.path == "/v1/commit":
                 status, response = 201, service.commit(**payload)
+            elif parsed.path == "/v1/agent/monitor/run":
+                status, response = 200, service.agent_monitor_run(**payload)
+            elif parsed.path == "/v1/agent/compile":
+                status, response = 200, service.agent_compile(**payload)
+            elif parsed.path == "/v1/agent/dispatch":
+                status, response = 200, service.agent_dispatch(**payload)
+            elif parsed.path == "/v1/agent/schedule":
+                status, response = 200, service.agent_schedule(**payload)
+            elif parsed.path == "/v1/agent/conflicts/review":
+                status, response = 200, service.agent_review_conflicts(**payload)
             elif parsed.path == "/v1/nodes/upsert":
                 status, response = 200, service.upsert_node(**payload)
             elif parsed.path == "/v1/nodes/delete":
