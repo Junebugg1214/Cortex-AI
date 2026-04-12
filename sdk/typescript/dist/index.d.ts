@@ -55,6 +55,48 @@ export interface IndexRebuildParams {
   allRefs?: boolean;
 }
 
+export interface AgentMonitorRunParams {
+  mindId?: string;
+  autoResolveThreshold?: number;
+  logDir?: string;
+}
+
+export interface AgentCompileParams {
+  mindId: string;
+  audienceId?: string;
+  outputFormat?: string;
+  delivery?: string;
+  webhookUrl?: string;
+  outputDir?: string;
+}
+
+export interface AgentDispatchParams {
+  event: string;
+  payload: JsonObject;
+  outputDir?: string;
+}
+
+export interface AgentScheduleParams {
+  mindId: string;
+  audienceId: string;
+  cronExpression: string;
+  outputFormat: string;
+  delivery?: string;
+  webhookUrl?: string;
+}
+
+export interface AgentConflictReviewDecision {
+  conflict_id: string;
+  candidate_rank?: number;
+  action?: string;
+  note?: string;
+}
+
+export interface AgentReviewConflictsParams {
+  decisions?: AgentConflictReviewDecision[];
+  logDir?: string;
+}
+
 export interface LookupNodesParams {
   nodeId?: string;
   canonicalId?: string;
@@ -398,6 +440,12 @@ export class CortexClient {
   meta(): Promise<JsonObject>;
   metrics(): Promise<JsonObject>;
   openapi(): Promise<JsonObject>;
+  agentStatus(): Promise<JsonObject>;
+  agentMonitorRun(params?: AgentMonitorRunParams): Promise<JsonObject>;
+  agentCompile(params: AgentCompileParams): Promise<JsonObject>;
+  agentDispatch(params: AgentDispatchParams): Promise<JsonObject>;
+  agentSchedule(params: AgentScheduleParams): Promise<JsonObject>;
+  agentReviewConflicts(params?: AgentReviewConflictsParams): Promise<JsonObject>;
   indexStatus(params?: IndexStatusParams): Promise<JsonObject>;
   indexRebuild(params?: IndexRebuildParams): Promise<JsonObject>;
   pruneStatus(params?: PruneStatusParams): Promise<JsonObject>;

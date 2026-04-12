@@ -102,6 +102,111 @@ namespaces = ["*"]
 Namespace-scoped keys can only act on namespaces they own. If a key is pinned to exactly one namespace, Cortex will
 use that namespace by default when the request does not provide one.
 
+## Agent Runtime Surface
+
+The agent runtime is exposed consistently across REST, Python, TypeScript, and MCP:
+
+- `GET /v1/agent/status`
+- `POST /v1/agent/monitor/run`
+- `POST /v1/agent/compile`
+- `POST /v1/agent/dispatch`
+- `POST /v1/agent/schedule`
+- `POST /v1/agent/conflicts/review`
+
+### REST Example
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer replace-me" \
+  -H "X-Cortex-Namespace: team" \
+  http://127.0.0.1:8766/v1/agent/status
+
+curl -sS \
+  -X POST \
+  -H "Authorization: Bearer replace-me" \
+  -H "X-Cortex-Namespace: team" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:8766/v1/agent/compile \
+  -d '{
+    "mind_id": "personal",
+    "audience_id": "recruiter",
+    "output_format": "cv",
+    "output_dir": "./output"
+  }'
+```
+
+### Python Client Example
+
+```python
+from cortex.client import CortexClient
+
+client = CortexClient(
+    "http://127.0.0.1:8766",
+    api_key="replace-me",
+    namespace="team",
+)
+
+status = client.agent_status()
+result = client.agent_compile(
+    mind_id="personal",
+    audience_id="recruiter",
+    output_format="cv",
+    output_dir="./output",
+)
+
+print(status["pending_count"], result["rule"]["output_format"])
+```
+
+### TypeScript Client Example
+
+```ts
+import { CortexClient } from "@cortex-ai/sdk";
+
+const client = new CortexClient("http://127.0.0.1:8766", {
+  apiKey: "replace-me",
+  namespace: "team"
+});
+
+const status = await client.agentStatus();
+const result = await client.agentCompile({
+  mindId: "personal",
+  audienceId: "recruiter",
+  outputFormat: "cv",
+  outputDir: "./output"
+});
+
+console.log(status.pending_count, result.rule.output_format);
+```
+
+### Review Queued Conflicts
+
+```bash
+curl -sS \
+  -X POST \
+  -H "Authorization: Bearer replace-me" \
+  -H "X-Cortex-Namespace: team" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:8766/v1/agent/conflicts/review \
+  -d '{
+    "decisions": [
+      { "conflict_id": "replace-me", "candidate_rank": 1 }
+    ]
+  }'
+```
+
+```python
+monitor = client.agent_monitor_run(mind_id="career")
+if monitor["proposals"]:
+    client.agent_review_conflicts(
+        decisions=[
+            {
+                "conflict_id": monitor["proposals"][0]["conflict_id"],
+                "candidate_rank": 1,
+            }
+        ]
+    )
+```
+
 ## Startup Diagnostics
 
 Use `--check` before you start a process for real:

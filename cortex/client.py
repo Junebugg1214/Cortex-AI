@@ -98,6 +98,104 @@ class CortexClient:
     def openapi(self) -> dict[str, Any]:
         return self._request("GET", "/v1/openapi.json")
 
+    def agent_status(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/agent/status")
+
+    def agent_monitor_run(
+        self,
+        *,
+        mind_id: str = "",
+        auto_resolve_threshold: float = 0.85,
+        log_dir: str = "",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/agent/monitor/run",
+            payload={
+                "mind_id": mind_id,
+                "auto_resolve_threshold": auto_resolve_threshold,
+                "log_dir": log_dir,
+            },
+        )
+
+    def agent_compile(
+        self,
+        *,
+        mind_id: str,
+        audience_id: str = "",
+        output_format: str = "brief",
+        delivery: str = "local_file",
+        webhook_url: str = "",
+        output_dir: str = "",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/agent/compile",
+            payload={
+                "mind_id": mind_id,
+                "audience_id": audience_id,
+                "output_format": output_format,
+                "delivery": delivery,
+                "webhook_url": webhook_url,
+                "output_dir": output_dir,
+            },
+        )
+
+    def agent_dispatch(
+        self,
+        *,
+        event: str,
+        payload: dict[str, Any],
+        output_dir: str = "",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/agent/dispatch",
+            payload={
+                "event": event,
+                "payload": payload,
+                "output_dir": output_dir,
+            },
+        )
+
+    def agent_schedule(
+        self,
+        *,
+        mind_id: str,
+        audience_id: str,
+        cron_expression: str,
+        output_format: str,
+        delivery: str = "local_file",
+        webhook_url: str = "",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/agent/schedule",
+            payload={
+                "mind_id": mind_id,
+                "audience_id": audience_id,
+                "cron_expression": cron_expression,
+                "output_format": output_format,
+                "delivery": delivery,
+                "webhook_url": webhook_url,
+            },
+        )
+
+    def agent_review_conflicts(
+        self,
+        *,
+        decisions: list[dict[str, Any]] | None = None,
+        log_dir: str = "",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/agent/conflicts/review",
+            payload={
+                "decisions": decisions or [],
+                "log_dir": log_dir,
+            },
+        )
+
     def index_status(self, *, ref: str = "HEAD") -> dict[str, Any]:
         return self._request("GET", "/v1/index/status", params={"ref": ref})
 

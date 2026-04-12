@@ -195,6 +195,28 @@ Think of Cortex as Git-style state management for the part of AI work you keep r
 → Import a Brainpack bundle into the local store.
 → Most useful flag: `--store-dir ~/.cortex` when you are importing into a different Cortex store.
 
+### Agent automation
+
+`$ cortex agent monitor --interval 300`
+→ Run the autonomous conflict monitor loop on a polling interval so Cortex keeps checking for contradictory facts in the background.
+→ Most useful flag: `--once` when you want one detection cycle for CI, cron, or smoke checks instead of a long-running loop.
+
+`$ cortex agent compile --mind personal --output cv`
+→ Compile an audience-specific artifact from a Mind without waiting for an external prompt.
+→ Most useful flag: `--audience recruiter` when the same Mind needs a different disclosure slice or delivery tone.
+
+`$ cortex agent dispatch --event PROJECT_STAGE_CHANGED --payload '{"project_id":"alpha","old_stage":"build","new_stage":"launch","mind_id":"project_alpha"}'`
+→ Inject one runtime event into the dispatcher so Cortex applies the matching compilation rule immediately.
+→ Most useful flag: `--output-dir ./output` when you want artifacts written to a specific directory instead of the default runtime location.
+
+`$ cortex agent schedule --mind personal --audience attorney --cron "0 9 * * 1" --output brief`
+→ Register a recurring dispatch that compiles the same audience slice on a schedule.
+→ Most useful flag: `--delivery webhook` when the result should be pushed to another service instead of written locally.
+
+`$ cortex agent status`
+→ Show active monitor state, queued conflicts awaiting review, and registered dispatch schedules.
+→ Most useful flag: `--format json` when another runtime or dashboard needs the state programmatically.
+
 ### Inspection
 
 `$ cortex doctor`

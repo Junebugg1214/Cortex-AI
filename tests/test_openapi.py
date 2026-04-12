@@ -133,3 +133,43 @@ def test_typescript_sdk_package_points_to_committed_dist_files():
     assert main_path.exists()
     assert types_path.exists()
     assert (package_path.parent / "README.md").exists()
+
+
+def test_typescript_sdk_dist_includes_agent_runtime_surface():
+    js_artifact = Path("sdk/typescript/dist/index.js").read_text(encoding="utf-8")
+    types_artifact = Path("sdk/typescript/dist/index.d.ts").read_text(encoding="utf-8")
+
+    assert "agentStatus()" in js_artifact
+    assert 'agentMonitorRun({ mindId = "", autoResolveThreshold = 0.85, logDir = "" } = {})' in js_artifact
+    assert "agentCompile({" in js_artifact
+    assert 'agentDispatch({ event, payload, outputDir = "" })' in js_artifact
+    assert "agentSchedule({" in js_artifact
+    assert 'agentReviewConflicts({ decisions = [], logDir = "" } = {})' in js_artifact
+
+    assert "export interface AgentMonitorRunParams {" in types_artifact
+    assert "export interface AgentCompileParams {" in types_artifact
+    assert "export interface AgentDispatchParams {" in types_artifact
+    assert "export interface AgentScheduleParams {" in types_artifact
+    assert "export interface AgentReviewConflictsParams {" in types_artifact
+    assert "agentStatus(): Promise<JsonObject>;" in types_artifact
+    assert "agentCompile(params: AgentCompileParams): Promise<JsonObject>;" in types_artifact
+    assert "agentReviewConflicts(params?: AgentReviewConflictsParams): Promise<JsonObject>;" in types_artifact
+
+
+def test_docs_reference_agent_runtime_surface():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    sdk_readme = Path("sdk/typescript/README.md").read_text(encoding="utf-8")
+    self_hosting = Path("docs/SELF_HOSTING.md").read_text(encoding="utf-8")
+
+    assert "`$ cortex agent monitor --interval 300`" in readme
+    assert "`$ cortex agent compile --mind personal --output cv`" in readme
+    assert "`$ cortex agent status`" in readme
+
+    assert "client.agentStatus()" in sdk_readme
+    assert "client.agentCompile({" in sdk_readme
+    assert "client.agentReviewConflicts({" in sdk_readme
+
+    assert "GET /v1/agent/status" in self_hosting
+    assert "POST /v1/agent/conflicts/review" in self_hosting
+    assert "client.agent_status()" in self_hosting
+    assert "client.agentStatus()" in self_hosting
