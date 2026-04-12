@@ -27,10 +27,18 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert "/v1/index/rebuild" in spec["paths"]
     assert "/v1/prune/status" in spec["paths"]
     assert "/v1/prune" in spec["paths"]
+    assert "/v1/agent/status" in spec["paths"]
+    assert "/v1/agent/monitor/run" in spec["paths"]
+    assert "/v1/agent/compile" in spec["paths"]
+    assert "/v1/agent/dispatch" in spec["paths"]
+    assert "/v1/agent/schedule" in spec["paths"]
+    assert "/v1/agent/conflicts/review" in spec["paths"]
     assert "/v1/query/search" in spec["paths"]
     assert "/v1/conflicts/detect" in spec["paths"]
     assert "/v1/merge-preview" in spec["paths"]
     assert spec["paths"]["/v1/nodes/upsert"]["post"]["operationId"] == "upsertNode"
+    assert spec["paths"]["/v1/agent/status"]["get"]["operationId"] == "agentStatus"
+    assert spec["paths"]["/v1/agent/compile"]["post"]["operationId"] == "agentCompile"
     assert spec["paths"]["/v1/memory/batch"]["post"]["operationId"] == "memoryBatch"
     assert spec["paths"]["/v1/query/search"]["post"]["operationId"] == "querySearch"
     assert spec["paths"]["/v1/index/rebuild"]["post"]["operationId"] == "indexRebuild"

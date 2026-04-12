@@ -148,6 +148,89 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                     },
                 }
             },
+            "/v1/agent/status": {
+                "get": {
+                    "operationId": "agentStatus",
+                    "summary": "Read agent monitor, pending conflict, and schedule state",
+                    "tags": ["agent"],
+                    "responses": {
+                        "200": {
+                            "description": "Agent runtime status",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/agent/monitor/run": {
+                "post": {
+                    "operationId": "agentMonitorRun",
+                    "summary": "Run one autonomous conflict monitor cycle",
+                    "tags": ["agent"],
+                    "requestBody": _request_body("#/components/schemas/AgentMonitorRunRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Conflict monitor cycle result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/agent/compile": {
+                "post": {
+                    "operationId": "agentCompile",
+                    "summary": "Compile one audience-specific agent artifact",
+                    "tags": ["agent"],
+                    "requestBody": _request_body("#/components/schemas/AgentCompileRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Compiled agent artifact",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/agent/dispatch": {
+                "post": {
+                    "operationId": "agentDispatch",
+                    "summary": "Dispatch one agent event through the context dispatcher",
+                    "tags": ["agent"],
+                    "requestBody": _request_body("#/components/schemas/AgentDispatchRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Dispatched agent event result",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/agent/schedule": {
+                "post": {
+                    "operationId": "agentSchedule",
+                    "summary": "Register a recurring agent dispatch schedule",
+                    "tags": ["agent"],
+                    "requestBody": _request_body("#/components/schemas/AgentScheduleRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Registered agent schedule",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
+            "/v1/agent/conflicts/review": {
+                "post": {
+                    "operationId": "agentReviewConflicts",
+                    "summary": "Apply explicit resolution choices to queued agent conflicts",
+                    "tags": ["agent"],
+                    "requestBody": _request_body("#/components/schemas/AgentConflictReviewRequest"),
+                    "responses": {
+                        "200": {
+                            "description": "Applied agent conflict review decisions",
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                        }
+                    },
+                }
+            },
             "/v1/nodes": {
                 "get": {
                     "operationId": "lookupNodes",
@@ -716,6 +799,85 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                 },
                 "GraphPayload": _json_object_schema(description="Cortex graph export payload."),
                 "EmptyRequest": {"type": "object", "additionalProperties": False},
+                "AgentMonitorRunRequest": {
+                    "type": "object",
+                    "properties": {
+                        "mind_id": {"type": "string", "default": ""},
+                        "auto_resolve_threshold": {"type": "number", "default": 0.85},
+                        "log_dir": {"type": "string", "default": ""},
+                    },
+                    "additionalProperties": False,
+                },
+                "AgentCompileRequest": {
+                    "type": "object",
+                    "properties": {
+                        "mind_id": {"type": "string"},
+                        "audience_id": {"type": "string", "default": ""},
+                        "output_format": {
+                            "type": "string",
+                            "enum": ["pack", "brief", "cv", "onboarding_doc", "summary"],
+                        },
+                        "delivery": {"type": "string", "enum": ["local_file", "rest_webhook", "stdout"]},
+                        "webhook_url": {"type": "string", "default": ""},
+                        "output_dir": {"type": "string", "default": ""},
+                    },
+                    "required": ["mind_id", "output_format"],
+                    "additionalProperties": False,
+                },
+                "AgentDispatchRequest": {
+                    "type": "object",
+                    "properties": {
+                        "event": {
+                            "type": "string",
+                            "enum": [
+                                "PROJECT_STAGE_CHANGED",
+                                "SCHEDULED_REVIEW",
+                                "FACT_THRESHOLD_REACHED",
+                                "MANUAL_TRIGGER",
+                            ],
+                        },
+                        "payload": _json_object_schema(description="Agent event payload."),
+                        "output_dir": {"type": "string", "default": ""},
+                    },
+                    "required": ["event", "payload"],
+                    "additionalProperties": False,
+                },
+                "AgentScheduleRequest": {
+                    "type": "object",
+                    "properties": {
+                        "mind_id": {"type": "string"},
+                        "audience_id": {"type": "string"},
+                        "cron_expression": {"type": "string"},
+                        "output_format": {
+                            "type": "string",
+                            "enum": ["pack", "brief", "cv", "onboarding_doc", "summary"],
+                        },
+                        "delivery": {"type": "string", "enum": ["local_file", "rest_webhook", "stdout"]},
+                        "webhook_url": {"type": "string", "default": ""},
+                    },
+                    "required": ["mind_id", "audience_id", "cron_expression", "output_format"],
+                    "additionalProperties": False,
+                },
+                "AgentConflictReviewRequest": {
+                    "type": "object",
+                    "properties": {
+                        "decisions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "conflict_id": {"type": "string"},
+                                    "candidate_rank": {"type": "integer"},
+                                    "skip": {"type": "boolean", "default": False},
+                                },
+                                "required": ["conflict_id"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "log_dir": {"type": "string", "default": ""},
+                    },
+                    "additionalProperties": False,
+                },
                 "IndexRebuildRequest": {
                     "type": "object",
                     "properties": {

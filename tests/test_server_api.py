@@ -13,6 +13,7 @@ from cortex.client import CortexClient
 from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.http_hardening import HTTPRequestPolicy
+from cortex.minds import _persist_mind_core_graph, init_mind, load_mind_core_graph
 from cortex.server import dispatch_api_request, make_api_handler
 from cortex.service import MemoryService
 from cortex.storage import build_sqlite_backend
@@ -23,6 +24,45 @@ def _graph_with_node(node: Node) -> CortexGraph:
     graph = CortexGraph()
     graph.add_node(node)
     return graph
+
+
+def _graph_with(*nodes: Node) -> CortexGraph:
+    graph = CortexGraph()
+    for node in nodes:
+        graph.add_node(node)
+    return graph
+
+
+def _agent_node(
+    label: str,
+    tags: str | list[str],
+    *,
+    confidence: float = 0.9,
+    source: str = "resume",
+    timestamp: str = "2026-04-10T12:00:00Z",
+    **kwargs,
+) -> Node:
+    tag_list = [tags] if isinstance(tags, str) else list(tags)
+    payload = {
+        "id": kwargs.pop("id", f"{tag_list[0]}:{label}".replace(" ", "_").lower()),
+        "label": label,
+        "tags": tag_list,
+        "confidence": confidence,
+        "provenance": [{"source": source, "method": "extract", "timestamp": timestamp}],
+    }
+    payload.update(kwargs)
+    return Node(**payload)
+
+
+def _seed_mind(store_dir, mind_id: str, *nodes: Node, namespace: str | None = None) -> None:
+    init_mind(store_dir, mind_id, owner="marc", namespace=namespace)
+    _persist_mind_core_graph(
+        store_dir,
+        mind_id,
+        _graph_with(*nodes),
+        message=f"seed {mind_id}",
+        source="tests.server.agent",
+    )
 
 
 def _seed_merge_conflict(client: CortexClient) -> None:
@@ -525,6 +565,164 @@ def test_cortex_api_scoped_keys_enforce_scope_and_namespace(tmp_path, monkeypatc
     wrong_namespace = CortexClient("http://cortex.local", api_key="reader-token", namespace="main")
     with pytest.raises(RuntimeError, match="outside API key 'reader' namespace scope"):
         wrong_namespace.query_search(query="atlas-team", ref="team/atlas", limit=5)
+
+
+def test_cortex_api_agent_compile_dispatch_schedule_and_status_surface(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "personal",
+        _agent_node("Staff Engineer", "professional_context", brief="Current title", status="active"),
+        _agent_node("Python", "technical_expertise", brief="Primary language"),
+        _agent_node(
+            "Achievement: launched platform migration",
+            "active_priorities",
+            brief="Major delivery outcome",
+        ),
+    )
+    service = MemoryService(store_dir=store_dir, backend=backend)
+
+    status_code, status_payload = dispatch_api_request(service, method="GET", path="/v1/agent/status")
+    compile_code, compile_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/compile",
+        payload={
+            "mind_id": "personal",
+            "output_format": "cv",
+            "output_dir": str(tmp_path / "output"),
+        },
+    )
+    dispatch_code, dispatch_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/dispatch",
+        payload={
+            "event": "MANUAL_TRIGGER",
+            "payload": {
+                "mind_id": "personal",
+                "audience_id": "team",
+                "output_format": "summary",
+            },
+            "output_dir": str(tmp_path / "output-dispatch"),
+        },
+    )
+    schedule_code, schedule_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/schedule",
+        payload={
+            "mind_id": "personal",
+            "audience_id": "team",
+            "cron_expression": "0 9 * * 1",
+            "output_format": "brief",
+        },
+    )
+    updated_status_code, updated_status_payload = dispatch_api_request(service, method="GET", path="/v1/agent/status")
+
+    assert status_code == 200
+    assert status_payload["pending_count"] == 0
+    assert compile_code == 200
+    assert compile_payload["rule"]["output_format"] == "cv"
+    assert len(compile_payload["artifacts"]) == 2
+    assert dispatch_code == 200
+    assert dispatch_payload["rule"]["output_format"] == "summary"
+    assert dispatch_payload["artifacts"]
+    assert schedule_code == 200
+    assert schedule_payload["schedule"]["mind_id"] == "personal"
+    assert updated_status_code == 200
+    assert updated_status_payload["scheduled_count"] == 1
+
+
+def test_cortex_api_agent_monitor_run_and_review_surface(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(
+        store_dir,
+        "career",
+        _agent_node("Engineer", "professional_context", source="resume-a"),
+        _agent_node("Designer", "professional_context", source="resume-b", timestamp="2026-04-09T12:00:00Z"),
+    )
+    service = MemoryService(store_dir=store_dir, backend=backend)
+
+    monitor_code, monitor_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/monitor/run",
+        payload={"mind_id": "career"},
+    )
+    conflict_id = monitor_payload["proposals"][0]["conflict_id"]
+    winning_value = monitor_payload["proposals"][0]["candidates"][0]["value"]
+
+    review_code, review_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/conflicts/review",
+        payload={"decisions": [{"conflict_id": conflict_id, "candidate_rank": 1}]},
+    )
+    status_code, status_payload = dispatch_api_request(service, method="GET", path="/v1/agent/status")
+    graph_payload = load_mind_core_graph(store_dir, "career")
+    labels = sorted(node.label for node in graph_payload["graph"].nodes.values() if "professional_context" in node.tags)
+
+    assert monitor_code == 200
+    assert monitor_payload["queued"] == 1
+    assert review_code == 200
+    assert review_payload["resolved"] == 1
+    assert status_code == 200
+    assert status_payload["pending_count"] == 0
+    assert labels == [winning_value]
+
+
+def test_cortex_api_agent_namespace_filters_status_and_blocks_cross_namespace(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    _seed_mind(store_dir, "alpha", _agent_node("Alpha", "professional_context"), namespace="team-a")
+    _seed_mind(store_dir, "beta", _agent_node("Beta", "professional_context"), namespace="team-b")
+    service = MemoryService(store_dir=store_dir, backend=backend)
+
+    dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/schedule",
+        payload={
+            "mind_id": "alpha",
+            "audience_id": "team",
+            "cron_expression": "0 9 * * 1",
+            "output_format": "brief",
+        },
+    )
+    dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/schedule",
+        payload={
+            "mind_id": "beta",
+            "audience_id": "team",
+            "cron_expression": "0 10 * * 1",
+            "output_format": "brief",
+        },
+    )
+
+    status_code, status_payload = dispatch_api_request(
+        service,
+        method="GET",
+        path="/v1/agent/status",
+        headers={"X-Cortex-Namespace": "team-a"},
+    )
+    compile_code, compile_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/agent/compile",
+        payload={"mind_id": "beta", "output_format": "summary"},
+        headers={"X-Cortex-Namespace": "team-a"},
+    )
+
+    assert status_code == 200
+    assert status_payload["scheduled_count"] == 1
+    assert status_payload["scheduled_dispatches"][0]["mind_id"] == "alpha"
+    assert compile_code == 403
+    assert "outside namespace 'team-a'" in compile_payload["error"]
 
 
 def test_cortex_api_claim_assert_retract_and_materialize(tmp_path, monkeypatch):

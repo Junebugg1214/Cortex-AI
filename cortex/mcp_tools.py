@@ -237,6 +237,118 @@ class MCPToolRegistry:
                 namespace_param=False,
             ),
             self._service_tool(
+                name="agent_status",
+                title="Agent Status",
+                description="Inspect active agent monitors, queued conflicts, and scheduled dispatches.",
+                method_name="agent_status",
+                input_schema=_object_schema({}),
+                read_only=True,
+            ),
+            self._service_tool(
+                name="agent_monitor_run",
+                title="Run Conflict Monitor",
+                description="Run one autonomous conflict monitor cycle against a Mind and queue or resolve detected conflicts.",
+                method_name="agent_monitor_run",
+                input_schema=_object_schema(
+                    {
+                        "mind_id": _string_property(
+                            "Optional Mind id to monitor. Required for namespace-scoped sessions."
+                        ),
+                        "auto_resolve_threshold": _number_property(
+                            "Confidence delta required for low-severity auto-resolution."
+                        ),
+                        "log_dir": _string_property("Optional log directory override for agent logs."),
+                    }
+                ),
+                read_only=False,
+            ),
+            self._service_tool(
+                name="agent_compile",
+                title="Compile Agent Artifact",
+                description="Compile one audience-specific artifact such as a brief, pack, summary, onboarding doc, or CV.",
+                method_name="agent_compile",
+                input_schema=_object_schema(
+                    {
+                        "mind_id": _string_property("Mind id."),
+                        "audience_id": _string_property(
+                            "Audience id such as recruiter, team, onboarding, or attorney."
+                        ),
+                        "output_format": _string_property(
+                            "Output format: pack, brief, cv, onboarding_doc, or summary."
+                        ),
+                        "delivery": _string_property("Delivery target: local_file, rest_webhook, or stdout."),
+                        "webhook_url": _string_property("Webhook URL used when delivery is rest_webhook."),
+                        "output_dir": _string_property("Optional output directory for local-file delivery."),
+                    },
+                    required=("mind_id", "output_format"),
+                ),
+                read_only=False,
+            ),
+            self._service_tool(
+                name="agent_dispatch",
+                title="Dispatch Agent Event",
+                description="Inject one typed agent event and return the compiled delivery result.",
+                method_name="agent_dispatch",
+                input_schema=_object_schema(
+                    {
+                        "event": _string_property(
+                            "Built-in event type: PROJECT_STAGE_CHANGED, SCHEDULED_REVIEW, FACT_THRESHOLD_REACHED, or MANUAL_TRIGGER."
+                        ),
+                        "payload": dict(_JSON_OBJECT_SCHEMA, description="Event payload object."),
+                        "output_dir": _string_property("Optional output directory for local-file delivery."),
+                    },
+                    required=("event", "payload"),
+                ),
+                read_only=False,
+            ),
+            self._service_tool(
+                name="agent_schedule",
+                title="Schedule Agent Dispatch",
+                description="Register a recurring agent dispatch schedule for one Mind and audience.",
+                method_name="agent_schedule",
+                input_schema=_object_schema(
+                    {
+                        "mind_id": _string_property("Mind id."),
+                        "audience_id": _string_property(
+                            "Audience id such as recruiter, team, onboarding, or attorney."
+                        ),
+                        "cron_expression": _string_property("Cron expression such as '0 9 * * 1'."),
+                        "output_format": _string_property(
+                            "Output format: pack, brief, cv, onboarding_doc, or summary."
+                        ),
+                        "delivery": _string_property("Delivery target: local_file, rest_webhook, or stdout."),
+                        "webhook_url": _string_property("Webhook URL used when delivery is rest_webhook."),
+                    },
+                    required=("mind_id", "audience_id", "cron_expression", "output_format"),
+                ),
+                read_only=False,
+            ),
+            self._service_tool(
+                name="agent_review_conflicts",
+                title="Review Agent Conflicts",
+                description="Apply explicit resolution choices to queued agent conflicts without using an interactive prompt.",
+                method_name="agent_review_conflicts",
+                input_schema=_object_schema(
+                    {
+                        "decisions": _array_property(
+                            "Conflict review decisions.",
+                            items={
+                                "type": "object",
+                                "properties": {
+                                    "conflict_id": _string_property("Queued conflict id."),
+                                    "candidate_rank": _integer_property("Candidate rank to apply."),
+                                    "skip": _boolean_property("When true, leave the conflict queued."),
+                                },
+                                "required": ["conflict_id"],
+                                "additionalProperties": False,
+                            },
+                        ),
+                        "log_dir": _string_property("Optional log directory override for agent logs."),
+                    }
+                ),
+                read_only=False,
+            ),
+            self._service_tool(
                 name="mind_list",
                 title="List Minds",
                 description="List local Cortex Minds stored inside the workspace.",

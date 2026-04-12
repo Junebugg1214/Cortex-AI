@@ -5,10 +5,46 @@
   "maturity": "beta",
   "storage_model": "user-owned",
   "release_channel": "self-hosted",
-  "path_count": 43,
-  "operation_count": 44,
-  "contract_hash": "8bd0f132a14feea05a7f4b1b342aaaab479e805ba0868d9720431f8447cb6563",
+  "path_count": 49,
+  "operation_count": 50,
+  "contract_hash": "82e9a4f238c965dfd36acd190e90489e69e95d052e9136f5158a91c6b8d5de7b",
   "operations": [
+    {
+      "method": "POST",
+      "path": "/v1/agent/compile",
+      "operation_id": "agentCompile",
+      "summary": "Compile one audience-specific agent artifact"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/conflicts/review",
+      "operation_id": "agentReviewConflicts",
+      "summary": "Apply explicit resolution choices to queued agent conflicts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/dispatch",
+      "operation_id": "agentDispatch",
+      "summary": "Dispatch one agent event through the context dispatcher"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/monitor/run",
+      "operation_id": "agentMonitorRun",
+      "summary": "Run one autonomous conflict monitor cycle"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agent/schedule",
+      "operation_id": "agentSchedule",
+      "summary": "Register a recurring agent dispatch schedule"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/agent/status",
+      "operation_id": "agentStatus",
+      "summary": "Read agent monitor, pending conflict, and schedule state"
+    },
     {
       "method": "POST",
       "path": "/v1/blame",
@@ -275,6 +311,7 @@
     }
   ],
   "tags": [
+    "agent",
     "audit",
     "branches",
     "conflicts",
