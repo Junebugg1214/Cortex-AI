@@ -106,3 +106,89 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
         choices=["rotated", "compromised", "expired"],
         help="Rotation reason (default: rotated)",
     )
+
+    agent = sub.add_parser("agent", help="Autonomous conflict monitoring and context dispatch")
+    agent_sub = agent.add_subparsers(dest="agent_subcommand")
+
+    agent_monitor = agent_sub.add_parser("monitor", help="Monitor the active fact graph for conflicts")
+    agent_monitor.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    agent_monitor.add_argument("--mind", help="Optional Mind id to monitor (default: default Mind or canonical graph)")
+    agent_monitor.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        help="Polling interval in seconds (default: 300)",
+    )
+    agent_monitor.add_argument(
+        "--auto-resolve-threshold",
+        type=float,
+        default=0.85,
+        help="Confidence delta required for low-severity auto-resolution (default: 0.85)",
+    )
+    agent_monitor.add_argument("--once", action="store_true", help="Run one monitor cycle and exit")
+    agent_monitor.add_argument(
+        "--no-prompt", action="store_true", help="Queue review-required conflicts without prompting"
+    )
+    agent_monitor.add_argument("--format", choices=["json", "text"], default="text")
+
+    agent_compile = agent_sub.add_parser("compile", help="Manually compile audience-specific context")
+    agent_compile.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    agent_compile.add_argument("--mind", required=True, help="Mind id to compile from")
+    agent_compile.add_argument("--audience", help="Audience id such as recruiter, attorney, team, or onboarding")
+    agent_compile.add_argument(
+        "--output",
+        required=True,
+        choices=["pack", "brief", "cv", "onboarding-doc", "summary"],
+        help="Compilation output format",
+    )
+    agent_compile.add_argument(
+        "--delivery",
+        default="local-file",
+        choices=["local-file", "webhook", "stdout"],
+        help="Where to deliver the compiled output (default: local-file)",
+    )
+    agent_compile.add_argument("--webhook-url", help="Webhook URL used when --delivery webhook")
+    agent_compile.add_argument("--output-dir", help="Local output directory (default: ./output)")
+    agent_compile.add_argument("--format", choices=["json", "text"], default="text")
+
+    agent_dispatch = agent_sub.add_parser("dispatch", help="Inject an agent event manually")
+    agent_dispatch.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    agent_dispatch.add_argument(
+        "--event",
+        required=True,
+        choices=[
+            "PROJECT_STAGE_CHANGED",
+            "SCHEDULED_REVIEW",
+            "FACT_THRESHOLD_REACHED",
+            "MANUAL_TRIGGER",
+        ],
+        help="Built-in event type",
+    )
+    agent_dispatch.add_argument("--payload", required=True, help="JSON payload for the event")
+    agent_dispatch.add_argument("--output-dir", help="Local output directory (default: ./output)")
+    agent_dispatch.add_argument("--format", choices=["json", "text"], default="text")
+
+    agent_schedule = agent_sub.add_parser("schedule", help="Register a recurring trigger")
+    agent_schedule.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    agent_schedule.add_argument("--mind", required=True, help="Mind id to compile from")
+    agent_schedule.add_argument("--audience", required=True, help="Audience id such as attorney or recruiter")
+    agent_schedule.add_argument("--cron", required=True, help='Cron expression such as "0 9 * * 1"')
+    agent_schedule.add_argument(
+        "--output",
+        required=True,
+        choices=["pack", "brief", "cv", "onboarding-doc", "summary"],
+        help="Compilation output format",
+    )
+    agent_schedule.add_argument(
+        "--delivery",
+        default="local-file",
+        choices=["local-file", "webhook", "stdout"],
+        help="Where to deliver the compiled output (default: local-file)",
+    )
+    agent_schedule.add_argument("--webhook-url", help="Webhook URL used when --delivery webhook")
+    agent_schedule.add_argument("--format", choices=["json", "text"], default="text")
+
+    agent_status = agent_sub.add_parser("status", help="Show monitor, conflict, and schedule status")
+    agent_status.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    agent_status.add_argument("--review", action="store_true", help="Prompt through queued conflict reviews")
+    agent_status.add_argument("--format", choices=["json", "text"], default="text")

@@ -62,6 +62,7 @@ KNOWN_SUBCOMMANDS = (
     "server",
     "mcp",
     "backup",
+    "agent",
     "openapi",
     "release-notes",
     "rotate",

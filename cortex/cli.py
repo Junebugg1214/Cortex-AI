@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from cortex import agent as agent_module
 from cortex import cli_entrypoint as cli_entrypoint_module
 from cortex import cli_extract_commands as cli_extract_commands_module
 from cortex import cli_graph_commands as cli_graph_commands_module
@@ -339,6 +340,15 @@ def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
     )
 
 
+def _agent_cli_context() -> agent_module.AgentCliContext:
+    return agent_module.AgentCliContext(
+        emit_result=_emit_result,
+        echo=_echo,
+        error=_error,
+        resolved_store_dir=_resolved_store_dir,
+    )
+
+
 def _run_extraction(extractor, data, fmt):
     return cli_extract_commands_module.run_extraction(extractor, data, fmt)
 
@@ -424,6 +434,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
             "ui": run_ui,
             "benchmark": run_benchmark,
             "backup": run_backup,
+            "agent": run_agent,
             "openapi": run_openapi,
             "release-notes": run_release_notes,
             "server": run_server,
@@ -900,6 +911,10 @@ def run_rotate(args):
 
 def run_completion(args):
     return cli_misc_commands_module.run_completion(args, ctx=_misc_cli_context())
+
+
+def run_agent(args):
+    return agent_module.run_agent(args, ctx=_agent_cli_context())
 
 
 # ---------------------------------------------------------------------------
