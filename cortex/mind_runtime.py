@@ -102,6 +102,7 @@ def ingest_detected_sources_into_mind(
         "created_at": _iso_now(),
         "status": "pending_review",
         "review_required": True,
+        "auto_branch_blocked": bool(detected_payload.get("resolution_conflicts")),
         "trust_level": "unverified",
         "source": "mind.ingest_detected",
         "message": message.strip() or f"Review detected local context for Mind `{manifest.id}`",
@@ -112,6 +113,7 @@ def ingest_detected_sources_into_mind(
         "graph_edge_count": len(detected_payload["graph"].edges),
         "selected_sources": selected_sources,
         "skipped_sources": detected_payload["skipped_sources"],
+        "resolution_conflicts": list(detected_payload.get("resolution_conflicts", [])),
         "detected_source_count": len(detected_payload["detected_sources"]),
         "proposed_source_count": len(selected_sources),
     }
@@ -127,9 +129,11 @@ def ingest_detected_sources_into_mind(
         "proposal_path": str(proposal_path),
         "selected_sources": selected_sources,
         "skipped_sources": detected_payload["skipped_sources"],
+        "resolution_conflicts": list(detected_payload.get("resolution_conflicts", [])),
         "detected_source_count": len(detected_payload["detected_sources"]),
         "proposed_source_count": len(selected_sources),
         "ingested_source_count": 0,
+        "auto_branch_blocked": bool(detected_payload.get("resolution_conflicts")),
         "graph_node_count": len(detected_payload["graph"].nodes),
         "graph_edge_count": len(detected_payload["graph"].edges),
     }
@@ -263,6 +267,7 @@ def _compose_graph_for_target(
     activation_target: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
+    from cortex.packs import compile_meta_path as pack_compile_meta_path
     from cortex.packs import graph_path as pack_graph_path
     from cortex.portable_runtime import canonical_target_name, merge_graphs
 
@@ -298,8 +303,17 @@ def _compose_graph_for_target(
             skipped_brainpacks.append(skipped_item)
             continue
         pack_graph = CortexGraph.from_v5_json(json.loads(pack_graph_file.read_text(encoding="utf-8")))
+        compile_meta = _read_json(
+            pack_compile_meta_path(store_dir, item["pack"]),
+            default={"compile_mode": "distribution", "provenance_available": False},
+        )
         composed_graph = merge_graphs(composed_graph, pack_graph)
-        realized_brainpacks.append(item)
+        realized = dict(item)
+        realized["compile_mode"] = str(compile_meta.get("compile_mode") or "distribution")
+        realized["provenance_available"] = bool(
+            compile_meta.get("provenance_available", realized["compile_mode"] == "full")
+        )
+        realized_brainpacks.append(realized)
 
     return {
         "manifest": manifest,
@@ -778,6 +792,9 @@ def list_mind_proposals(store_dir: Path, mind_id: str, *, namespace: str | None 
                     "created_at": str(payload.get("created_at") or ""),
                     "trust_level": str(payload.get("trust_level") or "unverified"),
                     "review_required": bool(payload.get("review_required", True)),
+                    "auto_branch_blocked": bool(payload.get("auto_branch_blocked", False)),
+                    "resolution_conflict_count": len(payload.get("resolution_conflicts", [])),
+                    "resolution_conflicts": [dict(item) for item in payload.get("resolution_conflicts", [])],
                     "proposed_source_count": int(payload.get("proposed_source_count") or 0),
                     "graph_node_count": int(payload.get("graph_node_count") or 0),
                     "graph_edge_count": int(payload.get("graph_edge_count") or 0),

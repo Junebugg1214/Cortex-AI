@@ -56,6 +56,8 @@ KNOWN_SUBCOMMANDS = (
     "doctor",
     "help",
     "mind",
+    "sources",
+    "audience",
     "ui",
     "pack",
     "benchmark",

@@ -283,14 +283,22 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     mg.add_argument("--choose", choices=["current", "incoming"], help="Conflict resolution choice")
     mg.add_argument("--commit-resolved", action="store_true", help="Commit the current resolved merge state")
     mg.add_argument("--abort", action="store_true", help="Abort the pending merge state")
+    mg.add_argument("--base", help="Base branch/ref when using `cortex merge preview|commit`")
+    mg.add_argument("--incoming", help="Incoming branch/ref when using `cortex merge preview|commit`")
     mg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
     mg.add_argument("--approve", action="store_true", help="Explicitly approve a gated merge")
 
     rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
     rvw.add_argument("input_file", nargs="?", help="Optional context JSON to review instead of a stored ref")
-    rvw.add_argument("--against", required=True, help="Baseline branch/ref/version to compare against")
+    rvw.add_argument("--against", help="Baseline branch/ref/version to compare against")
     rvw.add_argument("--ref", default="HEAD", help="Current branch/ref/version when no input file is provided")
     rvw.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
+    rvw.add_argument("--mind", help="Mind id when using `cortex review pending`")
+    rvw.add_argument(
+        "--show-conflicts",
+        action="store_true",
+        help="Include low-confidence extraction conflicts when using `cortex review pending`",
+    )
     rvw.add_argument(
         "--fail-on",
         default="blocking",

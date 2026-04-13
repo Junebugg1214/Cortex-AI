@@ -410,8 +410,46 @@ def _claim_event_from_record(record: object | None) -> "ClaimEvent | None":
 
 def run_timeline(args, *, ctx: GraphCliContext):
     """Generate a timeline from a context/graph file."""
+    if args.input_file == "review":
+        from cortex.minds import load_mind_core_graph
+        from cortex.temporal import TEMPORAL_REVIEW_QUEUE_KEY
+
+        if not args.mind:
+            return ctx.error("`cortex timeline review` requires --mind <id>.")
+        try:
+            payload = load_mind_core_graph(Path(args.store_dir), args.mind)
+        except (FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        queue = [
+            dict(item)
+            for item in payload["graph"].meta.get(TEMPORAL_REVIEW_QUEUE_KEY, [])
+            if float(item.get("temporal_confidence", 0.0) or 0.0) < float(args.min_confidence)
+        ]
+        result = {
+            "status": "ok",
+            "mind": args.mind,
+            "graph_ref": payload.get("graph_ref", ""),
+            "threshold": float(args.min_confidence),
+            "queue_count": len(queue),
+            "queued_facts": queue,
+        }
+        if ctx.emit_result(result, "json") == 0 and getattr(args, "json_output", False):
+            return 0
+        if not queue:
+            print(f"No pending temporal review items for Mind `{args.mind}` below {args.min_confidence:.2f}.")
+            return 0
+        print(f"Temporal review queue for Mind `{args.mind}` ({len(queue)} item(s))")
+        for item in queue:
+            print(
+                f"  - {item['label']} [{item.get('temporal_signal', 'unknown')}] "
+                f"confidence={float(item.get('temporal_confidence', 0.0)):.2f}"
+            )
+        return 0
+
     from cortex.timeline import TimelineGenerator
 
+    if not args.input_file:
+        return ctx.error("Provide a context file or use `cortex timeline review --mind <id>`.")
     input_path = Path(args.input_file)
     if not input_path.exists():
         print(f"File not found: {input_path}")

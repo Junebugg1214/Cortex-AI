@@ -15,12 +15,15 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
 from cortex.compat import upgrade_v4_to_v5
+from cortex.claims import stamp_graph_provenance
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.import_memory import NormalizedContext
 from cortex.portability import PORTABLE_DIRECT_TARGETS, PORTABLE_TARGET_ALIASES, PORTABLE_TARGET_ORDER
 from cortex.portable_graphs import merge_graphs
+from cortex.sources import SourceRegistry
+from cortex.temporal import TEMPORAL_REVIEW_QUEUE_KEY, apply_temporal_review_policy
 
 DEFAULT_DIRECT_TARGETS = ["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"]
 ALL_PORTABLE_TARGETS = list(PORTABLE_TARGET_ORDER)
@@ -968,7 +971,10 @@ def render_detected_source_text(target: str, path: Path, *, include_unmanaged_te
 def _extract_graph_from_text(text: str) -> CortexGraph:
     extractor = AggressiveExtractor()
     payload = extractor.process_plain_text(text)
-    return upgrade_v4_to_v5(payload)
+    graph = upgrade_v4_to_v5(payload)
+    if payload.get("resolution_conflicts"):
+        graph.meta["resolution_conflicts"] = [dict(item) for item in payload.get("resolution_conflicts", [])]
+    return graph
 
 
 def sanitize_detected_source(source: dict[str, Any]) -> dict[str, Any]:
@@ -1047,6 +1053,7 @@ def run_extraction_data(extractor: AggressiveExtractor, data: Any, fmt: str) -> 
 def extract_graph_from_detected_sources(
     *,
     targets: list[str],
+    store_dir: Path,
     detected_sources: list[dict[str, Any]],
     include_config_metadata: bool = False,
     include_unmanaged_text: bool = False,
@@ -1057,6 +1064,9 @@ def extract_graph_from_detected_sources(
     selected_sources: list[dict[str, Any]] = []
     skipped_sources: list[dict[str, Any]] = []
     merged = CortexGraph()
+    registry = SourceRegistry.for_store(store_dir)
+    resolution_conflicts: list[dict[str, Any]] = []
+    temporal_review_queue: list[dict[str, Any]] = []
 
     for source in detected_sources:
         if source["target"] not in selected_targets:
@@ -1074,6 +1084,7 @@ def extract_graph_from_detected_sources(
                 data, fmt = load_file(path)
                 payload = run_extraction_data(AggressiveExtractor(redactor=redactor), data, fmt)
                 source_graph = upgrade_v4_to_v5(payload)
+                resolution_conflicts.extend(list(payload.get("resolution_conflicts", [])))
                 source = {**source, "input_format": fmt}
             elif kind == "mcp_config":
                 metadata_text = _mcp_metadata_text(source["target"], source)
@@ -1100,21 +1111,51 @@ def extract_graph_from_detected_sources(
                     )
                 else:
                     source_graph = _extract_graph_from_text(rendered)
+            resolution_conflicts.extend(list(source_graph.meta.get("resolution_conflicts", [])))
         except Exception:
             skipped_sources.append({**source, "reason": "unreadable"})
             continue
 
+        registry_payload = registry.register_path(
+            path,
+            label=path.name,
+            metadata={"target": source["target"], "kind": kind},
+            force_reingest=True,
+        )
+        stamp_graph_provenance(
+            source_graph,
+            source=registry_payload["stable_id"],
+            stable_source_id=registry_payload["stable_id"],
+            source_label=path.name,
+            method="detected_source",
+            metadata={"target": source["target"], "kind": kind},
+        )
+        review_payload = apply_temporal_review_policy(source_graph)
+        temporal_review_queue.extend(list(review_payload.get("queue", [])))
+
         if not source_graph.nodes:
             skipped_sources.append({**source, "reason": "no_facts"})
             continue
-        selected_sources.append({**source, "fact_count": len(source_graph.nodes)})
+        selected_sources.append(
+            {
+                **source,
+                "fact_count": len(source_graph.nodes),
+                "source_id": registry_payload["stable_id"],
+                "source_labels": list(registry_payload["labels"]),
+            }
+        )
         merged = merge_graphs(merged, source_graph)
 
+    if resolution_conflicts:
+        merged.meta["resolution_conflicts"] = resolution_conflicts
+    if temporal_review_queue:
+        merged.meta[TEMPORAL_REVIEW_QUEUE_KEY] = temporal_review_queue
     return {
         "graph": merged,
         "selected_sources": selected_sources,
         "skipped_sources": skipped_sources,
         "detected_sources": detected_sources,
+        "resolution_conflicts": resolution_conflicts,
     }
 
 

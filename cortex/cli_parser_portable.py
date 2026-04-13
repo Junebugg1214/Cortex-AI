@@ -398,7 +398,19 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     pk_compile.add_argument("--incremental", action="store_true", help="Record this compile as incremental")
     pk_compile.add_argument("--suggest-questions", action="store_true", help="Suggest follow-up unknowns")
     pk_compile.add_argument("--max-summary-chars", type=int, default=1200, help="Summary length cap")
+    pk_compile.add_argument(
+        "--mode",
+        choices=["distribution", "full"],
+        default="distribution",
+        help="Compilation mode (default: distribution)",
+    )
+    pk_compile.add_argument("--output", help="Optional path for a standalone compiled artifact")
     pk_compile.add_argument("--format", choices=["json", "text"], default="text")
+
+    pk_inspect = pk_sub.add_parser("inspect", help="Inspect a compiled Brainpack artifact")
+    pk_inspect.add_argument("path", help="Path to a compiled Brainpack artifact JSON file")
+    pk_inspect.add_argument("--show-provenance", action="store_true", help="Show node-level provenance availability")
+    pk_inspect.add_argument("--format", choices=["json", "text"], default="text")
 
     pk_status = pk_sub.add_parser("status", help="Show Brainpack status")
     pk_status.add_argument("name", help="Brainpack name")
@@ -531,3 +543,73 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     pk_import.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     pk_import.add_argument("--as", dest="as_name", default="", help="Optional new pack name for the imported bundle")
     pk_import.add_argument("--format", choices=["json", "text"], default="text")
+
+    src = sub.add_parser("sources", help="Inspect stable source lineage and retract sources from a Mind")
+    src_sub = src.add_subparsers(dest="sources_subcommand")
+
+    src_list = src_sub.add_parser("list", help="List canonical sources referenced by a Mind")
+    src_list.add_argument("--mind", required=True, help="Mind id")
+    src_list.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    src_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    src_retract = src_sub.add_parser("retract", help="Retract a source from a Mind by stable id or label")
+    src_retract.add_argument("source_identifier", help="Stable source id or human label")
+    src_retract.add_argument("--mind", required=True, help="Mind id")
+    src_retract.add_argument("--dry-run", action="store_true", help="Preview the prune set without modifying the Mind")
+    src_retract.add_argument("--confirm", action="store_true", help="Apply the retraction to the Mind graph")
+    src_retract.add_argument(
+        "--keep-orphans",
+        action="store_true",
+        help="Keep touched nodes and edges even when no source-backed lineage remains",
+    )
+    src_retract.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    src_retract.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud = sub.add_parser("audience", help="Manage first-class audience policies for a Mind")
+    aud_sub = aud.add_subparsers(dest="audience_subcommand")
+
+    aud_add = aud_sub.add_parser("add", help="Add or replace an audience policy on a Mind")
+    aud_add.add_argument("--mind", required=True, help="Mind id")
+    aud_add.add_argument("--audience-id", required=True, help="Audience policy id")
+    aud_add.add_argument("--display-name", default="", help="Display name for the audience")
+    aud_add.add_argument("--allowed-node-types", default="", help="Comma-separated allowed node tags")
+    aud_add.add_argument("--blocked-node-types", default="", help="Comma-separated blocked node tags")
+    aud_add.add_argument("--confidence-min", type=float, default=0.0, help="Minimum allowed confidence")
+    aud_add.add_argument("--confidence-max", type=float, default=1.0, help="Maximum allowed confidence")
+    aud_add.add_argument("--redact-fields", default="", help="Comma-separated fields to redact")
+    aud_add.add_argument("--output-format", choices=["brief", "pack", "cv", "report", "raw"], required=True)
+    aud_add.add_argument("--delivery", choices=["file", "webhook", "stdout"], default="stdout")
+    aud_add.add_argument("--delivery-target", help="File path or webhook URL for delivery")
+    aud_add.add_argument("--include-provenance", choices=["true", "false"], default="false")
+    aud_add.add_argument("--include-contested", choices=["true", "false"], default="false")
+    aud_add.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_add.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud_list = aud_sub.add_parser("list", help="List audience policies configured on a Mind")
+    aud_list.add_argument("--mind", required=True, help="Mind id")
+    aud_list.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_list.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud_preview = aud_sub.add_parser("preview", help="Preview audience compilation without writing output")
+    aud_preview.add_argument("--mind", required=True, help="Mind id")
+    aud_preview.add_argument("--audience", required=True, help="Audience id")
+    aud_preview.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_preview.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud_compile = aud_sub.add_parser("compile", help="Compile a Mind for one configured audience")
+    aud_compile.add_argument("--mind", required=True, help="Mind id")
+    aud_compile.add_argument("--audience", required=True, help="Audience id")
+    aud_compile.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_compile.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud_log = aud_sub.add_parser("log", help="Show compilation history for one audience")
+    aud_log.add_argument("--mind", required=True, help="Mind id")
+    aud_log.add_argument("--audience", help="Optional audience id filter")
+    aud_log.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_log.add_argument("--format", choices=["json", "text"], default="text")
+
+    aud_template = aud_sub.add_parser("apply-template", help="Apply a built-in audience template to a Mind")
+    aud_template.add_argument("--mind", required=True, help="Mind id")
+    aud_template.add_argument("--template", choices=["executive", "attorney", "onboarding", "audit"], required=True)
+    aud_template.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
+    aud_template.add_argument("--format", choices=["json", "text"], default="text")

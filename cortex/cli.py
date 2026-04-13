@@ -430,6 +430,8 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
             "audit": run_audit,
             "doctor": run_doctor,
             "mind": run_mind,
+            "sources": run_sources,
+            "audience": run_audience,
             "pack": run_pack,
             "ui": run_ui,
             "benchmark": run_benchmark,
@@ -727,6 +729,14 @@ def run_pack(args):
 
 def run_mind(args):
     return cli_mind_pack_commands_module.run_mind(args, ctx=_mind_pack_cli_context())
+
+
+def run_sources(args):
+    return cli_mind_pack_commands_module.run_sources(args, ctx=_mind_pack_cli_context())
+
+
+def run_audience(args):
+    return cli_mind_pack_commands_module.run_audience(args, ctx=_mind_pack_cli_context())
 
 
 def run_init(args):

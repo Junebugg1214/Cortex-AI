@@ -142,9 +142,17 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
     st.add_argument("input_file", help="Path to context JSON (v4 or v5)")
 
     tl = sub.add_parser("timeline", help="Generate timeline from context/graph")
-    tl.add_argument("input_file", help="Path to context JSON (v4 or v5)")
+    tl.add_argument("input_file", nargs="?", help="Path to context JSON (v4 or v5), or `review` for queue inspection")
     tl.add_argument("--from", dest="from_date", help="Start date (ISO-8601)")
     tl.add_argument("--to", dest="to_date", help="End date (ISO-8601)")
+    tl.add_argument("--mind", help="Mind id when using `cortex timeline review`")
+    tl.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.5,
+        help="Temporal review threshold when using `cortex timeline review` (default: 0.5)",
+    )
+    tl.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     tl.add_argument(
         "--format", "-f", dest="output_format", choices=["md", "html"], default="md", help="Output format (default: md)"
     )

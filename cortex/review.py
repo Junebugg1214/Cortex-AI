@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from cortex.contradictions import ContradictionEngine
@@ -182,6 +183,10 @@ class ReviewResult:
         }
 
 
+class PendingReviewError(ValueError):
+    """Raised when Cortex cannot inspect pending review proposals."""
+
+
 def parse_failure_policies(spec: str) -> list[str]:
     parts = [item.strip() for item in spec.split(",") if item.strip()]
     policies = parts or ["blocking"]
@@ -247,3 +252,46 @@ def review_graphs(
         semantic_changes=semantic["changes"],
         semantic_summary=semantic["summary"],
     )
+
+
+def pending_candidate_branches(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    show_conflicts: bool = False,
+) -> dict[str, Any]:
+    """Return pending candidate-branch proposals for one Mind."""
+    from cortex.minds import list_mind_proposals
+
+    try:
+        payload = list_mind_proposals(store_dir, mind_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise PendingReviewError(str(exc)) from exc
+
+    proposals: list[dict[str, Any]] = []
+    for item in payload.get("proposals", []):
+        proposal = dict(item)
+        if not show_conflicts:
+            proposal.pop("resolution_conflicts", None)
+        proposals.append(proposal)
+    payload["proposals"] = proposals
+    return payload
+
+
+def merge_preview(result: Any) -> dict[str, Any]:
+    """Normalize merge preview data for CLI and API consumers."""
+    summary = dict(getattr(result, "summary", {}) or {})
+    return {
+        "base_version": getattr(result, "base_version", None),
+        "current_version": getattr(result, "current_version", None),
+        "other_version": getattr(result, "other_version", None),
+        "conflicts": [item.to_dict() for item in getattr(result, "conflicts", [])],
+        "summary": summary,
+        "alias_resolutions": list(summary.get("alias_resolutions", [])),
+        "novel_entities": list(summary.get("novel_entities", [])),
+        "direct_conflicts": [
+            item.to_dict()
+            for item in getattr(result, "conflicts", [])
+            if str(getattr(item, "conflict_class", "")).upper() == "DIRECT"
+        ],
+    }

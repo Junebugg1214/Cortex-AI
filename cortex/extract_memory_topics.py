@@ -102,6 +102,7 @@ class AggressiveExtractionTopicMixin:
             return
         if self._redactor:
             text = self._redactor.redact(text)
+        self.context.set_active_source_context(text, timestamp)
         self.all_user_text.append(text)
         self._extract_identity(text, timestamp)
         self._extract_roles(text, timestamp)
@@ -119,6 +120,7 @@ class AggressiveExtractionTopicMixin:
         self._extract_corrections(text, timestamp)
         self._extract_entities_generic(text, timestamp)
         self._extract_temporal(text, timestamp)
+        self.context.clear_active_source_context()
 
     def _extract_identity(self, text: str, timestamp: datetime | None = None):
         for pattern in IDENTITY_PATTERNS:
@@ -301,10 +303,24 @@ class AggressiveExtractionTopicMixin:
                                 timestamp=timestamp,
                                 relationship_type=rel_type,
                             )
+                            self.context._record_resolution_conflict(
+                                conflict_type="ambiguous_relationship_direction",
+                                topic=entity,
+                                category="relationships",
+                                source_span=match.group(0),
+                                confidence=0.45,
+                                metadata={
+                                    "candidate_directions": [
+                                        {"source": "self", "target": entity},
+                                        {"source": entity, "target": "self"},
+                                    ],
+                                    "relationship_type": rel_type,
+                                },
+                            )
 
         for pattern in RELATIONSHIP_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
-                entity = match.group(1).strip()
+                entity = re.sub(r"^(?:with|and)\s+", "", match.group(1).strip(), flags=re.IGNORECASE)
                 key = normalize_text(entity)
                 if 2 < len(entity) < 100 and key not in extracted:
                     extracted[key] = ""
@@ -317,10 +333,24 @@ class AggressiveExtractionTopicMixin:
                         timestamp=timestamp,
                         relationship_type="",
                     )
+                    self.context._record_resolution_conflict(
+                        conflict_type="ambiguous_relationship_direction",
+                        topic=entity,
+                        category="relationships",
+                        source_span=match.group(0),
+                        confidence=0.45,
+                        metadata={
+                            "candidate_directions": [
+                                {"source": "self", "target": entity},
+                                {"source": entity, "target": "self"},
+                            ]
+                        },
+                    )
 
         for match in re.finditer(
             r"(?:working|partnering|collaborating|meeting)\s+with\s+([A-Z][A-Za-z\s-]+?)(?:\s+(?:on|to|for|about)|\.|,|$)",
             text,
+            re.IGNORECASE,
         ):
             entity = match.group(1).strip()
             key = normalize_text(entity)
@@ -332,6 +362,19 @@ class AggressiveExtractionTopicMixin:
                     extraction_method="contextual",
                     source_quote=match.group(0),
                     timestamp=timestamp,
+                )
+                self.context._record_resolution_conflict(
+                    conflict_type="ambiguous_relationship_direction",
+                    topic=entity,
+                    category="relationships",
+                    source_span=match.group(0),
+                    confidence=0.45,
+                    metadata={
+                        "candidate_directions": [
+                            {"source": "self", "target": entity},
+                            {"source": entity, "target": "self"},
+                        ]
+                    },
                 )
 
         for pattern in [

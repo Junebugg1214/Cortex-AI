@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -31,11 +32,41 @@ from cortex.portable_runtime import _policy_for_target, canonical_target_name, d
 from cortex.upai.disclosure import apply_disclosure
 
 
+class PackProvenanceUnavailableError(RuntimeError):
+    """Raised when provenance was intentionally omitted from a compiled Brainpack."""
+
+
+class PackFactNotFoundError(ValueError):
+    """Raised when a requested fact is not present in the compiled Brainpack."""
+
+
 def _load_compiled_graph(store_dir: Path, name: str) -> CortexGraph:
     graph_payload = _read_json(graph_path(store_dir, name), default={})
     if not graph_payload:
         raise FileNotFoundError(f"Brainpack '{name}' has not been compiled yet.")
     return CortexGraph.from_v5_json(graph_payload)
+
+
+def _compile_meta(store_dir: Path, name: str) -> dict[str, Any]:
+    return _read_json(compile_meta_path(store_dir, name), default={"pack": name, "compile_mode": "distribution"})
+
+
+def _compile_mode(store_dir: Path, name: str) -> str:
+    meta = _compile_meta(store_dir, name)
+    return str(meta.get("compile_mode") or "distribution")
+
+
+def _resolve_fact_node(graph: CortexGraph, fact_identifier: str):
+    cleaned = str(fact_identifier).strip()
+    if not cleaned:
+        raise PackFactNotFoundError("Fact identifier is required.")
+    node = graph.get_node(cleaned)
+    if node is not None:
+        return node
+    matches = graph.find_nodes(label=cleaned)
+    if matches:
+        return matches[0]
+    raise PackFactNotFoundError(f"Fact not found in compiled Brainpack: {cleaned}")
 
 
 def _load_claims(store_dir: Path, name: str) -> list[dict[str, Any]]:
@@ -262,6 +293,85 @@ def pack_unknowns(store_dir: Path, name: str, *, namespace: str | None = None) -
         "unknown_count": len(unknowns),
         "unknowns": unknowns,
     }
+
+
+def pack_fact_provenance(
+    store_dir: Path,
+    name: str,
+    fact_identifier: str,
+    *,
+    namespace: str | None = None,
+) -> dict[str, Any]:
+    manifest = load_manifest(store_dir, name)
+    _require_pack_namespace(manifest, namespace)
+    mode = _compile_mode(store_dir, name)
+    graph = _load_compiled_graph(store_dir, name)
+    node = _resolve_fact_node(graph, fact_identifier)
+    if mode != "full":
+        return {
+            "status": "PROVENANCE_UNAVAILABLE",
+            "pack": manifest.name,
+            "namespace": manifest.namespace,
+            "compile_mode": mode,
+            "fact_id": node.id,
+            "fact_label": node.label,
+            "message": "This Brainpack was compiled in distribution mode; provenance is unavailable by design.",
+        }
+    return {
+        "status": "ok",
+        "pack": manifest.name,
+        "namespace": manifest.namespace,
+        "compile_mode": mode,
+        "fact_id": node.id,
+        "fact_label": node.label,
+        "provenance": [dict(item) for item in node.provenance],
+        "source_quotes": list(node.source_quotes),
+        "claim_history": list(node.properties.get("claim_history", [])),
+        "contested": bool(node.properties.get("contested", False)),
+        "temporal_confidence": float(node.properties.get("temporal_confidence", 0.0) or 0.0),
+        "extraction_confidence": float(node.properties.get("extraction_confidence", 0.0) or 0.0),
+    }
+
+
+def inspect_pack_artifact(path: str | Path, *, show_provenance: bool = False) -> dict[str, Any]:
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Pack artifact not found: {artifact_path}")
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    compile_mode = str(
+        payload.get("compile_mode")
+        or ((payload.get("graph") or {}).get("meta") or {}).get("compile_mode")
+        or "distribution"
+    )
+    graph_payload = payload.get("graph") or payload
+    graph = CortexGraph.from_v5_json(graph_payload)
+    result = {
+        "status": "ok",
+        "path": str(artifact_path),
+        "compile_mode": compile_mode,
+        "provenance_available": bool(
+            payload.get("provenance_available")
+            if "provenance_available" in payload
+            else ((graph.meta or {}).get("provenance_available", compile_mode == "full"))
+        ),
+        "lossy": bool(payload.get("lossy") if "lossy" in payload else ((graph.meta or {}).get("lossy", compile_mode != "full"))),
+        "graph_nodes": len(graph.nodes),
+        "graph_edges": len(graph.edges),
+    }
+    if show_provenance:
+        provenance_nodes = [
+            {
+                "id": node.id,
+                "label": node.label,
+                "provenance_count": len(node.provenance),
+                "claim_history_count": len(node.properties.get("claim_history", [])),
+                "contested": bool(node.properties.get("contested", False)),
+            }
+            for node in sorted(graph.nodes.values(), key=lambda item: item.label.lower())
+            if node.provenance or node.properties.get("claim_history") or node.properties.get("contested")
+        ]
+        result["provenance_nodes"] = provenance_nodes
+    return result
 
 
 def pack_artifacts(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
@@ -562,6 +672,9 @@ def pack_status(store_dir: Path, name: str, *, namespace: str | None = None) -> 
         "artifact_count": int(compile_meta.get("artifact_count", 0)),
         "compiled_at": str(compile_meta.get("compiled_at") or ""),
         "compile_status": str(compile_meta.get("compile_status") or "idle"),
+        "compile_mode": str(compile_meta.get("compile_mode") or "distribution"),
+        "provenance_available": bool(compile_meta.get("provenance_available", False)),
+        "lossy": bool(compile_meta.get("lossy", True)),
         "lint_status": str(lint_report.get("lint_status") or "not_run"),
         "linted_at": str(lint_report.get("linted_at") or ""),
         "lint_summary": dict(lint_report.get("summary") or {}),

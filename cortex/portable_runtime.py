@@ -124,6 +124,7 @@ def extract_graph_from_detected_sources(
     detected = detect_portability_sources(store_dir=store_dir, project_dir=project_dir, extra_roots=extra_roots)
     return _extract_graph_from_detected_sources(
         targets=targets,
+        store_dir=store_dir,
         detected_sources=detected,
         include_config_metadata=include_config_metadata,
         include_unmanaged_text=include_unmanaged_text,

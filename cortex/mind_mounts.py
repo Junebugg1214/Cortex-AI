@@ -108,3 +108,26 @@ def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
         "refresh_error_count": len(refresh_errors),
         "refresh_errors": refresh_errors,
     }
+
+
+def query_mounted_pack_provenance(
+    store_dir: Path,
+    mind_id: str,
+    *,
+    pack_name: str,
+    fact_identifier: str,
+) -> dict[str, Any]:
+    from cortex.pack_runtime import pack_fact_provenance
+
+    attachments = minds_module._load_attachments(store_dir, mind_id)
+    attached_packs = {
+        minds_module._attachment_pack_name(item)
+        for item in attachments.get("brainpacks", [])
+        if minds_module._attachment_pack_name(item)
+    }
+    if pack_name not in attached_packs:
+        raise ValueError(f"Brainpack '{pack_name}' is not attached to Mind '{mind_id}'.")
+    payload = pack_fact_provenance(store_dir, pack_name, fact_identifier)
+    payload["mind"] = mind_id
+    payload["pack"] = pack_name
+    return payload

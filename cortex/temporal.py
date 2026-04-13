@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 
 from cortex.graph import CortexGraph, Node
 
+TEMPORAL_REVIEW_QUEUE_KEY = "temporal_review_queue"
+TEMPORAL_CONFIDENCE_DEFAULT_THRESHOLD = 0.5
+
 # ---------------------------------------------------------------------------
 # Snapshot
 # ---------------------------------------------------------------------------
@@ -38,6 +41,126 @@ def _hash_dict(d: dict) -> str:
 def _hash_str(s: str) -> str:
     """SHA-256 of a string (first 16 hex chars)."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
+
+
+def _coerce_iso(timestamp: datetime | None) -> str:
+    if timestamp is None:
+        return ""
+    value = timestamp.astimezone(timezone.utc) if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def temporal_confidence_threshold(default: float = TEMPORAL_CONFIDENCE_DEFAULT_THRESHOLD) -> float:
+    """Return the configured temporal review threshold."""
+    import os
+
+    raw = os.environ.get("CORTEX_TEMPORAL_CONFIDENCE_THRESHOLD", "")
+    try:
+        if raw:
+            value = float(raw)
+            if 0.0 <= value <= 1.0:
+                return value
+    except ValueError:
+        return default
+    return default
+
+
+def analyze_temporal_context(text: str, document_timestamp: datetime | None = None) -> dict[str, object]:
+    """Classify the strongest temporal signal in a source span."""
+    lowered = str(text or "").lower()
+    explicit_patterns = (
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+        r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm|utc|est|edt|pst|pdt)?\b",
+    )
+    relative_terms = (
+        "today",
+        "yesterday",
+        "tomorrow",
+        "last week",
+        "next week",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "earlier",
+        "later",
+        "previously",
+    )
+    contextual_terms = ("current", "currently", "historical", "former", "planned", "future", "upcoming")
+
+    import re
+
+    explicit_match = next((match.group(0) for pattern in explicit_patterns for match in re.finditer(pattern, lowered)), "")
+    relative_match = next((term for term in relative_terms if term in lowered), "")
+    contextual_match = next((term for term in contextual_terms if term in lowered), "")
+
+    if explicit_match:
+        return {
+            "temporal_confidence": 1.0,
+            "temporal_signal": "explicit_timestamp",
+            "resolved_at": explicit_match,
+            "review_required": False,
+        }
+    if relative_match and document_timestamp is not None:
+        return {
+            "temporal_confidence": 0.75,
+            "temporal_signal": "relative_reference",
+            "resolved_at": _coerce_iso(document_timestamp),
+            "review_required": False,
+        }
+    if contextual_match:
+        return {
+            "temporal_confidence": 0.45,
+            "temporal_signal": "contextual_inference",
+            "resolved_at": _coerce_iso(document_timestamp),
+            "review_required": True,
+        }
+    return {
+        "temporal_confidence": 0.1,
+        "temporal_signal": "no_recoverable_signal",
+        "resolved_at": _coerce_iso(document_timestamp),
+        "review_required": True,
+    }
+
+
+def apply_temporal_review_policy(
+    graph: CortexGraph,
+    *,
+    threshold: float | None = None,
+) -> dict[str, object]:
+    """Queue low-confidence temporal scopes instead of keeping them canonical."""
+    min_confidence = temporal_confidence_threshold() if threshold is None else float(threshold)
+    queue: list[dict[str, object]] = []
+    for node in graph.nodes.values():
+        temporal_confidence = float(node.properties.get("temporal_confidence", 0.0) or 0.0)
+        temporal_signal = str(node.properties.get("temporal_signal", "") or "")
+        temporal_scoped = bool(node.timeline or node.valid_from or node.valid_to or temporal_signal)
+        if not temporal_scoped or temporal_confidence >= min_confidence:
+            continue
+        queue.append(
+            {
+                "node_id": node.id,
+                "label": node.label,
+                "temporal_confidence": temporal_confidence,
+                "temporal_signal": temporal_signal,
+                "timeline": list(node.timeline),
+                "valid_from": node.valid_from,
+                "valid_to": node.valid_to,
+                "status": node.status,
+            }
+        )
+        node.timeline = []
+        node.valid_from = ""
+        node.valid_to = ""
+        node.status = ""
+        node.properties["temporal_review_pending"] = True
+    graph.meta[TEMPORAL_REVIEW_QUEUE_KEY] = queue
+    graph.meta["temporal_review_threshold"] = min_confidence
+    return {
+        "queue_count": len(queue),
+        "threshold": min_confidence,
+        "queue": queue,
+    }
 
 
 def create_snapshot_dict(node: Node, source: str, timestamp: str | None = None) -> dict:
