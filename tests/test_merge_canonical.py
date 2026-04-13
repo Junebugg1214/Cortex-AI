@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node, make_node_id
@@ -168,4 +167,3 @@ def test_merge_preview_reports_alias_novel_and_direct_classes():
 
     assert result.summary["conflict_classes"]["DIRECT"] >= 1
     assert result.summary["conflict_classes"]["NOVEL"] == 1
-

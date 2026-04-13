@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Stable source registry and lineage helpers for Cortex."""
+
+from __future__ import annotations
 
 import hashlib
 import json

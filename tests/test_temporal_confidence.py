@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
@@ -230,4 +229,3 @@ def test_timeline_review_cli_handles_empty_queue(tmp_path, capsys):
 
     assert rc == 0
     assert "No pending temporal review items" in output
-

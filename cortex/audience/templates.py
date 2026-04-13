@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 """Built-in audience policy templates shipped with Cortex."""
 
-from cortex.audience.policy import AudiencePolicy
+from __future__ import annotations
 
+from cortex.audience.policy import AudiencePolicy
 
 BUILTIN_AUDIENCE_TEMPLATES: dict[str, AudiencePolicy] = {
     "executive": AudiencePolicy(

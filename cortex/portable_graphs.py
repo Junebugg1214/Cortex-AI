@@ -6,8 +6,8 @@ from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
 from cortex.extract_memory import AggressiveExtractor
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.extract_memory_context import normalize_text
+from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.temporal import apply_temporal_review_policy
 
 

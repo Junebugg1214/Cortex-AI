@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Audience policy engine for first-class Mind compilation."""
+
+from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass

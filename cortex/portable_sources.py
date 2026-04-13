@@ -14,8 +14,8 @@ try:  # pragma: no cover - Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
-from cortex.compat import upgrade_v4_to_v5
 from cortex.claims import stamp_graph_provenance
+from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
