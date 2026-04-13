@@ -58,6 +58,20 @@ def _normalize_source_label(source: str) -> str:
     return " ".join(str(source).lower().strip().split())
 
 
+def _item_matches_source_identifier(item: dict[str, Any], source: str) -> bool:
+    """Return true when a provenance-like item matches a source id or label."""
+    norm_source = _normalize_source_label(source)
+    if not norm_source:
+        return False
+    candidates = {
+        _normalize_source_label(item.get("source", "")),
+        _normalize_source_label(item.get("source_id", "")),
+        _normalize_source_label(item.get("source_label", "")),
+    }
+    candidates.discard("")
+    return norm_source in candidates
+
+
 def _dedupe_dict_items(items: list[dict]) -> list[dict]:
     """Deduplicate dict items while preserving order."""
     seen: set[str] = set()
@@ -73,11 +87,10 @@ def _dedupe_dict_items(items: list[dict]) -> list[dict]:
 
 def _filter_items_by_source(items: list[dict], source: str) -> tuple[list[dict], list[dict]]:
     """Split provenance-like dict items into kept and removed by source label."""
-    norm_source = _normalize_source_label(source)
     kept: list[dict] = []
     removed: list[dict] = []
     for item in items:
-        if _normalize_source_label(item.get("source", "")) == norm_source:
+        if _item_matches_source_identifier(item, source):
             removed.append(dict(item))
         else:
             kept.append(dict(item))
@@ -880,6 +893,26 @@ class CortexGraph:
                 topic_dict["_canonical_id"] = node.canonical_id
             if node.provenance:
                 topic_dict["_provenance"] = [dict(item) for item in node.provenance]
+            temporal_confidence = node.properties.get("temporal_confidence")
+            if temporal_confidence is not None:
+                topic_dict["_temporal_confidence"] = temporal_confidence
+            temporal_signal = node.properties.get("temporal_signal")
+            if temporal_signal:
+                topic_dict["_temporal_signal"] = temporal_signal
+            extraction_confidence = node.properties.get("extraction_confidence")
+            if extraction_confidence is not None:
+                topic_dict["_extraction_confidence"] = extraction_confidence
+            entity_resolution = node.properties.get("entity_resolution")
+            if entity_resolution:
+                topic_dict["_entity_resolution"] = entity_resolution
+            extraction_flags = node.properties.get("extraction_flags")
+            if extraction_flags:
+                topic_dict["_extraction_flags"] = list(extraction_flags)
+            source_span = node.properties.get("source_span")
+            if source_span:
+                topic_dict["_source_span"] = source_span
+            if node.properties.get("temporal_review_pending"):
+                topic_dict["_temporal_review_pending"] = True
             if node.valid_from:
                 topic_dict["_valid_from"] = node.valid_from
             if node.valid_to:

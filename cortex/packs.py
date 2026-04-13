@@ -556,6 +556,8 @@ def compile_pack(
     incremental: bool = True,
     suggest_questions: bool = True,
     max_summary_chars: int | None = None,
+    mode: str = "distribution",
+    output_path: str | Path | None = None,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     return _pack_compile_module().compile_pack(
@@ -564,6 +566,8 @@ def compile_pack(
         incremental=incremental,
         suggest_questions=suggest_questions,
         max_summary_chars=max_summary_chars,
+        mode=mode,
+        output_path=output_path,
         namespace=namespace,
     )
 
@@ -661,6 +665,25 @@ def lint_pack(
 
 def pack_status(store_dir: Path, name: str, *, namespace: str | None = None) -> dict[str, Any]:
     return _pack_runtime_module().pack_status(store_dir, name, namespace=namespace)
+
+
+def inspect_pack_artifact(path: str | Path, *, show_provenance: bool = False) -> dict[str, Any]:
+    return _pack_runtime_module().inspect_pack_artifact(path, show_provenance=show_provenance)
+
+
+def pack_fact_provenance(
+    store_dir: Path,
+    name: str,
+    fact_identifier: str,
+    *,
+    namespace: str | None = None,
+) -> dict[str, Any]:
+    return _pack_runtime_module().pack_fact_provenance(
+        store_dir,
+        name,
+        fact_identifier,
+        namespace=namespace,
+    )
 
 
 def list_packs(store_dir: Path, *, namespace: str | None = None) -> dict[str, Any]:

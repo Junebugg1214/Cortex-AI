@@ -12,6 +12,7 @@ from cortex.packs import (
     _read_json,
     _require_pack_namespace,
     _write_json,
+    compile_meta_path,
     graph_path,
     load_manifest,
     openclaw_mount_registry_path,
@@ -75,6 +76,9 @@ def mount_pack(
     graph = _load_compiled_graph(store_dir, name)
     if not targets:
         raise ValueError("Specify at least one mount target.")
+    compile_meta = _read_json(compile_meta_path(store_dir, name), default={"compile_mode": "distribution"})
+    compile_mode = str(compile_meta.get("compile_mode") or "distribution")
+    provenance_available = bool(compile_meta.get("provenance_available", compile_mode == "full"))
 
     resolved: list[str] = []
     for raw_target in targets:
@@ -112,6 +116,8 @@ def mount_pack(
                 "note": str(item.get("note", "")),
                 "mode": str(item.get("mode", "smart" if smart else "full")),
                 "route_tags": list(item.get("route_tags", [])),
+                "compile_mode": compile_mode,
+                "provenance_available": provenance_available,
                 "mounted_at": _iso_now(),
             }
             for item in sync_payload.get("targets", [])
@@ -154,6 +160,8 @@ def mount_pack(
                 "note": f"Registered Brainpack `{manifest.name}` for OpenClaw plugin runtime injection.",
                 "mode": "smart" if smart else "full",
                 "route_tags": [],
+                "compile_mode": compile_mode,
+                "provenance_available": provenance_available,
                 "mounted_at": pack_entry["mounted_at"],
             }
         )

@@ -10,12 +10,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from cortex.contradictions import ContradictionEngine
+from cortex.extract_memory_context import normalize_text
 from cortex.graph import CortexGraph, Edge, Node, _dedupe_dict_items, diff_graphs
 from cortex.upai.versioning import VersionStore
 
@@ -69,10 +71,85 @@ def _combine_lists(*values: list[Any]) -> list[Any]:
     return merged
 
 
+_ENTITY_TOKEN_EXPANSIONS = {
+    "incorporated": "inc",
+    "corporation": "corp",
+    "company": "co",
+    "limited": "ltd",
+    "technologies": "tech",
+    "technology": "tech",
+}
+_ENTITY_STOP_WORDS = {"the"}
+
+
+def _normalized_entity_terms(*values: str) -> set[str]:
+    terms: set[str] = set()
+    for value in values:
+        normalized = normalize_text(value)
+        if not normalized:
+            continue
+        parts = []
+        for part in re.findall(r"[a-z0-9]+", normalized):
+            mapped = _ENTITY_TOKEN_EXPANSIONS.get(part, part)
+            if mapped in _ENTITY_STOP_WORDS:
+                continue
+            parts.append(mapped)
+        if parts:
+            joined = " ".join(parts)
+            terms.add(joined)
+            terms.add("".join(parts))
+            if len(parts) > 1:
+                terms.add(" ".join(sorted(parts)))
+    return terms
+
+
+def _node_entity_terms(node: Node) -> set[str]:
+    terms = set(_normalized_entity_terms(node.label, node.canonical_id))
+    for alias in node.aliases:
+        terms.update(_normalized_entity_terms(alias))
+    return {term for term in terms if term}
+
+
+class CanonicalEntityRegistry:
+    """Normalize surface variants to stable canonical entities."""
+
+    def __init__(self, graph: CortexGraph) -> None:
+        self.graph = graph
+        self.by_term: dict[str, Node] = {}
+        self.alias_resolutions: list[dict[str, Any]] = []
+        for node in graph.nodes.values():
+            self.register(node)
+
+    def register(self, node: Node) -> None:
+        for term in _node_entity_terms(node):
+            self.by_term[term] = node
+
+    def match(self, node: Node) -> Node | None:
+        for term in _node_entity_terms(node):
+            matched = self.by_term.get(term)
+            if matched is not None:
+                return matched
+        return None
+
+    def note_alias_resolution(self, canonical_node: Node, incoming_node: Node) -> None:
+        alias_label = incoming_node.label
+        if normalize_text(alias_label) == normalize_text(canonical_node.label):
+            return
+        entry = {
+            "canonical_id": canonical_node.canonical_id or canonical_node.id,
+            "canonical_label": canonical_node.label,
+            "alias": alias_label,
+            "incoming_node_id": incoming_node.id,
+        }
+        if entry not in self.alias_resolutions:
+            self.alias_resolutions.append(entry)
+
+
 @dataclass
 class MergeConflict:
     id: str
     kind: str
+    conflict_class: str = "DIRECT"
     node_id: str = ""
     label: str = ""
     field: str = ""
@@ -85,6 +162,7 @@ class MergeConflict:
         return {
             "id": self.id,
             "kind": self.kind,
+            "conflict_class": self.conflict_class,
             "node_id": self.node_id,
             "label": self.label,
             "field": self.field,
@@ -140,6 +218,7 @@ def _merge_scalar(
         conflict = MergeConflict(
             id=_make_merge_conflict_id("field_conflict", current.id, field_name, current.label),
             kind="field_conflict",
+            conflict_class="DIRECT",
             node_id=current.id,
             label=current.label,
             field=field_name,
@@ -197,6 +276,7 @@ def _merge_node(base: Node | None, current: Node, other: Node) -> tuple[Node, li
             MergeConflict(
                 id=_make_merge_conflict_id("field_conflict", current.id, "canonical_id", current.label),
                 kind="field_conflict",
+                conflict_class="DIRECT",
                 node_id=current.id,
                 label=current.label,
                 field="canonical_id",
@@ -228,15 +308,89 @@ def _merge_edges(current: CortexGraph, other: CortexGraph) -> dict[str, Edge]:
     return edges
 
 
+def _normalize_other_graph(
+    current: CortexGraph,
+    other: CortexGraph,
+) -> tuple[CortexGraph, dict[str, Any]]:
+    normalized = CortexGraph(schema_version=other.schema_version, meta=copy.deepcopy(other.meta))
+    registry = CanonicalEntityRegistry(current)
+    id_map: dict[str, str] = {}
+    novel_entities: list[dict[str, Any]] = []
+
+    for node in other.nodes.values():
+        if node.id in current.nodes:
+            normalized.add_node(copy.deepcopy(node))
+            id_map[node.id] = node.id
+            continue
+
+        matched = registry.match(node)
+        if matched is None:
+            node_copy = copy.deepcopy(node)
+            normalized.add_node(node_copy)
+            registry.register(node_copy)
+            id_map[node.id] = node.id
+            novel_entities.append(
+                {
+                    "node_id": node.id,
+                    "canonical_id": node.canonical_id or node.id,
+                    "label": node.label,
+                    "conflict_class": "NOVEL",
+                }
+            )
+            continue
+
+        registry.note_alias_resolution(matched, node)
+        mapped = copy.deepcopy(node)
+        mapped.id = matched.id
+        mapped.label = matched.label
+        mapped.canonical_id = matched.canonical_id or matched.id
+        mapped.aliases = _combine_lists(mapped.aliases, [node.label])
+        if normalize_text(mapped.brief or "") in _node_entity_terms(node):
+            mapped.brief = matched.brief or matched.label
+        if mapped.id in normalized.nodes:
+            combined = normalized.nodes[mapped.id]
+            combined.aliases = _combine_lists(combined.aliases, mapped.aliases)
+            combined.tags = _combine_lists(combined.tags, mapped.tags)
+            combined.metrics = _combine_lists(combined.metrics, mapped.metrics)
+            combined.timeline = _combine_lists(combined.timeline, mapped.timeline)
+            combined.source_quotes = _combine_lists(combined.source_quotes, mapped.source_quotes)
+            combined.provenance = _dedupe_dict_items(list(combined.provenance) + list(mapped.provenance))
+            combined.snapshots = _dedupe_dict_items(list(combined.snapshots) + list(mapped.snapshots))
+            combined.properties = {**combined.properties, **mapped.properties}
+            if len(mapped.brief) > len(combined.brief):
+                combined.brief = mapped.brief
+            if len(mapped.full_description) > len(combined.full_description):
+                combined.full_description = mapped.full_description
+            combined.confidence = max(combined.confidence, mapped.confidence)
+        else:
+            normalized.add_node(mapped)
+        id_map[node.id] = matched.id
+
+    for edge in other.edges.values():
+        src = id_map.get(edge.source_id, edge.source_id)
+        tgt = id_map.get(edge.target_id, edge.target_id)
+        edge_copy = copy.deepcopy(edge)
+        edge_copy.source_id = src
+        edge_copy.target_id = tgt
+        normalized.add_edge(edge_copy)
+
+    return normalized, {
+        "id_map": id_map,
+        "alias_resolutions": registry.alias_resolutions,
+        "novel_entities": novel_entities,
+    }
+
+
 def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) -> MergeResult:
+    normalized_other, classification = _normalize_other_graph(current, other)
     merged = _clone_graph(current)
     conflicts: list[MergeConflict] = []
     touched_node_ids: set[str] = set()
 
-    for node_id in sorted(set(base.nodes) | set(current.nodes) | set(other.nodes)):
+    for node_id in sorted(set(base.nodes) | set(current.nodes) | set(normalized_other.nodes)):
         base_node = base.nodes.get(node_id)
         current_node = current.nodes.get(node_id)
-        other_node = other.nodes.get(node_id)
+        other_node = normalized_other.nodes.get(node_id)
 
         if current_node is None and other_node is None:
             continue
@@ -246,6 +400,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
                     MergeConflict(
                         id=_make_merge_conflict_id("delete_modify_conflict", node_id, "", other_node.label),
                         kind="delete_modify_conflict",
+                        conflict_class="DIRECT",
                         node_id=node_id,
                         label=other_node.label,
                         description=f"'{other_node.label}' was removed on the current branch but still exists on the incoming branch.",
@@ -261,6 +416,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
                     MergeConflict(
                         id=_make_merge_conflict_id("delete_modify_conflict", node_id, "", current_node.label),
                         kind="delete_modify_conflict",
+                        conflict_class="DIRECT",
                         node_id=node_id,
                         label=current_node.label,
                         description=f"'{current_node.label}' was removed on the incoming branch but still exists on the current branch.",
@@ -283,18 +439,19 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
         touched_node_ids.add(node_id)
         conflicts.extend(node_conflicts)
 
-    merged.edges = _merge_edges(current, other)
+    merged.edges = _merge_edges(current, normalized_other)
     merged.meta.setdefault("merge_history", []).append(
         {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "conflict_count": len(conflicts),
             "touched_node_ids": sorted(touched_node_ids),
+            "alias_resolutions": list(classification.get("alias_resolutions", [])),
         }
     )
 
     engine = ContradictionEngine()
     current_ids = {item.id for item in engine.detect_all(current)}
-    other_ids = {item.id for item in engine.detect_all(other)}
+    other_ids = {item.id for item in engine.detect_all(normalized_other)}
     for contradiction in engine.detect_all(merged):
         if contradiction.id in current_ids or contradiction.id in other_ids:
             continue
@@ -309,6 +466,7 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
                     contradiction.description,
                 ),
                 kind="contradiction_conflict",
+                conflict_class="DIRECT",
                 node_id=contradiction.node_ids[0] if contradiction.node_ids else "",
                 label=contradiction.node_label,
                 field=contradiction.type,
@@ -320,6 +478,13 @@ def merge_graphs(base: CortexGraph, current: CortexGraph, other: CortexGraph) ->
     summary = diff_graphs(current, merged)
     summary["conflicts"] = len(conflicts)
     summary["touched_nodes"] = len(touched_node_ids)
+    summary["alias_resolutions"] = list(classification.get("alias_resolutions", []))
+    summary["novel_entities"] = list(classification.get("novel_entities", []))
+    summary["conflict_classes"] = {
+        "DIRECT": sum(1 for conflict in conflicts if conflict.conflict_class == "DIRECT"),
+        "ALIAS": len(summary["alias_resolutions"]),
+        "NOVEL": len(summary["novel_entities"]),
+    }
     return MergeResult(
         base_version=None,
         current_version=None,

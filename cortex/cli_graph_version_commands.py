@@ -426,12 +426,69 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
         resolve_merge_conflict,
         save_merge_state,
     )
+    from cortex.review import merge_preview as review_merge_preview
     from cortex.storage import get_storage_backend
     from cortex.upai.identity import UPAIIdentity
 
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions
     current_branch = store.current_branch()
+
+    if args.ref_name in {"preview", "commit"}:
+        if not args.base or not args.incoming:
+            print("`cortex merge preview|commit` requires --base <branch> and --incoming <branch>.")
+            return 1
+        try:
+            result = merge_refs(store, args.base, args.incoming)
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        payload = {
+            "status": "ok",
+            "base": args.base,
+            "incoming": args.incoming,
+            **review_merge_preview(result),
+        }
+        if args.ref_name == "preview":
+            if args.format == "json":
+                print(json.dumps(payload, indent=2))
+                return 0 if not payload["direct_conflicts"] else 1
+            print(f"Merge preview {args.incoming} -> {args.base}")
+            print(
+                "  Classes:"
+                f" DIRECT={payload['summary'].get('conflict_classes', {}).get('DIRECT', 0)}"
+                f" ALIAS={payload['summary'].get('conflict_classes', {}).get('ALIAS', 0)}"
+                f" NOVEL={payload['summary'].get('conflict_classes', {}).get('NOVEL', 0)}"
+            )
+            for item in payload.get("alias_resolutions", [])[:20]:
+                print(f"  alias {item['alias']} -> {item['canonical_label']} ({item['canonical_id']})")
+            for conflict in payload.get("direct_conflicts", [])[:20]:
+                print(f"  direct {conflict['id']} [{conflict['field']}]: {conflict['description']}")
+            return 0 if not payload["direct_conflicts"] else 1
+
+        unresolved_direct = payload["direct_conflicts"]
+        if unresolved_direct:
+            print(f"Cannot commit merge; {len(unresolved_direct)} unresolved DIRECT conflict(s) remain.")
+            return 1
+        identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
+        message = args.message or f"Merge branch '{args.incoming}' into {args.base}"
+        version = store.commit(
+            result.merged,
+            message,
+            source="merge",
+            identity=identity,
+            parent_id=result.current_version,
+            branch=args.base,
+            merge_parent_ids=[result.other_version]
+            if result.other_version and result.other_version != result.current_version
+            else [],
+        )
+        payload["commit_id"] = version.version_id
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Committed merge {args.incoming} -> {args.base}: {version.version_id}")
+        return 0
 
     if args.abort:
         state = load_merge_state(store_dir)
@@ -474,7 +531,8 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             print(f"Pending merge into {state['current_branch']} from {state['other_ref']}")
             for conflict in state.get("conflicts", []):
                 field = f" [{conflict.get('field')}]" if conflict.get("field") else ""
-                print(f"  - {conflict['id']} {conflict['kind']}{field}: {conflict['description']}")
+                conflict_class = str(conflict.get("conflict_class") or "DIRECT")
+                print(f"  - {conflict['id']} {conflict_class}/{conflict['kind']}{field}: {conflict['description']}")
         return 0
 
     if args.resolve:
@@ -644,7 +702,7 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
         print("  Conflicts:")
         for conflict in result.conflicts:
             field = f" [{conflict.field}]" if conflict.field else ""
-            print(f"    - {conflict.id} {conflict.kind}{field}: {conflict.description}")
+            print(f"    - {conflict.id} {conflict.conflict_class}/{conflict.kind}{field}: {conflict.description}")
         if not args.dry_run:
             print(
                 "  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`."
@@ -659,11 +717,45 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
 
 def run_review(args, *, ctx: GraphVersionCliContext):
     """Review a graph or stored ref against a baseline."""
-    from cortex.review import parse_failure_policies, review_graphs
+    from cortex.review import parse_failure_policies, pending_candidate_branches, review_graphs
     from cortex.storage import get_storage_backend
+
+    if args.input_file == "pending":
+        if not args.mind:
+            print("`cortex review pending` requires --mind <id>")
+            return 1
+        try:
+            payload = pending_candidate_branches(
+                Path(args.store_dir),
+                args.mind,
+                show_conflicts=bool(args.show_conflicts),
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+            return 0
+        print(f"Pending review proposals for Mind `{args.mind}`: {payload['pending_proposal_count']}")
+        for item in payload["proposals"]:
+            print(
+                f"  - {item['proposal_id']} [{item['status']}] "
+                f"sources={item['proposed_source_count']} nodes={item['graph_node_count']}"
+            )
+            if args.show_conflicts:
+                for conflict in item.get("resolution_conflicts", [])[:10]:
+                    print(
+                        f"      conflict={conflict.get('type', 'unknown')} "
+                        f"topic={conflict.get('topic', '')} "
+                        f"confidence={float(conflict.get('confidence', 0.0)):.2f}"
+                    )
+        return 0
 
     backend = get_storage_backend(Path(args.store_dir))
     store = backend.versions
+    if not args.against:
+        print("`cortex review` requires --against unless you use `cortex review pending --mind <id>`.")
+        return 1
     against_version = _resolve_version_or_exit(store, args.against)
     against_graph = store.checkout(against_version)
     try:

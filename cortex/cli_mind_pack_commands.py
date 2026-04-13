@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -18,6 +19,19 @@ class MindPackCliContext:
     missing_path_error: Callable[..., int]
     build_pii_redactor: Callable[..., Any]
     resolved_store_dir: Callable[[str | Path | None], Path]
+
+
+def _parse_csv_list(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _parse_cli_bool(value: str) -> bool:
+    cleaned = str(value).strip().lower()
+    if cleaned in {"1", "true", "yes", "on"}:
+        return True
+    if cleaned in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Boolean value must be one of true/false, yes/no, or 1/0, got: {value}")
 
 
 def run_pack(args, *, ctx: MindPackCliContext):
@@ -36,7 +50,7 @@ def run_pack(args, *, ctx: MindPackCliContext):
         render_pack_context,
     )
 
-    store_dir = ctx.resolved_store_dir(args.store_dir)
+    store_dir = ctx.resolved_store_dir(getattr(args, "store_dir", None))
 
     if args.pack_subcommand == "init":
         try:
@@ -95,18 +109,46 @@ def run_pack(args, *, ctx: MindPackCliContext):
                 incremental=args.incremental,
                 suggest_questions=args.suggest_questions,
                 max_summary_chars=args.max_summary_chars,
+                mode=args.mode,
+                output_path=args.output,
             )
         except (FileNotFoundError, ValueError) as exc:
             return ctx.error(str(exc))
         if ctx.emit_result(payload, args.format) == 0:
             return 0
         ctx.echo(f"Compiled `{payload['pack']}`:")
+        ctx.echo(f"  mode: {payload['compile_mode']}")
         ctx.echo(f"  sources: {payload['source_count']} total, {payload['text_source_count']} readable")
         ctx.echo(f"  graph: {payload['graph_nodes']} nodes / {payload['graph_edges']} edges")
         ctx.echo(f"  wiki: {payload['article_count']} page(s)")
         ctx.echo(f"  claims: {payload['claim_count']}")
         ctx.echo(f"  unknowns: {payload['unknown_count']}")
         ctx.echo(f"  graph path: {payload['graph_path']}")
+        if payload.get("output_file"):
+            ctx.echo(f"  artifact: {payload['output_file']}")
+        return 0
+
+    if args.pack_subcommand == "inspect":
+        from cortex.packs import inspect_pack_artifact
+
+        try:
+            payload = inspect_pack_artifact(args.path, show_provenance=args.show_provenance)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Pack artifact: {payload['path']}")
+        ctx.echo(f"  mode: {payload['compile_mode']}")
+        ctx.echo(f"  provenance available: {payload['provenance_available']}")
+        ctx.echo(f"  lossy: {payload['lossy']}")
+        ctx.echo(f"  graph: {payload['graph_nodes']} nodes / {payload['graph_edges']} edges")
+        if payload.get("provenance_nodes"):
+            ctx.echo("  provenance nodes:")
+            for item in payload["provenance_nodes"][:10]:
+                ctx.echo(
+                    f"    {item['label']}: provenance={item['provenance_count']} "
+                    f"history={item['claim_history_count']} contested={item['contested']}"
+                )
         return 0
 
     if args.pack_subcommand == "status":
@@ -337,7 +379,7 @@ def run_pack(args, *, ctx: MindPackCliContext):
         return 0
 
     return ctx.error(
-        "Specify a pack subcommand: init, list, ingest, compile, status, context, mount, query, ask, lint, export, import"
+        "Specify a pack subcommand: init, list, ingest, compile, inspect, status, context, mount, query, ask, lint, export, import"
     )
 
 
@@ -656,8 +698,187 @@ def run_mind(args, *, ctx: MindPackCliContext):
     )
 
 
+def run_sources(args, *, ctx: MindPackCliContext):
+    from cortex.claims import RetractionPlanningError, retract_graph_source
+    from cortex.minds import _persist_mind_core_graph, load_mind_core_graph
+    from cortex.sources import SourceRegistry, graph_source_ids
+
+    store_dir = ctx.resolved_store_dir(args.store_dir)
+
+    if args.sources_subcommand == "list":
+        try:
+            mind_payload = load_mind_core_graph(store_dir, args.mind)
+        except (FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        graph = mind_payload["graph"]
+        registry = SourceRegistry.for_store(store_dir)
+        records = registry.list_records(stable_ids=graph_source_ids(graph))
+        payload = {
+            "status": "ok",
+            "mind": args.mind,
+            "source_count": len(records),
+            "sources": records,
+        }
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        if not records:
+            ctx.echo(f"Mind `{args.mind}` has no registered sources yet.")
+            return 0
+        ctx.echo(f"Mind `{args.mind}` sources")
+        for item in records:
+            labels = ", ".join(item.get("labels", []))
+            ctx.echo(f"  {item['stable_id']} ({labels})")
+        return 0
+
+    if args.sources_subcommand == "retract":
+        try:
+            mind_payload = load_mind_core_graph(store_dir, args.mind)
+        except (FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        graph = mind_payload["graph"]
+        registry = SourceRegistry.for_store(store_dir)
+        try:
+            payload = retract_graph_source(
+                graph,
+                identifier=args.source_identifier,
+                registry=registry,
+                prune_orphans=not args.keep_orphans,
+                dry_run=not args.confirm or args.dry_run,
+                confirm=bool(args.confirm and not args.dry_run),
+            )
+        except RetractionPlanningError as exc:
+            return ctx.error(str(exc))
+        if args.confirm and not args.dry_run:
+            persisted = _persist_mind_core_graph(
+                store_dir,
+                args.mind,
+                graph,
+                message=f"Retract source {payload['stable_source_id']} from Mind `{args.mind}`",
+                source="sources.retract",
+            )
+            payload["version_id"] = persisted["version_id"]
+            payload["graph_ref"] = persisted["graph_ref"]
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        verb = "Previewing" if payload.get("dry_run", False) else "Retracted"
+        ctx.echo(f"{verb} source {payload['stable_source_id']} on Mind `{args.mind}`")
+        ctx.echo(f"  labels: {', '.join(payload.get('labels', []))}")
+        ctx.echo(f"  nodes pruned: {len(payload.get('pruned_nodes', []))}")
+        ctx.echo(f"  edges pruned: {len(payload.get('pruned_edges', []))}")
+        return 0
+
+    return ctx.error("Specify a sources subcommand: list or retract")
+
+
+def run_audience(args, *, ctx: MindPackCliContext):
+    from cortex.audience.policy import AudiencePolicy, AudiencePolicyError, PolicyEngine, UnknownAudiencePolicyError
+    from cortex.audience.templates import BUILTIN_AUDIENCE_TEMPLATES
+
+    store_dir = ctx.resolved_store_dir(args.store_dir)
+    engine = PolicyEngine(store_dir)
+
+    if args.audience_subcommand == "add":
+        try:
+            policy = AudiencePolicy(
+                audience_id=args.audience_id,
+                display_name=args.display_name or args.audience_id.replace("-", " ").title(),
+                allowed_node_types=_parse_csv_list(args.allowed_node_types),
+                blocked_node_types=_parse_csv_list(args.blocked_node_types),
+                allowed_claim_confidences=(args.confidence_min, args.confidence_max),
+                redact_fields=_parse_csv_list(args.redact_fields),
+                output_format=args.output_format,
+                delivery=args.delivery,
+                delivery_target=args.delivery_target,
+                include_provenance=_parse_cli_bool(args.include_provenance),
+                include_contested=_parse_cli_bool(args.include_contested),
+            )
+            payload = engine.add_policy(args.mind, policy)
+        except (AudiencePolicyError, FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Saved audience `{payload['audience_id']}` on Mind `{payload['mind']}`")
+        ctx.echo(f"  total policies: {payload['policy_count']}")
+        return 0
+
+    if args.audience_subcommand == "apply-template":
+        template = BUILTIN_AUDIENCE_TEMPLATES[args.template]
+        try:
+            payload = engine.add_policy(args.mind, template)
+        except (AudiencePolicyError, FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        payload["template"] = args.template
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Applied audience template `{args.template}` to Mind `{args.mind}`")
+        return 0
+
+    if args.audience_subcommand == "list":
+        try:
+            payload = engine.list_policies(args.mind)
+        except (AudiencePolicyError, FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        if not payload["policies"]:
+            ctx.echo(f"Mind `{args.mind}` has no configured audience policies.")
+            return 0
+        ctx.echo(f"Audience policies for Mind `{args.mind}`")
+        for item in payload["policies"]:
+            ctx.echo(f"  {item['audience_id']}: {item['output_format']} via {item['delivery']}")
+        return 0
+
+    if args.audience_subcommand == "preview":
+        try:
+            payload = engine.preview(args.mind, args.audience)
+        except (AudiencePolicyError, FileNotFoundError, UnknownAudiencePolicyError, ValueError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Audience preview `{args.audience}` for Mind `{args.mind}`")
+        ctx.echo(f"  nodes: {payload['node_count_in']} -> {payload['node_count_out']}")
+        ctx.echo(f"  redactions: {payload['redaction_count']}")
+        return 0
+
+    if args.audience_subcommand == "compile":
+        try:
+            payload = engine.compile(args.mind, args.audience)
+        except (AudiencePolicyError, FileNotFoundError, UnknownAudiencePolicyError, ValueError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Compiled audience `{args.audience}` for Mind `{args.mind}`")
+        ctx.echo(f"  nodes: {payload['node_count_in']} -> {payload['node_count_out']}")
+        if payload.get("delivered_to"):
+            ctx.echo(f"  delivered to: {payload['delivered_to']}")
+        elif isinstance(payload.get("output"), str):
+            ctx.echo("")
+            ctx.echo(payload["output"], force=True)
+        return 0
+
+    if args.audience_subcommand == "log":
+        try:
+            payload = engine.read_log(args.mind, args.audience or "")
+        except (AudiencePolicyError, FileNotFoundError, ValueError) as exc:
+            return ctx.error(str(exc))
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        ctx.echo(f"Audience log for Mind `{args.mind}`")
+        for item in payload["entries"][:20]:
+            ctx.echo(
+                f"  {item['timestamp']} {item['audience_id']}: "
+                f"{item['node_count_in']} -> {item['node_count_out']} "
+                f"(redactions={item['redaction_count']})"
+            )
+        return 0
+
+    return ctx.error("Specify an audience subcommand: add, list, preview, compile, log, or apply-template")
+
+
 __all__ = [
     "MindPackCliContext",
+    "run_audience",
     "run_mind",
     "run_pack",
+    "run_sources",
 ]

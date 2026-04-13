@@ -18,6 +18,7 @@ from cortex.extract_memory import (
     merge_contexts,
 )
 from cortex.graph import CortexGraph
+from cortex.sources import SourceRegistry
 
 
 @dataclass(frozen=True)
@@ -134,12 +135,30 @@ def finalize_extraction_output(
 ) -> tuple[dict, int]:
     from cortex.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
     from cortex.storage import get_storage_backend
+    from cortex.temporal import apply_temporal_review_policy
 
     graph = upgrade_v4_to_v5(v4_output)
+    apply_temporal_review_policy(graph)
     source = extraction_source_label(input_path)
+    stable_source_id = source
+    registry_payload: dict[str, Any] | None = None
+    if input_path.exists():
+        try:
+            registry_payload = SourceRegistry.for_store(store_dir or input_path.parent).register_path(
+                input_path,
+                label=input_path.name,
+                metadata={"input_format": fmt},
+                force_reingest=True,
+            )
+            stable_source_id = str(registry_payload["stable_id"])
+        except Exception:
+            stable_source_id = source
     claim_count = 0
     metadata = {"input_format": fmt, "input_file": str(input_path)}
     metadata.update(dict(extra_metadata or {}))
+    if registry_payload is not None:
+        metadata["source_label"] = input_path.name
+        metadata["source_id"] = stable_source_id
 
     if record_claims:
         stamp_graph_provenance(
@@ -147,6 +166,8 @@ def finalize_extraction_output(
             source=source,
             method="extract",
             metadata=metadata,
+            stable_source_id=stable_source_id,
+            source_label=input_path.name,
         )
         if store_dir is not None:
             ledger = get_storage_backend(store_dir).claims

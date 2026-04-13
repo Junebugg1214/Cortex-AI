@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from cortex.graph import CortexGraph, Node, _normalize_label
+from cortex.sources import (
+    AmbiguousSourceLabelError,
+    SourceRecord,
+    SourceRegistry,
+    SourceResolutionError,
+    graph_source_ids,
+)
 
 
 def make_claim_id(
@@ -352,11 +359,19 @@ def stamp_graph_provenance(
     source: str,
     method: str,
     metadata: dict[str, Any] | None = None,
+    stable_source_id: str | None = None,
+    source_label: str | None = None,
 ) -> int:
     metadata = dict(metadata or {})
     stamped = 0
     for node in graph.nodes.values():
-        entry = {"source": source, "method": method, **metadata}
+        entry = {
+            "source": source,
+            "source_id": stable_source_id or source,
+            "source_label": source_label or source,
+            "method": method,
+            **metadata,
+        }
         if entry not in node.provenance:
             node.provenance.append(entry)
             stamped += 1
@@ -388,3 +403,74 @@ def record_graph_claims(
         ledger.append(event)
         events.append(event)
     return events
+
+
+class RetractionPlanningError(ValueError):
+    """Raised when Cortex cannot safely plan or execute a retraction."""
+
+
+def resolve_retraction_source(
+    graph: CortexGraph,
+    *,
+    identifier: str,
+    registry: SourceRegistry,
+) -> SourceRecord:
+    """Resolve a stable source id or human label against graph-referenced sources."""
+    try:
+        return registry.resolve(identifier, allowed_ids=graph_source_ids(graph))
+    except AmbiguousSourceLabelError as exc:
+        raise RetractionPlanningError(str(exc)) from exc
+    except SourceResolutionError as exc:
+        raise RetractionPlanningError(str(exc)) from exc
+
+
+def build_retraction_plan(
+    graph: CortexGraph,
+    *,
+    source: str,
+    prune_orphans: bool = True,
+) -> dict[str, Any]:
+    """Dry-run a retraction and report the precise prune set."""
+    original = CortexGraph.from_v5_json(graph.export_v5())
+    original_node_labels = {node_id: node.label for node_id, node in original.nodes.items()}
+    original_edges = {
+        edge_id: {
+            "source_id": edge.source_id,
+            "target_id": edge.target_id,
+            "relation": edge.relation,
+        }
+        for edge_id, edge in original.edges.items()
+    }
+    result = original.retract_source(source=source, prune_orphans=prune_orphans)
+    removed_node_ids = sorted(set(original_node_labels) - set(original.nodes))
+    removed_edge_ids = sorted(set(original_edges) - set(original.edges))
+    result["node_labels"] = [
+        original_node_labels[node_id] for node_id in result["node_ids"] if node_id in original_node_labels
+    ]
+    result["pruned_nodes"] = [{"id": node_id, "label": original_node_labels[node_id]} for node_id in removed_node_ids]
+    result["pruned_edges"] = [{"id": edge_id, **original_edges[edge_id]} for edge_id in removed_edge_ids]
+    result["dry_run"] = True
+    return result
+
+
+def retract_graph_source(
+    graph: CortexGraph,
+    *,
+    identifier: str,
+    registry: SourceRegistry,
+    prune_orphans: bool = True,
+    dry_run: bool = True,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Resolve a source identifier and retract its lineage from a graph."""
+    record = resolve_retraction_source(graph, identifier=identifier, registry=registry)
+    plan = build_retraction_plan(graph, source=record.stable_id, prune_orphans=prune_orphans)
+    plan["stable_source_id"] = record.stable_id
+    plan["labels"] = list(record.labels)
+    if dry_run or not confirm:
+        return plan
+    result = graph.retract_source(source=record.stable_id, prune_orphans=prune_orphans)
+    result["stable_source_id"] = record.stable_id
+    result["labels"] = list(record.labels)
+    result["dry_run"] = False
+    return result

@@ -94,6 +94,20 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     existing.status = topic_data.get("_status", "")
                 if topic_data.get("_canonical_id") and not existing.canonical_id:
                     existing.canonical_id = topic_data.get("_canonical_id", "")
+                if topic_data.get("_temporal_confidence") is not None:
+                    existing.properties["temporal_confidence"] = topic_data.get("_temporal_confidence", 0.0)
+                if topic_data.get("_temporal_signal"):
+                    existing.properties["temporal_signal"] = topic_data.get("_temporal_signal", "")
+                if topic_data.get("_extraction_confidence") is not None:
+                    existing.properties["extraction_confidence"] = topic_data.get("_extraction_confidence", 0.0)
+                if topic_data.get("_entity_resolution"):
+                    existing.properties["entity_resolution"] = topic_data.get("_entity_resolution", "")
+                if topic_data.get("_extraction_flags"):
+                    existing.properties["extraction_flags"] = list(topic_data.get("_extraction_flags", []))
+                if topic_data.get("_source_span"):
+                    existing.properties["source_span"] = topic_data.get("_source_span", "")
+                if topic_data.get("_temporal_review_pending"):
+                    existing.properties["temporal_review_pending"] = True
                 for item in topic_data.get("_provenance", []):
                     if item not in existing.provenance:
                         existing.provenance.append(dict(item))
@@ -136,7 +150,17 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     canonical_id=topic_data.get("_canonical_id", "") or nid,
                     provenance=[dict(item) for item in topic_data.get("_provenance", [])],
                     relationship_type=topic_data.get("relationship_type", ""),
+                    properties={
+                        "temporal_confidence": topic_data.get("_temporal_confidence", 0.0),
+                        "temporal_signal": topic_data.get("_temporal_signal", ""),
+                        "extraction_confidence": topic_data.get("_extraction_confidence", 0.0),
+                        "entity_resolution": topic_data.get("_entity_resolution", ""),
+                        "extraction_flags": list(topic_data.get("_extraction_flags", [])),
+                        "source_span": topic_data.get("_source_span", ""),
+                    },
                 )
+                if topic_data.get("_temporal_review_pending"):
+                    node.properties["temporal_review_pending"] = True
                 graph.nodes[nid] = node
                 label_to_id[norm] = nid
 

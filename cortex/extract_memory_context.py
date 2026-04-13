@@ -127,6 +127,12 @@ class ExtractedTopic:
     last_seen: datetime | None = None
     mention_timestamps: list[datetime] = field(default_factory=list)
     relationship_type: str = ""
+    temporal_confidence: float = 0.0
+    temporal_signal: str = ""
+    extraction_confidence: float = 0.0
+    entity_resolution: str = ""
+    extraction_flags: list[str] = field(default_factory=list)
+    source_span: str = ""
 
     def apply_boosts(self, reference_time: datetime | None = None):
         mention_boost = 0.0
@@ -148,6 +154,15 @@ class ExtractedTopic:
         self.timeline = list(set(self.timeline + other.timeline))
         self.source_quotes = list(set(self.source_quotes + other.source_quotes))[:5]
         self.mention_timestamps.extend(other.mention_timestamps)
+        self.temporal_confidence = max(self.temporal_confidence, other.temporal_confidence)
+        if other.temporal_signal and not self.temporal_signal:
+            self.temporal_signal = other.temporal_signal
+        self.extraction_confidence = max(self.extraction_confidence, other.extraction_confidence)
+        if other.entity_resolution and not self.entity_resolution:
+            self.entity_resolution = other.entity_resolution
+        self.extraction_flags = list(dict.fromkeys(self.extraction_flags + other.extraction_flags))
+        if other.source_span and len(other.source_span) > len(self.source_span):
+            self.source_span = other.source_span
         if other.first_seen and (self.first_seen is None or other.first_seen < self.first_seen):
             self.first_seen = other.first_seen
         if other.last_seen and (self.last_seen is None or other.last_seen > self.last_seen):
@@ -170,6 +185,17 @@ class ExtractedTopic:
         }
         if self.relationship_type:
             result["relationship_type"] = self.relationship_type
+        if self.temporal_signal:
+            result["_temporal_signal"] = self.temporal_signal
+            result["_temporal_confidence"] = round(self.temporal_confidence, 2)
+        if self.extraction_confidence:
+            result["_extraction_confidence"] = round(self.extraction_confidence, 2)
+        if self.entity_resolution:
+            result["_entity_resolution"] = self.entity_resolution
+        if self.extraction_flags:
+            result["_extraction_flags"] = list(self.extraction_flags)
+        if self.source_span:
+            result["_source_span"] = self.source_span[:240]
         return result
 
 
@@ -178,7 +204,44 @@ class ExtractionContext:
     topics: dict[str, dict[str, ExtractedTopic]] = field(default_factory=lambda: defaultdict(dict))
     extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     conflicts: list[dict] = field(default_factory=list)
+    resolution_conflicts: list[dict] = field(default_factory=list)
     redaction_summary: dict | None = field(default=None)
+    active_source_context: dict[str, object] = field(default_factory=dict)
+
+    def set_active_source_context(self, text: str, timestamp: datetime | None = None) -> None:
+        """Set the active source span for downstream extraction heuristics."""
+        from cortex.temporal import analyze_temporal_context
+
+        self.active_source_context = {
+            "text": text,
+            "timestamp": timestamp,
+            **analyze_temporal_context(text, timestamp),
+        }
+
+    def clear_active_source_context(self) -> None:
+        """Clear the active source span after extraction completes."""
+        self.active_source_context = {}
+
+    def _record_resolution_conflict(
+        self,
+        *,
+        conflict_type: str,
+        topic: str,
+        category: str,
+        source_span: str,
+        confidence: float,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        entry = {
+            "type": conflict_type,
+            "topic": topic,
+            "category": category,
+            "source_span": source_span[:240],
+            "confidence": round(confidence, 2),
+            "metadata": dict(metadata or {}),
+        }
+        if entry not in self.resolution_conflicts:
+            self.resolution_conflicts.append(entry)
 
     def add_topic(
         self,
@@ -194,19 +257,48 @@ class ExtractionContext:
         source_quote: str = "",
         timestamp: datetime | None = None,
         relationship_type: str = "",
+        temporal_confidence: float | None = None,
+        temporal_signal: str = "",
+        extraction_confidence: float | None = None,
+        entity_resolution: str = "",
+        extraction_flags: list[str] | None = None,
+        source_span: str = "",
     ):
         if not topic or len(topic.strip()) < 2:
             return
         topic = topic.strip()
         key = normalize_text(topic)
+        active = dict(self.active_source_context)
         if confidence is None:
             confidence = BASE_CONFIDENCE.get(extraction_method, 0.4)
+        if temporal_confidence is None:
+            temporal_confidence = float(active.get("temporal_confidence", 0.0) or 0.0)
+        if not temporal_signal:
+            temporal_signal = str(active.get("temporal_signal", "") or "")
+        if not source_span:
+            source_span = source_quote or str(active.get("text", "") or "")[:240]
+        flags = list(extraction_flags or [])
 
         existing_key = find_best_match(key, self.topics[category])
         if existing_key:
             existing = self.topics[category][existing_key]
+            exact_match = existing_key == key
+            resolved_confidence = (
+                extraction_confidence if extraction_confidence is not None else (0.92 if exact_match else 0.65)
+            )
+            resolved_state = entity_resolution or ("canonical_match" if exact_match else "fuzzy_match")
+            if not exact_match and "fuzzy_match" not in flags:
+                flags.append("fuzzy_match")
             existing.mention_count += 1
             existing.confidence = max(existing.confidence, confidence)
+            if exact_match:
+                existing.extraction_confidence = max(existing.extraction_confidence, resolved_confidence)
+            else:
+                existing.extraction_confidence = resolved_confidence
+            existing.entity_resolution = resolved_state
+            existing.temporal_confidence = max(existing.temporal_confidence, temporal_confidence)
+            if temporal_signal and not existing.temporal_signal:
+                existing.temporal_signal = temporal_signal
             if brief and len(brief) > len(existing.brief):
                 existing.brief = brief
             if full_description and len(full_description) > len(existing.full_description):
@@ -225,8 +317,31 @@ class ExtractionContext:
                     existing.last_seen = timestamp
             if relationship_type and not existing.relationship_type:
                 existing.relationship_type = relationship_type
+            existing.extraction_flags = list(dict.fromkeys(existing.extraction_flags + flags))
+            if source_span and len(source_span) > len(existing.source_span):
+                existing.source_span = source_span[:240]
+            if resolved_state == "fuzzy_match":
+                self._record_resolution_conflict(
+                    conflict_type="fuzzy_entity_match",
+                    topic=topic,
+                    category=category,
+                    source_span=source_span or source_quote,
+                    confidence=resolved_confidence,
+                    metadata={"matched_existing_key": existing_key},
+                )
             return
 
+        resolved_confidence = extraction_confidence
+        resolved_state = entity_resolution
+        if resolved_confidence is None:
+            if extraction_method in {"mentioned", "inferred"}:
+                resolved_confidence = 0.35
+                resolved_state = resolved_state or "net_new_uncorroborated"
+                if "requires_reviewer_approval" not in flags:
+                    flags.append("requires_reviewer_approval")
+            else:
+                resolved_confidence = 0.82
+                resolved_state = resolved_state or "net_new_observed"
         self.topics[category][key] = ExtractedTopic(
             topic=topic,
             category=category,
@@ -242,7 +357,22 @@ class ExtractionContext:
             last_seen=timestamp,
             mention_timestamps=[timestamp] if timestamp else [],
             relationship_type=relationship_type,
+            temporal_confidence=temporal_confidence,
+            temporal_signal=temporal_signal,
+            extraction_confidence=resolved_confidence,
+            entity_resolution=resolved_state,
+            extraction_flags=flags,
+            source_span=source_span[:240],
         )
+        if resolved_confidence < 0.5:
+            self._record_resolution_conflict(
+                conflict_type="low_confidence_extraction",
+                topic=topic,
+                category=category,
+                source_span=source_span or source_quote,
+                confidence=resolved_confidence,
+                metadata={"entity_resolution": resolved_state, "flags": list(flags)},
+            )
 
     def merge_similar_topics(self):
         for category in MERGEABLE_CATEGORIES:
@@ -340,6 +470,8 @@ class ExtractionContext:
                 output["categories"][category] = [topic.to_dict() for topic in sorted_topics]
         if self.conflicts:
             output["conflicts"] = self.conflicts
+        if self.resolution_conflicts:
+            output["resolution_conflicts"] = list(self.resolution_conflicts)
         if self.redaction_summary is not None:
             output["redaction_summary"] = self.redaction_summary
         output.update(build_eval_compat_view(output))

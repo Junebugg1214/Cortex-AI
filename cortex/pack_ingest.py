@@ -18,6 +18,7 @@ from cortex.packs import (
     pack_path,
     source_index_path,
 )
+from cortex.sources import DuplicateSourceError, SourceRegistry
 
 
 def _iter_source_files(path: Path, *, recurse: bool) -> list[Path]:
@@ -53,12 +54,14 @@ def ingest_pack(
     mode: str = "copy",
     source_type: str = "auto",
     recurse: bool = False,
+    force_reingest: bool = False,
 ) -> dict[str, Any]:
     pack_name = _validate_pack_name(name)
     root = pack_path(store_dir, pack_name)
     if not root.exists():
         raise FileNotFoundError(f"Brainpack '{pack_name}' does not exist.")
     raw_root = root / "raw"
+    registry = SourceRegistry.for_store(store_dir)
     index_payload = _read_json(source_index_path(store_dir, pack_name), default={"pack": pack_name, "sources": []})
     existing = {str(item["source_path"]): dict(item) for item in index_payload.get("sources", [])}
     ingested: list[dict[str, Any]] = []
@@ -77,11 +80,22 @@ def ingest_pack(
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, destination)
                 stored_path = str(destination.relative_to(root))
+            try:
+                registry_payload = registry.register_path(
+                    item,
+                    label=item.name,
+                    metadata={"pack": pack_name, "path": str(item)},
+                    force_reingest=True if mode == "copy" else force_reingest,
+                )
+            except DuplicateSourceError as exc:
+                raise ValueError(str(exc)) from exc
             text_preview, text_eligible = _read_text_if_possible(item)
             record = {
                 "id": make_node_id(f"{pack_name}:{item}"),
                 "source_path": str(item),
                 "stored_path": stored_path,
+                "source_id": registry_payload["stable_id"],
+                "source_labels": list(registry_payload["labels"]),
                 "mode": mode,
                 "type": _source_type_for(item, source_type),
                 "mime_type": mimetypes.guess_type(item.name)[0] or "",
@@ -89,6 +103,7 @@ def ingest_pack(
                 "ingested_at": _iso_now(),
                 "text_eligible": text_eligible,
                 "preview": " ".join(text_preview.strip().split())[:240] if text_preview else "",
+                "duplicate": bool(registry_payload["duplicate"]),
             }
             existing[str(item)] = record
             ingested.append(record)

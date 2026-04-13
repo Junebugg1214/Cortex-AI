@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from itertools import combinations
 from pathlib import Path
 
+from cortex.claims import stamp_graph_provenance
 from cortex.compat import upgrade_v4_to_v5
 from cortex.extract_memory import AggressiveExtractor
+from cortex.extract_memory_context import normalize_text
 from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 from cortex.packs import (
     BrainpackManifest,
@@ -29,6 +32,11 @@ from cortex.packs import (
     source_index_path,
     unknowns_path,
 )
+from cortex.portable_graphs import merge_graphs
+from cortex.sources import SourceRegistry
+from cortex.temporal import apply_temporal_review_policy
+
+PACK_COMPILE_MODES = ("distribution", "full")
 
 
 def _source_file_path(pack_root: Path, record: dict[str, object]) -> Path:
@@ -174,24 +182,50 @@ def _source_node(record: dict[str, object], *, title: str, summary: str) -> Node
     )
 
 
-def _claim_payload(graph: CortexGraph) -> list[dict[str, object]]:
+def _claim_payload(graph: CortexGraph, *, mode: str) -> list[dict[str, object]]:
     claims: list[dict[str, object]] = []
     for node in graph.nodes.values():
         if "brainpack_source" in node.tags or "brainpack" in node.tags:
             continue
-        claims.append(
-            {
-                "id": node.id,
-                "label": node.label,
-                "tags": list(node.tags),
-                "confidence": round(node.confidence, 2),
-                "brief": node.brief,
-                "source_quotes": list(node.source_quotes[:3]),
-                "provenance": list(node.provenance[:3]),
-            }
-        )
+        payload: dict[str, object] = {
+            "id": node.id,
+            "label": node.label,
+            "tags": list(node.tags),
+            "confidence": round(node.confidence, 2),
+            "brief": node.brief,
+        }
+        if mode == "full":
+            payload["source_quotes"] = list(node.source_quotes[:3])
+            payload["provenance"] = list(node.provenance[:5])
+            payload["contested"] = bool(node.properties.get("contested", False))
+            payload["claim_history"] = list(node.properties.get("claim_history", []))
+            payload["temporal_confidence"] = float(node.properties.get("temporal_confidence", 0.0) or 0.0)
+            payload["extraction_confidence"] = float(node.properties.get("extraction_confidence", 0.0) or 0.0)
+        claims.append(payload)
     claims.sort(key=lambda item: (-float(item["confidence"]), str(item["label"]).lower()))
     return claims
+
+
+def _distribution_pack_graph(graph: CortexGraph) -> CortexGraph:
+    stripped = CortexGraph.from_v5_json(graph.export_v5())
+    for node in stripped.nodes.values():
+        node.provenance = []
+        node.source_quotes = []
+        node.snapshots = []
+        node.properties.pop("claim_history", None)
+        node.properties.pop("contested", None)
+        node.properties.pop("temporal_confidence", None)
+        node.properties.pop("temporal_signal", None)
+        node.properties.pop("extraction_confidence", None)
+        node.properties.pop("entity_resolution", None)
+        node.properties.pop("extraction_flags", None)
+        node.properties.pop("source_span", None)
+    for edge in stripped.edges.values():
+        edge.provenance = []
+    stripped.meta["compile_mode"] = "distribution"
+    stripped.meta["provenance_available"] = False
+    stripped.meta["lossy"] = True
+    return stripped
 
 
 def _build_unknowns(
@@ -283,18 +317,24 @@ def compile_pack(
     incremental: bool = True,
     suggest_questions: bool = True,
     max_summary_chars: int | None = None,
+    mode: str = "distribution",
+    output_path: str | Path | None = None,
     namespace: str | None = None,
 ) -> dict[str, object]:
+    if mode not in PACK_COMPILE_MODES:
+        raise ValueError(f"Pack compile mode must be one of: {', '.join(PACK_COMPILE_MODES)}.")
     manifest = load_manifest(store_dir, name)
     _require_pack_namespace(manifest, namespace)
     pack_root = pack_path(store_dir, name)
     source_index = _read_json(source_index_path(store_dir, name), default={"pack": name, "sources": []})
     source_records = list(source_index.get("sources", []))
-    extractor = AggressiveExtractor()
+    registry = SourceRegistry.for_store(store_dir)
+    full_graph = CortexGraph()
     readable_sources: list[dict[str, object]] = []
     skipped_sources: list[str] = []
     wiki_articles: list[dict[str, str]] = []
     extraction_texts: list[str] = []
+    resolution_conflicts: list[dict[str, object]] = []
     for record in source_records:
         source_file = _source_file_path(pack_root, record)
         if not source_file.exists():
@@ -313,6 +353,50 @@ def compile_pack(
         wiki_path = _wiki_sources_dir(store_dir, name) / f"{article_slug}.md"
         wiki_rel = str(wiki_path.relative_to(_wiki_root(store_dir, name)))
         _write_text(wiki_path, _wiki_article(record, title=title, summary=summary, headings=headings, excerpt=excerpt))
+        wiki_articles.append({"title": title, "wiki_path": wiki_rel})
+        extraction_text = _markdown_extraction_text(text)
+        extraction_texts.append(extraction_text or text)
+        extractor = AggressiveExtractor()
+        extractor.extract_from_text(extraction_text or text)
+        extractor.post_process()
+        payload = extractor.context.export()
+        source_graph = upgrade_v4_to_v5(payload)
+        source_id = str(record.get("source_id") or "")
+        if not source_id:
+            registry_payload = registry.register_path(
+                source_file,
+                label=Path(str(record["source_path"])).name,
+                metadata={"pack": name, "path": str(record["source_path"])},
+                force_reingest=True,
+            )
+            source_id = str(registry_payload["stable_id"])
+            record["source_id"] = source_id
+            record["source_labels"] = list(registry_payload["labels"])
+        stamp_graph_provenance(
+            source_graph,
+            source=source_id,
+            stable_source_id=source_id,
+            source_label=title,
+            method="pack_compile",
+            metadata={"pack": name, "compile_mode": mode},
+        )
+        for conflict in payload.get("resolution_conflicts", []):
+            resolution_conflicts.append(dict(conflict))
+        apply_temporal_review_policy(source_graph)
+        conflict_topics = {
+            normalize_text(str(item.get("topic") or "")) for item in payload.get("resolution_conflicts", [])
+        }
+        for node in source_graph.nodes.values():
+            node.properties.setdefault("claim_history", []).append(
+                {
+                    "source_id": source_id,
+                    "source_label": title,
+                    "method": "pack_compile",
+                }
+            )
+            if normalize_text(node.label) in conflict_topics:
+                node.properties["contested"] = True
+        full_graph = merge_graphs(full_graph, source_graph)
         readable_sources.append(
             {
                 **record,
@@ -323,12 +407,12 @@ def compile_pack(
                 "char_count": len(text),
             }
         )
-        wiki_articles.append({"title": title, "wiki_path": wiki_rel})
-        extraction_text = _markdown_extraction_text(text)
-        extraction_texts.append(extraction_text or text)
-        extractor.extract_from_text(extraction_text or text)
-    extractor.post_process()
-    graph = upgrade_v4_to_v5(extractor.context.export())
+    graph = full_graph
+    if resolution_conflicts:
+        graph.meta["resolution_conflicts"] = [dict(item) for item in resolution_conflicts]
+    graph.meta["compile_mode"] = mode
+    graph.meta["provenance_available"] = mode == "full"
+    graph.meta["lossy"] = mode != "full"
     _sanitize_pack_graph(graph)
     _link_cooccurring_pack_nodes(graph, extraction_texts)
 
@@ -348,10 +432,14 @@ def compile_pack(
             )
         )
 
+    persisted_graph = graph if mode == "full" else _distribution_pack_graph(graph)
+    persisted_graph.meta["compile_mode"] = mode
+    persisted_graph.meta["provenance_available"] = mode == "full"
+    persisted_graph.meta["lossy"] = mode != "full"
     compiled_graph_path = graph_path(store_dir, name)
-    _write_json(compiled_graph_path, graph.export_v5())
+    _write_json(compiled_graph_path, persisted_graph.export_v5())
 
-    claim_items = _claim_payload(graph)
+    claim_items = _claim_payload(persisted_graph, mode=mode)
     _write_json(claims_path(store_dir, name), {"pack": name, "claims": claim_items})
 
     unknown_items = _build_unknowns(
@@ -374,20 +462,51 @@ def compile_pack(
         "pack": name,
         "compile_status": "compiled",
         "compiled_at": compiled_at,
+        "compile_mode": mode,
+        "lossy": mode != "full",
         "source_count": len(source_records),
         "text_source_count": len(readable_sources),
-        "graph_nodes": len(graph.nodes),
-        "graph_edges": len(graph.edges),
+        "graph_nodes": len(persisted_graph.nodes),
+        "graph_edges": len(persisted_graph.edges),
         "article_count": len(wiki_articles) + 1,
         "claim_count": len(claim_items),
         "unknown_count": len(unknown_items),
         "artifact_count": artifact_count,
         "incremental": incremental,
         "skipped_sources": skipped_sources,
+        "resolution_conflict_count": len(resolution_conflicts),
+        "resolution_conflicts": resolution_conflicts,
+        "provenance_available": mode == "full",
     }
     _write_json(compile_meta_path(store_dir, name), compile_payload)
     _replace_manifest(store_dir, name, updated_at=compiled_at)
-    return {"status": "ok", **compile_payload, "graph_path": str(compiled_graph_path)}
+    output_file = ""
+    if output_path is not None:
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                {
+                    "pack": name,
+                    "compile_mode": mode,
+                    "lossy": mode != "full",
+                    "graph": persisted_graph.export_v5(),
+                    "claims": claim_items,
+                    "unknowns": unknown_items,
+                    "resolution_conflicts": resolution_conflicts,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        output_file = str(target)
+    return {
+        "status": "ok",
+        **compile_payload,
+        "graph_path": str(compiled_graph_path),
+        "output_file": output_file,
+    }
 
 
 __all__ = ["compile_pack"]
