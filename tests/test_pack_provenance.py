@@ -153,4 +153,3 @@ def test_pack_inspect_cli_reports_compilation_mode(tmp_path, capsys):
     assert rc == 0
     assert output["compile_mode"] == "full"
     assert output["provenance_available"] is True
-

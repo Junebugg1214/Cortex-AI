@@ -99,7 +99,9 @@ def test_canonical_entity_registry_matches_existing_aliases():
 
 
 def test_alias_merge_does_not_create_duplicate_nodes():
-    result = merge_graphs(CortexGraph(), _graph_with_nodes(_entity("Acme Health")), _graph_with_nodes(_entity("Acme-Health")))
+    result = merge_graphs(
+        CortexGraph(), _graph_with_nodes(_entity("Acme Health")), _graph_with_nodes(_entity("Acme-Health"))
+    )
 
     assert len(result.merged.nodes) == 1
     assert result.summary["conflict_classes"]["ALIAS"] == 1
@@ -111,9 +113,13 @@ def test_direct_conflicts_are_exposed_in_merge_preview_cli(tmp_path, capsys):
     store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Base")), "base")
     store.create_branch("feature/openai")
     store.switch_branch("feature/openai")
-    store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Incoming")), "incoming")
+    store.commit(
+        _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Incoming")), "incoming"
+    )
     store.switch_branch("main")
-    store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current")), "current")
+    store.commit(
+        _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current")), "current"
+    )
 
     rc = main(
         [
@@ -143,9 +149,13 @@ def test_merge_commit_refuses_unresolved_direct_conflicts(tmp_path, capsys):
     store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Base")), "base")
     store.create_branch("feature/openai")
     store.switch_branch("feature/openai")
-    store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Incoming")), "incoming")
+    store.commit(
+        _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Incoming")), "incoming"
+    )
     store.switch_branch("main")
-    store.commit(_graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current")), "current")
+    store.commit(
+        _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current")), "current"
+    )
 
     rc = main(["merge", "commit", "--base", "main", "--incoming", "feature/openai", "--store-dir", str(store_dir)])
     output = capsys.readouterr().out
@@ -156,8 +166,12 @@ def test_merge_commit_refuses_unresolved_direct_conflicts(tmp_path, capsys):
 
 def test_merge_preview_reports_alias_novel_and_direct_classes():
     node_id = make_node_id("OpenAI")
-    base = _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Base", canonical_id=node_id))
-    current = _graph_with_nodes(Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current", canonical_id=node_id))
+    base = _graph_with_nodes(
+        Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Base", canonical_id=node_id)
+    )
+    current = _graph_with_nodes(
+        Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Current", canonical_id=node_id)
+    )
     other = _graph_with_nodes(
         Node(id=node_id, label="OpenAI", tags=["business_context"], brief="Incoming", canonical_id=node_id),
         _entity("Anthropic"),

@@ -354,7 +354,9 @@ def inspect_pack_artifact(path: str | Path, *, show_provenance: bool = False) ->
             if "provenance_available" in payload
             else ((graph.meta or {}).get("provenance_available", compile_mode == "full"))
         ),
-        "lossy": bool(payload.get("lossy") if "lossy" in payload else ((graph.meta or {}).get("lossy", compile_mode != "full"))),
+        "lossy": bool(
+            payload.get("lossy") if "lossy" in payload else ((graph.meta or {}).get("lossy", compile_mode != "full"))
+        ),
         "graph_nodes": len(graph.nodes),
         "graph_edges": len(graph.edges),
     }

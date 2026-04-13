@@ -283,7 +283,9 @@ class ExtractionContext:
         if existing_key:
             existing = self.topics[category][existing_key]
             exact_match = existing_key == key
-            resolved_confidence = extraction_confidence if extraction_confidence is not None else (0.92 if exact_match else 0.65)
+            resolved_confidence = (
+                extraction_confidence if extraction_confidence is not None else (0.92 if exact_match else 0.65)
+            )
             resolved_state = entity_resolution or ("canonical_match" if exact_match else "fuzzy_match")
             if not exact_match and "fuzzy_match" not in flags:
                 flags.append("fuzzy_match")

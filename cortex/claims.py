@@ -444,15 +444,11 @@ def build_retraction_plan(
     result = original.retract_source(source=source, prune_orphans=prune_orphans)
     removed_node_ids = sorted(set(original_node_labels) - set(original.nodes))
     removed_edge_ids = sorted(set(original_edges) - set(original.edges))
-    result["node_labels"] = [original_node_labels[node_id] for node_id in result["node_ids"] if node_id in original_node_labels]
-    result["pruned_nodes"] = [
-        {"id": node_id, "label": original_node_labels[node_id]}
-        for node_id in removed_node_ids
+    result["node_labels"] = [
+        original_node_labels[node_id] for node_id in result["node_ids"] if node_id in original_node_labels
     ]
-    result["pruned_edges"] = [
-        {"id": edge_id, **original_edges[edge_id]}
-        for edge_id in removed_edge_ids
-    ]
+    result["pruned_nodes"] = [{"id": node_id, "label": original_node_labels[node_id]} for node_id in removed_node_ids]
+    result["pruned_edges"] = [{"id": edge_id, **original_edges[edge_id]} for edge_id in removed_edge_ids]
     result["dry_run"] = True
     return result
 

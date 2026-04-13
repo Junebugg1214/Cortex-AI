@@ -479,7 +479,9 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             identity=identity,
             parent_id=result.current_version,
             branch=args.base,
-            merge_parent_ids=[result.other_version] if result.other_version and result.other_version != result.current_version else [],
+            merge_parent_ids=[result.other_version]
+            if result.other_version and result.other_version != result.current_version
+            else [],
         )
         payload["commit_id"] = version.version_id
         if args.format == "json":

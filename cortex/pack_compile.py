@@ -383,7 +383,9 @@ def compile_pack(
         for conflict in payload.get("resolution_conflicts", []):
             resolution_conflicts.append(dict(conflict))
         apply_temporal_review_policy(source_graph)
-        conflict_topics = {normalize_text(str(item.get("topic") or "")) for item in payload.get("resolution_conflicts", [])}
+        conflict_topics = {
+            normalize_text(str(item.get("topic") or "")) for item in payload.get("resolution_conflicts", [])
+        }
         for node in source_graph.nodes.values():
             node.properties.setdefault("claim_history", []).append(
                 {

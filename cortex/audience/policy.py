@@ -133,9 +133,7 @@ class PolicyEngine:
         payload = self._load_policy_payload(mind_id)
         raw = dict(payload.get("policies") or {}).get(audience_id)
         if raw is None:
-            raise UnknownAudiencePolicyError(
-                f"Audience '{audience_id}' is not configured for Mind '{mind_id}'."
-            )
+            raise UnknownAudiencePolicyError(f"Audience '{audience_id}' is not configured for Mind '{mind_id}'.")
         return AudiencePolicy.from_dict(raw)
 
     def _render_markdown(self, graph: CortexGraph, *, heading: str, include_provenance: bool) -> str:
@@ -150,7 +148,15 @@ class PolicyEngine:
             if node.brief:
                 lines.append(f"  {node.brief}")
             if include_provenance and node.provenance:
-                sources = ", ".join(sorted({str(item.get('source_label') or item.get('source') or '') for item in node.provenance if str(item.get('source_label') or item.get('source') or '').strip()}))
+                sources = ", ".join(
+                    sorted(
+                        {
+                            str(item.get("source_label") or item.get("source") or "")
+                            for item in node.provenance
+                            if str(item.get("source_label") or item.get("source") or "").strip()
+                        }
+                    )
+                )
                 if sources:
                     lines.append(f"  Sources: {sources}")
         lines.append("")
@@ -169,11 +175,13 @@ class PolicyEngine:
                 count += 1
         return redacted, count
 
-    def _strip_redacted_fields_from_serialized(self, payload: dict[str, Any], *, redact_fields: list[str]) -> dict[str, Any]:
+    def _strip_redacted_fields_from_serialized(
+        self, payload: dict[str, Any], *, redact_fields: list[str]
+    ) -> dict[str, Any]:
         if not redact_fields:
             return payload
         serialized = json.loads(json.dumps(payload))
-        graph_nodes = (((serialized.get("graph") or {}).get("nodes")) or {})
+        graph_nodes = ((serialized.get("graph") or {}).get("nodes")) or {}
         for node in graph_nodes.values():
             for field_name in redact_fields:
                 node.pop(field_name, None)
@@ -193,7 +201,11 @@ class PolicyEngine:
             node_types = set(node.tags)
             blocked = bool(policy.blocked_node_types and node_types.intersection(policy.blocked_node_types))
             allowed = not policy.allowed_node_types or bool(node_types.intersection(policy.allowed_node_types))
-            contested = bool(node.properties.get("contested") or node.properties.get("candidate") or node.properties.get("claim_contested"))
+            contested = bool(
+                node.properties.get("contested")
+                or node.properties.get("candidate")
+                or node.properties.get("claim_contested")
+            )
             in_confidence_range = min_conf <= float(node.confidence or 0.0) <= max_conf
             if blocked or not allowed or not in_confidence_range or (contested and not policy.include_contested):
                 excluded.append(

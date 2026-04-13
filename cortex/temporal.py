@@ -90,7 +90,9 @@ def analyze_temporal_context(text: str, document_timestamp: datetime | None = No
 
     import re
 
-    explicit_match = next((match.group(0) for pattern in explicit_patterns for match in re.finditer(pattern, lowered)), "")
+    explicit_match = next(
+        (match.group(0) for pattern in explicit_patterns for match in re.finditer(pattern, lowered)), ""
+    )
     relative_match = next((term for term in relative_terms if term in lowered), "")
     contextual_match = next((term for term in contextual_terms if term in lowered), "")
 

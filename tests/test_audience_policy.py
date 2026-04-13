@@ -133,7 +133,10 @@ def test_confidence_range_filter_excludes_out_of_range_claims(tmp_path):
 
     assert "Executive decision" in included
     assert "Low confidence project" not in included
-    assert any(item["label"] == "Low confidence project" and item["reason"] == "confidence_excluded" for item in preview["excluded"])
+    assert any(
+        item["label"] == "Low confidence project" and item["reason"] == "confidence_excluded"
+        for item in preview["excluded"]
+    )
 
 
 def test_preview_output_matches_compile_output_exactly(tmp_path):
@@ -230,11 +233,33 @@ def test_audience_cli_apply_template_and_compile_json(tmp_path, capsys):
     _seed_mind(store_dir)
 
     apply_rc = main(
-        ["audience", "apply-template", "--mind", "ops", "--template", "executive", "--store-dir", str(store_dir), "--format", "json"]
+        [
+            "audience",
+            "apply-template",
+            "--mind",
+            "ops",
+            "--template",
+            "executive",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
     )
     applied = json.loads(capsys.readouterr().out)
     compile_rc = main(
-        ["audience", "compile", "--mind", "ops", "--audience", "executive", "--store-dir", str(store_dir), "--format", "json"]
+        [
+            "audience",
+            "compile",
+            "--mind",
+            "ops",
+            "--audience",
+            "executive",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
     )
     compiled = json.loads(capsys.readouterr().out)
 
@@ -251,11 +276,33 @@ def test_audience_cli_preview_matches_compile_output(tmp_path, capsys):
     engine.add_policy("ops", _policy(redact_fields=[]))
 
     preview_rc = main(
-        ["audience", "preview", "--mind", "ops", "--audience", "executive-lite", "--store-dir", str(store_dir), "--format", "json"]
+        [
+            "audience",
+            "preview",
+            "--mind",
+            "ops",
+            "--audience",
+            "executive-lite",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
     )
     preview = json.loads(capsys.readouterr().out)
     compile_rc = main(
-        ["audience", "compile", "--mind", "ops", "--audience", "executive-lite", "--store-dir", str(store_dir), "--format", "json"]
+        [
+            "audience",
+            "compile",
+            "--mind",
+            "ops",
+            "--audience",
+            "executive-lite",
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
     )
     compiled = json.loads(capsys.readouterr().out)
 

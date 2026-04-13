@@ -205,4 +205,3 @@ def test_exact_match_updates_existing_topic_metadata(category, topic, expected_r
 
     assert payload["_entity_resolution"] == expected_resolution
     assert payload["_extraction_confidence"] >= 0.9
-
