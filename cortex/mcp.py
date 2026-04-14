@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any, TextIO
 
 from cortex.config import format_startup_diagnostics, load_selfhost_config
+from cortex.error_envelopes import error_envelope, jsonrpc_error_data
 from cortex.mcp_tools import MCPToolRegistry, ToolDefinition
 from cortex.release import API_VERSION, MCP_SERVER_NAME, OPENAPI_VERSION, PROJECT_VERSION
+from cortex.runtime_control import GracefulShutdown, ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 from cortex.service import MemoryService
 
 JSONRPC_VERSION = "2.0"
 SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05", "2025-11-05", "2025-11-25")
+LOGGER = get_logger("cortex.mcp")
 
 
 class JsonRpcError(Exception):
@@ -89,13 +94,20 @@ class CortexMCPServer:
         }
 
     def _error_response(self, request_id: Any, error: JsonRpcError) -> dict[str, Any]:
+        error_data = jsonrpc_error_data(error.code, error.message)
+        if error.data is not None:
+            if isinstance(error.data, dict):
+                details = dict(error_data.get("details", {}))
+                details.update(error.data)
+                error_data["details"] = details
+            else:
+                error_data["details"] = {"payload": error.data}
         payload: dict[str, Any] = {
             "jsonrpc": JSONRPC_VERSION,
             "id": request_id,
             "error": {"code": error.code, "message": error.message},
         }
-        if error.data is not None:
-            payload["error"]["data"] = error.data
+        payload["error"]["data"] = error_data
         return payload
 
     def _tool_result(self, result: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -104,6 +116,35 @@ class CortexMCPServer:
             "structuredContent": result,
             "isError": is_error,
         }
+
+    def _tool_error_payload(self, tool_name: str, exc: Exception) -> dict[str, Any]:
+        if isinstance(exc, PermissionError):
+            return error_envelope(
+                str(exc),
+                code="forbidden",
+                suggestion="Use a key, session, or namespace that allows this tool call, then retry.",
+                details={"tool": tool_name},
+            )
+        if isinstance(exc, FileNotFoundError):
+            return error_envelope(
+                str(exc),
+                code="not_found",
+                suggestion="Check the requested Mind, pack, graph, or file path, then retry.",
+                details={"tool": tool_name},
+            )
+        if isinstance(exc, ValueError):
+            return error_envelope(
+                str(exc),
+                code="invalid_request",
+                suggestion="Review the tool arguments and try again.",
+                details={"tool": tool_name},
+            )
+        return error_envelope(
+            "Internal MCP tool error.",
+            code="internal_error",
+            suggestion="Retry once. If the error persists, inspect the Cortex logs.",
+            details={"tool": tool_name},
+        )
 
     def _handle_initialize(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         protocol_version = params.get("protocolVersion")
@@ -144,7 +185,16 @@ class CortexMCPServer:
         except JsonRpcError:
             raise
         except Exception as exc:
-            error_payload = {"status": "error", "error": str(exc), "tool": tool_name}
+            error_payload = self._tool_error_payload(tool_name, exc)
+            log_operation(
+                LOGGER,
+                logging.ERROR,
+                "mcp_tool_call",
+                f"Tool call failed: {tool_name}",
+                exc_info=True,
+                tool=tool_name,
+                error=str(exc),
+            )
             return self._success_response(request_id, self._tool_result(error_payload, is_error=True))
 
     def _dispatch_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
@@ -194,6 +244,17 @@ class CortexMCPServer:
                     response = self._dispatch_request(item)
                 except JsonRpcError as exc:
                     response = self._error_response(item.get("id"), exc)
+                except Exception as exc:  # pragma: no cover - defensive boundary
+                    log_operation(
+                        LOGGER,
+                        logging.ERROR,
+                        "mcp_dispatch",
+                        "Unhandled MCP batch item error.",
+                        exc_info=True,
+                        request_id=item.get("id"),
+                        error=str(exc),
+                    )
+                    response = self._error_response(item.get("id"), JsonRpcError(-32603, "Internal MCP server error"))
                 if response is not None:
                     responses.append(response)
             return responses or None
@@ -205,9 +266,31 @@ class CortexMCPServer:
             return self._dispatch_request(message)
         except JsonRpcError as exc:
             return self._error_response(message.get("id"), exc)
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            log_operation(
+                LOGGER,
+                logging.ERROR,
+                "mcp_dispatch",
+                "Unhandled MCP request error.",
+                exc_info=True,
+                request_id=message.get("id"),
+                error=str(exc),
+            )
+            return self._error_response(message.get("id"), JsonRpcError(-32603, "Internal MCP server error"))
 
-    def serve_streams(self, input_stream: TextIO, output_stream: TextIO) -> int:
-        for raw_line in input_stream:
+    def serve_streams(
+        self,
+        input_stream: TextIO,
+        output_stream: TextIO,
+        *,
+        shutdown_controller: ShutdownController | None = None,
+    ) -> int:
+        while True:
+            if shutdown_controller is not None and shutdown_controller.stop_requested:
+                break
+            raw_line = input_stream.readline()
+            if raw_line == "":
+                break
             line = raw_line.strip()
             if not line:
                 continue
@@ -238,6 +321,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_structured_logging()
     args = build_parser().parse_args(argv)
     try:
         config = load_selfhost_config(
@@ -247,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
             mcp_namespace=args.namespace,
         )
     except ValueError as exc:
-        print(f"Config error: {exc}", file=sys.stderr)
+        log_operation(LOGGER, logging.ERROR, "startup", "Config error.", error=str(exc))
+        sys.stderr.write(f"Config error: {exc}\n")
         return 1
 
     diagnostics = format_startup_diagnostics(config, mode="mcp")
@@ -260,7 +345,20 @@ def main(argv: list[str] | None = None) -> int:
         context_file=config.context_file,
         namespace=config.mcp_namespace,
     )
-    return server.serve_streams(sys.stdin, sys.stdout)
+    controller = ShutdownController()
+    log_operation(LOGGER, logging.INFO, "startup", "Cortex MCP diagnostics:", diagnostics=diagnostics)
+    try:
+        with install_shutdown_handlers(controller, raise_on_signal=True):
+            return server.serve_streams(sys.stdin, sys.stdout, shutdown_controller=controller)
+    except GracefulShutdown:
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "shutdown",
+            "Cortex MCP stopped.",
+            reason=controller.reason or "Received shutdown signal",
+        )
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

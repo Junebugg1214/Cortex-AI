@@ -549,6 +549,22 @@ def test_manus_bridge_unknown_get_path_returns_404(tmp_path):
         thread.join(timeout=5)
 
 
+def test_manus_bridge_unknown_path_returns_structured_error_payload(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    server = CortexMCPServer(store_dir=store_dir)
+    configure_manus_toolset(server)
+    handler_cls = make_manus_handler(server)
+
+    status, _, body = _invoke_manus_handler(handler_cls, path="/missing", payload=_jsonrpc("tools/list", request_id=45))
+    parsed = json.loads(body)
+
+    assert status == 404
+    assert parsed["error"]["code"] == -32601
+    assert parsed["error"]["data"]["code"] == "method_not_found"
+    assert parsed["error"]["data"]["suggestion"]
+
+
 def test_manus_bridge_rejects_non_loopback_without_auth(tmp_path):
     store_dir = tmp_path / ".cortex"
 

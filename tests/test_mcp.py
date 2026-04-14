@@ -157,6 +157,32 @@ def test_mcp_initialize_supports_2024_protocol_clients(tmp_path):
     assert initialize["result"]["protocolVersion"] == "2024-11-05"
 
 
+def test_mcp_jsonrpc_errors_include_structured_code_and_suggestion(tmp_path):
+    server = CortexMCPServer(store_dir=tmp_path / ".cortex")
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+
+    assert response is not None
+    assert response["error"]["code"] == -32002
+    assert response["error"]["data"]["code"] == "not_initialized"
+    assert "Initialize the MCP session" in response["error"]["data"]["suggestion"]
+
+
+def test_mcp_tool_failures_use_shared_error_envelope(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    init_mind(store_dir, "ops", owner="tester")
+    server = CortexMCPServer(store_dir=store_dir)
+    _initialize(server)
+
+    response = _tool_call(server, tool="mind_status", arguments={"name": "missing-mind"})
+    structured = response["result"]["structuredContent"]
+
+    assert response["result"]["isError"] is True
+    assert structured["code"] == "not_found"
+    assert structured["error"]
+    assert structured["suggestion"]
+
+
 def _portable_export_path(base: Path) -> Path:
     export_path = base / "chatgpt-export.txt"
     export_path.write_text(

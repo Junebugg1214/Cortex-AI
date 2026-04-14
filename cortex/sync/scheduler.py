@@ -9,10 +9,15 @@ Pure Python stdlib — no external dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from cortex.runtime_logging import get_logger, log_operation
+
+LOGGER = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -108,6 +113,13 @@ class SyncScheduler:
     def start(self) -> None:
         """Start all scheduled sync timers."""
         self._running = True
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "sync_scheduler_start",
+            "Started sync scheduler.",
+            schedule_count=len(self.config.schedules),
+        )
         for schedule in self.config.schedules:
             self._schedule_next(schedule)
 
@@ -118,6 +130,7 @@ class SyncScheduler:
             for timer in self._timers:
                 timer.cancel()
             self._timers.clear()
+        log_operation(LOGGER, logging.INFO, "sync_scheduler_stop", "Stopped sync scheduler.")
 
     @property
     def running(self) -> bool:
@@ -149,9 +162,15 @@ class SyncScheduler:
         try:
             self._execute_sync(schedule)
         except Exception as exc:
-            import sys
-
-            print(f"[cortex scheduler] Error syncing {schedule.platform}: {exc}", file=sys.stderr)
+            log_operation(
+                LOGGER,
+                logging.ERROR,
+                "sync_scheduler_run",
+                f"Error syncing {schedule.platform}.",
+                exc_info=True,
+                platform=schedule.platform,
+                error=str(exc),
+            )
         finally:
             self._schedule_next(schedule)
 

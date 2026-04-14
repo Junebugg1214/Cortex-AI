@@ -9,6 +9,7 @@ Pure Python stdlib — no external dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -16,6 +17,9 @@ from typing import Callable
 
 from cortex.compat import upgrade_v4_to_v5
 from cortex.graph import CortexGraph
+from cortex.runtime_logging import get_logger, log_operation
+
+LOGGER = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Exportable file patterns
@@ -57,6 +61,14 @@ class ExportMonitor:
         self._scan_initial()
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "export_monitor_start",
+            "Started export monitor.",
+            watch_dir=str(self.watch_dir),
+            interval_seconds=self.interval,
+        )
 
     def stop(self) -> None:
         """Signal the monitor to stop."""
@@ -64,6 +76,7 @@ class ExportMonitor:
         if self._thread:
             self._thread.join(timeout=self.interval + 5)
             self._thread = None
+        log_operation(LOGGER, logging.INFO, "export_monitor_stop", "Stopped export monitor.")
 
     @property
     def running(self) -> bool:
@@ -148,9 +161,15 @@ class ExportMonitor:
                 self.on_extract(path, graph)
 
         except Exception as exc:
-            import sys
-
-            print(f"[cortex monitor] Error processing {path.name}: {exc}", file=sys.stderr)
+            log_operation(
+                LOGGER,
+                logging.ERROR,
+                "export_monitor_process",
+                f"Error processing {path.name}.",
+                exc_info=True,
+                path=str(path),
+                error=str(exc),
+            )
 
     def _load_or_create_graph(self) -> CortexGraph:
         """Load existing graph from graph_path, or create empty."""
@@ -159,9 +178,13 @@ class ExportMonitor:
                 with open(self.graph_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
-                import sys
-
-                print(f"[cortex monitor] Corrupted graph file {self.graph_path.name}, starting fresh", file=sys.stderr)
+                log_operation(
+                    LOGGER,
+                    logging.WARNING,
+                    "export_monitor_graph_load",
+                    f"Corrupted graph file {self.graph_path.name}; starting fresh.",
+                    graph_path=str(self.graph_path),
+                )
                 return CortexGraph()
             version = data.get("schema_version", "")
             if version.startswith("5") or version.startswith("6"):

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,10 @@ from cortex.http_hardening import (
     request_policy_for_mode,
 )
 from cortex.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
+
+LOGGER = get_logger("cortex.manus_bridge")
 
 MANUS_BRIDGE_NAME = "cortex-manus"
 DEFAULT_MANUS_HOST = "127.0.0.1"
@@ -346,7 +352,15 @@ def dispatch_manus_request(
         return 400, _jsonrpc_error_payload(server, effective_payload, JsonRpcError(-32602, str(exc)))
     except JsonRpcError as exc:
         return 400, _jsonrpc_error_payload(server, effective_payload, exc)
-    except Exception:
+    except Exception as exc:
+        log_operation(
+            LOGGER,
+            logging.ERROR,
+            "manus_dispatch",
+            "Unhandled Manus bridge request failed.",
+            exc_info=True,
+            error=str(exc),
+        )
         return 500, _jsonrpc_error_payload(
             server,
             effective_payload,
@@ -406,7 +420,7 @@ def make_manus_handler(
                     },
                 )
                 return
-            self._write_json(404, {"status": "error", "error": "Not found"})
+            self._write_json(404, server._error_response(None, JsonRpcError(-32601, "Not found")))
 
         def do_POST(self) -> None:  # noqa: N802
             apply_read_timeout(self, policy=self._request_policy)
@@ -415,7 +429,7 @@ def make_manus_handler(
                 return
             parsed = urlparse(self.path)
             if parsed.path not in MANUS_MCP_PATHS:
-                self._write_json(404, {"status": "error", "error": "Not found"})
+                self._write_json(404, server._error_response(None, JsonRpcError(-32601, "Not found")))
                 return
             try:
                 payload = read_json_request(self, policy=self._request_policy, require_object=False)
@@ -535,6 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_structured_logging()
     args = build_parser().parse_args(argv)
     try:
         config = load_selfhost_config(
@@ -564,7 +579,8 @@ def main(argv: list[str] | None = None) -> int:
             allow_unsafe_bind=args.allow_unsafe_bind,
         )
     except ValueError as exc:
-        print(f"Config error: {exc}", file=sys.stderr)
+        log_operation(LOGGER, logging.ERROR, "startup", "Config error.", error=str(exc))
+        sys.stderr.write(f"Config error: {exc}\n")
         return 1
 
     diagnostics = format_startup_diagnostics(config, mode="manus")
@@ -590,14 +606,34 @@ def main(argv: list[str] | None = None) -> int:
         allow_unsafe_bind=args.allow_unsafe_bind,
         protocol_version=args.protocol_version,
     )
-    print(f"Cortex Manus bridge running at {url}")
-    print("Expose this endpoint over HTTPS before adding it to Manus.")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        return 130
-    finally:
-        httpd.server_close()
+    controller = ShutdownController()
+    log_operation(LOGGER, logging.INFO, "startup", "Cortex Manus bridge diagnostics:", diagnostics=diagnostics)
+    log_operation(LOGGER, logging.INFO, "startup", f"Cortex Manus bridge running at {url}", url=url)
+    log_operation(
+        LOGGER,
+        logging.INFO,
+        "startup",
+        "Expose this endpoint over HTTPS before adding it to Manus.",
+    )
+    with install_shutdown_handlers(controller):
+        thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
+        thread.start()
+        try:
+            while thread.is_alive() and not controller.wait(0.5):
+                continue
+        except KeyboardInterrupt:
+            controller.request_shutdown("Received KeyboardInterrupt")
+        finally:
+            httpd.shutdown()
+            thread.join(timeout=5)
+            httpd.server_close()
+    log_operation(
+        LOGGER,
+        logging.INFO,
+        "shutdown",
+        "Cortex Manus bridge stopped.",
+        reason=controller.reason or "Process exit",
+    )
     return 0
 
 

@@ -8,10 +8,9 @@ history, governance, remote sync, indexing, and maintenance operations.
 from __future__ import annotations
 
 import json
+import logging
 import secrets
-import sys
 import threading
-import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,6 +21,7 @@ from uuid import uuid4
 
 from cortex.auth import authorize_api_key
 from cortex.config import APIKeyConfig, is_loopback_host, validate_runtime_security
+from cortex.error_envelopes import error_envelope
 from cortex.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
@@ -31,8 +31,11 @@ from cortex.http_hardening import (
     read_json_request,
     request_policy_for_mode,
 )
+from cortex.runtime_logging import get_logger, log_operation
 from cortex.webapp_backend import MemoryUIBackend
 from cortex.webapp_shell import UI_HTML, UI_SESSION_HEADER, UI_SESSION_PLACEHOLDER
+
+LOGGER = get_logger(__name__)
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -40,7 +43,7 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 def _error_payload(message: str, *, code: str, suggestion: str) -> dict[str, str]:
-    return {"status": "error", "error": message, "code": code, "suggestion": suggestion}
+    return error_envelope(message, code=code, suggestion=suggestion)
 
 
 def make_handler(
@@ -206,8 +209,15 @@ def make_handler(
             )
 
         def _log_unhandled_exception(self, *, request_id: str, exc: Exception) -> None:
-            print(f"[cortex-ui] request_id={request_id} unhandled error: {exc}", file=sys.stderr)
-            traceback.print_exc()
+            log_operation(
+                LOGGER,
+                logging.ERROR,
+                "ui_request",
+                "Unhandled UI request error.",
+                exc_info=True,
+                request_id=request_id,
+                error=str(exc),
+            )
 
         def _check_rate_limit(self) -> str | None:
             parsed = urlparse(self.path)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +22,7 @@ from cortex.agent.events import (
     normalize_delivery_target,
     normalize_output_format,
 )
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
 
 
 @dataclass(frozen=True)
@@ -79,10 +81,18 @@ def run_agent(args, *, ctx: AgentCliContext) -> int:
                 f"auto-resolved {result['auto_resolved']}; queued {result['queued']}."
             )
             return 0
-        try:
-            monitor.run_forever()
-        except KeyboardInterrupt:
-            return 0
+        controller = ShutdownController()
+        thread = threading.Thread(target=monitor.run_forever, daemon=True)
+        thread.start()
+        with install_shutdown_handlers(controller):
+            try:
+                while thread.is_alive() and not controller.wait(0.5):
+                    continue
+            except KeyboardInterrupt:
+                controller.request_shutdown("Received KeyboardInterrupt")
+            finally:
+                monitor.stop()
+                thread.join(timeout=args.interval + 2)
         return 0
 
     dispatcher = ContextDispatcher(store_dir=store_dir, output_root=_output_root(getattr(args, "output_dir", None)))
@@ -138,8 +148,12 @@ def run_agent(args, *, ctx: AgentCliContext) -> int:
             return 0
         schedule = result["schedule"]
         ctx.echo(f"Scheduled {schedule['output_format']} for Mind `{schedule['mind_id']}`")
+        ctx.echo(f"  schedule id: {schedule['schedule_id']}")
         ctx.echo(f"  audience: {schedule['audience_id']}")
         ctx.echo(f"  next run: {schedule['next_run_at']}")
+        ctx.echo("Next:")
+        ctx.echo("  Review schedule status: cortex agent status")
+        ctx.echo("  Run the dispatcher immediately if needed: cortex agent compile --mind <id> --output brief")
         return 0
 
     if args.agent_subcommand == "status":

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+
 
 def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policies):
     mem = sub.add_parser("memory", help="Inspect and edit local memory graph")
@@ -271,7 +273,19 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     sw.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
     sw.add_argument("--dry-run", action="store_true", help="Preview portable switch without writing files")
 
-    mg = sub.add_parser("merge", help="Merge another memory branch/ref into the current branch")
+    mg = sub.add_parser(
+        "merge",
+        help="Merge another memory branch/ref into the current branch",
+        description="Review, stage, resolve, and commit fact-level merges between memory branches.",
+        epilog=(
+            "Examples:\n"
+            "  cortex merge feature/atlas --dry-run\n"
+            "  cortex merge --conflicts\n"
+            "  cortex merge --resolve <conflict-id> --choose incoming\n"
+            "  cortex merge preview --base main --incoming feature/atlas\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     mg.add_argument("ref_name", nargs="?", help="Branch or ref to merge into the current branch")
     mg.add_argument("--store-dir", default=".cortex", help="Version store directory (default: .cortex)")
     mg.add_argument("--message", help="Custom merge commit message")
@@ -288,7 +302,18 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     mg.add_argument("--actor", default="local", help="Actor identity for governance checks (default: local)")
     mg.add_argument("--approve", action="store_true", help="Explicitly approve a gated merge")
 
-    rvw = sub.add_parser("review", help="Review a memory graph against a stored ref")
+    rvw = sub.add_parser(
+        "review",
+        help="Review a memory graph against a stored ref",
+        description="Compare a graph or branch against a baseline, or inspect pending candidate branches for one Mind.",
+        epilog=(
+            "Examples:\n"
+            "  cortex review --against HEAD\n"
+            "  cortex review context.json --against main --format md\n"
+            "  cortex review pending --mind ops --show-conflicts\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     rvw.add_argument("input_file", nargs="?", help="Optional context JSON to review instead of a stored ref")
     rvw.add_argument("--against", help="Baseline branch/ref/version to compare against")
     rvw.add_argument("--ref", default="HEAD", help="Current branch/ref/version when no input file is provided")

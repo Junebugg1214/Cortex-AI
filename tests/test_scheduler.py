@@ -9,7 +9,9 @@ Covers:
 - Timer cancellation on stop
 """
 
+import io
 import json
+import logging
 import sys
 import time
 
@@ -178,6 +180,32 @@ class TestSyncScheduler:
         scheduler = SyncScheduler(config)
         results = scheduler.run_once()
         assert results["system-prompt"] == []
+
+    def test_run_sync_logs_failures_instead_of_printing(self, tmp_path, monkeypatch):
+        config = self._config(tmp_path)
+        scheduler = SyncScheduler(config)
+        schedule = config.schedules[0]
+
+        def _boom(_schedule):  # noqa: ARG001
+            raise RuntimeError("adapter offline")
+
+        monkeypatch.setattr(scheduler, "_execute_sync", _boom)
+        from cortex.runtime_logging import configure_structured_logging
+
+        configure_structured_logging()
+        logger = logging.getLogger("cortex")
+        handler = logger.handlers[0]
+        capture = io.StringIO()
+        original_stream = handler.stream
+        handler.setStream(capture)
+        try:
+            scheduler._run_sync(schedule)
+        finally:
+            handler.setStream(original_stream)
+        stderr = capture.getvalue()
+
+        assert "Error syncing system-prompt." in stderr
+        assert "adapter offline" in stderr
 
 
 # ============================================================================

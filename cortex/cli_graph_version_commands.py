@@ -31,6 +31,19 @@ class GraphVersionCliContext:
 GOVERNANCE_ACTION_CHOICES = cli_parser_module.GOVERNANCE_ACTION_CHOICES
 
 
+def _store_dir_hint(store_dir: Path | str) -> str:
+    value = str(store_dir)
+    return "" if value == ".cortex" else f" --store-dir {value}"
+
+
+def _print_next_steps(*steps: str) -> None:
+    if not steps:
+        return
+    print("  Next:")
+    for step in steps:
+        print(f"    {step}")
+
+
 def _resolve_version_or_exit(store, version_ref: str) -> str:
     resolved = store.resolve_ref(version_ref)
     if resolved is None:
@@ -469,6 +482,10 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
     if args.ref_name in {"preview", "commit"}:
         if not args.base or not args.incoming:
             print("`cortex merge preview|commit` requires --base <branch> and --incoming <branch>.")
+            _print_next_steps(
+                f"Preview first: cortex merge preview --base main --incoming feature-branch{_store_dir_hint(store_dir)}",
+                f"Commit after a clean preview: cortex merge commit --base main --incoming feature-branch{_store_dir_hint(store_dir)}",
+            )
             return 1
         try:
             result = merge_refs(store, args.base, args.incoming)
@@ -496,11 +513,23 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
                 print(f"  alias {item['alias']} -> {item['canonical_label']} ({item['canonical_id']})")
             for conflict in payload.get("direct_conflicts", [])[:20]:
                 print(f"  direct {conflict['id']} [{conflict['field']}]: {conflict['description']}")
+            if payload["direct_conflicts"]:
+                _print_next_steps(
+                    f"Inspect the full preview as JSON: cortex merge preview --base {args.base} --incoming {args.incoming}{_store_dir_hint(store_dir)} --format json",
+                    f"Commit after DIRECT conflicts are resolved: cortex merge commit --base {args.base} --incoming {args.incoming}{_store_dir_hint(store_dir)}",
+                )
+            else:
+                _print_next_steps(
+                    f"Commit this merge: cortex merge commit --base {args.base} --incoming {args.incoming}{_store_dir_hint(store_dir)}",
+                )
             return 0 if not payload["direct_conflicts"] else 1
 
         unresolved_direct = payload["direct_conflicts"]
         if unresolved_direct:
             print(f"Cannot commit merge; {len(unresolved_direct)} unresolved DIRECT conflict(s) remain.")
+            _print_next_steps(
+                f"Review the conflicts first: cortex merge preview --base {args.base} --incoming {args.incoming}{_store_dir_hint(store_dir)}",
+            )
             return 1
         identity = UPAIIdentity.load(store_dir) if (store_dir / "identity.json").exists() else None
         message = args.message or f"Merge branch '{args.incoming}' into {args.base}"
@@ -520,6 +549,7 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             print(json.dumps(payload, indent=2))
         else:
             print(f"Committed merge {args.incoming} -> {args.base}: {version.version_id}")
+            _print_next_steps(f"Verify the new head: cortex log --branch {args.base}{_store_dir_hint(store_dir)}")
         return 0
 
     if args.abort:
@@ -529,6 +559,9 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             return 0
         clear_merge_state(store_dir)
         print(f"Aborted pending merge into {state['current_branch']} from {state['other_ref']}.")
+        _print_next_steps(
+            f"Start over with a dry run: cortex merge {state['other_ref']}{_store_dir_hint(store_dir)} --dry-run",
+        )
         return 0
 
     if args.conflicts:
@@ -549,6 +582,7 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
                 print(json.dumps(payload, indent=2))
             else:
                 print("No pending merge conflicts.")
+                _print_next_steps("Start a merge first: cortex merge <branch-or-ref>")
             return 0
         payload = {
             "status": "ok",
@@ -565,11 +599,19 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
                 field = f" [{conflict.get('field')}]" if conflict.get("field") else ""
                 conflict_class = str(conflict.get("conflict_class") or "DIRECT")
                 print(f"  - {conflict['id']} {conflict_class}/{conflict['kind']}{field}: {conflict['description']}")
+            _print_next_steps(
+                f"Resolve one conflict: cortex merge --resolve <conflict-id> --choose current{_store_dir_hint(store_dir)}",
+                f"Commit after all conflicts are resolved: cortex merge --commit-resolved{_store_dir_hint(store_dir)}",
+            )
         return 0
 
     if args.resolve:
         if not args.choose:
             print("Specify --choose current|incoming when resolving a merge conflict.")
+            _print_next_steps(
+                f"Keep the current branch value: cortex merge --resolve {args.resolve} --choose current{_store_dir_hint(store_dir)}",
+                f"Keep the incoming branch value: cortex merge --resolve {args.resolve} --choose incoming{_store_dir_hint(store_dir)}",
+            )
             return 1
         try:
             payload = resolve_merge_conflict(store, store_dir, args.resolve, args.choose)
@@ -583,6 +625,13 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
                 f"Resolved merge conflict {payload['resolved_conflict_id']} with {payload['choice']}; "
                 f"{payload['remaining_conflicts']} conflict(s) remain."
             )
+            if payload["remaining_conflicts"]:
+                _print_next_steps(
+                    f"Review remaining conflicts: cortex merge --conflicts{_store_dir_hint(store_dir)}",
+                    f"Commit when the list is empty: cortex merge --commit-resolved{_store_dir_hint(store_dir)}",
+                )
+            else:
+                _print_next_steps(f"Commit the resolved merge: cortex merge --commit-resolved{_store_dir_hint(store_dir)}")
         return 0
 
     if args.commit_resolved:
@@ -591,10 +640,15 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
         state = load_merge_state(store_dir)
         if state is None:
             print("No pending merge state found.")
+            _print_next_steps("Start a merge first: cortex merge <branch-or-ref>")
             return 1
         conflicts = state.get("conflicts", [])
         if conflicts:
             print(f"Cannot commit merge; {len(conflicts)} conflict(s) remain.")
+            _print_next_steps(
+                f"Show the remaining conflicts: cortex merge --conflicts{_store_dir_hint(store_dir)}",
+                f"Resolve one conflict: cortex merge --resolve <conflict-id> --choose current{_store_dir_hint(store_dir)}",
+            )
             return 1
         graph = load_merge_worktree(store_dir)
         if (
@@ -632,10 +686,15 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             print(json.dumps(payload, indent=2))
         else:
             print(f"Committed resolved merge: {version.version_id}")
+            _print_next_steps(f"Inspect the merged history: cortex log --branch {current_branch}{_store_dir_hint(store_dir)}")
         return 0
 
     if not args.ref_name:
         print("Specify a branch/ref to merge, or use --conflicts, --resolve, --commit-resolved, or --abort.")
+        _print_next_steps(
+            f"Preview a two-branch merge: cortex merge preview --base main --incoming feature-branch{_store_dir_hint(store_dir)}",
+            f"Start a merge into the current branch: cortex merge feature-branch{_store_dir_hint(store_dir)} --dry-run",
+        )
         return 1
 
     try:
@@ -736,14 +795,19 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             field = f" [{conflict.field}]" if conflict.field else ""
             print(f"    - {conflict.id} {conflict.conflict_class}/{conflict.kind}{field}: {conflict.description}")
         if not args.dry_run:
-            print(
-                "  Pending merge state saved. Use `cortex merge --conflicts` and `cortex merge --resolve <id> --choose ...`."
+            print("  Pending merge state saved.")
+            _print_next_steps(
+                f"List pending conflicts: cortex merge --conflicts{_store_dir_hint(store_dir)}",
+                f"Resolve one conflict: cortex merge --resolve <conflict-id> --choose current{_store_dir_hint(store_dir)}",
+                f"Commit after resolving everything: cortex merge --commit-resolved{_store_dir_hint(store_dir)}",
             )
         return 1
     if payload.get("commit_id"):
         print(f"  Committed merge: {payload['commit_id']}")
+        _print_next_steps(f"Review the merge result: cortex log --branch {current_branch}{_store_dir_hint(store_dir)}")
     elif args.dry_run:
         print("  Dry run only, no commit created.")
+        _print_next_steps(f"Apply the merge when ready: cortex merge {args.ref_name}{_store_dir_hint(store_dir)}")
     return 0
 
 
@@ -755,6 +819,7 @@ def run_review(args, *, ctx: GraphVersionCliContext):
     if args.input_file == "pending":
         if not args.mind:
             print("`cortex review pending` requires --mind <id>")
+            _print_next_steps(f"List pending proposals: cortex review pending --mind <mind-id>{_store_dir_hint(Path(args.store_dir))}")
             return 1
         try:
             payload = pending_candidate_branches(
@@ -774,6 +839,8 @@ def run_review(args, *, ctx: GraphVersionCliContext):
                 f"  - {item['proposal_id']} [{item['status']}] "
                 f"sources={item['proposed_source_count']} nodes={item['graph_node_count']}"
             )
+            if item.get("proposal_path"):
+                print(f"      path={item['proposal_path']}")
             if args.show_conflicts:
                 for conflict in item.get("resolution_conflicts", [])[:10]:
                     print(
@@ -781,12 +848,25 @@ def run_review(args, *, ctx: GraphVersionCliContext):
                         f"topic={conflict.get('topic', '')} "
                         f"confidence={float(conflict.get('confidence', 0.0)):.2f}"
                     )
+        if payload["proposals"]:
+            if args.show_conflicts:
+                _print_next_steps(
+                    f"Open one proposal file from the path above and inspect the captured source spans.",
+                )
+            else:
+                _print_next_steps(
+                    f"Show low-confidence extraction conflicts: cortex review pending --mind {args.mind} --show-conflicts{_store_dir_hint(Path(args.store_dir))}",
+                )
         return 0
 
     backend = get_storage_backend(Path(args.store_dir))
     store = backend.versions
     if not args.against:
         print("`cortex review` requires --against unless you use `cortex review pending --mind <id>`.")
+        _print_next_steps(
+            f"Compare against the current head: cortex review --against HEAD{_store_dir_hint(Path(args.store_dir))}",
+            f"List pending candidate branches instead: cortex review pending --mind <mind-id>{_store_dir_hint(Path(args.store_dir))}",
+        )
         return 1
     against_version = _resolve_version_or_exit(store, args.against)
     against_graph = store.checkout(against_version)
@@ -859,6 +939,13 @@ def run_review(args, *, ctx: GraphVersionCliContext):
             print("  Semantic changes:")
             for item in result["semantic_changes"][:10]:
                 print(f"    - {item['type']}: {item['description']}")
+        if should_fail:
+            _print_next_steps(
+                f"See a machine-readable report: cortex review --against {args.against}{_store_dir_hint(Path(args.store_dir))} --format json",
+                "Fix the flagged contradictions, temporal gaps, or low-confidence changes, then rerun the review.",
+            )
+        else:
+            _print_next_steps("This review passed. You can proceed with your merge or commit.")
     return 0 if not should_fail else 1
 
 

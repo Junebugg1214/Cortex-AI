@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
-import traceback
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
@@ -20,6 +21,7 @@ from cortex.config import (
     load_selfhost_config,
     validate_runtime_security,
 )
+from cortex.error_envelopes import error_envelope
 from cortex.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
@@ -30,7 +32,11 @@ from cortex.http_hardening import (
     request_policy_for_mode,
 )
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 from cortex.service import MemoryService
+
+LOGGER = get_logger("cortex.server")
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -88,8 +94,15 @@ def _request_namespace(
 
 
 def _log_unhandled_exception(*, request_id: str, exc: Exception) -> None:
-    print(f"[cortex-api] request_id={request_id} unhandled error: {exc}", file=sys.stderr)
-    traceback.print_exc()
+    log_operation(
+        LOGGER,
+        logging.ERROR,
+        "rest_request",
+        "Unhandled REST exception.",
+        exc_info=True,
+        request_id=request_id,
+        error=str(exc),
+    )
 
 
 def _error_envelope(
@@ -99,15 +112,7 @@ def _error_envelope(
     suggestion: str,
     request_id: str = "",
 ) -> dict[str, Any]:
-    payload = {
-        "status": "error",
-        "error": message,
-        "code": code,
-        "suggestion": suggestion,
-    }
-    if request_id:
-        payload["request_id"] = request_id
-    return payload
+    return error_envelope(message, code=code, suggestion=suggestion, request_id=request_id)
 
 
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
@@ -588,6 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_structured_logging()
     args = build_parser().parse_args(argv)
     try:
         config = load_selfhost_config(
@@ -608,7 +614,8 @@ def main(argv: list[str] | None = None) -> int:
             allow_unsafe_bind=args.allow_unsafe_bind,
         )
     except ValueError as exc:
-        print(f"Config error: {exc}", file=sys.stderr)
+        log_operation(LOGGER, logging.ERROR, "startup", "Config error.", error=str(exc))
+        sys.stderr.write(f"Config error: {exc}\n")
         return 1
 
     diagnostics = format_startup_diagnostics(config, mode="server")
@@ -626,16 +633,28 @@ def main(argv: list[str] | None = None) -> int:
         allow_unsafe_bind=args.allow_unsafe_bind,
         external_base_url=config.external_base_url,
     )
-    print(diagnostics)
-    print(f"Cortex API running at {url}")
-    print("Press Ctrl+C to stop.")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        print("\nCortex API stopped.")
+    controller = ShutdownController()
+    log_operation(LOGGER, logging.INFO, "startup", "Cortex server diagnostics:", diagnostics=diagnostics)
+    log_operation(LOGGER, logging.INFO, "startup", f"Cortex API running at {url}", url=url)
+    with install_shutdown_handlers(controller):
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
+        thread.start()
+        try:
+            while thread.is_alive() and not controller.wait(0.5):
+                continue
+        except KeyboardInterrupt:
+            controller.request_shutdown("Received KeyboardInterrupt")
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+    log_operation(
+        LOGGER,
+        logging.INFO,
+        "shutdown",
+        "Cortex API stopped.",
+        reason=controller.reason or "Process exit",
+    )
     return 0
 
 

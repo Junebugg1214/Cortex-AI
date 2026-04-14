@@ -398,6 +398,8 @@ def test_cortex_api_hides_internal_errors_from_clients(tmp_path, monkeypatch):
 
     assert status == 500
     assert payload["error"] == "Internal server error."
+    assert payload["code"] == "internal_error"
+    assert payload["suggestion"]
 
 
 def test_cortex_client_reports_network_errors_cleanly():

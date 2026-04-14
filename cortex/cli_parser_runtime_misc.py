@@ -178,7 +178,17 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
     agent_dispatch.add_argument("--output-dir", help="Local output directory (default: ./output)")
     agent_dispatch.add_argument("--format", choices=["json", "text"], default="text")
 
-    agent_schedule = agent_sub.add_parser("schedule", help="Register a recurring trigger")
+    agent_schedule = agent_sub.add_parser(
+        "schedule",
+        help="Register a recurring trigger",
+        description="Create a recurring audience compilation schedule for one Mind.",
+        epilog=(
+            "Examples:\n"
+            "  cortex agent schedule --mind ops --audience executive --cron \"0 9 * * 1\" --output brief\n"
+            "  cortex agent status\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     agent_schedule.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     agent_schedule.add_argument("--mind", required=True, help="Mind id to compile from")
     agent_schedule.add_argument("--audience", required=True, help="Audience id such as attorney or recruiter")
