@@ -851,7 +851,7 @@ def run_review(args, *, ctx: GraphVersionCliContext):
         if payload["proposals"]:
             if args.show_conflicts:
                 _print_next_steps(
-                    f"Open one proposal file from the path above and inspect the captured source spans.",
+                    "Open one proposal file from the path above and inspect the captured source spans.",
                 )
             else:
                 _print_next_steps(

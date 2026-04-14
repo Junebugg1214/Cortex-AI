@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cortex.atomic_io import atomic_write_text
-from cortex.runtime_control import ShutdownController, install_shutdown_handlers
-from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 from cortex.cli_runtime import (
     _build_connect_manus_serve_command,
     _connect_runtime_config_snippet,
@@ -26,6 +24,8 @@ from cortex.cli_runtime import (
     _select_scoped_api_key,
     _serve_check_payload,
 )
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 
 LOGGER = get_logger(__name__)
 

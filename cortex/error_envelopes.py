@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _JSONRPC_DEFAULTS: dict[int, tuple[str, str]] = {
     -32700: ("parse_error", "Send valid JSON-RPC 2.0 JSON and try again."),
     -32603: ("internal_error", "Retry once. If the error persists, inspect the Cortex logs."),
