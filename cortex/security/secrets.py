@@ -80,10 +80,7 @@ class CortexIgnore:
         if candidate.is_relative_to(self.root_dir):
             rel = candidate.relative_to(self.root_dir).as_posix()
         name = candidate.name
-        return any(
-            fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern)
-            for pattern in self.patterns
-        )
+        return any(fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern) for pattern in self.patterns)
 
 
 @dataclass(slots=True)

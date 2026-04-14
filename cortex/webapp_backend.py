@@ -11,18 +11,13 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
-from cortex.cli import _load_graph
 from cortex.audience.policy import PolicyEngine
 from cortex.audience.templates import BUILTIN_AUDIENCE_TEMPLATES
+from cortex.cli import _load_graph
 from cortex.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.memory_ops import blame_memory_nodes
 from cortex.minds import init_mind, remember_on_mind
-from cortex.review import parse_failure_policies, review_graphs
-from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
-from cortex.service import MemoryService
-from cortex.storage import get_storage_backend
-from cortex.storage.base import StorageBackend
 from cortex.onboarding.wizard import (
     load_wizard_state,
     record_compile,
@@ -32,6 +27,11 @@ from cortex.onboarding.wizard import (
     start_wizard,
     summarize_wizard_state,
 )
+from cortex.review import parse_failure_policies, review_graphs
+from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
+from cortex.service import MemoryService
+from cortex.storage import get_storage_backend
+from cortex.storage.base import StorageBackend
 
 
 class MemoryUIBackend:

@@ -65,4 +65,3 @@ def test_wizard_rejects_source_changes_after_completion(tmp_path):
 
     with pytest.raises(OnboardingWizardError, match="already complete"):
         record_source(store_dir, source_kind="file", source_value="/tmp/incident.md")
-

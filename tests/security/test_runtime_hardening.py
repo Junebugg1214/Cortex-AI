@@ -4,8 +4,7 @@ import io
 import json
 from pathlib import Path
 
-from cortex.config import APIKeyConfig
-from cortex.config import load_selfhost_config
+from cortex.config import APIKeyConfig, load_selfhost_config
 from cortex.graph import CortexGraph, Node
 from cortex.http_hardening import request_policy_for_mode
 from cortex.server import dispatch_api_request, make_api_handler

@@ -99,7 +99,10 @@ def _apply_json_mode(args: Any, *, force_json: bool, ctx: EntryPointCliContext) 
         args.format = "json"
         return None
     if args.subcommand not in {"extract"}:
-        return ctx.error(f"`--json` is not supported for '{args.subcommand}'.", hint="Use the command's documented output flag or `cortex --help`.")
+        return ctx.error(
+            f"`--json` is not supported for '{args.subcommand}'.",
+            hint="Use the command's documented output flag or `cortex --help`.",
+        )
     return None
 
 

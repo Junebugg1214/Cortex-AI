@@ -36,12 +36,10 @@ def graph_checksum(graph: CortexGraph) -> str:
     exported["meta"] = meta
     graph_payload = dict(exported.get("graph", {}))
     graph_payload["nodes"] = {
-        node_id: graph_payload.get("nodes", {}).get(node_id)
-        for node_id in sorted(graph_payload.get("nodes", {}))
+        node_id: graph_payload.get("nodes", {}).get(node_id) for node_id in sorted(graph_payload.get("nodes", {}))
     }
     graph_payload["edges"] = {
-        edge_id: graph_payload.get("edges", {}).get(edge_id)
-        for edge_id in sorted(graph_payload.get("edges", {}))
+        edge_id: graph_payload.get("edges", {}).get(edge_id) for edge_id in sorted(graph_payload.get("edges", {}))
     }
     exported["graph"] = graph_payload
     payload = json.dumps(exported, sort_keys=True, ensure_ascii=False)
@@ -52,9 +50,7 @@ def check_graph_integrity(graph: CortexGraph) -> dict[str, Any]:
     """Validate graph lineage, edge references, and retraction consistency."""
     issues: list[IntegrityIssue] = []
     orphaned_nodes = [
-        {"id": node.id, "label": node.label}
-        for node in graph.nodes.values()
-        if not list(node.provenance)
+        {"id": node.id, "label": node.label} for node in graph.nodes.values() if not list(node.provenance)
     ]
     if orphaned_nodes:
         issues.append(
@@ -85,7 +81,10 @@ def check_graph_integrity(graph: CortexGraph) -> dict[str, Any]:
     nodes_with_retracted_sources = [
         {"id": node.id, "label": node.label}
         for node in graph.nodes.values()
-        if any(str(item.get("source_id") or item.get("source") or "").strip() in retracted_sources for item in node.provenance)
+        if any(
+            str(item.get("source_id") or item.get("source") or "").strip() in retracted_sources
+            for item in node.provenance
+        )
     ]
     if nodes_with_retracted_sources:
         issues.append(
@@ -124,9 +123,7 @@ def check_store_integrity(store_dir: str | Path) -> dict[str, Any]:
     history = backend.versions.log(limit=10_000)
     known_version_ids = {item.version_id for item in history}
     broken_version_chain = [
-        item.version_id
-        for item in history
-        if item.parent_id and item.parent_id not in known_version_ids
+        item.version_id for item in history if item.parent_id and item.parent_id not in known_version_ids
     ]
     status = graph_issues["status"]
     if broken_version_chain:

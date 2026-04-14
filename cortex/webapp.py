@@ -401,7 +401,9 @@ def make_handler(
                 self._log_unhandled_exception(request_id=request_id, exc=exc)
                 error = "Internal server error."
                 self._send_json(
-                    _error_payload(error, code="internal_error", suggestion="Retry the request or check the server logs."),
+                    _error_payload(
+                        error, code="internal_error", suggestion="Retry the request or check the server logs."
+                    ),
                     status=status,
                     request_id=request_id,
                 )
@@ -542,7 +544,9 @@ def make_handler(
                 self._log_unhandled_exception(request_id=request_id, exc=exc)
                 error = "Internal server error."
                 self._send_json(
-                    _error_payload(error, code="internal_error", suggestion="Retry the request or check the server logs."),
+                    _error_payload(
+                        error, code="internal_error", suggestion="Retry the request or check the server logs."
+                    ),
                     status=status,
                     request_id=request_id,
                 )

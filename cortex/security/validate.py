@@ -42,9 +42,7 @@ class InputValidator:
             try:
                 text = value.decode("utf-8")
             except UnicodeDecodeError as exc:
-                raise InvalidInputSecurityError(
-                    f"{field_name} must be valid UTF-8 text."
-                ) from exc
+                raise InvalidInputSecurityError(f"{field_name} must be valid UTF-8 text.") from exc
         elif isinstance(value, str):
             text = value
         else:
@@ -96,9 +94,7 @@ class InputValidator:
         if base_dir is not None:
             base_path = Path(base_dir).expanduser().resolve(strict=False)
             if not resolved.is_relative_to(base_path):
-                raise PathTraversalSecurityError(
-                    f"{field_name} must stay within {base_path}."
-                )
+                raise PathTraversalSecurityError(f"{field_name} must stay within {base_path}.")
         if must_exist and not resolved.exists():
             raise InvalidInputSecurityError(f"{field_name} not found: {resolved}")
         return resolved

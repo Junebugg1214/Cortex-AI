@@ -7,8 +7,7 @@ from cortex.claims import stamp_graph_provenance
 from cortex.cli import main
 from cortex.completion import completion_candidates
 from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.minds import init_mind
-from cortex.minds import adopt_graph_into_mind
+from cortex.minds import adopt_graph_into_mind, init_mind
 from cortex.sources import SourceRegistry
 
 

@@ -7,9 +7,8 @@ small set of transitions that the UI can drive.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 

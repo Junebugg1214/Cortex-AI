@@ -155,7 +155,9 @@ ARGPARSE_RECOVERY_HINTS = {
 def format_cli_error(message: str, *, hint: str | None = None, why: str | None = None) -> str:
     """Render a plain-English CLI error with a recovery path."""
     normalized_message = message.strip().rstrip(".")
-    normalized_why = (why or "Cortex could not safely infer the next step from the arguments provided.").strip().rstrip(".")
+    normalized_why = (
+        (why or "Cortex could not safely infer the next step from the arguments provided.").strip().rstrip(".")
+    )
     normalized_hint = (hint or "Run `cortex --help` to see the available commands and examples.").strip().rstrip(".")
     return (
         f"What went wrong: {normalized_message}.\n"
@@ -195,7 +197,9 @@ class CortexArgumentParser(argparse.ArgumentParser):
             if not choice.dest:
                 continue
             example = "cortex help init" if choice.dest == "help" else f"cortex {choice.dest} --help"
-            command_rows.append(f"  {choice.dest:<16} {choice.help or 'No description available.'}\n    Example: {example}")
+            command_rows.append(
+                f"  {choice.dest:<16} {choice.help or 'No description available.'}\n    Example: {example}"
+            )
         command_index = "Command index:\n" + "\n".join(command_rows)
         return (
             f"{help_text}\n\n"

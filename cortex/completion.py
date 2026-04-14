@@ -132,7 +132,7 @@ def generate_bash(parser: argparse.ArgumentParser) -> str:
     flag_cases: list[str] = []
     for sub in subcommands:
         flags = " ".join(_get_flags(parser, sub))
-        flag_cases.append(f"        {sub})\n            opts=\"{flags}\"\n            ;;")
+        flag_cases.append(f'        {sub})\n            opts="{flags}"\n            ;;')
 
     flag_cases_str = "\n".join(flag_cases)
     mind_command = _script_command("bash", kind="mind")
@@ -284,15 +284,15 @@ def generate_fish(parser: argparse.ArgumentParser) -> str:
     lines.extend(
         [
             "",
-            f"function __cortex_minds --description 'List Cortex Mind ids'",
+            "function __cortex_minds --description 'List Cortex Mind ids'",
             f"    {mind_command}",
             "end",
             "",
-            f"function __cortex_audiences --description 'List Cortex audience ids'",
+            "function __cortex_audiences --description 'List Cortex audience ids'",
             f"    {audience_command}",
             "end",
             "",
-            f"function __cortex_sources --description 'List Cortex source ids'",
+            "function __cortex_sources --description 'List Cortex source ids'",
             f"    {source_command}",
             "end",
             "",
