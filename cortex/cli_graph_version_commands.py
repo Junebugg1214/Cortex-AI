@@ -110,6 +110,38 @@ def run_diff(args, *, ctx: GraphVersionCliContext):
     return 0
 
 
+def run_integrity(args, *, ctx: GraphVersionCliContext):
+    """Check store lineage, version history, and graph consistency."""
+    from cortex.integrity import check_store_integrity
+
+    payload = check_store_integrity(Path(args.store_dir))
+    exit_code = 1 if payload.get("status") == "error" else 0
+    if ctx.emit_result(payload, args.format) == 0:
+        return exit_code
+
+    graph_integrity = payload.get("graph_integrity", {})
+    print(f"Integrity check: {payload.get('status', 'error').upper()}")
+    print(f"  Store: {payload.get('store_dir', args.store_dir)}")
+    print(f"  Current branch: {payload.get('current_branch') or '(none)'}")
+    print(f"  Head: {payload.get('head') or '(none)'}")
+    if graph_integrity.get("checksum"):
+        print(f"  Graph checksum: {graph_integrity['checksum']}")
+    broken_chain = payload.get("broken_version_chain", [])
+    if broken_chain:
+        print(f"  Broken version chain entries: {len(broken_chain)}")
+        for version_id in broken_chain[:20]:
+            print(f"    - {version_id}")
+    issues = list(graph_integrity.get("issues", []))
+    if not issues and not broken_chain:
+        print("  No integrity issues detected.")
+        return exit_code
+    print("  Issues:")
+    for issue in issues:
+        severity = str(issue.get("severity", "warning")).upper()
+        print(f"    - {severity} {issue.get('code', 'unknown')}: {issue.get('message', '')}")
+    return exit_code
+
+
 def run_checkout(args, *, ctx: GraphVersionCliContext):
     """Write a stored graph version to a file."""
     from cortex.storage import get_storage_backend

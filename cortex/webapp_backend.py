@@ -9,11 +9,24 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.request import urlopen
 
+from cortex.audience.policy import PolicyEngine
+from cortex.audience.templates import BUILTIN_AUDIENCE_TEMPLATES
 from cortex.cli import _load_graph
 from cortex.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
 from cortex.memory_ops import blame_memory_nodes
+from cortex.minds import init_mind, remember_on_mind
+from cortex.onboarding.wizard import (
+    load_wizard_state,
+    record_compile,
+    record_source,
+    reset_wizard,
+    skip_wizard,
+    start_wizard,
+    summarize_wizard_state,
+)
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
 from cortex.service import MemoryService
@@ -107,6 +120,7 @@ class MemoryUIBackend:
         versions = self.backend.versions
         current = versions.current_branch()
         default_context = self._default_context_file()
+        onboarding = summarize_wizard_state(load_wizard_state(self.store_dir))
         return {
             "status": "ok",
             "store_dir": str(self.store_dir.resolve()),
@@ -120,7 +134,107 @@ class MemoryUIBackend:
             "index": self._safe_index_status(ref="HEAD"),
             "log_path": str(self.service.observability.log_path),
             "release": self.service.release(),
+            "onboarding": onboarding,
         }
+
+    def onboarding_state(self) -> dict[str, Any]:
+        """Return the persisted onboarding state for the current store."""
+        state = summarize_wizard_state(load_wizard_state(self.store_dir))
+        return {"status": "ok", "onboarding": state}
+
+    def onboarding_start(self, *, mind_id: str, mind_label: str = "") -> dict[str, Any]:
+        """Start the onboarding flow for a Mind."""
+        state = start_wizard(self.store_dir, mind_id=mind_id, mind_label=mind_label)
+        return {"status": "ok", "onboarding": state}
+
+    def onboarding_create_mind(
+        self,
+        *,
+        mind_id: str,
+        mind_label: str = "",
+        label: str = "",
+        owner: str = "",
+        kind: str = "person",
+        namespace: str | None = None,
+    ) -> dict[str, Any]:
+        """Create the first Mind during onboarding."""
+        payload = init_mind(
+            self.store_dir,
+            mind_id,
+            kind=kind,
+            label=label or mind_label,
+            owner=owner,
+            namespace=namespace,
+        )
+        state = start_wizard(self.store_dir, mind_id=mind_id, mind_label=label or mind_label or mind_id)
+        payload["onboarding"] = state
+        return payload
+
+    def onboarding_ingest_source(
+        self,
+        *,
+        mind_id: str,
+        source_kind: str,
+        source_value: str,
+        namespace: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest one source for onboarding and advance the wizard."""
+        if source_kind == "file":
+            path = Path(source_value).expanduser().resolve()
+            if not path.exists():
+                raise FileNotFoundError(f"Source file not found: {path}")
+            statement = path.read_text(encoding="utf-8")
+        elif source_kind == "url":
+            with urlopen(source_value, timeout=10.0) as response:
+                statement = response.read().decode("utf-8", errors="replace")
+        elif source_kind == "paste":
+            statement = source_value
+        else:
+            raise ValueError("source_kind must be file, url, or paste")
+
+        remember_payload = remember_on_mind(
+            self.store_dir,
+            mind_id,
+            statement=statement.strip(),
+            message="Onboarding source import",
+            namespace=namespace,
+        )
+        state = record_source(self.store_dir, source_kind=source_kind, source_value=source_value)
+        return {"status": "ok", "remember": remember_payload, "onboarding": state}
+
+    def onboarding_compile_output(
+        self,
+        *,
+        mind_id: str,
+        audience_template: str,
+        namespace: str | None = None,
+    ) -> dict[str, Any]:
+        """Compile the first audience-specific output for onboarding."""
+        template = BUILTIN_AUDIENCE_TEMPLATES.get(audience_template)
+        if template is None:
+            raise ValueError(f"Unknown audience template: {audience_template}")
+        engine = PolicyEngine(self.store_dir)
+        try:
+            engine.add_policy(mind_id, template)
+        except Exception:
+            pass
+        payload = engine.compile(mind_id, audience_template)
+        summary = f"Compiled {audience_template} output with {payload['node_count_out']} visible node(s)."
+        onboarding = record_compile(
+            self.store_dir,
+            audience_template=audience_template,
+            result_summary=summary,
+        )
+        payload["onboarding"] = onboarding
+        return payload
+
+    def onboarding_skip(self) -> dict[str, Any]:
+        """Skip onboarding and persist that choice."""
+        return {"status": "ok", "onboarding": skip_wizard(self.store_dir)}
+
+    def onboarding_reset(self) -> dict[str, Any]:
+        """Reset onboarding back to its initial state."""
+        return {"status": "ok", "onboarding": reset_wizard(self.store_dir)}
 
     def review(
         self, *, input_file: str | None, against: str, ref: str = "HEAD", fail_on: str = "blocking"

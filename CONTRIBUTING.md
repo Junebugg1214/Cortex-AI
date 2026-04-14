@@ -82,6 +82,17 @@ tests/                  # CLI/core-library test suite
 - Quote style: double quotes
 - Target: Python 3.10+
 
+## Dependency Management
+
+- Runtime dependencies are pinned in `requirements.txt`.
+- Development-only dependencies are pinned in `requirements-dev.txt`.
+- `pyproject.toml` remains the packaging source of truth, while the requirements files provide reproducible install sets for local development and CI.
+- Update policy:
+  - change one dependency family at a time
+  - rerun the full test suite after every dependency update
+  - document any new dependency in `DEPENDENCIES.md`
+  - prefer built-in modules unless a third-party package is clearly necessary
+
 ## What We're Looking For
 
 - Bug fixes with test coverage

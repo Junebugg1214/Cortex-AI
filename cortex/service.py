@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from cortex.graph import CortexGraph
 from cortex.observability import CortexObservability
+from cortex.security.secrets import SecretsScanner
 from cortex.service_common import _coerce_graph
 from cortex.service_objects import MemoryObjectServiceMixin
 from cortex.service_runtime import MemoryRuntimeServiceMixin
@@ -33,6 +35,13 @@ class MemoryService(MemoryRuntimeServiceMixin, MemoryVersionedGraphServiceMixin,
         self.context_file = Path(context_file).resolve() if context_file else None
         self.backend = backend or get_storage_backend(self.store_dir)
         self.observability = observability or CortexObservability(self.store_dir)
+        self.started_at = monotonic()
+        head = self.backend.versions.resolve_ref("HEAD")
+        if head is not None:
+            SecretsScanner().warn_if_graph_contains_secrets(
+                self.backend.versions.checkout(head),
+                operation="service_startup",
+            )
 
     def _default_graph_ref(self) -> str:
         return "HEAD"

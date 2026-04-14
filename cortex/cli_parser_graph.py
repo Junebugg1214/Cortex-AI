@@ -433,5 +433,12 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     sy.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
     sy.add_argument("--format", choices=["json", "text"], default="text")
 
+    integ = sub.add_parser("integrity", help="Check store lineage, version history, and graph consistency")
+    integ_sub = integ.add_subparsers(dest="integrity_subcommand")
+
+    integ_check = integ_sub.add_parser("check", help="Verify graph lineage, version chains, and store checksums")
+    integ_check.add_argument("--store-dir", default=".cortex", help="Store directory to inspect (default: .cortex)")
+    integ_check.add_argument("--format", choices=["json", "text"], default="text")
+
     vr = sub.add_parser("verify", help="Verify a signed export")
     vr.add_argument("input_file", help="Path to signed export file")

@@ -1208,6 +1208,10 @@ def run_diff(args, *, ctx: GraphCliContext):
     return cli_graph_version_commands_module.run_diff(args, ctx=_graph_version_cli_context(ctx))
 
 
+def run_integrity(args, *, ctx: GraphCliContext):
+    return cli_graph_version_commands_module.run_integrity(args, ctx=_graph_version_cli_context(ctx))
+
+
 def run_checkout(args, *, ctx: GraphCliContext):
     return cli_graph_version_commands_module.run_checkout(args, ctx=_graph_version_cli_context(ctx))
 

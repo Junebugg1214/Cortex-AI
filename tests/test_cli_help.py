@@ -5,7 +5,6 @@ import re
 
 import pytest
 
-import cortex.cli as cli_module
 from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, build_parser, main
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 
@@ -29,6 +28,7 @@ def test_default_help_is_first_class_and_mind_first():
         "remember",
         "build",
         "audit",
+        "integrity",
         "merge",
         "governance",
         "remote",
@@ -40,11 +40,14 @@ def test_default_help_is_first_class_and_mind_first():
         "scan",
         "sync",
         "status",
-    }.isdisjoint(commands)
+        "sources",
+        "audience",
+    }.issubset(commands)
     assert "Start Here:" in help_text
     assert "Surface Map:" in help_text
-    assert "Runtime / admin" in help_text
-    assert "cortex connect manus" in help_text
+    assert "Command index:" in help_text
+    assert "Example: cortex init --help" in help_text
+    assert "cortex ui" in help_text
     assert "cortex help init" in help_text
     assert ADVANCED_HELP_NOTE in help_text
 
@@ -123,6 +126,7 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
     assert "store, config, and runtime drift" in doctor_help
     assert "cortex doctor --fix-store" in doctor_help
     assert "cortex doctor --portability" in doctor_help
+    assert "cortex integrity check" in doctor_help
     assert "--portability" in doctor_help
 
 
@@ -161,26 +165,23 @@ def test_argparse_required_argument_errors_include_task_hints(capsys):
         parser.parse_args(["mind", "status"])
     status_error = capsys.readouterr().err
 
+    assert "What went wrong:" in status_error
     assert "the following arguments are required: name" in status_error
-    assert "Try: cortex mind list" in status_error
+    assert "What to do next:" in status_error
+    assert "cortex mind list" in status_error
 
 
-def test_unknown_first_arg_routes_to_migrate(monkeypatch, tmp_path):
-    called = {}
+def test_unknown_first_arg_is_rejected(monkeypatch, tmp_path, capsys):
     input_path = tmp_path / "chat-export.json"
     input_path.write_text("{}", encoding="utf-8")
 
-    def fake_run_migrate(args):
-        called["input_file"] = args.input_file
-        called["to"] = args.to
-        return 73
+    with pytest.raises(SystemExit, match="2"):
+        main([str(input_path)])
+    stderr = capsys.readouterr().err
 
-    monkeypatch.setattr(cli_module, "run_migrate", fake_run_migrate)
-
-    rc = main([str(input_path)])
-
-    assert rc == 73
-    assert called == {"input_file": str(input_path), "to": "all"}
+    assert "What went wrong:" in stderr
+    assert "What to do next:" in stderr
+    assert "cortex migrate" in stderr
 
 
 def test_topic_help_surfaces_beginner_and_legacy_guidance(capsys):

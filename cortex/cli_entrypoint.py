@@ -54,6 +54,7 @@ KNOWN_SUBCOMMANDS = (
     "build",
     "audit",
     "doctor",
+    "integrity",
     "help",
     "mind",
     "sources",
@@ -88,8 +89,6 @@ class EntryPointCliContext:
 
 
 def _route_default_subcommand(argv: list[str]) -> list[str]:
-    if argv and argv[0] not in KNOWN_SUBCOMMANDS:
-        return ["migrate", *argv]
     return argv
 
 
@@ -100,7 +99,10 @@ def _apply_json_mode(args: Any, *, force_json: bool, ctx: EntryPointCliContext) 
         args.format = "json"
         return None
     if args.subcommand not in {"extract"}:
-        return ctx.error(f"`--json` is not supported for '{args.subcommand}'.")
+        return ctx.error(
+            f"`--json` is not supported for '{args.subcommand}'.",
+            hint="Use the command's documented output flag or `cortex --help`.",
+        )
     return None
 
 

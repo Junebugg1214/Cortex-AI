@@ -253,6 +253,9 @@ def _candidate_config_path(
     env_path = _as_optional_path(env.get("CORTEX_CONFIG"))
     if env_path is not None:
         return env_path, True
+    home_config = Path(env.get("HOME", str(Path.home()))) / ".cortex" / "config.toml"
+    if store_dir is None and home_config.exists():
+        return home_config, False
     base_store_dir = _as_optional_path(store_dir) or _as_optional_path(env.get("CORTEX_STORE_DIR")) or Path(".cortex")
     return Path(base_store_dir) / "config.toml", False
 

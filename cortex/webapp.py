@@ -39,6 +39,10 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
 
 
+def _error_payload(message: str, *, code: str, suggestion: str) -> dict[str, str]:
+    return {"status": "error", "error": message, "code": code, "suggestion": suggestion}
+
+
 def make_handler(
     backend: MemoryUIBackend,
     *,
@@ -191,7 +195,15 @@ def make_handler(
             )
 
         def _write_request_error(self, status: int, message: str, *, request_id: str) -> None:
-            self._send_json({"status": "error", "error": message}, status=status, request_id=request_id)
+            self._send_json(
+                _error_payload(
+                    message,
+                    code="rate_limited" if status == 429 else "request_error",
+                    suggestion="Try again after adjusting the request.",
+                ),
+                status=status,
+                request_id=request_id,
+            )
 
         def _log_unhandled_exception(self, *, request_id: str, exc: Exception) -> None:
             print(f"[cortex-ui] request_id={request_id} unhandled error: {exc}", file=sys.stderr)
@@ -226,13 +238,24 @@ def make_handler(
                 auth_error = self._authorize_api_request(method="GET")
                 if auth_error is not None:
                     status, error = auth_error
-                    self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                    self._send_json(
+                        _error_payload(
+                            error,
+                            code="unauthorized" if status == 401 else "forbidden",
+                            suggestion="Provide a valid API key or local session token, then retry.",
+                        ),
+                        status=status,
+                        request_id=request_id,
+                    )
                     return
                 if parsed.path == "/api/meta":
                     self._send_json(backend.meta(), request_id=request_id)
                     return
                 if parsed.path == "/api/health":
                     self._send_json(backend.health(), request_id=request_id)
+                    return
+                if parsed.path == "/api/onboarding/state":
+                    self._send_json(backend.onboarding_state(), request_id=request_id)
                     return
                 if parsed.path == "/api/metrics":
                     self._send_json(backend.metrics(), request_id=request_id)
@@ -352,20 +375,38 @@ def make_handler(
                     return
                 status = 404
                 error = "Not found"
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="not_found", suggestion="Check the path and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except ValueError as exc:
                 status = 400
                 error = str(exc)
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="bad_request", suggestion="Review the request fields and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except FileNotFoundError as exc:
                 status = 404
                 error = str(exc)
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="not_found", suggestion="Check the file path and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except Exception as exc:  # pragma: no cover - defensive
                 status = 500
                 self._log_unhandled_exception(request_id=request_id, exc=exc)
                 error = "Internal server error."
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(
+                        error, code="internal_error", suggestion="Retry the request or check the server logs."
+                    ),
+                    status=status,
+                    request_id=request_id,
+                )
             finally:
                 self._log_request(
                     request_id=request_id,
@@ -391,7 +432,15 @@ def make_handler(
                 auth_error = self._authorize_api_request(method="POST")
                 if auth_error is not None:
                     status, error = auth_error
-                    self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                    self._send_json(
+                        _error_payload(
+                            error,
+                            code="unauthorized" if status == 401 else "forbidden",
+                            suggestion="Provide a valid API key or local session token, then retry.",
+                        ),
+                        status=status,
+                        request_id=request_id,
+                    )
                     return
                 payload = read_json_request(self, policy=self._cortex_ui_request_policy, require_object=True)
                 path = self.path
@@ -427,6 +476,24 @@ def make_handler(
                 if path == "/api/governance/check":
                     self._send_json(backend.check_governance(**payload), request_id=request_id)
                     return
+                if path == "/api/onboarding/start":
+                    self._send_json(backend.onboarding_start(**payload), request_id=request_id)
+                    return
+                if path == "/api/onboarding/create":
+                    self._send_json(backend.onboarding_create_mind(**payload), request_id=request_id)
+                    return
+                if path == "/api/onboarding/ingest":
+                    self._send_json(backend.onboarding_ingest_source(**payload), request_id=request_id)
+                    return
+                if path == "/api/onboarding/compile":
+                    self._send_json(backend.onboarding_compile_output(**payload), request_id=request_id)
+                    return
+                if path == "/api/onboarding/skip":
+                    self._send_json(backend.onboarding_skip(), request_id=request_id)
+                    return
+                if path == "/api/onboarding/reset":
+                    self._send_json(backend.onboarding_reset(), request_id=request_id)
+                    return
                 if path == "/api/remote/add":
                     self._send_json(backend.add_remote(**payload), request_id=request_id)
                     return
@@ -451,24 +518,46 @@ def make_handler(
             except HTTPRequestValidationError as exc:
                 status = exc.status
                 error = exc.message
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="invalid_request", suggestion="Fix the request shape and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except ValueError as exc:
                 status = 400
                 error = str(exc)
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="bad_request", suggestion="Review the request fields and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except FileNotFoundError as exc:
                 status = 404
                 error = str(exc)
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="not_found", suggestion="Check the file path and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             except Exception as exc:  # pragma: no cover - defensive
                 status = 500
                 self._log_unhandled_exception(request_id=request_id, exc=exc)
                 error = "Internal server error."
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(
+                        error, code="internal_error", suggestion="Retry the request or check the server logs."
+                    ),
+                    status=status,
+                    request_id=request_id,
+                )
             else:
                 status = 404
                 error = "Not found"
-                self._send_json({"status": "error", "error": error}, status=status, request_id=request_id)
+                self._send_json(
+                    _error_payload(error, code="not_found", suggestion="Check the path and try again."),
+                    status=status,
+                    request_id=request_id,
+                )
             finally:
                 self._log_request(
                     request_id=request_id,
