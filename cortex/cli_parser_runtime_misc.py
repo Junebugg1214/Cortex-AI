@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+
 
 def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
     ui = sub.add_parser(
@@ -97,6 +99,14 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
     cp.add_argument(
         "--shell", "-s", required=True, choices=["bash", "zsh", "fish"], help="Shell type (bash, zsh, fish)"
     )
+    cp.add_argument(
+        "--candidates",
+        choices=["mind", "audience", "source"],
+        default="",
+        help=argparse.SUPPRESS,
+    )
+    cp.add_argument("--mind", default="", help=argparse.SUPPRESS)
+    cp.add_argument("--store-dir", default=".cortex", help=argparse.SUPPRESS)
 
     ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
     ro.add_argument("--store-dir", default=".cortex", help="Identity store directory (default: .cortex)")

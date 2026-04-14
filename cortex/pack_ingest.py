@@ -18,7 +18,11 @@ from cortex.packs import (
     pack_path,
     source_index_path,
 )
+from cortex.security.secrets import CortexIgnore
+from cortex.security.validate import InputValidator
 from cortex.sources import DuplicateSourceError, SourceRegistry
+
+_INPUT_VALIDATOR = InputValidator()
 
 
 def _iter_source_files(path: Path, *, recurse: bool) -> list[Path]:
@@ -62,15 +66,18 @@ def ingest_pack(
         raise FileNotFoundError(f"Brainpack '{pack_name}' does not exist.")
     raw_root = root / "raw"
     registry = SourceRegistry.for_store(store_dir)
+    ignore = CortexIgnore.discover()
     index_payload = _read_json(source_index_path(store_dir, pack_name), default={"pack": pack_name, "sources": []})
     existing = {str(item["source_path"]): dict(item) for item in index_payload.get("sources", [])}
     ingested: list[dict[str, Any]] = []
+    ignored: list[str] = []
     for raw_input in paths:
-        source = Path(raw_input).expanduser().resolve()
-        if not source.exists():
-            raise FileNotFoundError(source)
+        source = _INPUT_VALIDATOR.validate_path(raw_input, field_name="ingest source path")
         input_root = source if source.is_dir() else source.parent
         for item in _iter_source_files(source, recurse=recurse):
+            if ignore.matches(item):
+                ignored.append(str(item))
+                continue
             stored_path = ""
             if mode == "copy":
                 relative = item.relative_to(input_root) if source.is_dir() else Path(item.name)
@@ -116,6 +123,7 @@ def ingest_pack(
         "pack": pack_name,
         "mode": mode,
         "ingested": ingested,
+        "ignored": ignored,
         "ingested_count": len(ingested),
         "source_count": len(payload["sources"]),
     }

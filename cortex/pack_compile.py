@@ -33,6 +33,7 @@ from cortex.packs import (
     unknowns_path,
 )
 from cortex.portable_graphs import merge_graphs
+from cortex.security.secrets import SecretsScanner
 from cortex.sources import SourceRegistry
 from cortex.temporal import apply_temporal_review_policy
 
@@ -319,6 +320,7 @@ def compile_pack(
     max_summary_chars: int | None = None,
     mode: str = "distribution",
     output_path: str | Path | None = None,
+    include_secrets: bool = False,
     namespace: str | None = None,
 ) -> dict[str, object]:
     if mode not in PACK_COMPILE_MODES:
@@ -432,6 +434,23 @@ def compile_pack(
             )
         )
 
+    secret_report = SecretsScanner().scan_graph(graph)
+    secret_node_ids = [item["node_id"] for item in secret_report["findings"]]
+    secrets_removed = 0
+    if secret_node_ids and not include_secrets:
+        secrets_removed = graph.remove_nodes(secret_node_ids)
+        graph.meta["secret_scan"] = {
+            "status": "stripped",
+            "finding_count": secret_report["finding_count"],
+            "stripped_node_ids": secret_node_ids,
+        }
+    elif secret_node_ids:
+        graph.meta["secret_scan"] = {
+            "status": "included",
+            "finding_count": secret_report["finding_count"],
+            "node_ids": secret_node_ids,
+        }
+
     persisted_graph = graph if mode == "full" else _distribution_pack_graph(graph)
     persisted_graph.meta["compile_mode"] = mode
     persisted_graph.meta["provenance_available"] = mode == "full"
@@ -477,6 +496,8 @@ def compile_pack(
         "resolution_conflict_count": len(resolution_conflicts),
         "resolution_conflicts": resolution_conflicts,
         "provenance_available": mode == "full",
+        "secret_finding_count": secret_report["finding_count"],
+        "secrets_removed": secrets_removed,
     }
     _write_json(compile_meta_path(store_dir, name), compile_payload)
     _replace_manifest(store_dir, name, updated_at=compiled_at)
@@ -494,6 +515,7 @@ def compile_pack(
                     "claims": claim_items,
                     "unknowns": unknown_items,
                     "resolution_conflicts": resolution_conflicts,
+                    "secret_scan": graph.meta.get("secret_scan", {}),
                 },
                 indent=2,
                 ensure_ascii=False,

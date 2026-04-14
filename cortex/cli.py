@@ -32,6 +32,7 @@ CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS
 FIRST_CLASS_COMMANDS = cli_surface_module.FIRST_CLASS_COMMANDS
 GOVERNANCE_ACTION_CHOICES = cli_parser_module.GOVERNANCE_ACTION_CHOICES
 PLATFORM_FORMATS = cli_parser_module.PLATFORM_FORMATS
+format_cli_error = cli_surface_module.format_cli_error
 _doctor_has_store_signature = cli_workspace_commands_module._doctor_has_store_signature
 _doctor_is_cortex_config = cli_workspace_commands_module._doctor_is_cortex_config
 _doctor_raw_config_payload = cli_workspace_commands_module._doctor_raw_config_payload
@@ -60,9 +61,7 @@ def _echo(message: str = "", *, stderr: bool = False, force: bool = False) -> No
 
 
 def _error(message: str, *, hint: str | None = None, code: int = 1) -> int:
-    _echo(f"Error: {message}", stderr=True, force=True)
-    if hint:
-        _echo(f"Hint: {hint}", stderr=True, force=True)
+    _echo(format_cli_error(message, hint=hint), stderr=True, force=True)
     return code
 
 
@@ -429,6 +428,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
             "build": run_build,
             "audit": run_audit,
             "doctor": run_doctor,
+            "integrity": run_integrity,
             "mind": run_mind,
             "sources": run_sources,
             "audience": run_audience,
@@ -693,8 +693,10 @@ def run_memory(args):
         return run_memory_set(args)
     if args.memory_subcommand == "resolve":
         return run_memory_resolve(args)
-    print("Specify a memory subcommand: conflicts, show, forget, retract, set, resolve")
-    return 1
+    return _error(
+        "Missing memory subcommand.",
+        hint="Run `cortex memory --help` and choose one of: conflicts, show, forget, retract, set, or resolve.",
+    )
 
 
 def run_claim(args):
@@ -708,8 +710,10 @@ def run_claim(args):
         return run_claim_reject(args)
     if args.claim_subcommand == "supersede":
         return run_claim_supersede(args)
-    print("Specify a claim subcommand: log, show, accept, reject, supersede")
-    return 1
+    return _error(
+        "Missing claim subcommand.",
+        hint="Run `cortex claim --help` and choose one of: log, show, accept, reject, or supersede.",
+    )
 
 
 def _mind_pack_cli_context() -> cli_mind_pack_commands_module.MindPackCliContext:
@@ -771,6 +775,15 @@ def run_doctor(args):
     return cli_workspace_commands_module.run_doctor(args, ctx=_workspace_cli_context())
 
 
+def run_integrity(args):
+    if args.integrity_subcommand == "check":
+        return cli_graph_commands_module.run_integrity(args, ctx=_graph_cli_context())
+    return _error(
+        "Missing integrity subcommand.",
+        hint="Run `cortex integrity --help` and choose `check`.",
+    )
+
+
 def run_connect_manus(args):
     return cli_runtime_commands_module.run_connect_manus(args, ctx=_runtime_cli_context())
 
@@ -784,7 +797,10 @@ def run_connect(args):
         return run_connect_manus(args)
     if args.connect_subcommand in CONNECT_RUNTIME_TARGETS:
         return run_connect_runtime_target(args, target=args.connect_subcommand)
-    return _error("Specify a connect target: manus, hermes, codex, cursor, or claude-code")
+    return _error(
+        "Missing connect target.",
+        hint="Run `cortex connect --help` and pick manus, hermes, codex, cursor, or claude-code.",
+    )
 
 
 def run_serve_manus(args):
@@ -800,7 +816,10 @@ def run_serve(args):
         return run_serve_manus(args)
     if args.serve_subcommand == "ui":
         return run_ui(args)
-    return _error("Specify a serve target: api, mcp, manus, ui")
+    return _error(
+        "Missing serve target.",
+        hint="Run `cortex serve --help` and choose api, mcp, manus, or ui.",
+    )
 
 
 def run_ui(args):
@@ -903,8 +922,10 @@ def run_backup(args):
         return run_backup_verify(args)
     if args.backup_subcommand in {"restore", "import"}:
         return run_backup_restore(args)
-    print("Specify a backup subcommand: export, verify, restore, import")
-    return 1
+    return _error(
+        "Missing backup subcommand.",
+        hint="Run `cortex backup --help` and choose export, verify, restore, or import.",
+    )
 
 
 def run_stats(args):
@@ -920,6 +941,17 @@ def run_rotate(args):
 
 
 def run_completion(args):
+    if getattr(args, "candidates", ""):
+        from cortex.completion import completion_candidates
+
+        values = completion_candidates(
+            args.candidates,
+            store_dir=getattr(args, "store_dir", ".cortex"),
+            mind=getattr(args, "mind", ""),
+        )
+        for value in values:
+            _echo(value, force=True)
+        return 0
     return cli_misc_commands_module.run_completion(args, ctx=_misc_cli_context())
 
 

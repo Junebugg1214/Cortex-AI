@@ -3,6 +3,7 @@
 UI_JS = r"""
     const uiSessionToken = __CORTEX_UI_SESSION_TOKEN__;
     let defaultContext = "";
+    let activeRequestController = null;
     let workspaceState = {
       meta: null,
       health: null,
@@ -11,6 +12,7 @@ UI_JS = r"""
       scan: null,
       status: null,
       audit: null,
+      onboarding: null,
       minds: {
         list: null,
         status: null,
@@ -41,6 +43,9 @@ UI_JS = r"""
       if (options.body !== undefined) {
         headers["Content-Type"] = "application/json";
       }
+      if (activeRequestController && !options.signal) {
+        options.signal = activeRequestController.signal;
+      }
       const res = await fetch(path, { ...options, headers });
       const text = await res.text();
       let data = {};
@@ -52,7 +57,11 @@ UI_JS = r"""
         }
       }
       if (!res.ok) {
-        throw new Error(data.error || data.message || `Request failed (${res.status})`);
+        const error = new Error(data.error || data.message || `Request failed (${res.status})`);
+        error.code = data.code || `http_${res.status}`;
+        error.suggestion = data.suggestion || "Try again after correcting the highlighted fields.";
+        error.why = data.why || "";
+        throw error;
       }
       return data;
     }
@@ -115,25 +124,122 @@ UI_JS = r"""
       el.textContent = text;
     }
 
+    function renderErrorCard(err) {
+      const message = escapeHtml(err?.message || "Something went wrong.");
+      const code = escapeHtml(err?.code || "unknown_error");
+      const suggestion = escapeHtml(err?.suggestion || "Try the action again.");
+      const why = escapeHtml(err?.why || err?.details || "Cortex could not complete the request with the current inputs.");
+      return `
+        <div class="danger">
+          <strong>What went wrong</strong>
+          <p>${message}</p>
+          <strong>Why it happened</strong>
+          <p>${why}</p>
+          <strong>What to do next</strong>
+          <p>${suggestion}</p>
+          <p class="tiny">Code: ${code}</p>
+        </div>
+      `;
+    }
+
     function setError(id, err) {
-      setResult(id, `<div class="danger"><strong>Error</strong><p>${escapeHtml(err.message || err)}</p></div>`);
+      setResult(id, renderErrorCard(err));
     }
 
     async function withBusy(trigger, label, work) {
       const button = trigger || null;
       const original = button ? button.textContent : "";
+      const controller = new AbortController();
       if (button) {
         button.disabled = true;
         button.textContent = label;
       }
+      activeRequestController = controller;
+      const loadingBanner = document.getElementById("loading-banner");
+      const loadingLabel = document.getElementById("loading-label");
+      const loadingCancel = document.getElementById("loading-cancel");
+      if (loadingLabel) {
+        loadingLabel.textContent = label;
+      }
+      if (loadingBanner) {
+        loadingBanner.classList.remove("hidden");
+      }
+      if (loadingCancel) {
+        loadingCancel.onclick = () => {
+          if (!controller.signal.aborted) {
+            controller.abort();
+          }
+        };
+      }
       try {
-        return await work();
+        return await work(controller);
+      } catch (err) {
+        if (err?.name === "AbortError") {
+          const cancelled = new Error("Request cancelled.");
+          cancelled.code = "cancelled";
+          cancelled.suggestion = "Run the action again when you are ready.";
+          throw cancelled;
+        }
+        throw err;
       } finally {
+        activeRequestController = null;
+        if (loadingBanner) {
+          loadingBanner.classList.add("hidden");
+        }
         if (button) {
           button.disabled = false;
           button.textContent = original;
         }
       }
+    }
+
+    function showWizardStep(step) {
+      document.querySelectorAll(".wizard-step").forEach((el) => {
+        el.classList.toggle("active", el.dataset.step === step);
+      });
+    }
+
+    function showOnboardingWizard(visible) {
+      const wizard = document.getElementById("onboarding-wizard");
+      if (!wizard) return;
+      wizard.classList.toggle("hidden", !visible);
+    }
+
+    function scrollToWizard(step) {
+      showOnboardingWizard(true);
+      showWizardStep(step || "mind");
+      document.getElementById("onboarding-wizard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function updateOnboardingState(state) {
+      workspaceState.onboarding = state || workspaceState.onboarding;
+      const onboarding = workspaceState.onboarding || {};
+      const shouldShow = onboarding.status !== "complete";
+      showOnboardingWizard(shouldShow);
+      if (shouldShow) {
+        showWizardStep(onboarding.next_step || onboarding.step || "mind");
+      }
+      renderEmptyWorkspace();
+    }
+
+    function renderEmptyWorkspace() {
+      const meta = workspaceState.meta || {};
+      const onboarding = workspaceState.onboarding || {};
+      const empty = document.getElementById("overview-empty-state");
+      if (!empty) return;
+      if ((workspaceState.minds?.list?.minds || []).length) {
+        empty.classList.add("hidden");
+        return;
+      }
+      empty.classList.remove("hidden");
+      empty.innerHTML = `
+        <p>Cortex keeps one source-aware Mind in sync across tools so you can remember, compile, and mount the same context without rebuilding it by hand.</p>
+        <div class="actions">
+          <button class="action" type="button" onclick="scrollToWizard('mind')">Create your first Mind</button>
+          <a href="#" class="inline-link" onclick="scrollToWizard('source'); return false;">Import from existing source</a>
+        </div>
+        <p class="tiny">Store: ${escapeHtml(meta.store_dir || "(unknown)")} · Step: ${escapeHtml(onboarding.step || "welcome")}</p>
+      `;
     }
 
     function applyDefaultContext() {
@@ -215,6 +321,7 @@ UI_JS = r"""
         renderHealthSummary(workspaceState.meta, workspaceState.health, workspaceState.scan, workspaceState.status, mindState.summary, mindState.status),
       );
       setResult("overview-metrics", renderMetricsSummary(workspaceState.metrics, workspaceState.pruneStatus));
+      renderEmptyWorkspace();
     }
 
     function renderOverviewCards(meta, scan, status, audit, mindSummary, mindStatus, mindMounts) {
@@ -673,6 +780,7 @@ UI_JS = r"""
             setEmpty("mind-branch-policy", "Branch and policy status will appear here.");
             setEmpty("mind-mounts", "Mounted targets will appear here.");
             setEmpty("mind-compose", "Compose preview will appear here.");
+            renderEmptyWorkspace();
             refreshOverviewPanels();
             return;
           }
@@ -1005,7 +1113,7 @@ UI_JS = r"""
 
     async function loadWorkspace(trigger) {
       return withBusy(trigger, "Refreshing...", async () => {
-        const [meta, health, metrics, pruneStatus, scan, status, audit] = await Promise.all([
+        const [meta, health, metrics, pruneStatus, scan, status, audit, onboarding] = await Promise.all([
           api("/api/meta"),
           api("/api/health"),
           api("/api/metrics"),
@@ -1013,6 +1121,7 @@ UI_JS = r"""
           api("/api/portability/scan"),
           api("/api/portability/status"),
           api("/api/portability/audit"),
+          api("/api/onboarding/state"),
         ]);
         workspaceState = {
           ...workspaceState,
@@ -1023,9 +1132,11 @@ UI_JS = r"""
           scan,
           status,
           audit,
+          onboarding: onboarding.onboarding || onboarding,
         };
         defaultContext = meta.context_file || "";
         applyDefaultContext();
+        updateOnboardingState(workspaceState.onboarding);
         refreshOverviewPanels();
         setResult("tools-summary", renderToolsSummary(scan));
         renderTools(scan, status);
@@ -1108,6 +1219,120 @@ UI_JS = r"""
           setError("overview-action-result", err);
         }
       });
+    }
+
+    function renderWizardResult(data) {
+      return `
+        <div class="item">
+          <h4>${escapeHtml(data?.title || "Onboarding complete")}</h4>
+          <p>${escapeHtml(data?.result_summary || data?.summary || "Cortex created a Mind, ingested one source, and compiled a first audience-specific output.")}</p>
+          <p class="tiny">Mind: ${escapeHtml(data?.mind_id || data?.mind || "(unknown)")} · Template: ${escapeHtml(data?.audience_template || "executive")}</p>
+        </div>
+      `;
+    }
+
+    async function createWizardMind(trigger) {
+      return withBusy(trigger, "Creating Mind...", async () => {
+        try {
+          const mindId = document.getElementById("wizard-mind-name").value.trim() || "self";
+          const label = document.getElementById("wizard-mind-label").value.trim() || mindId;
+          const data = await api("/api/onboarding/create", {
+            method: "POST",
+            body: JSON.stringify({
+              mind_id: mindId,
+              mind_label: label,
+              label,
+              owner: label,
+              kind: "person",
+            }),
+          });
+          await api("/api/onboarding/start", {
+            method: "POST",
+            body: JSON.stringify({
+              mind_id: mindId,
+              mind_label: label,
+            }),
+          });
+          workspaceState.onboarding = data.onboarding || workspaceState.onboarding;
+          updateOnboardingState(workspaceState.onboarding);
+          await loadWorkspace();
+          setResult("wizard-result", `<div class="item"><h4>Mind created</h4><p>${escapeHtml(label)} is ready. Import one source next.</p></div>`);
+        } catch (err) {
+          setError("wizard-result", err);
+        }
+      });
+    }
+
+    async function ingestWizardSource(trigger) {
+      return withBusy(trigger, "Importing source...", async () => {
+        try {
+          const mindId = document.getElementById("wizard-mind-name").value.trim() || "self";
+          const sourceKind = document.getElementById("wizard-source-kind").value.trim() || "paste";
+          const sourceValue = document.getElementById("wizard-source-value").value.trim();
+          if (!sourceValue) {
+            throw new Error("Add a source value first.");
+          }
+          const data = await api("/api/onboarding/ingest", {
+            method: "POST",
+            body: JSON.stringify({
+              mind_id: mindId,
+              source_kind: sourceKind,
+              source_value: sourceValue,
+            }),
+          });
+          workspaceState.onboarding = data.onboarding || workspaceState.onboarding;
+          updateOnboardingState(workspaceState.onboarding);
+          await loadWorkspace();
+          setResult("wizard-result", `<div class="item"><h4>Source imported</h4><p>${escapeHtml(sourceKind)} source imported into ${escapeHtml(mindId)}.</p></div>`);
+        } catch (err) {
+          setError("wizard-result", err);
+        }
+      });
+    }
+
+    async function compileWizardOutput(trigger) {
+      return withBusy(trigger, "Compiling...", async () => {
+        try {
+          const mindId = document.getElementById("wizard-mind-name").value.trim() || "self";
+          const template = document.getElementById("wizard-template").value.trim() || "executive";
+          const data = await api("/api/onboarding/compile", {
+            method: "POST",
+            body: JSON.stringify({
+              mind_id: mindId,
+              audience_template: template,
+            }),
+          });
+          workspaceState.onboarding = data.onboarding || workspaceState.onboarding;
+          updateOnboardingState(workspaceState.onboarding);
+          await loadWorkspace();
+          setResult("wizard-result", `${renderWizardResult(data)}${renderRawDetails("Raw onboarding payload", data)}`);
+        } catch (err) {
+          setError("wizard-result", err);
+        }
+      });
+    }
+
+    async function skipOnboarding() {
+      try {
+        const data = await api("/api/onboarding/skip", { method: "POST", body: JSON.stringify({}) });
+        workspaceState.onboarding = data.onboarding || workspaceState.onboarding;
+        updateOnboardingState(workspaceState.onboarding);
+        renderEmptyWorkspace();
+      } catch (err) {
+        setError("wizard-result", err);
+      }
+    }
+
+    async function resetOnboarding() {
+      try {
+        const data = await api("/api/onboarding/reset", { method: "POST", body: JSON.stringify({}) });
+        workspaceState.onboarding = data.onboarding || workspaceState.onboarding;
+        updateOnboardingState(workspaceState.onboarding);
+        renderEmptyWorkspace();
+        scrollToWizard(workspaceState.onboarding?.next_step || "mind");
+      } catch (err) {
+        setError("wizard-result", err);
+      }
     }
 
     async function previewTargetContext(trigger) {
@@ -1516,6 +1741,28 @@ UI_JS = r"""
     window.addEventListener("hashchange", () => {
       activatePanel(window.location.hash.replace(/^#/, "") || "overview", false);
     });
+    window.addEventListener("keydown", (event) => {
+      const target = event.target;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
+        return;
+      }
+      if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      const shortcut = event.key.toLowerCase();
+      if (shortcut === "1") {
+        activatePanel("overview");
+      } else if (shortcut === "2") {
+        activatePanel("minds");
+      } else if (shortcut === "3") {
+        activatePanel("brainpacks");
+      } else if (shortcut === "4") {
+        activatePanel("review");
+      } else if (shortcut === "5") {
+        loadWorkspace();
+      } else {
+        return;
+      }
+      event.preventDefault();
+    });
 
     async function bootstrap() {
       try {
@@ -1532,7 +1779,7 @@ UI_JS = r"""
         ]);
         await previewTargetContext();
       } catch (err) {
-        document.getElementById("meta-card").innerHTML = `<span class="danger">${escapeHtml(err.message || err)}</span>`;
+        document.getElementById("meta-card").innerHTML = renderErrorCard(err);
       }
     }
 

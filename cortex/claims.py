@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from cortex.graph import CortexGraph, Node, _normalize_label
+from cortex.integrity import check_graph_integrity
 from cortex.sources import (
     AmbiguousSourceLabelError,
     SourceRecord,
@@ -473,4 +474,5 @@ def retract_graph_source(
     result["stable_source_id"] = record.stable_id
     result["labels"] = list(record.labels)
     result["dry_run"] = False
+    result["integrity"] = check_graph_integrity(graph)
     return result

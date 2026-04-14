@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from cortex.upai.disclosure import BUILTIN_POLICIES
 
@@ -14,21 +15,22 @@ ADVANCED_HELP_NOTE = (
 DEFAULT_HELP_START_HERE = (
     "Start Here:\n"
     "  1. cortex init\n"
-    '  2. cortex mind remember self "I prefer concise, implementation-first answers."\n'
-    "  3. cortex connect manus\n"
-    "  4. cortex serve manus\n"
+    "  2. cortex ui\n"
+    '  3. cortex mind remember self "I prefer concise, implementation-first answers."\n'
+    "  4. cortex connect manus\n"
 )
 DEFAULT_HELP_SURFACE_MAP = (
     "Surface Map:\n"
-    "  Core user flows      init, mind, pack, connect\n"
-    "  Runtime / admin      serve, doctor\n"
+    "  Core user flows      init, ui, mind, pack, connect\n"
+    "  Audience / lineage   sources, audience\n"
+    "  Runtime / admin      serve, doctor, integrity\n"
     "  Advanced internals   graph/versioning + compatibility aliases via --help-all\n"
 )
 INIT_HELP_EPILOG = (
     "Bootstrap flow:\n"
     "  cortex init\n"
+    "  cortex ui\n"
     '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
-    "  cortex connect manus\n"
     "\nAdvanced init flags live under `cortex help init`.\n"
 )
 MIND_HELP_EPILOG = (
@@ -65,6 +67,7 @@ SERVE_HELP_EPILOG = (
 DOCTOR_HELP_EPILOG = (
     "Health / repair flow:\n"
     "  cortex doctor\n"
+    "  cortex integrity check\n"
     "  cortex doctor --fix --dry-run\n"
     "  cortex doctor --fix-store\n"
     "  cortex doctor --portability\n"
@@ -95,8 +98,10 @@ HELP_TOPIC_TEXT = {
         "  - creates or reuses the canonical .cortex store\n"
         "  - writes config.toml with scoped reader/writer keys\n"
         "  - creates a default `self` Mind when none exists\n"
+        "  - prepares the first-run wizard so the UI can guide the first workflow\n"
         "\n"
         "Common beginner flow:\n"
+        "  cortex ui\n"
         '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
         "  cortex doctor\n"
         "\n"
@@ -147,6 +152,18 @@ ARGPARSE_RECOVERY_HINTS = {
 }
 
 
+def format_cli_error(message: str, *, hint: str | None = None, why: str | None = None) -> str:
+    """Render a plain-English CLI error with a recovery path."""
+    normalized_message = message.strip().rstrip(".")
+    normalized_why = (why or "Cortex could not safely infer the next step from the arguments provided.").strip().rstrip(".")
+    normalized_hint = (hint or "Run `cortex --help` to see the available commands and examples.").strip().rstrip(".")
+    return (
+        f"What went wrong: {normalized_message}.\n"
+        f"Why it happened: {normalized_why}.\n"
+        f"What to do next: {normalized_hint}."
+    )
+
+
 class CortexArgumentParser(argparse.ArgumentParser):
     def __init__(self, *args, show_all_commands: bool = False, **kwargs):
         self.show_all_commands = show_all_commands
@@ -172,32 +189,36 @@ class CortexArgumentParser(argparse.ArgumentParser):
         if action is None:
             return super().format_help()
 
-        original_choices_actions = action._choices_actions
-        original_metavar = action.metavar
-        filtered_map = {choice.dest: choice for choice in original_choices_actions}
-        action._choices_actions = [filtered_map[name] for name in FIRST_CLASS_COMMANDS if name in filtered_map]
-        action.metavar = "{" + ",".join(FIRST_CLASS_COMMANDS) + "}"
-        try:
-            help_text = super().format_help().rstrip()
-        finally:
-            action._choices_actions = original_choices_actions
-            action.metavar = original_metavar
+        help_text = super().format_help().rstrip()
+        command_rows = []
+        for choice in sorted(action._choices_actions, key=lambda item: item.dest):
+            if not choice.dest:
+                continue
+            example = "cortex help init" if choice.dest == "help" else f"cortex {choice.dest} --help"
+            command_rows.append(f"  {choice.dest:<16} {choice.help or 'No description available.'}\n    Example: {example}")
+        command_index = "Command index:\n" + "\n".join(command_rows)
         return (
             f"{help_text}\n\n"
             f"{DEFAULT_HELP_START_HERE}\n"
             f"{DEFAULT_HELP_SURFACE_MAP}\n"
             f"{GUIDED_HELP_NOTE}\n"
-            f"{ADVANCED_HELP_NOTE}\n"
+            f"{ADVANCED_HELP_NOTE}\n\n"
+            f"{command_index}\n"
         )
 
     def error(self, message: str) -> None:
         normalized_prog = " ".join(self.prog.split())
         hint = ""
+        why = None
         if "the following arguments are required:" in message:
             hint = ARGPARSE_RECOVERY_HINTS.get(normalized_prog, "")
-        if hint:
-            message = f"{message}\nTry: {hint}"
-        super().error(message)
+            why = "The command parser expected more input for a required argument."
+        elif "invalid choice" in message or "unrecognized arguments" in message or "argument subcommand" in message:
+            why = "Cortex could not match the command you typed to a known subcommand."
+            hint = "If you meant to migrate a chat export, run `cortex migrate <input-file>` explicitly. Otherwise, run `cortex --help` to see the available commands and examples."
+        structured = format_cli_error(message, hint=hint, why=why)
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {structured}\n")
 
 
 def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:

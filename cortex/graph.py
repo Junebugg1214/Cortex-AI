@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from cortex.security.validate import InputValidator
+
 # ---------------------------------------------------------------------------
 # Category ordering (used for v4 downgrade primary-tag selection)
 # ---------------------------------------------------------------------------
@@ -41,6 +43,8 @@ CATEGORY_ORDER = [
     "history",
     "mentions",
 ]
+
+_INPUT_VALIDATOR = InputValidator()
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +223,46 @@ class Node:
     relationship_type: str = ""
     snapshots: list[dict] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.id = _INPUT_VALIDATOR.validate_text(self.id, field_name="node.id", max_length=256)
+        self.label = _INPUT_VALIDATOR.validate_text(self.label, field_name="node.label", max_length=512)
+        self.tags = _INPUT_VALIDATOR.validate_text_list(self.tags, field_name="node.tags", item_max_length=128)
+        self.aliases = _INPUT_VALIDATOR.validate_text_list(
+            self.aliases,
+            field_name="node.aliases",
+            item_max_length=256,
+        )
+        self.brief = _INPUT_VALIDATOR.validate_text(self.brief, field_name="node.brief", max_length=4_096)
+        self.full_description = _INPUT_VALIDATOR.validate_text(
+            self.full_description,
+            field_name="node.full_description",
+            max_length=50_000,
+        )
+        self.source_quotes = _INPUT_VALIDATOR.validate_text_list(
+            self.source_quotes,
+            field_name="node.source_quotes",
+            item_max_length=4_096,
+        )
+        self.first_seen = _INPUT_VALIDATOR.validate_text(self.first_seen, field_name="node.first_seen", max_length=128)
+        self.last_seen = _INPUT_VALIDATOR.validate_text(self.last_seen, field_name="node.last_seen", max_length=128)
+        self.valid_from = _INPUT_VALIDATOR.validate_text(self.valid_from, field_name="node.valid_from", max_length=128)
+        self.valid_to = _INPUT_VALIDATOR.validate_text(self.valid_to, field_name="node.valid_to", max_length=128)
+        self.status = _INPUT_VALIDATOR.validate_text(self.status, field_name="node.status", max_length=128)
+        self.canonical_id = _INPUT_VALIDATOR.validate_text(
+            self.canonical_id,
+            field_name="node.canonical_id",
+            max_length=256,
+        )
+        self.relationship_type = _INPUT_VALIDATOR.validate_text(
+            self.relationship_type,
+            field_name="node.relationship_type",
+            max_length=128,
+        )
+        for key, value in dict(self.properties).items():
+            _INPUT_VALIDATOR.validate_text(str(key), field_name="node.properties.key", max_length=256)
+            if isinstance(value, str):
+                _INPUT_VALIDATOR.validate_text(value, field_name=f"node.properties[{key}]", max_length=50_000)
+
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
             "id": self.id,
@@ -286,6 +330,14 @@ class Edge:
     provenance: list[dict] = field(default_factory=list)
     first_seen: str = ""
     last_seen: str = ""
+
+    def __post_init__(self) -> None:
+        self.id = _INPUT_VALIDATOR.validate_text(self.id, field_name="edge.id", max_length=256)
+        self.source_id = _INPUT_VALIDATOR.validate_text(self.source_id, field_name="edge.source_id", max_length=256)
+        self.target_id = _INPUT_VALIDATOR.validate_text(self.target_id, field_name="edge.target_id", max_length=256)
+        self.relation = _INPUT_VALIDATOR.validate_text(self.relation, field_name="edge.relation", max_length=128)
+        self.first_seen = _INPUT_VALIDATOR.validate_text(self.first_seen, field_name="edge.first_seen", max_length=128)
+        self.last_seen = _INPUT_VALIDATOR.validate_text(self.last_seen, field_name="edge.last_seen", max_length=128)
 
     def to_dict(self) -> dict:
         return {

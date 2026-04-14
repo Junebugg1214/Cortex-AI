@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from time import monotonic
+
 from cortex.embeddings import get_embedding_provider
+from cortex.integrity import check_store_integrity
 from cortex.openapi import build_openapi_spec
 from cortex.release import build_release_metadata
 from cortex.service_runtime_common import _backend_name, _safe_head_ref, _safe_index_status
@@ -9,13 +12,20 @@ from cortex.service_runtime_common import _backend_name, _safe_head_ref, _safe_i
 class MemoryRuntimeMetaMixin:
     def health(self) -> dict[str, object]:
         index_status = _safe_index_status(self)
+        integrity = check_store_integrity(self.store_dir)
+        agent = self.agent_status()
+        health_status = "error" if integrity["status"] == "error" else "ok"
         return {
-            "status": "ok",
+            "status": health_status,
             "backend": _backend_name(self.backend),
             "store_dir": str(self.store_dir.resolve()),
             "current_branch": self.backend.versions.current_branch(),
             "head": _safe_head_ref(self),
             "index": index_status,
+            "graph_integrity": integrity["status"],
+            "uptime_seconds": int(monotonic() - getattr(self, "started_at", monotonic())),
+            "pending_conflicts": int(agent.get("pending_count", 0)),
+            "scheduled_tasks": int(agent.get("scheduled_count", 0)),
             "release": self.release(),
         }
 

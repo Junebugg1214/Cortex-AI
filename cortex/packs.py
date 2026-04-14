@@ -558,6 +558,7 @@ def compile_pack(
     max_summary_chars: int | None = None,
     mode: str = "distribution",
     output_path: str | Path | None = None,
+    include_secrets: bool = False,
     namespace: str | None = None,
 ) -> dict[str, Any]:
     return _pack_compile_module().compile_pack(
@@ -568,6 +569,7 @@ def compile_pack(
         max_summary_chars=max_summary_chars,
         mode=mode,
         output_path=output_path,
+        include_secrets=include_secrets,
         namespace=namespace,
     )
 

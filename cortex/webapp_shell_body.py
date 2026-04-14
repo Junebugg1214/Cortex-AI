@@ -18,17 +18,100 @@ UI_BODY = r"""
         <button data-panel="review" role="tab" aria-selected="false">Review & Trace</button>
         <button data-panel="advanced" role="tab" aria-selected="false">Advanced</button>
       </div>
+      <div class="shortcuts-card" id="shortcuts-card">
+        <div class="tiny">Keyboard shortcuts</div>
+        <ul>
+          <li><kbd>Alt</kbd> + <kbd>1</kbd> Overview</li>
+          <li><kbd>Alt</kbd> + <kbd>2</kbd> Minds</li>
+          <li><kbd>Alt</kbd> + <kbd>3</kbd> Brainpacks</li>
+          <li><kbd>Alt</kbd> + <kbd>4</kbd> Review</li>
+          <li><kbd>Alt</kbd> + <kbd>5</kbd> Refresh workspace</li>
+        </ul>
+      </div>
     </aside>
     <main>
+      <div id="loading-banner" class="loading-banner hidden" role="status" aria-live="polite">
+        <span id="loading-label">Working…</span>
+        <button id="loading-cancel" class="action subtle" type="button">Cancel</button>
+      </div>
       <section class="hero">
         <div class="eyebrow">Local-first Mind control plane</div>
         <h2>One portable Mind, wired across your tools</h2>
         <p>Start from your default Mind, keep it mounted where it matters, and only drill into tool scans or operator plumbing when the overview says you should.</p>
       </section>
 
+      <section id="onboarding-wizard" class="wizard hidden" aria-labelledby="onboarding-title">
+        <div class="wizard-head">
+          <div>
+            <div class="eyebrow">First run</div>
+            <h3 id="onboarding-title">Get to your first useful output</h3>
+            <p>One Mind, one source, one compiled output, then you are ready to work from Cortex instead of reading about it.</p>
+          </div>
+          <div class="actions">
+            <button class="action subtle" type="button" onclick="skipOnboarding()">Skip for now</button>
+            <button class="action subtle" type="button" onclick="resetOnboarding()">Reset wizard</button>
+          </div>
+        </div>
+        <div class="wizard-steps">
+          <article class="wizard-step" data-step="mind">
+            <h4>1. Name your first Mind</h4>
+            <label>Mind name
+              <input id="wizard-mind-name" placeholder="self">
+            </label>
+            <label>Display label
+              <input id="wizard-mind-label" placeholder="Your name or team">
+            </label>
+            <div class="actions">
+              <button class="action" type="button" onclick="createWizardMind(this)">Create your first Mind</button>
+            </div>
+          </article>
+          <article class="wizard-step" data-step="source">
+            <h4>2. Ingest one source</h4>
+            <label>Source type
+              <select id="wizard-source-kind">
+                <option value="paste">Paste</option>
+                <option value="file">File</option>
+                <option value="url">URL</option>
+              </select>
+            </label>
+            <label>Source value
+              <textarea id="wizard-source-value" placeholder="Paste a note, file path, or URL"></textarea>
+            </label>
+            <div class="actions">
+              <button class="action" type="button" onclick="ingestWizardSource(this)">Import from existing source</button>
+            </div>
+          </article>
+          <article class="wizard-step" data-step="compile">
+            <h4>3. Compile your first output</h4>
+            <label>Audience template
+              <select id="wizard-template">
+                <option value="executive">Executive</option>
+                <option value="attorney">Attorney</option>
+                <option value="onboarding">Onboarding</option>
+                <option value="audit">Audit</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button class="action" type="button" onclick="compileWizardOutput(this)">Compile first output</button>
+            </div>
+          </article>
+          <article class="wizard-step" data-step="result">
+            <h4>4. What just happened</h4>
+            <div id="wizard-result" class="result empty">Once you compile, Cortex will explain what was kept, what was redacted, and why the output now fits the audience you chose.</div>
+          </article>
+        </div>
+      </section>
+
       <section id="panel-overview" class="panel active" role="tabpanel">
         <h3>Mind Overview</h3>
         <p class="panel-copy">Lead from the default Mind: its branch, attached Brainpacks, mounted targets, pending proposals, and the runtime follow-up that matters next.</p>
+        <div id="overview-empty-state" class="empty-state hidden">
+          <p>Cortex keeps one source-aware Mind in sync across tools so you can remember, compile, and mount the same context without rebuilding it by hand.</p>
+          <div class="actions">
+            <button class="action" type="button" onclick="scrollToWizard('mind')">Create your first Mind</button>
+            <a href="#panel-tools" class="inline-link" onclick="scrollToWizard('source'); return false;">Import from existing source</a>
+          </div>
+        </div>
         <div id="overview-cards" class="cards"></div>
         <div class="split-results">
           <div class="quick-actions subpanel">

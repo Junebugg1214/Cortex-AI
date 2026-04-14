@@ -92,14 +92,48 @@ def _log_unhandled_exception(*, request_id: str, exc: Exception) -> None:
     traceback.print_exc()
 
 
+def _error_envelope(
+    message: str,
+    *,
+    code: str,
+    suggestion: str,
+    request_id: str = "",
+) -> dict[str, Any]:
+    payload = {
+        "status": "error",
+        "error": message,
+        "code": code,
+        "suggestion": suggestion,
+    }
+    if request_id:
+        payload["request_id"] = request_id
+    return payload
+
+
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
     if isinstance(exc, FileNotFoundError):
-        return 404, {"status": "error", "error": str(exc)}
+        return 404, _error_envelope(
+            str(exc),
+            code="not_found",
+            suggestion="Check the requested file, ref, or store path and try again.",
+        )
     if isinstance(exc, PermissionError):
-        return 403, {"status": "error", "error": str(exc)}
+        return 403, _error_envelope(
+            str(exc),
+            code="forbidden",
+            suggestion="Use a key or namespace with the required scope, then retry the request.",
+        )
     if isinstance(exc, ValueError):
-        return 400, {"status": "error", "error": str(exc)}
-    return 500, {"status": "error", "error": "Internal server error."}
+        return 400, _error_envelope(
+            str(exc),
+            code="invalid_request",
+            suggestion="Fix the request payload or query parameters, then send the request again.",
+        )
+    return 500, _error_envelope(
+        "Internal server error.",
+        code="internal_error",
+        suggestion="Retry once. If the error persists, inspect the Cortex logs for the request id.",
+    )
 
 
 def _global_route(path: str) -> bool:
@@ -179,7 +213,12 @@ def dispatch_api_request(
         namespace_required=not _global_route(parsed.path),
     )
     if not decision.allowed:
-        response = {"status": "error", "error": decision.error, "request_id": request_id}
+        response = _error_envelope(
+            decision.error,
+            code="unauthorized" if decision.status_code == 401 else "forbidden",
+            suggestion="Send a valid API key with the required scope and namespace, then retry.",
+            request_id=request_id,
+        )
         service.observability.record_request(
             request_id=request_id,
             method=method,
@@ -197,7 +236,11 @@ def dispatch_api_request(
         payload = {**payload, "namespace": namespace}
 
     status = 404
-    response: dict[str, Any] = {"status": "error", "error": "Not found"}
+    response: dict[str, Any] = _error_envelope(
+        "Not found.",
+        code="not_found",
+        suggestion="Check the endpoint path and HTTP method, then try again.",
+    )
     try:
         if method == "GET":
             if parsed.path == "/v1/health":
@@ -421,7 +464,27 @@ def make_api_handler(
             self.wfile.write(data)
 
         def _write_request_error(self, status: int, message: str) -> None:
-            self._send_json({"status": "error", "error": message}, status=status)
+            code = "invalid_request"
+            suggestion = "Fix the request and try again."
+            if status == 401:
+                code = "unauthorized"
+                suggestion = "Send a valid API key, then retry."
+            elif status == 403:
+                code = "forbidden"
+                suggestion = "Use a key or namespace with access to this operation."
+            elif status == 404:
+                code = "not_found"
+                suggestion = "Check the requested endpoint path and method."
+            elif status == 413:
+                code = "request_too_large"
+                suggestion = "Reduce the request size and send it again."
+            elif status == 415:
+                code = "unsupported_media_type"
+                suggestion = "Send JSON with Content-Type: application/json."
+            elif status == 429:
+                code = "rate_limited"
+                suggestion = "Wait for the rate-limit window to reset, then retry."
+            self._send_json(_error_envelope(message, code=code, suggestion=suggestion), status=status)
 
         def do_GET(self) -> None:  # noqa: N802
             apply_read_timeout(self, policy=self._request_policy)
