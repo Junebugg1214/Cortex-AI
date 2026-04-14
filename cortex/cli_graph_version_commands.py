@@ -631,7 +631,9 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
                     f"Commit when the list is empty: cortex merge --commit-resolved{_store_dir_hint(store_dir)}",
                 )
             else:
-                _print_next_steps(f"Commit the resolved merge: cortex merge --commit-resolved{_store_dir_hint(store_dir)}")
+                _print_next_steps(
+                    f"Commit the resolved merge: cortex merge --commit-resolved{_store_dir_hint(store_dir)}"
+                )
         return 0
 
     if args.commit_resolved:
@@ -686,7 +688,9 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
             print(json.dumps(payload, indent=2))
         else:
             print(f"Committed resolved merge: {version.version_id}")
-            _print_next_steps(f"Inspect the merged history: cortex log --branch {current_branch}{_store_dir_hint(store_dir)}")
+            _print_next_steps(
+                f"Inspect the merged history: cortex log --branch {current_branch}{_store_dir_hint(store_dir)}"
+            )
         return 0
 
     if not args.ref_name:
@@ -819,7 +823,9 @@ def run_review(args, *, ctx: GraphVersionCliContext):
     if args.input_file == "pending":
         if not args.mind:
             print("`cortex review pending` requires --mind <id>")
-            _print_next_steps(f"List pending proposals: cortex review pending --mind <mind-id>{_store_dir_hint(Path(args.store_dir))}")
+            _print_next_steps(
+                f"List pending proposals: cortex review pending --mind <mind-id>{_store_dir_hint(Path(args.store_dir))}"
+            )
             return 1
         try:
             payload = pending_candidate_branches(

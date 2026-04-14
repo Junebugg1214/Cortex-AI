@@ -746,7 +746,10 @@ def run_sources(args, *, ctx: MindPackCliContext):
             return 0
         if not records:
             ctx.echo(f"Mind `{args.mind}` has no registered sources yet.")
-            _echo_next_steps(ctx, f"Ingest or adopt a source first: cortex mind ingest {args.mind} --from-detected chatgpt{_store_dir_hint(store_dir)}")
+            _echo_next_steps(
+                ctx,
+                f"Ingest or adopt a source first: cortex mind ingest {args.mind} --from-detected chatgpt{_store_dir_hint(store_dir)}",
+            )
             return 0
         ctx.echo(f"Mind `{args.mind}` sources")
         for item in records:

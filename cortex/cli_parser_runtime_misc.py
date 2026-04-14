@@ -184,7 +184,7 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
         description="Create a recurring audience compilation schedule for one Mind.",
         epilog=(
             "Examples:\n"
-            "  cortex agent schedule --mind ops --audience executive --cron \"0 9 * * 1\" --output brief\n"
+            '  cortex agent schedule --mind ops --audience executive --cron "0 9 * * 1" --output brief\n'
             "  cortex agent status\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
