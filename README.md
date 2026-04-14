@@ -13,9 +13,47 @@ You open another tool because the task changed.
 Your stack, constraints, and preferences stay behind in a product-specific memory system.
 So you restate the same context again, or you keep working with the wrong context attached.
 
+## The capability that changes everything
+
+```
+$ cortex source ingest policy_v3.pdf --mind compliance-kb
+  Source ID:  doc-001 (sha256: 4f3a...c91e)
+  Extracted:  14 facts, 3 claims, 2 relationships
+  Ingested.   Lineage attached to all nodes.
+```
+
+Six hours later, the source is wrong. Retract it.
+
+```
+$ cortex source retract doc-001 --mind compliance-kb --dry-run
+  DRY RUN — no changes written
+
+  Retraction scope:
+    Facts to remove:        14
+    Claims to retract:       3
+    Relationships to prune:  2
+    Derived artifacts:       2  (brief, process update)
+
+  All nodes carry lineage: doc-001
+  No orphaned facts detected.
+```
+
+```
+$ cortex source retract doc-001 --mind compliance-kb --confirm
+  Pruning facts...           [==============] 14/14
+  Retracting claims...       [===========  ]  3/3
+  Removing relationships...  [=============]  2/2
+  Invalidating artifacts...  [=============]  2/2
+
+  Retraction complete.
+  Graph clean. Audit trail written.
+```
+
+A vector database deletes the file. The 14 facts and 2 derived artifacts keep answering queries. Cortex traces every node back to its source and prunes the entire downstream graph.
+
 ## See it in 30 seconds
 
-```bash
+```
 $ cortex init
 # Initialized Cortex at ./.cortex
 #   config: ./.cortex/config.toml (created)
@@ -47,19 +85,19 @@ $ cortex mind mount self --to codex --task "product strategy"
 
 ### 1. pip
 
-```bash
+```
 python3.11 -m pip install cortex-identity
 ```
 
 ### 2. pipx
 
-```bash
+```
 pipx install cortex-identity
 ```
 
 ### 3. From source
 
-```bash
+```
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
 python3.11 -m pip install -e ".[dev]"
@@ -67,7 +105,7 @@ python3.11 -m pip install -e ".[dev]"
 
 Verify it worked:
 
-```bash
+```
 cortex --help
 # Expected: Cortex — one portable Mind across AI tools.
 ```
@@ -86,6 +124,33 @@ Think of Cortex as Git-style state management for the part of AI work you keep r
 | Brainpack | A compiled specialist knowledge pack you can attach to a Mind or mount directly into tools. |
 | Portability | Writing the right context slice to each tool instead of copying one blob everywhere. |
 | Export / import | Turning raw chats into Cortex graphs, or turning Cortex graphs into target-specific files and bundles. |
+
+## One graph. Four outputs. No copy-paste.
+
+```
+$ cortex audience apply-template --mind project --template executive
+$ cortex audience apply-template --mind project --template attorney
+$ cortex audience apply-template --mind project --template onboarding
+$ cortex audience apply-template --mind project --template audit
+```
+
+| Template | Disclosure | Provenance | Contested facts |
+| --- | --- | --- | --- |
+| executive | Summary only | Off | Hidden |
+| attorney | Full lineage | On | Flagged |
+| onboarding | Current state | Off | Hidden |
+| audit | Complete graph | On | Included |
+
+Custom policy:
+
+```
+$ cortex audience add --mind project \
+  --audience-id counsel \
+  --allowed-node-types "decision,milestone,contract" \
+  --blocked-node-types "credential,personal" \
+  --output-format report \
+  --include-provenance true
+```
 
 ## Command reference
 
@@ -197,6 +262,40 @@ Think of Cortex as Git-style state management for the part of AI work you keep r
 
 ### Agent automation
 
+The conflict monitor runs in the background. It detects when two sources assert contradictory facts, proposes resolutions ranked by confidence and recency, auto-resolves low-severity conflicts, and queues critical conflicts for human review.
+
+```
+$ cortex agent monitor --interval 300
+  Monitoring compliance-kb...
+  [09:14:32] Conflict detected — HIGH severity
+    Fact: "Data retention: 30 days"  source: policy_v2
+    Fact: "Data retention: 90 days"  source: policy_v3
+    Candidate resolutions:
+      1. Accept policy_v3 (newer, confidence 0.91)
+      2. Accept policy_v2 (older, confidence 0.84)
+      3. Flag for manual review
+    Queued for review. Run: cortex review pending --mind compliance-kb
+```
+
+The context dispatcher watches for trigger events and compiles updated context packs automatically — no prompt required.
+
+```
+$ cortex agent compile --mind personal --output cv
+  Identifying professional subgraph...
+  Pulling: employment, skills, publications, certifications
+  Flagging gaps: 1 employment period unverified
+  Output: ./output/cv_20260413.md
+          ./output/cv_20260413.json
+```
+
+```
+$ cortex agent schedule --mind personal --audience attorney \
+  --cron "0 9 * * 1" --output brief
+  Scheduled: every Monday 09:00
+  Audience: attorney (full lineage, contested facts on)
+  Delivery: ./output/
+```
+
 `$ cortex agent monitor --interval 300`
 → Run the autonomous conflict monitor loop on a polling interval so Cortex keeps checking for contradictory facts in the background.
 → Most useful flag: `--once` when you want one detection cycle for CI, cron, or smoke checks instead of a long-running loop.
@@ -289,7 +388,7 @@ Think of Cortex as Git-style state management for the part of AI work you keep r
 
 ### Workflow A: I'm switching from ChatGPT to Claude mid-project
 
-```bash
+```
 $ cortex switch --from chatgpt-export.zip --to claude --output portable --dry-run
 # Portable switch ready: chatgpt -> claude
 #   claude: portable/claude/claude_preferences.txt, portable/claude/claude_memories.json [dry-run]
@@ -301,7 +400,7 @@ $ cortex switch --from chatgpt-export.zip --to claude --output portable
 
 ### Workflow B: I want a separate memory context for a client engagement
 
-```bash
+```
 $ cortex init
 # Initialized Cortex at ./.cortex
 #   default Mind: self (created)
@@ -329,7 +428,7 @@ $ cortex mind mount acme --to codex --task "client handoff"
 
 ### Workflow C: Something went wrong — I need to roll back my AI memory to yesterday
 
-```bash
+```
 $ cortex extract notes.txt --output context.json
 # Loading: notes.txt
 # Format: text
@@ -422,7 +521,7 @@ Cortex is for developers who already feel the pain of rebuilt AI context: people
 
 You can get a dev environment up in under five commands:
 
-```bash
+```
 git clone https://github.com/Junebugg1214/Cortex-AI.git
 cd Cortex-AI
 python3.11 -m pip install -e ".[dev]"
