@@ -324,7 +324,11 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     mind_compose.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     mind_compose.add_argument("--format", choices=["json", "text"], default="text")
 
-    mind_mount = mind_sub.add_parser("mount", help="Mount a Cortex Mind into supported runtimes and tools")
+    mind_mount = mind_sub.add_parser(
+        "mount",
+        help="Mount a Cortex Mind into supported runtimes and tools",
+        description="Write a Mind's routed context into one or more runtime targets and persist the mount records.",
+    )
     mind_mount.add_argument("name", help="Mind id")
     mind_mount.add_argument(
         "--to",
@@ -432,7 +436,11 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     pk_context.add_argument("--max-chars", type=int, default=1500, help="Max characters in the rendered context")
     pk_context.add_argument("--format", choices=["json", "text"], default="text")
 
-    pk_mount = pk_sub.add_parser("mount", help="Mount a compiled Brainpack directly into AI runtimes and tools")
+    pk_mount = pk_sub.add_parser(
+        "mount",
+        help="Mount a compiled Brainpack directly into AI runtimes and tools",
+        description="Write a compiled Brainpack into one or more runtime targets without first attaching it to a Mind.",
+    )
     pk_mount.add_argument("name", help="Brainpack name")
     pk_mount.add_argument(
         "--to",
@@ -544,7 +552,18 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     pk_import.add_argument("--as", dest="as_name", default="", help="Optional new pack name for the imported bundle")
     pk_import.add_argument("--format", choices=["json", "text"], default="text")
 
-    src = sub.add_parser("sources", help="Inspect stable source lineage and retract sources from a Mind")
+    src = sub.add_parser(
+        "sources",
+        help="Inspect stable source lineage and retract sources from a Mind",
+        description="List the canonical sources attached to a Mind and preview or apply source-safe retractions.",
+        epilog=(
+            "Examples:\n"
+            "  cortex sources list --mind ops\n"
+            "  cortex sources retract incident-a.md --mind ops --dry-run\n"
+            "  cortex sources retract sha256:... --mind ops --confirm\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     src_sub = src.add_subparsers(dest="sources_subcommand")
 
     src_list = src_sub.add_parser("list", help="List canonical sources referenced by a Mind")
@@ -565,7 +584,18 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     src_retract.add_argument("--store-dir", default=".cortex", help="Store directory (default: .cortex)")
     src_retract.add_argument("--format", choices=["json", "text"], default="text")
 
-    aud = sub.add_parser("audience", help="Manage first-class audience policies for a Mind")
+    aud = sub.add_parser(
+        "audience",
+        help="Manage first-class audience policies for a Mind",
+        description="Add, preview, compile, and audit audience-specific output rules for one Mind.",
+        epilog=(
+            "Examples:\n"
+            "  cortex audience apply-template --mind ops --template executive\n"
+            "  cortex audience preview --mind ops --audience executive\n"
+            "  cortex audience compile --mind ops --audience executive\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     aud_sub = aud.add_subparsers(dest="audience_subcommand")
 
     aud_add = aud_sub.add_parser("add", help="Add or replace an audience policy on a Mind")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
@@ -25,9 +26,12 @@ from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
 from cortex.graph import CortexGraph, Node
 from cortex.mind_runtime import _compose_graph_for_target
 from cortex.minds import resolve_default_mind
+from cortex.runtime_control import ShutdownController
+from cortex.runtime_logging import get_logger, log_operation
 from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
 
 DEFAULT_OUTPUT_DIRNAME = "output"
+LOGGER = get_logger(__name__)
 
 
 def _utc_now() -> str:
@@ -733,6 +737,16 @@ class ContextDispatcher:
         )
         schedules.append(record)
         _save_schedules(self.store_dir, schedules)
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "dispatcher_schedule_register",
+            "Registered recurring audience compilation.",
+            schedule_id=record.schedule_id,
+            mind_id=mind_id,
+            audience_id=audience_id,
+            delivery=delivery.value,
+        )
         return {"status": "ok", "schedule": record.to_dict()}
 
     def run_due_schedules(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -758,7 +772,43 @@ class ContextDispatcher:
                     "webhook_url": record.webhook_url,
                 },
             )
-            results.append(self.dispatch(event))
+            try:
+                dispatch_result = self.dispatch(event)
+            except Exception as exc:
+                dispatch_result = {
+                    "status": "error",
+                    "event": event.to_dict(),
+                    "rule": {
+                        "mind_id": record.mind_id,
+                        "audience_id": record.audience_id,
+                        "output_format": record.output_format.value,
+                        "delivery": record.delivery.value,
+                    },
+                    "error": str(exc),
+                }
+                log_operation(
+                    LOGGER,
+                    logging.ERROR,
+                    "dispatcher_schedule_run",
+                    "Scheduled dispatch failed.",
+                    exc_info=True,
+                    schedule_id=record.schedule_id,
+                    mind_id=record.mind_id,
+                    audience_id=record.audience_id,
+                    error=str(exc),
+                )
+            else:
+                log_operation(
+                    LOGGER,
+                    logging.INFO,
+                    "dispatcher_schedule_run",
+                    "Scheduled dispatch completed.",
+                    schedule_id=record.schedule_id,
+                    mind_id=record.mind_id,
+                    audience_id=record.audience_id,
+                    status=dispatch_result.get("status", "ok"),
+                )
+            results.append(dispatch_result)
             record.last_run_at = current.isoformat().replace("+00:00", "Z")
             record.next_run_at = next_cron_run(record.cron_expression, after=current).isoformat().replace("+00:00", "Z")
             changed = True
@@ -766,13 +816,49 @@ class ContextDispatcher:
             _save_schedules(self.store_dir, schedules)
         return {"status": "ok", "dispatched": len(results), "results": results}
 
-    def watch(self, *, interval_seconds: int = 60, stop_check: Callable[[], bool] | None = None) -> None:
+    def watch(
+        self,
+        *,
+        interval_seconds: int = 60,
+        stop_check: Callable[[], bool] | None = None,
+        shutdown_controller: ShutdownController | None = None,
+    ) -> None:
         """Continuously poll recurring schedules and dispatch when due."""
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "dispatcher_watch_start",
+            "Started dispatcher watch loop.",
+            interval_seconds=interval_seconds,
+        )
         while True:
             if stop_check is not None and stop_check():
                 break
-            self.run_due_schedules()
-            time.sleep(interval_seconds)
+            if shutdown_controller is not None and shutdown_controller.stop_requested:
+                break
+            try:
+                self.run_due_schedules()
+            except Exception as exc:
+                log_operation(
+                    LOGGER,
+                    logging.ERROR,
+                    "dispatcher_watch_cycle",
+                    "Dispatcher watch cycle failed.",
+                    exc_info=True,
+                    error=str(exc),
+                )
+            if shutdown_controller is not None:
+                if shutdown_controller.wait(interval_seconds):
+                    break
+            else:
+                time.sleep(interval_seconds)
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "dispatcher_watch_stop",
+            "Stopped dispatcher watch loop.",
+            reason=shutdown_controller.reason if shutdown_controller is not None else "",
+        )
 
 
 def dispatcher_status(store_dir: Path) -> dict[str, Any]:

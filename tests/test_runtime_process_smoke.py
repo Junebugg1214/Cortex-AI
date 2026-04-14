@@ -179,6 +179,11 @@ def _spawn_logged_process(*args: str, log_path: Path) -> subprocess.Popen[str]:
 
 def _stop_process(process: subprocess.Popen[str]) -> None:
     if process.poll() is None:
+        try:
+            process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+    if process.poll() is None:
         process.terminate()
         try:
             process.wait(timeout=5)
@@ -240,6 +245,7 @@ def test_cortexd_process_serves_real_http_requests(tmp_path):
 
     logs = log_path.read_text(encoding="utf-8")
 
+    assert process.returncode == 0
     assert health["status"] == "ok"
     assert meta["backend"] == "sqlite"
     assert search["results"][0]["node"]["label"] == "Project Atlas"
@@ -276,6 +282,7 @@ def test_web_ui_process_serves_real_control_plane_requests(tmp_path):
 
     logs = log_path.read_text(encoding="utf-8")
 
+    assert process.returncode == 0
     assert isinstance(html, str)
     assert "One portable Mind, wired across your tools" in html
     assert "Mind Overview" in html
@@ -338,6 +345,7 @@ def test_cortex_mcp_process_serves_real_stdio_requests(tmp_path):
             process.stdin.close()
         _stop_process(process)
 
+    assert process.returncode == 0
     assert initialize["result"]["serverInfo"]["name"] == "Cortex"
     assert any(tool["name"] == "query_search" for tool in tools["result"]["tools"])
     assert search["result"]["structuredContent"]["results"][0]["node"]["label"] == "Project Atlas"

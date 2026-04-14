@@ -34,6 +34,19 @@ def _parse_cli_bool(value: str) -> bool:
     raise ValueError(f"Boolean value must be one of true/false, yes/no, or 1/0, got: {value}")
 
 
+def _store_dir_hint(store_dir: Path | str) -> str:
+    value = str(store_dir)
+    return "" if value == ".cortex" else f" --store-dir {value}"
+
+
+def _echo_next_steps(ctx: MindPackCliContext, *steps: str) -> None:
+    if not steps:
+        return
+    ctx.echo("Next:")
+    for step in steps:
+        ctx.echo(f"  {step}")
+
+
 def run_pack(args, *, ctx: MindPackCliContext):
     from cortex.packs import (
         ask_pack,
@@ -222,6 +235,11 @@ def run_pack(args, *, ctx: MindPackCliContext):
             ctx.echo(f"  {item['target']:<12} {item['status']}{note}")
             for path in item.get("paths", []):
                 ctx.echo(f"    → {path}")
+        _echo_next_steps(
+            ctx,
+            f"Preview the routed context first: cortex pack context {payload['pack']} --target {payload['targets'][0]['target']}{_store_dir_hint(store_dir)}",
+            f"Attach this pack to a Mind when you want it in a reusable runtime workflow: cortex mind attach-pack <mind> {payload['pack']}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.pack_subcommand == "query":
@@ -668,6 +686,11 @@ def run_mind(args, *, ctx: MindPackCliContext):
             for path in item.get("paths", []):
                 ctx.echo(f"    → {path}")
         ctx.echo(f"  total persisted mounts: {payload['mount_count']}")
+        _echo_next_steps(
+            ctx,
+            f"Inspect the persisted mount records: cortex mind mounts {payload['mind']}{_store_dir_hint(store_dir)}",
+            f"Preview the exact routed slice: cortex mind compose {payload['mind']} --to {payload['targets'][0]['target']}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.mind_subcommand == "mounts":
@@ -723,11 +746,20 @@ def run_sources(args, *, ctx: MindPackCliContext):
             return 0
         if not records:
             ctx.echo(f"Mind `{args.mind}` has no registered sources yet.")
+            _echo_next_steps(
+                ctx,
+                f"Ingest or adopt a source first: cortex mind ingest {args.mind} --from-detected chatgpt{_store_dir_hint(store_dir)}",
+            )
             return 0
         ctx.echo(f"Mind `{args.mind}` sources")
         for item in records:
             labels = ", ".join(item.get("labels", []))
             ctx.echo(f"  {item['stable_id']} ({labels})")
+        sample_identifier = records[0]["stable_id"]
+        _echo_next_steps(
+            ctx,
+            f"Preview a retraction safely: cortex sources retract {sample_identifier} --mind {args.mind} --dry-run{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.sources_subcommand == "retract":
@@ -765,6 +797,18 @@ def run_sources(args, *, ctx: MindPackCliContext):
         ctx.echo(f"  labels: {', '.join(payload.get('labels', []))}")
         ctx.echo(f"  nodes pruned: {len(payload.get('pruned_nodes', []))}")
         ctx.echo(f"  edges pruned: {len(payload.get('pruned_edges', []))}")
+        if payload.get("dry_run", False):
+            _echo_next_steps(
+                ctx,
+                f"Apply this retraction: cortex sources retract {payload['stable_source_id']} --mind {args.mind} --confirm{_store_dir_hint(store_dir)}",
+                f"List the current lineage again: cortex sources list --mind {args.mind}{_store_dir_hint(store_dir)}",
+            )
+        else:
+            _echo_next_steps(
+                ctx,
+                f"Verify the remaining lineage: cortex sources list --mind {args.mind}{_store_dir_hint(store_dir)}",
+                f"Run an integrity check: cortex integrity check{_store_dir_hint(store_dir)}",
+            )
         return 0
 
     return ctx.error("Specify a sources subcommand: list or retract")
@@ -799,6 +843,10 @@ def run_audience(args, *, ctx: MindPackCliContext):
             return 0
         ctx.echo(f"Saved audience `{payload['audience_id']}` on Mind `{payload['mind']}`")
         ctx.echo(f"  total policies: {payload['policy_count']}")
+        _echo_next_steps(
+            ctx,
+            f"Preview this audience before writing output: cortex audience preview --mind {payload['mind']} --audience {payload['audience_id']}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.audience_subcommand == "apply-template":
@@ -811,6 +859,11 @@ def run_audience(args, *, ctx: MindPackCliContext):
         if ctx.emit_result(payload, args.format) == 0:
             return 0
         ctx.echo(f"Applied audience template `{args.template}` to Mind `{args.mind}`")
+        _echo_next_steps(
+            ctx,
+            f"Preview the template output: cortex audience preview --mind {args.mind} --audience {args.template}{_store_dir_hint(store_dir)}",
+            f"Compile it when the preview looks right: cortex audience compile --mind {args.mind} --audience {args.template}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.audience_subcommand == "list":
@@ -822,10 +875,19 @@ def run_audience(args, *, ctx: MindPackCliContext):
             return 0
         if not payload["policies"]:
             ctx.echo(f"Mind `{args.mind}` has no configured audience policies.")
+            _echo_next_steps(
+                ctx,
+                f"Start from a built-in template: cortex audience apply-template --mind {args.mind} --template executive{_store_dir_hint(store_dir)}",
+            )
             return 0
         ctx.echo(f"Audience policies for Mind `{args.mind}`")
         for item in payload["policies"]:
             ctx.echo(f"  {item['audience_id']}: {item['output_format']} via {item['delivery']}")
+        sample_audience = payload["policies"][0]["audience_id"]
+        _echo_next_steps(
+            ctx,
+            f"Preview one audience: cortex audience preview --mind {args.mind} --audience {sample_audience}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.audience_subcommand == "preview":
@@ -838,6 +900,10 @@ def run_audience(args, *, ctx: MindPackCliContext):
         ctx.echo(f"Audience preview `{args.audience}` for Mind `{args.mind}`")
         ctx.echo(f"  nodes: {payload['node_count_in']} -> {payload['node_count_out']}")
         ctx.echo(f"  redactions: {payload['redaction_count']}")
+        _echo_next_steps(
+            ctx,
+            f"Compile this audience when ready: cortex audience compile --mind {args.mind} --audience {args.audience}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.audience_subcommand == "compile":
@@ -854,6 +920,11 @@ def run_audience(args, *, ctx: MindPackCliContext):
         elif isinstance(payload.get("output"), str):
             ctx.echo("")
             ctx.echo(payload["output"], force=True)
+        _echo_next_steps(
+            ctx,
+            f"Preview the inclusion and redaction rules again: cortex audience preview --mind {args.mind} --audience {args.audience}{_store_dir_hint(store_dir)}",
+            f"Review compile history: cortex audience log --mind {args.mind} --audience {args.audience}{_store_dir_hint(store_dir)}",
+        )
         return 0
 
     if args.audience_subcommand == "log":
@@ -869,6 +940,12 @@ def run_audience(args, *, ctx: MindPackCliContext):
                 f"  {item['timestamp']} {item['audience_id']}: "
                 f"{item['node_count_in']} -> {item['node_count_out']} "
                 f"(redactions={item['redaction_count']})"
+            )
+        if payload["entries"]:
+            audience_id = payload["entries"][0]["audience_id"]
+            _echo_next_steps(
+                ctx,
+                f"Preview the latest rules for this audience: cortex audience preview --mind {args.mind} --audience {audience_id}{_store_dir_hint(store_dir)}",
             )
         return 0
 

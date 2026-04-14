@@ -12,6 +12,7 @@ from cortex.agent.events import AgentEvent, DeliveryTarget, EventType, OutputFor
 from cortex.cli import main
 from cortex.graph import CortexGraph, Node
 from cortex.minds import _persist_mind_core_graph, init_mind
+from cortex.runtime_control import ShutdownController
 
 
 def _graph_with(*nodes: Node) -> CortexGraph:
@@ -441,6 +442,55 @@ def test_run_due_schedules_skips_future_schedule(tmp_path):
     result = dispatcher.run_due_schedules(now=datetime(2026, 4, 11, 13, 0, tzinfo=timezone.utc))
 
     assert result["dispatched"] == 0
+
+
+def test_run_due_schedules_returns_error_result_when_dispatch_fails(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    _seed_mind(store_dir, "personal", _professional_graph())
+    dispatcher = ContextDispatcher(store_dir=store_dir)
+    dispatcher.register_schedule(
+        mind_id="personal",
+        audience_id="team",
+        cron_expression="* * * * *",
+        output_format=OutputFormat.BRIEF,
+    )
+    path = store_dir / "agent" / "dispatch_schedules.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schedules"][0]["next_run_at"] = "2026-04-11T12:59:00Z"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def _boom(event):  # noqa: ARG001
+        raise RuntimeError("webhook queue unavailable")
+
+    monkeypatch.setattr(dispatcher, "dispatch", _boom)
+
+    result = dispatcher.run_due_schedules(now=datetime(2026, 4, 11, 13, 0, tzinfo=timezone.utc))
+    schedules = load_schedules(store_dir)
+
+    assert result["dispatched"] == 1
+    assert result["results"][0]["status"] == "error"
+    assert "webhook queue unavailable" in result["results"][0]["error"]
+    assert schedules[0].last_run_at
+
+
+def test_dispatcher_watch_honors_shutdown_controller(tmp_path, monkeypatch):
+    store_dir = tmp_path / ".cortex"
+    _seed_mind(store_dir, "personal", _professional_graph())
+    dispatcher = ContextDispatcher(store_dir=store_dir)
+    controller = ShutdownController()
+    controller.request_shutdown("test stop")
+    called = 0
+
+    def _counted_run_due_schedules():
+        nonlocal called
+        called += 1
+        return {"status": "ok", "dispatched": 0, "results": []}
+
+    monkeypatch.setattr(dispatcher, "run_due_schedules", _counted_run_due_schedules)
+
+    dispatcher.watch(interval_seconds=60, shutdown_controller=controller)
+
+    assert called == 0
 
 
 def test_dispatcher_status_reports_registered_schedules(tmp_path):

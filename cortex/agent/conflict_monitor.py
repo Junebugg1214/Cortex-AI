@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -19,8 +20,10 @@ from cortex.intelligence import GapAnalyzer
 from cortex.mind_runtime import _refresh_mind_mounts
 from cortex.minds import _persist_mind_core_graph, load_mind_core_graph, resolve_default_mind
 from cortex.portable_runtime import load_canonical_graph, load_portability_state, save_canonical_graph
+from cortex.runtime_logging import get_logger, log_operation
 
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOGGER = get_logger(__name__)
 SCOPE_SCALAR_TAGS = frozenset(
     {
         "identity",
@@ -913,13 +916,42 @@ class ConflictMonitor:
     def run_forever(self) -> None:
         """Run the monitor loop until stopped."""
         _replace_monitor_session(self.store_dir, self._session_id, self._session_record())
+        log_operation(
+            LOGGER,
+            logging.INFO,
+            "conflict_monitor_start",
+            "Started conflict monitor.",
+            session_id=self._session_id,
+            mind_id=self.config.mind_id or "",
+            interval_seconds=self.config.interval_seconds,
+        )
         try:
             while not self._stop_event.is_set():
-                self.run_cycle()
+                try:
+                    self.run_cycle()
+                except Exception as exc:
+                    log_operation(
+                        LOGGER,
+                        logging.ERROR,
+                        "conflict_monitor_cycle",
+                        "Conflict monitor cycle failed.",
+                        exc_info=True,
+                        session_id=self._session_id,
+                        mind_id=self.config.mind_id or "",
+                        error=str(exc),
+                    )
                 if self._stop_event.wait(self.config.interval_seconds):
                     break
         finally:
             _replace_monitor_session(self.store_dir, self._session_id, None)
+            log_operation(
+                LOGGER,
+                logging.INFO,
+                "conflict_monitor_stop",
+                "Stopped conflict monitor.",
+                session_id=self._session_id,
+                reason="stop_requested" if self._stop_event.is_set() else "loop_exit",
+            )
 
     def run_cycle(self) -> dict[str, Any]:
         """Run a single monitoring cycle."""

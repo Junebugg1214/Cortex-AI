@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +24,10 @@ from cortex.cli_runtime import (
     _select_scoped_api_key,
     _serve_check_payload,
 )
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -512,6 +518,7 @@ def run_ui(args, *, ctx: RuntimeCliContext) -> int:
     from cortex.config import format_startup_diagnostics, validate_runtime_security
     from cortex.webapp import start_ui_server
 
+    configure_structured_logging()
     if getattr(args, "subcommand", "") == "ui":
         ctx.emit_compatibility_note("ui", "cortex serve ui")
 
@@ -567,15 +574,34 @@ def run_ui(args, *, ctx: RuntimeCliContext) -> int:
         allow_unsafe_bind=args.allow_unsafe_bind,
         api_keys=config.api_keys,
     )
-    print(f"Cortex UI running at {url}")
-    print("Press Ctrl+C to stop.")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        print("\nCortex UI stopped.")
+    controller = ShutdownController()
+    log_operation(
+        LOGGER,
+        logging.INFO,
+        "startup",
+        "Cortex UI diagnostics:",
+        diagnostics=format_startup_diagnostics(config, mode="ui"),
+    )
+    log_operation(LOGGER, logging.INFO, "startup", f"Cortex UI running at {url}", url=url)
+    with install_shutdown_handlers(controller):
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
+        thread.start()
+        try:
+            while thread.is_alive() and not controller.wait(0.5):
+                continue
+        except KeyboardInterrupt:
+            controller.request_shutdown("Received KeyboardInterrupt")
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+    log_operation(
+        LOGGER,
+        logging.INFO,
+        "shutdown",
+        "Cortex UI stopped.",
+        reason=controller.reason or "Process exit",
+    )
     return 0
 
 
