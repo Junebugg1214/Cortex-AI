@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from cortex import cli_parser as cli_parser_module
 from cortex.compat import upgrade_v4_to_v5
+from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.extract_memory import (
     AggressiveExtractor,
     PIIRedactor,
@@ -71,38 +72,13 @@ def normalized_context_cls():
 
 def run_extraction(extractor, data, fmt):
     """Route *data* through the correct extractor method and return the v4 dict."""
-    if fmt == "openai":
-        extractor.process_openai_export(data)
-    elif fmt == "gemini":
-        extractor.process_gemini_export(data)
-    elif fmt == "perplexity":
-        extractor.process_perplexity_export(data)
-    elif fmt == "grok":
-        extractor.process_grok_export(data)
-    elif fmt == "cursor":
-        extractor.process_cursor_export(data)
-    elif fmt == "windsurf":
-        extractor.process_windsurf_export(data)
-    elif fmt == "copilot":
-        extractor.process_copilot_export(data)
-    elif fmt in ("jsonl", "claude_code"):
-        extractor.process_jsonl_messages(data)
-    elif fmt == "api_logs":
-        extractor.process_api_logs(data)
-    elif fmt == "messages":
-        extractor.process_messages_list(data)
-    elif fmt == "text":
-        extractor.process_plain_text(data)
-    else:
-        if isinstance(data, list):
-            extractor.process_messages_list(data)
-        elif isinstance(data, dict) and "messages" in data:
-            extractor.process_messages_list(data["messages"])
-        else:
-            extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
-
-    extractor.post_process()
-    return extractor.context.export()
+    backend = get_bulk_backend()
+    if backend.__class__.__name__ == "HeuristicBackend":
+        return merged_v4_from_results(
+            backend.extract_bulk([], context={"extractor": extractor, "data": data, "fmt": fmt})
+        )
+    texts = collect_bulk_texts(data, fmt)
+    return merged_v4_from_results(backend.extract_bulk(texts, context={"data": data, "fmt": fmt}))
 
 
 def write_exports(ctx, min_conf, format_keys, output_dir, verbose=False):

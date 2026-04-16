@@ -7,6 +7,11 @@ Tests for the 4 medium-priority features:
 4. Bidirectional Sync (Claude Memory Import)
 """
 
+# CONTRACT TESTS: HeuristicBackend output contract.
+# These tests define the required behavior of HeuristicBackend.
+# They must pass unchanged for the lifetime of that backend.
+# They are NOT tests of ModelBackend or EmbeddingBackend output.
+
 import json
 import sys
 import tempfile

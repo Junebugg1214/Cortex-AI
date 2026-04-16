@@ -16,6 +16,30 @@ Cortex reads configuration from three layers, in this order:
 - `CORTEX_CONTEXT_FILE`
   Default context graph file path.
 
+## Extraction backends
+
+- `CORTEX_HOT_PATH_BACKEND`
+  Values: `heuristic` (default), `model`, `hybrid`.
+  Warning: `model` makes every `cortex mind remember` call network-latency-bound.
+  `embedding` is reserved but not yet implemented.
+- `CORTEX_BULK_BACKEND`
+  Values: `model` (default if an API key is configured and the Anthropic client is installed), `heuristic`.
+  `embedding` is reserved but not yet implemented.
+- `CORTEX_ANTHROPIC_API_KEY`
+  API key for `ModelBackend`.
+  Falls back to `ANTHROPIC_API_KEY` if not set.
+- `CORTEX_HYBRID_RESCORE_WORKERS`
+  Integer. Default: `4`.
+  Maximum background threads used by `HybridBackend` rescoring.
+- `CORTEX_EMBEDDING_MATCH_THRESHOLD`
+  Float. Default: `0.92`.
+  Cosine similarity threshold for `EmbeddingBackend.canonical_match_by_similarity()`.
+  Has no effect until `EmbeddingBackend` is implemented.
+- `EmbeddingBackend`
+  Long-term replacement target for both the heuristic extractor and `ModelBackend` canonical matching.
+  Intended backbone: LLM-JEPA ([arXiv:2509.14252](https://arxiv.org/abs/2509.14252)).
+  Once implemented, it will provide semantic extraction in representation space and vector-similarity deduplication without per-call generative API costs.
+
 ## Server runtime
 
 - `CORTEX_SERVER_HOST`

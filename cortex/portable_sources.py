@@ -17,6 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 from cortex.claims import stamp_graph_provenance
 from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
+from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.import_memory import NormalizedContext
@@ -1017,37 +1018,13 @@ def graph_from_hermes_paths(paths: list[str]) -> CortexGraph:
 
 
 def run_extraction_data(extractor: AggressiveExtractor, data: Any, fmt: str) -> dict[str, Any]:
-    if fmt == "openai":
-        extractor.process_openai_export(data)
-    elif fmt == "gemini":
-        extractor.process_gemini_export(data)
-    elif fmt == "perplexity":
-        extractor.process_perplexity_export(data)
-    elif fmt == "grok":
-        extractor.process_grok_export(data)
-    elif fmt == "cursor":
-        extractor.process_cursor_export(data)
-    elif fmt == "windsurf":
-        extractor.process_windsurf_export(data)
-    elif fmt == "copilot":
-        extractor.process_copilot_export(data)
-    elif fmt in ("jsonl", "claude_code"):
-        extractor.process_jsonl_messages(data)
-    elif fmt == "api_logs":
-        extractor.process_api_logs(data)
-    elif fmt == "messages":
-        extractor.process_messages_list(data)
-    elif fmt == "text":
-        extractor.process_plain_text(data)
-    else:
-        if isinstance(data, list):
-            extractor.process_messages_list(data)
-        elif isinstance(data, dict) and "messages" in data:
-            extractor.process_messages_list(data["messages"])
-        else:
-            extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
-    extractor.post_process()
-    return extractor.context.export()
+    backend = get_bulk_backend()
+    if backend.__class__.__name__ == "HeuristicBackend":
+        return merged_v4_from_results(
+            backend.extract_bulk([], context={"extractor": extractor, "data": data, "fmt": fmt})
+        )
+    texts = collect_bulk_texts(data, fmt)
+    return merged_v4_from_results(backend.extract_bulk(texts, context={"data": data, "fmt": fmt}))
 
 
 def extract_graph_from_detected_sources(
