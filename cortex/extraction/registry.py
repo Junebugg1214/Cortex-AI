@@ -35,8 +35,7 @@ def _model_backend_available() -> bool:
 def _guard_embedding(name: str) -> None:
     if name == "embedding":
         raise ExtractionBackendError(
-            "EmbeddingBackend is not yet implemented. See\n"
-            "cortex/extraction/embedding_backend.py."
+            "EmbeddingBackend is not yet implemented. See\ncortex/extraction/embedding_backend.py."
         )
 
 
@@ -47,9 +46,7 @@ def get_backend(name: str) -> ExtractionBackend:
     backend_cls = BACKENDS.get(normalized)
     if backend_cls is None:
         valid = ", ".join(sorted(BACKENDS))
-        raise ExtractionBackendError(
-            f"Unknown extraction backend '{name}'. Valid backends: {valid}."
-        )
+        raise ExtractionBackendError(f"Unknown extraction backend '{name}'. Valid backends: {valid}.")
     return backend_cls()
 
 

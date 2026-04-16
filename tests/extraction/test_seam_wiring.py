@@ -75,7 +75,9 @@ def test_cli_run_extraction_uses_bulk_backend(monkeypatch):
     from cortex import cli_extract_commands
 
     backend = _BackendStub(
-        ExtractionResult(nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)])
+        ExtractionResult(
+            nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)]
+        )
     )
     monkeypatch.setattr(cli_extract_commands, "get_bulk_backend", lambda: backend)
     result = cli_extract_commands.run_extraction(object(), "I use Python and Rust.", "text")
@@ -87,7 +89,9 @@ def test_portable_sources_run_extraction_data_uses_bulk_backend(monkeypatch):
     from cortex import portable_sources
 
     backend = _BackendStub(
-        ExtractionResult(nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)])
+        ExtractionResult(
+            nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)]
+        )
     )
     monkeypatch.setattr(portable_sources, "get_bulk_backend", lambda: backend)
     result = portable_sources.run_extraction_data(object(), "I use Python and Rust.", "text")
@@ -110,7 +114,9 @@ def test_memory_session_remember_bypass_is_unaffected(monkeypatch):
 
 
 def test_memory_session_remember_does_not_touch_hot_path_backend(monkeypatch):
-    monkeypatch.setattr("cortex.portable_graphs.get_hot_path_backend", lambda: (_ for _ in ()).throw(AssertionError("should not run")))
+    monkeypatch.setattr(
+        "cortex.portable_graphs.get_hot_path_backend", lambda: (_ for _ in ()).throw(AssertionError("should not run"))
+    )
 
     class _Client:
         def upsert_node(self, **kwargs):

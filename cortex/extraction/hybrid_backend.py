@@ -140,7 +140,9 @@ class HybridBackend(ExtractionBackend):
             key = (new_edge.source, new_edge.target, new_edge.relationship)
             existing_edge = edge_keys.get(key)
             if existing_edge is not None:
-                existing_edge.direction_confidence = max(existing_edge.direction_confidence, new_edge.direction_confidence)
+                existing_edge.direction_confidence = max(
+                    existing_edge.direction_confidence, new_edge.direction_confidence
+                )
                 existing_edge.needs_review = existing_edge.needs_review or new_edge.needs_review
             else:
                 promoted_edge = copy.deepcopy(new_edge)
@@ -181,7 +183,9 @@ class HybridBackend(ExtractionBackend):
                 existing.confidence = max(existing.confidence, new_node.confidence)
                 if new_node.category not in existing.tags:
                     existing.tags.append(new_node.category)
-                existing.properties["needs_review"] = bool(existing.properties.get("needs_review") or new_node.needs_review)
+                existing.properties["needs_review"] = bool(
+                    existing.properties.get("needs_review") or new_node.needs_review
+                )
                 if self.rescore_backend.supports_embeddings and new_node.embedding is not None:
                     existing.properties["embedding"] = list(new_node.embedding)
 

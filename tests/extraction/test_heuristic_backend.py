@@ -123,7 +123,12 @@ def test_merged_graph_from_results_merges_multiple_statements():
 
 def test_canonical_match_always_returns_none():
     backend = HeuristicBackend()
-    match = backend.canonical_match(result_from_graph(_legacy_statement_graph("I use Python.")[0], raw_source="", extraction_method="heuristic").nodes[0], [])
+    match = backend.canonical_match(
+        result_from_graph(
+            _legacy_statement_graph("I use Python.")[0], raw_source="", extraction_method="heuristic"
+        ).nodes[0],
+        [],
+    )
     assert match == (None, 0.0)
 
 

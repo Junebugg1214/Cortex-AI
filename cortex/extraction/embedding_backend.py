@@ -59,10 +59,7 @@ class EmbeddingBackend(ExtractionBackend):
     ) -> tuple[str | None, float]:
         """Resolve canonical matches via vector similarity once implemented."""
 
-        raise NotImplementedError(
-            "EmbeddingBackend.canonical_match_by_similarity() "
-            "is not yet implemented."
-        )
+        raise NotImplementedError("EmbeddingBackend.canonical_match_by_similarity() is not yet implemented.")
 
     def extract_statement(self, text: str, context: dict | None = None) -> ExtractionResult:
         """Extract graph facts from one statement once the embedding model exists."""

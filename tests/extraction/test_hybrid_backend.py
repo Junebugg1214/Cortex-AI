@@ -90,7 +90,10 @@ def test_extract_statement_returns_immediately_with_rescore_pending(monkeypatch)
     monkeypatch.setattr("cortex.extraction.hybrid_backend.signal.getsignal", lambda *args, **kwargs: None)
     fast = _StaticBackend(_make_fast_result())
     slow = _StaticBackend(
-        ExtractionResult(nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)], extraction_method="model"),
+        ExtractionResult(
+            nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9)],
+            extraction_method="model",
+        ),
         delay=0.2,
     )
     backend = HybridBackend(fast_backend=fast, rescore_backend=slow, rescore_workers=1)
@@ -105,7 +108,9 @@ def test_extract_statement_returns_immediately_with_rescore_pending(monkeypatch)
 def test_extract_statement_sets_hybrid_method(monkeypatch):
     monkeypatch.setattr("cortex.extraction.hybrid_backend.signal.signal", lambda *args, **kwargs: None)
     monkeypatch.setattr("cortex.extraction.hybrid_backend.signal.getsignal", lambda *args, **kwargs: None)
-    backend = HybridBackend(fast_backend=_StaticBackend(_make_fast_result()), rescore_backend=_StaticBackend(_make_fast_result()))
+    backend = HybridBackend(
+        fast_backend=_StaticBackend(_make_fast_result()), rescore_backend=_StaticBackend(_make_fast_result())
+    )
     result = backend.extract_statement("I use Python.")
     assert result.extraction_method == "hybrid"
     backend.close()
@@ -156,7 +161,11 @@ def test_model_only_edges_are_added_with_review_flag(monkeypatch):
         fast_backend=_StaticBackend(_make_fast_result()),
         rescore_backend=_StaticBackend(
             ExtractionResult(
-                edges=[ExtractedEdge(source="Python", target="Data Science", relationship="used_in", direction_confidence=0.58)],
+                edges=[
+                    ExtractedEdge(
+                        source="Python", target="Data Science", relationship="used_in", direction_confidence=0.58
+                    )
+                ],
                 extraction_method="model",
             )
         ),
@@ -176,7 +185,15 @@ def test_embedding_from_rescore_is_stored(monkeypatch):
         fast_backend=_StaticBackend(fast),
         rescore_backend=_StaticBackend(
             ExtractionResult(
-                nodes=[ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9, embedding=[0.1, 0.2])],
+                nodes=[
+                    ExtractedNode(
+                        label="Python",
+                        category="technical_expertise",
+                        value="Python",
+                        confidence=0.9,
+                        embedding=[0.1, 0.2],
+                    )
+                ],
                 extraction_method="embedding",
             ),
             supports_embeddings=True,
@@ -236,7 +253,9 @@ def test_canonical_match_delegates_to_rescore_backend(monkeypatch):
     monkeypatch.setattr("cortex.extraction.hybrid_backend.signal.getsignal", lambda *args, **kwargs: None)
     rescore = _StaticBackend(ExtractionResult(nodes=[], extraction_method="model"))
     backend = HybridBackend(fast_backend=_StaticBackend(_make_fast_result()), rescore_backend=rescore)
-    match = backend.canonical_match(ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9), [])
+    match = backend.canonical_match(
+        ExtractedNode(label="Python", category="technical_expertise", value="Python", confidence=0.9), []
+    )
     assert match == ("n1", 0.9)
     backend.close()
 
@@ -246,7 +265,9 @@ def test_supports_embeddings_delegates_to_rescore_backend(monkeypatch):
     monkeypatch.setattr("cortex.extraction.hybrid_backend.signal.getsignal", lambda *args, **kwargs: None)
     backend = HybridBackend(
         fast_backend=_StaticBackend(_make_fast_result()),
-        rescore_backend=_StaticBackend(ExtractionResult(nodes=[], extraction_method="embedding"), supports_embeddings=True),
+        rescore_backend=_StaticBackend(
+            ExtractionResult(nodes=[], extraction_method="embedding"), supports_embeddings=True
+        ),
     )
     assert backend.supports_embeddings is True
     backend.close()

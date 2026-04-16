@@ -63,7 +63,9 @@ def result_from_graph(
             direction_confidence=edge.confidence,
             needs_review=bool(edge.properties.get("needs_review") or edge.confidence < 0.6),
         )
-        for edge in sorted(graph.edges.values(), key=lambda item: (item.source_id, item.target_id, item.relation, item.id))
+        for edge in sorted(
+            graph.edges.values(), key=lambda item: (item.source_id, item.target_id, item.relation, item.id)
+        )
     ]
     return ExtractionResult(
         nodes=nodes,
@@ -278,7 +280,9 @@ class HeuristicBackend(ExtractionBackend):
             elif fmt == "api_logs":
                 extractor.process_api_logs(data)
             elif fmt == "messages":
-                extractor.process_messages_list(data["messages"] if isinstance(data, dict) and "messages" in data else data)
+                extractor.process_messages_list(
+                    data["messages"] if isinstance(data, dict) and "messages" in data else data
+                )
             elif fmt == "text":
                 extractor.process_plain_text(data)
             else:

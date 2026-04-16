@@ -11,8 +11,7 @@ from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 LOGGER = logging.getLogger(__name__)
 
 MODEL_KEY_ERROR = (
-    "ModelBackend requires an API key. Set CORTEX_ANTHROPIC_API_KEY\n"
-    "or ANTHROPIC_API_KEY. See CONFIG.md for details."
+    "ModelBackend requires an API key. Set CORTEX_ANTHROPIC_API_KEY\nor ANTHROPIC_API_KEY. See CONFIG.md for details."
 )
 
 EXTRACTION_SYSTEM_PROMPT = """You are a knowledge graph extractor.

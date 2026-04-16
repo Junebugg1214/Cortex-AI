@@ -14,8 +14,17 @@ def test_extract_statement_parses_json_payload(monkeypatch):
         "_request_json",
         lambda **_: json.dumps(
             {
-                "nodes": [{"label": "Python", "category": "technical_expertise", "value": "Python", "confidence": 0.91}],
-                "edges": [{"source": "Python", "target": "Data Science", "relationship": "used_in", "direction_confidence": 0.72}],
+                "nodes": [
+                    {"label": "Python", "category": "technical_expertise", "value": "Python", "confidence": 0.91}
+                ],
+                "edges": [
+                    {
+                        "source": "Python",
+                        "target": "Data Science",
+                        "relationship": "used_in",
+                        "direction_confidence": 0.72,
+                    }
+                ],
                 "warnings": ["review temporal phrasing"],
             }
         ),
@@ -120,7 +129,11 @@ def test_extract_bulk_batches_in_groups_of_ten(monkeypatch):
         return json.dumps(
             {
                 "results": [
-                    {"nodes": [{"label": text, "category": "mentions", "value": text, "confidence": 0.9}], "edges": [], "warnings": []}
+                    {
+                        "nodes": [{"label": text, "category": "mentions", "value": text, "confidence": 0.9}],
+                        "edges": [],
+                        "warnings": [],
+                    }
                     for text in batch
                 ]
             }
@@ -137,7 +150,9 @@ def test_extract_bulk_accepts_list_payload(monkeypatch):
     monkeypatch.setattr(
         backend,
         "_request_json",
-        lambda **_: json.dumps([{"nodes": [], "edges": [], "warnings": []}, {"nodes": [], "edges": [], "warnings": []}]),
+        lambda **_: json.dumps(
+            [{"nodes": [], "edges": [], "warnings": []}, {"nodes": [], "edges": [], "warnings": []}]
+        ),
     )
     results = backend.extract_bulk(["a", "b"])
     assert len(results) == 2
@@ -152,7 +167,9 @@ def test_extract_bulk_accepts_single_dict_payload_for_one_item(monkeypatch):
 
 def test_extract_bulk_mismatched_result_count_raises(monkeypatch):
     backend = ModelBackend(api_key="test-key")
-    monkeypatch.setattr(backend, "_request_json", lambda **_: json.dumps({"results": [{"nodes": [], "edges": [], "warnings": []}]}))
+    monkeypatch.setattr(
+        backend, "_request_json", lambda **_: json.dumps({"results": [{"nodes": [], "edges": [], "warnings": []}]})
+    )
     with pytest.raises(ExtractionParseError):
         backend.extract_bulk(["a", "b"])
 
@@ -175,7 +192,9 @@ def test_api_key_falls_back_to_config(monkeypatch):
     backend = ModelBackend()
     monkeypatch.delenv("CORTEX_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr("cortex.extraction.model_backend.load_extraction_config", lambda: {"anthropic_api_key": "cfg-key"})
+    monkeypatch.setattr(
+        "cortex.extraction.model_backend.load_extraction_config", lambda: {"anthropic_api_key": "cfg-key"}
+    )
     assert backend._api_key() == "cfg-key"
 
 
