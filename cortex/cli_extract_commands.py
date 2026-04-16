@@ -320,7 +320,7 @@ def run_extract(args, *, ctx: ExtractCliContext) -> int:
                 ctx.echo(f"Merge file not found: {merge_path} (proceeding without merge)", stderr=True, force=True)
 
         result = run_extraction(extractor, data, fmt)
-        stats = extractor.context.stats()
+        stats = graph_category_stats(upgrade_v4_to_v5(result))
     else:
         if args.merge:
             merge_path = Path(args.merge)
