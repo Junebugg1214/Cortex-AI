@@ -4,7 +4,6 @@ import copy
 import json
 from typing import Any
 
-from cortex.compat import upgrade_v4_to_v5
 from cortex.extract_memory_context import normalize_text
 from cortex.extraction import get_hot_path_backend, graph_from_result
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag

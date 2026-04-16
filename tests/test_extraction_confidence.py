@@ -1,14 +1,14 @@
+# CONTRACT TESTS: HeuristicBackend output contract.
+# These tests define the required behavior of HeuristicBackend.
+# They must pass unchanged for the lifetime of that backend.
+# They are NOT tests of ModelBackend or EmbeddingBackend output.
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import pytest
-
-# CONTRACT TESTS: HeuristicBackend output contract.
-# These tests define the required behavior of HeuristicBackend.
-# They must pass unchanged for the lifetime of that backend.
-# They are NOT tests of ModelBackend or EmbeddingBackend output.
 
 from cortex.cli import main
 from cortex.extract_memory import AggressiveExtractor

@@ -17,8 +17,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 from cortex.claims import stamp_graph_provenance
 from cortex.compat import upgrade_v4_to_v5
 from cortex.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
-from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
+from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.import_memory import NormalizedContext
 from cortex.portability import PORTABLE_DIRECT_TARGETS, PORTABLE_TARGET_ALIASES, PORTABLE_TARGET_ORDER

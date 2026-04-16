@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from cortex.compat import upgrade_v4_to_v5
+from cortex.extract_memory import AggressiveExtractor
 from cortex.extraction import (
     HeuristicBackend,
     graph_from_result,
@@ -11,7 +12,6 @@ from cortex.extraction import (
     result_from_graph,
     v4_from_result,
 )
-from cortex.extract_memory import AggressiveExtractor
 from cortex.temporal import apply_temporal_review_policy
 
 

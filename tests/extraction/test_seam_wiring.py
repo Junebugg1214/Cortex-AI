@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from cortex.extraction import ExtractedNode, ExtractionResult
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.session import MemorySession

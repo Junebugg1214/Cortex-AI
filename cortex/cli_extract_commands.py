@@ -10,7 +10,6 @@ from typing import Any, Callable
 
 from cortex import cli_parser as cli_parser_module
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.extract_memory import (
     AggressiveExtractor,
     PIIRedactor,
@@ -18,6 +17,7 @@ from cortex.extract_memory import (
     load_file,
     merge_contexts,
 )
+from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
 from cortex.graph import CortexGraph
 from cortex.sources import SourceRegistry
 

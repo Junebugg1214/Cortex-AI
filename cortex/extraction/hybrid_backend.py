@@ -14,7 +14,7 @@ from cortex.graph import Node, make_node_id_with_tag
 from .backend import ExtractionBackend, load_extraction_config
 from .heuristic_backend import HeuristicBackend
 from .model_backend import ModelBackend
-from .types import ExtractedEdge, ExtractedNode, ExtractionResult
+from .types import ExtractedNode, ExtractionResult
 
 LOGGER = logging.getLogger(__name__)
 
