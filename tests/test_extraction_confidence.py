@@ -1,3 +1,8 @@
+# CONTRACT TESTS: HeuristicBackend output contract.
+# These tests define the required behavior of HeuristicBackend.
+# They must pass unchanged for the lifetime of that backend.
+# They are NOT tests of ModelBackend or EmbeddingBackend output.
+
 from __future__ import annotations
 
 import json

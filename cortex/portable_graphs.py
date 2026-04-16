@@ -4,9 +4,8 @@ import copy
 import json
 from typing import Any
 
-from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor
 from cortex.extract_memory_context import normalize_text
+from cortex.extraction import get_hot_path_backend, graph_from_result
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.temporal import apply_temporal_review_policy
 
@@ -118,11 +117,9 @@ def create_fallback_graph(statement: str, *, tags: list[str] | None = None, conf
 
 
 def extract_graph_from_statement(statement: str, *, confidence: float = 0.85) -> CortexGraph:
-    extractor = AggressiveExtractor()
-    extractor.extract_from_text(statement)
-    extractor.post_process()
-    payload = extractor.context.export()
-    graph = upgrade_v4_to_v5(payload)
+    backend = get_hot_path_backend()
+    result = backend.extract_statement(statement, context={"confidence": confidence})
+    graph = graph_from_result(result, fallback_statement=statement, fallback_confidence=confidence)
     if graph.nodes:
         apply_temporal_review_policy(graph)
         return graph

@@ -1,5 +1,10 @@
 """Precision regression tests for portability-critical extraction paths."""
 
+# CONTRACT TESTS: HeuristicBackend output contract.
+# These tests define the required behavior of HeuristicBackend.
+# They must pass unchanged for the lifetime of that backend.
+# They are NOT tests of ModelBackend or EmbeddingBackend output.
+
 import json
 import zipfile
 
