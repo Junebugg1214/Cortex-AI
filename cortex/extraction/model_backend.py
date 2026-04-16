@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Any, Mapping
 
+from cortex.graph import CATEGORY_ORDER
+
 from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
@@ -50,6 +52,29 @@ Rules:
 - confidence reflects how clearly the fact is stated,
   not how likely it is to be true.
 """
+
+DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+_CATEGORY_ALIASES = {
+    "person": "identity",
+    "people": "identity",
+    "human": "identity",
+    "organization": "business_context",
+    "company": "business_context",
+    "organization_name": "business_context",
+    "corporation": "business_context",
+    "product": "technical_expertise",
+    "technology": "technical_expertise",
+    "tech": "technical_expertise",
+    "skill": "technical_expertise",
+    "language": "technical_expertise",
+    "framework": "technical_expertise",
+    "tool": "technical_expertise",
+    "place": "mentions",
+    "location": "mentions",
+    "event": "mentions",
+    "date": "mentions",
+    "number": "mentions",
+}
 
 
 class ModelBackend(ExtractionBackend):
@@ -209,7 +234,7 @@ class ModelBackend(ExtractionBackend):
         api_key = self._api_key()
         client = self._anthropic_client_cls()(api_key=api_key)
         response = client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model=self._model_name(),
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -221,6 +246,31 @@ class ModelBackend(ExtractionBackend):
             if isinstance(text, str):
                 parts.append(text)
         return "".join(parts).strip()
+
+    def _model_name(self) -> str:
+        """Resolve the Anthropic model name from config or environment."""
+
+        env_model = os.environ.get("CORTEX_ANTHROPIC_MODEL", "").strip()
+        if env_model:
+            return env_model
+        config = load_extraction_config()
+        config_model = str(config.get("anthropic_model", "")).strip()
+        if config_model:
+            return config_model
+        return DEFAULT_MODEL
+
+    @staticmethod
+    def _normalize_category(raw_category: str) -> str:
+        """Normalize model-returned categories to local canonical tags."""
+
+        category = " ".join(raw_category.strip().lower().replace("_", " ").replace("-", " ").split())
+        if not category:
+            return "mentions"
+        if category in CATEGORY_ORDER:
+            return category
+        if category in _CATEGORY_ALIASES:
+            return _CATEGORY_ALIASES[category]
+        return "mentions"
 
     def _parse_json_payload(self, raw: str) -> Any:
         """Parse structured JSON from the model response."""
@@ -245,7 +295,7 @@ class ModelBackend(ExtractionBackend):
             nodes.append(
                 ExtractedNode(
                     label=str(item.get("label", "")).strip(),
-                    category=str(item.get("category", "")).strip() or "mentions",
+                    category=self._normalize_category(str(item.get("category", ""))),
                     value=str(item.get("value", "")).strip(),
                     confidence=float(item.get("confidence", 0.0) or 0.0),
                     canonical_match=(str(item.get("canonical_match")).strip() if item.get("canonical_match") else None),

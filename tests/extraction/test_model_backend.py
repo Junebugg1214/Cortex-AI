@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from cortex.extraction import ExtractedNode, ExtractionBackendError, ExtractionParseError, ModelBackend
+from cortex.extraction import (
+    ExtractedNode,
+    ExtractionBackendError,
+    ExtractionParseError,
+    ModelBackend,
+    merged_v4_from_results,
+)
 
 
 def test_extract_statement_parses_json_payload(monkeypatch):
@@ -36,10 +42,69 @@ def test_extract_statement_parses_json_payload(monkeypatch):
     assert result.warnings == ["review temporal phrasing"]
 
 
+def test_model_extraction_v4_output_has_known_categories(monkeypatch):
+    backend = ModelBackend(api_key="test-key")
+    monkeypatch.setattr(
+        backend,
+        "_request_json",
+        lambda **_: json.dumps(
+            {
+                "nodes": [
+                    {"label": "Ari", "category": "Person", "value": "Ari", "confidence": 0.9},
+                    {"label": "Prisma", "category": "Technology", "value": "Prisma", "confidence": 0.88},
+                ],
+                "edges": [],
+                "warnings": [],
+            }
+        ),
+    )
+    payload = merged_v4_from_results([backend.extract_statement("Ari works with Prisma.")])
+    assert "identity" in payload["categories"]
+    assert "technical_expertise" in payload["categories"]
+
+
 def test_extract_statement_sets_model_method(monkeypatch):
     backend = ModelBackend(api_key="test-key")
     monkeypatch.setattr(backend, "_request_json", lambda **_: '{"nodes":[],"edges":[],"warnings":[]}')
     assert backend.extract_statement("hello").extraction_method == "model"
+
+
+def test_extract_statement_normalizes_common_model_categories(monkeypatch):
+    backend = ModelBackend(api_key="test-key")
+    monkeypatch.setattr(
+        backend,
+        "_request_json",
+        lambda **_: json.dumps(
+            {
+                "nodes": [
+                    {"label": "Ari", "category": "Person", "value": "Ari", "confidence": 0.9},
+                    {"label": "Prisma", "category": "Technology", "value": "Prisma", "confidence": 0.88},
+                ],
+                "edges": [],
+                "warnings": [],
+            }
+        ),
+    )
+    result = backend.extract_statement("Ari works with Prisma")
+    assert result.nodes[0].category == "identity"
+    assert result.nodes[1].category == "technical_expertise"
+
+
+def test_extract_statement_falls_back_to_mentions_for_unknown_category(monkeypatch):
+    backend = ModelBackend(api_key="test-key")
+    monkeypatch.setattr(
+        backend,
+        "_request_json",
+        lambda **_: json.dumps(
+            {
+                "nodes": [{"label": "Mars", "category": "Planet", "value": "Mars", "confidence": 0.8}],
+                "edges": [],
+                "warnings": [],
+            }
+        ),
+    )
+    result = backend.extract_statement("We talked about Mars.")
+    assert result.nodes[0].category == "mentions"
 
 
 def test_extract_statement_json_parse_failure_raises_with_raw_response(monkeypatch):
