@@ -316,7 +316,9 @@ class VersionStore:
                     }
                 )
 
-        legacy_unchained = bool(meta.get("legacy_unchained")) or bool(legacy_versions) or root_chain_hash_version < CHAIN_HASH_VERSION
+        legacy_unchained = (
+            bool(meta.get("legacy_unchained")) or bool(legacy_versions) or root_chain_hash_version < CHAIN_HASH_VERSION
+        )
         status = "ok"
         if chain_issues:
             status = "error"

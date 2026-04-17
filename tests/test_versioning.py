@@ -365,8 +365,7 @@ class TestVersionStore:
 
             assert integrity["status"] == "error"
             assert any(
-                issue["version_id"] == intermediate.version_id
-                for issue in integrity["snapshot_integrity_issues"]
+                issue["version_id"] == intermediate.version_id for issue in integrity["snapshot_integrity_issues"]
             )
 
     def test_commit_with_source(self):
