@@ -18,11 +18,11 @@ Covers:
 
 import hashlib
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-from cortex.integrity import check_store_integrity
 from cortex.graph import CortexGraph, Edge, Node
+from cortex.integrity import check_store_integrity
 from cortex.upai.identity import UPAIIdentity
 from cortex.upai.versioning import ContextVersion, VersionStore
 
