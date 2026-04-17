@@ -24,6 +24,17 @@ def _dedupe_dict_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return deduped
 
 
+def _normalize_external_merge_metadata(source: str, metadata: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = dict(metadata or {})
+    if source != "merge:external":
+        return normalized
+    incoming_graph_hash = str(normalized.get("source_id") or normalized.get("incoming_graph_hash") or "").strip()
+    if incoming_graph_hash:
+        normalized["source_id"] = incoming_graph_hash
+    normalized.pop("incoming_graph_hash", None)
+    return normalized
+
+
 def _record_namespace(service: Any, ref: str) -> str:
     return service._ref_namespace(ref) or service.backend.versions.current_branch()
 
@@ -284,6 +295,7 @@ class MemoryObjectServiceMixin:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw = dict(payload)
+        metadata = _normalize_external_merge_metadata(source, metadata)
         existing, matched_by = _resolve_single_node_match(
             graph,
             node_id=str(raw.get("id", "")).strip(),
@@ -315,7 +327,7 @@ class MemoryObjectServiceMixin:
         provenance = [dict(item) for item in base.get("provenance", [])]
         provenance_entry = {
             key: value
-            for key, value in {"source": source, "method": method, **dict(metadata or {})}.items()
+            for key, value in {"source": source, "method": method, **metadata}.items()
             if value != "" and value is not None and value != [] and value != {}
         }
         if provenance_entry:
@@ -339,6 +351,7 @@ class MemoryObjectServiceMixin:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raw = dict(payload)
+        metadata = _normalize_external_merge_metadata(source, metadata)
         existing, matched_by = _resolve_single_edge_match(
             graph,
             edge_id=str(raw.get("id", "")).strip(),
@@ -373,7 +386,7 @@ class MemoryObjectServiceMixin:
         provenance = [dict(item) for item in base.get("provenance", [])]
         provenance_entry = {
             key: value
-            for key, value in {"source": source, "method": method, **dict(metadata or {})}.items()
+            for key, value in {"source": source, "method": method, **metadata}.items()
             if value != "" and value is not None and value != [] and value != {}
         }
         if provenance_entry:

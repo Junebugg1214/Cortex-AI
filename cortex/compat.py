@@ -204,6 +204,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     brief=rel_label,
                     extraction_method="mentioned",
                     canonical_id=stub_id,
+                    provenance=[dict(item) for item in node.provenance],
                 )
                 graph.nodes[stub_id] = stub
                 label_to_id[rel_norm] = stub_id
@@ -222,6 +223,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                     target_id=target_id,
                     relation=relation,
                     confidence=min(node.confidence, 0.7),
+                    provenance=[dict(item) for item in node.provenance],
                     first_seen=node.first_seen,
                     last_seen=node.last_seen,
                 )

@@ -101,6 +101,14 @@ def _filter_items_by_source(items: list[dict], source: str) -> tuple[list[dict],
     return kept, removed
 
 
+def ensure_provenance(graph: CortexGraph) -> list[str]:
+    """Return node and edge IDs that do not carry provenance."""
+    orphan_ids: list[str] = []
+    orphan_ids.extend(node_id for node_id, node in sorted(graph.nodes.items()) if not node.provenance)
+    orphan_ids.extend(edge_id for edge_id, edge in sorted(graph.edges.items()) if not edge.provenance)
+    return orphan_ids
+
+
 def diff_graphs(old: CortexGraph, new: CortexGraph) -> dict:
     """Diff two graphs. Returns added/removed/modified nodes and edges with a summary."""
     old_nids = set(old.nodes)
@@ -413,6 +421,8 @@ class CortexGraph:
     # ── CRUD ────────────────────────────────────────────────────────────
 
     def add_node(self, node: Node) -> str:
+        if self.meta.get("require_provenance") and not node.provenance:
+            raise ValueError(f"Node {node.id} must include provenance")
         if not node.canonical_id:
             node.canonical_id = node.id
         self.nodes[node.id] = node
@@ -421,6 +431,8 @@ class CortexGraph:
         return node.id
 
     def add_edge(self, edge: Edge) -> str:
+        if self.meta.get("require_provenance") and not edge.provenance:
+            raise ValueError(f"Edge {edge.id} must include provenance")
         self.edges[edge.id] = edge
         self._invalidate_adjacency()
         return edge.id
