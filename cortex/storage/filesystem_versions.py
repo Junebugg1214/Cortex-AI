@@ -38,6 +38,9 @@ class FilesystemVersionBackend:
     def diff(self, version_id_a: str, version_id_b: str) -> dict[str, Any]:
         return self.store.diff(version_id_a, version_id_b)
 
+    def verify_chain_integrity(self) -> dict[str, Any]:
+        return self.store.verify_chain_integrity()
+
     def head(self, ref: str = "HEAD") -> CommitRecord | None:
         version = self.store.head(ref=ref)
         return None if version is None else CommitRecord.from_context_version(version, tenant_id=self.tenant_id)

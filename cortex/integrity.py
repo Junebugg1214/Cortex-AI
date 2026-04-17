@@ -118,16 +118,49 @@ def check_store_integrity(store_dir: str | Path) -> dict[str, Any]:
     head = backend.versions.resolve_ref("HEAD")
     graph_issues = {"status": "ok", "checksum": "", "issues": []}
     if head is not None:
-        graph_issues = check_graph_integrity(backend.versions.checkout(head))
+        try:
+            graph_issues = check_graph_integrity(backend.versions.checkout(head))
+        except Exception as exc:  # noqa: BLE001 - integrity checks should report all store corruption
+            graph_issues = {
+                "status": "error",
+                "checksum": "",
+                "issues": [
+                    IntegrityIssue(
+                        code="head_snapshot_integrity_failed",
+                        message=str(exc),
+                        severity="error",
+                    ).to_dict()
+                ],
+            }
 
     history = backend.versions.log(limit=10_000)
     known_version_ids = {item.version_id for item in history}
     broken_version_chain = [
         item.version_id for item in history if item.parent_id and item.parent_id not in known_version_ids
     ]
+    snapshot_integrity_issues: list[dict[str, str]] = []
+    for item in history:
+        try:
+            backend.versions.checkout(item.version_id)
+        except Exception as exc:  # noqa: BLE001 - surface all corrupt snapshots instead of aborting early
+            snapshot_integrity_issues.append(
+                {
+                    "version_id": item.version_id,
+                    "message": str(exc),
+                    "severity": "error",
+                }
+            )
+
+    chain_integrity = {"status": "ok", "legacy_unchained": False, "chain_issues": []}
+    verify_chain = getattr(backend.versions, "verify_chain_integrity", None)
+    if callable(verify_chain):
+        chain_integrity = verify_chain()
+
     status = graph_issues["status"]
-    if broken_version_chain:
+    if broken_version_chain or snapshot_integrity_issues or chain_integrity.get("status") == "error":
         status = "error"
+    elif status == "ok" and chain_integrity.get("status") == "warning":
+        status = "warning"
     return {
         "status": status,
         "store_dir": str(Path(store_dir).resolve()),
@@ -135,6 +168,8 @@ def check_store_integrity(store_dir: str | Path) -> dict[str, Any]:
         "head": head,
         "graph_integrity": graph_issues,
         "broken_version_chain": broken_version_chain,
+        "snapshot_integrity_issues": snapshot_integrity_issues,
+        "chain_integrity": chain_integrity,
     }
 
 

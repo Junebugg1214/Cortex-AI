@@ -776,11 +776,11 @@ def run_doctor(args):
 
 
 def run_integrity(args):
-    if args.integrity_subcommand == "check":
+    if args.integrity_subcommand in {"check", "rehash"}:
         return cli_graph_commands_module.run_integrity(args, ctx=_graph_cli_context())
     return _error(
         "Missing integrity subcommand.",
-        hint="Run `cortex integrity --help` and choose `check`.",
+        hint="Run `cortex integrity --help` and choose `check` or `rehash`.",
     )
 
 

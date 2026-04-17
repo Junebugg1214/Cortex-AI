@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,9 +32,14 @@ if TYPE_CHECKING:
     from cortex.upai.identity import UPAIIdentity
 
 
+CHAIN_HASH_VERSION = 2
+LEGACY_CHAIN_HASH_VERSION = 1
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class ContextVersion:
-    version_id: str  # SHA-256 of serialized graph
+    version_id: str  # SHA-256 of canonical chain envelope
     parent_id: str | None  # previous version (None for initial)
     merge_parent_ids: list[str]  # optional additional parents for merge commits
     timestamp: str  # ISO-8601
@@ -44,6 +50,7 @@ class ContextVersion:
     node_count: int
     edge_count: int
     signature: str | None  # Ed25519/HMAC signature of graph_hash (if identity available)
+    chain_hash_version: int = CHAIN_HASH_VERSION
 
     def to_dict(self) -> dict:
         return {
@@ -58,6 +65,7 @@ class ContextVersion:
             "node_count": self.node_count,
             "edge_count": self.edge_count,
             "signature": self.signature,
+            "chain_hash_version": self.chain_hash_version,
         }
 
     @classmethod
@@ -74,6 +82,7 @@ class ContextVersion:
             node_count=d["node_count"],
             edge_count=d["edge_count"],
             signature=d.get("signature"),
+            chain_hash_version=int(d.get("chain_hash_version") or LEGACY_CHAIN_HASH_VERSION),
         )
 
 
@@ -87,6 +96,8 @@ class VersionStore:
         self.refs_dir = store_dir / "refs"
         self.heads_dir = self.refs_dir / "heads"
         self.head_path = store_dir / "HEAD"
+        self.migrations_dir = store_dir / "migrations"
+        self._warned_legacy_unchained = False
 
     def _ensure_dirs(self) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
@@ -139,14 +150,307 @@ class VersionStore:
             return ref[len("refs/heads/") :]
         return ref
 
-    def _load_history(self) -> list[dict]:
-        if self.history_path.exists():
-            return json.loads(self.history_path.read_text())
-        return []
+    @staticmethod
+    def _chain_payload(
+        *,
+        graph_hash: str,
+        parent_id: str | None,
+        merge_parent_ids: list[str] | None,
+        branch: str,
+        timestamp: str,
+        source: str,
+        message: str,
+    ) -> dict[str, Any]:
+        return {
+            "graph_hash": graph_hash,
+            "parent_id": parent_id or "",
+            "merge_parent_ids": sorted(merge_parent_ids or []),
+            "branch": branch,
+            "timestamp": timestamp,
+            "source": source,
+            "message": message,
+        }
 
-    def _save_history(self, history: list[dict]) -> None:
+    @classmethod
+    def derive_version_id(
+        cls,
+        *,
+        graph_hash: str,
+        parent_id: str | None,
+        merge_parent_ids: list[str] | None,
+        branch: str,
+        timestamp: str,
+        source: str,
+        message: str,
+    ) -> str:
+        payload = cls._chain_payload(
+            graph_hash=graph_hash,
+            parent_id=parent_id,
+            merge_parent_ids=merge_parent_ids,
+            branch=branch,
+            timestamp=timestamp,
+            source=source,
+            message=message,
+        )
+        canonical = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+    def _warn_legacy_unchained(self) -> None:
+        if self._warned_legacy_unchained:
+            return
+        logger.warning(
+            "Cortex store %s uses legacy unchained version IDs; run `cortex integrity rehash --confirm --store-dir %s` to migrate.",
+            self.store_dir,
+            self.store_dir,
+        )
+        self._warned_legacy_unchained = True
+
+    def _write_history_envelope(self, envelope: dict[str, Any]) -> None:
         self._ensure_dirs()
-        atomic_write_text(self.history_path, json.dumps(history, indent=2))
+        atomic_write_text(self.history_path, json.dumps(envelope, indent=2))
+
+    def _load_history_envelope(self) -> dict[str, Any]:
+        if self.history_path.exists():
+            raw = json.loads(self.history_path.read_text())
+            if isinstance(raw, list):
+                envelope = {
+                    "chain_hash_version": LEGACY_CHAIN_HASH_VERSION,
+                    "meta": {"legacy_unchained": True},
+                    "history": raw,
+                }
+                self._warn_legacy_unchained()
+                self._write_history_envelope(envelope)
+                return envelope
+            if not isinstance(raw, dict):
+                raise ValueError(f"Invalid history format in {self.history_path}")
+
+            chain_hash_version = int(raw.get("chain_hash_version") or LEGACY_CHAIN_HASH_VERSION)
+            meta = dict(raw.get("meta") or {})
+            history = list(raw.get("history") or [])
+            envelope = {
+                "chain_hash_version": chain_hash_version,
+                "meta": meta,
+                "history": history,
+            }
+            if chain_hash_version <= LEGACY_CHAIN_HASH_VERSION:
+                was_marked = bool(meta.get("legacy_unchained"))
+                envelope["meta"]["legacy_unchained"] = True
+                self._warn_legacy_unchained()
+                if not was_marked or "meta" not in raw:
+                    self._write_history_envelope(envelope)
+            return envelope
+        return {"chain_hash_version": CHAIN_HASH_VERSION, "meta": {}, "history": []}
+
+    def _load_history(self) -> list[dict]:
+        return list(self._load_history_envelope().get("history", []))
+
+    def _save_history(
+        self,
+        history: list[dict],
+        *,
+        meta: dict[str, Any] | None = None,
+        chain_hash_version: int = CHAIN_HASH_VERSION,
+    ) -> None:
+        existing = self._load_history_envelope() if self.history_path.exists() else {}
+        envelope = {
+            "chain_hash_version": chain_hash_version,
+            "meta": dict(existing.get("meta", {})) if meta is None else dict(meta),
+            "history": history,
+        }
+        self._write_history_envelope(envelope)
+
+    def _topological_history(self, history: list[dict]) -> list[dict]:
+        records_by_id = {item["version_id"]: item for item in history}
+        remaining = list(history)
+        ordered: list[dict] = []
+        seen: set[str] = set()
+        while remaining:
+            progressed = False
+            next_remaining: list[dict] = []
+            for item in remaining:
+                parents = []
+                if item.get("parent_id"):
+                    parents.append(item["parent_id"])
+                parents.extend(item.get("merge_parent_ids", []))
+                if all(parent not in records_by_id or parent in seen for parent in parents):
+                    ordered.append(item)
+                    seen.add(item["version_id"])
+                    progressed = True
+                else:
+                    next_remaining.append(item)
+            if not progressed:
+                ordered.extend(next_remaining)
+                break
+            remaining = next_remaining
+        return ordered
+
+    def verify_chain_integrity(self) -> dict[str, Any]:
+        envelope = self._load_history_envelope()
+        history = list(envelope.get("history", []))
+        root_chain_hash_version = int(envelope.get("chain_hash_version") or LEGACY_CHAIN_HASH_VERSION)
+        meta = dict(envelope.get("meta") or {})
+        legacy_versions: list[str] = []
+        chain_issues: list[dict[str, str]] = []
+
+        for item in history:
+            version_id = item["version_id"]
+            record_chain_hash_version = int(item.get("chain_hash_version") or LEGACY_CHAIN_HASH_VERSION)
+            if record_chain_hash_version < CHAIN_HASH_VERSION:
+                legacy_versions.append(version_id)
+                continue
+            expected = self.derive_version_id(
+                graph_hash=item["graph_hash"],
+                parent_id=item.get("parent_id"),
+                merge_parent_ids=list(item.get("merge_parent_ids", [])),
+                branch=item.get("branch", "main"),
+                timestamp=item["timestamp"],
+                source=item["source"],
+                message=item["message"],
+            )
+            if expected != version_id:
+                chain_issues.append(
+                    {
+                        "version_id": version_id,
+                        "expected_version_id": expected,
+                        "message": "Version ID does not match its canonical chain envelope.",
+                    }
+                )
+
+        legacy_unchained = (
+            bool(meta.get("legacy_unchained")) or bool(legacy_versions) or root_chain_hash_version < CHAIN_HASH_VERSION
+        )
+        status = "ok"
+        if chain_issues:
+            status = "error"
+        elif legacy_unchained:
+            status = "warning"
+        return {
+            "status": status,
+            "chain_hash_version": root_chain_hash_version,
+            "legacy_unchained": legacy_unchained,
+            "legacy_versions": legacy_versions,
+            "chain_issues": chain_issues,
+        }
+
+    def rehash_chain_v2(self, *, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            raise ValueError("Refusing to rewrite version history without confirm=True")
+
+        self._ensure_dirs()
+        with locked_path(self.store_dir):
+            envelope = self._load_history_envelope()
+            history = list(envelope.get("history", []))
+            ordered = self._topological_history(history)
+            meta = dict(envelope.get("meta") or {})
+            migrated_at = datetime.now(timezone.utc).isoformat()
+
+            rewritten: list[dict[str, Any]] = []
+            old_to_new: dict[str, str] = {}
+            for item in ordered:
+                old_version_id = item["version_id"]
+                new_parent_id = old_to_new.get(item.get("parent_id"), item.get("parent_id"))
+                new_merge_parent_ids = [old_to_new.get(parent, parent) for parent in item.get("merge_parent_ids", [])]
+                new_version_id = self.derive_version_id(
+                    graph_hash=item["graph_hash"],
+                    parent_id=new_parent_id,
+                    merge_parent_ids=new_merge_parent_ids,
+                    branch=item.get("branch", "main"),
+                    timestamp=item["timestamp"],
+                    source=item["source"],
+                    message=item["message"],
+                )
+                old_to_new[old_version_id] = new_version_id
+                new_item = dict(item)
+                new_item["version_id"] = new_version_id
+                new_item["parent_id"] = new_parent_id
+                new_item["merge_parent_ids"] = new_merge_parent_ids
+                new_item["chain_hash_version"] = CHAIN_HASH_VERSION
+                rewritten.append(new_item)
+
+            new_ids = list(old_to_new.values())
+            if len(set(new_ids)) != len(new_ids):
+                raise ValueError("Cannot rehash store: duplicate v2 version IDs would be produced")
+
+            self._rewrite_version_files(old_to_new)
+            updated_refs = self._rewrite_refs(old_to_new)
+
+            meta.pop("legacy_unchained", None)
+            meta["rehash_v2"] = {
+                "migrated_at": migrated_at,
+                "version_count": len(rewritten),
+            }
+            self._save_history(rewritten, meta=meta, chain_hash_version=CHAIN_HASH_VERSION)
+
+            self.migrations_dir.mkdir(parents=True, exist_ok=True)
+            log_path = self.migrations_dir / "rehash-v2.log"
+            log_lines = [
+                f"rehash-v2 migrated_at={migrated_at}",
+                f"versions={len(rewritten)}",
+                "mapping:",
+            ]
+            for old_id, new_id in old_to_new.items():
+                marker = "unchanged" if old_id == new_id else "rewritten"
+                log_lines.append(f"{old_id} -> {new_id} {marker}")
+            if updated_refs:
+                log_lines.append("refs:")
+                for name, value in sorted(updated_refs.items()):
+                    log_lines.append(f"{name} -> {value}")
+            atomic_write_text(log_path, "\n".join(log_lines) + "\n")
+
+            return {
+                "status": "ok",
+                "migrated": len(rewritten),
+                "mapping": old_to_new,
+                "refs": updated_refs,
+                "log_path": str(log_path),
+            }
+
+    def _rewrite_version_files(self, old_to_new: dict[str, str]) -> None:
+        old_ids = set(old_to_new)
+        for old_id, new_id in old_to_new.items():
+            source = self.versions_dir / f"{old_id}.json"
+            if not source.exists():
+                raise FileNotFoundError(f"Cannot rehash store: missing snapshot {source}")
+            if old_id == new_id:
+                continue
+            destination = self.versions_dir / f"{new_id}.json"
+            if destination.exists() and new_id not in old_ids:
+                raise FileExistsError(f"Cannot rehash store: destination snapshot already exists: {destination}")
+
+        temp_paths: dict[str, Path] = {}
+        for old_id, new_id in old_to_new.items():
+            if old_id == new_id:
+                continue
+            source = self.versions_dir / f"{old_id}.json"
+            temp = self.versions_dir / f".rehash-v2-{old_id}.json.tmp"
+            if temp.exists():
+                temp.unlink()
+            source.replace(temp)
+            temp_paths[old_id] = temp
+
+        for old_id, temp in temp_paths.items():
+            destination = self.versions_dir / f"{old_to_new[old_id]}.json"
+            temp.replace(destination)
+
+    def _rewrite_refs(self, old_to_new: dict[str, str]) -> dict[str, str]:
+        updated: dict[str, str] = {}
+        if self.heads_dir.exists():
+            for path in sorted(self.heads_dir.rglob("*")):
+                if not path.is_file():
+                    continue
+                value = path.read_text().strip()
+                if value in old_to_new:
+                    new_value = old_to_new[value]
+                    atomic_write_text(path, new_value)
+                    updated[f"refs/heads/{path.relative_to(self.heads_dir).as_posix()}"] = new_value
+
+        if self.head_path.exists():
+            value = self.head_path.read_text().strip()
+            if value and not value.startswith("ref: ") and value in old_to_new:
+                new_value = old_to_new[value]
+                atomic_write_text(self.head_path, new_value)
+                updated["HEAD"] = new_value
+        return updated
 
     def _ancestry_ids(self, start_version: str | None) -> list[str]:
         if not start_version:
@@ -189,9 +493,8 @@ class VersionStore:
         graph_json = json.dumps(graph_data, sort_keys=True, ensure_ascii=False)
         graph_bytes = graph_json.encode("utf-8")
 
-        # Hash
+        # Hash graph content independently from the chain envelope.
         graph_hash = hashlib.sha256(graph_bytes).hexdigest()
-        version_id = graph_hash[:32]
 
         # Sign if identity available
         signature = None
@@ -202,6 +505,17 @@ class VersionStore:
             history = self._load_history()
             resolved_branch = branch or self.current_branch()
             resolved_parent = parent_id if parent_id is not None else self._read_ref(resolved_branch)
+            timestamp = datetime.now(timezone.utc).isoformat()
+            resolved_merge_parents = list(merge_parent_ids or [])
+            version_id = self.derive_version_id(
+                graph_hash=graph_hash,
+                parent_id=resolved_parent,
+                merge_parent_ids=resolved_merge_parents,
+                branch=resolved_branch,
+                timestamp=timestamp,
+                source=source,
+                message=message,
+            )
 
             # Save snapshot
             snapshot_path = self.versions_dir / f"{version_id}.json"
@@ -211,8 +525,8 @@ class VersionStore:
             version = ContextVersion(
                 version_id=version_id,
                 parent_id=resolved_parent,
-                merge_parent_ids=list(merge_parent_ids or []),
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                merge_parent_ids=resolved_merge_parents,
+                timestamp=timestamp,
                 branch=resolved_branch,
                 source=source,
                 message=message,
@@ -220,6 +534,7 @@ class VersionStore:
                 node_count=len(graph.nodes),
                 edge_count=len(graph.edges),
                 signature=signature,
+                chain_hash_version=CHAIN_HASH_VERSION,
             )
 
             # Append to history
