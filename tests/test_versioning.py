@@ -16,9 +16,12 @@ Covers:
 - Store directory created on first commit
 """
 
+import hashlib
+import json
 import tempfile
 from pathlib import Path
 
+from cortex.integrity import check_store_integrity
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.upai.identity import UPAIIdentity
 from cortex.upai.versioning import ContextVersion, VersionStore
@@ -30,6 +33,28 @@ def _sample_graph(label_suffix: str = "") -> CortexGraph:
     g.add_node(Node(id="n2", label=f"Healthcare{label_suffix}", tags=["domain_knowledge"], confidence=0.8))
     g.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="used_in"))
     return g
+
+
+def _write_legacy_commit(store_dir: Path, graph: CortexGraph, message: str, parent_id: str | None = None) -> dict:
+    graph_data = graph.export_v5()
+    graph_json = json.dumps(graph_data, sort_keys=True, ensure_ascii=False)
+    graph_hash = hashlib.sha256(graph_json.encode("utf-8")).hexdigest()
+    version_id = graph_hash[:32]
+    (store_dir / "versions").mkdir(parents=True, exist_ok=True)
+    (store_dir / "versions" / f"{version_id}.json").write_text(json.dumps(graph_data, indent=2), encoding="utf-8")
+    return {
+        "version_id": version_id,
+        "parent_id": parent_id,
+        "merge_parent_ids": [],
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "branch": "main",
+        "source": "manual",
+        "message": message,
+        "graph_hash": graph_hash,
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+        "signature": None,
+    }
 
 
 class TestVersionStore:
@@ -53,6 +78,23 @@ class TestVersionStore:
             assert len(version.version_id) == 32  # first 32 chars of SHA-256
             # version_id should be hex
             int(version.version_id, 16)
+            assert version.chain_hash_version == 2
+
+    def test_identical_graph_hash_with_different_parents_produces_different_version_ids(self):
+        graph_hash = "a" * 64
+        common = {
+            "graph_hash": graph_hash,
+            "merge_parent_ids": [],
+            "branch": "main",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "source": "manual",
+            "message": "same graph",
+        }
+
+        first = VersionStore.derive_version_id(parent_id="parent-a", **common)
+        second = VersionStore.derive_version_id(parent_id="parent-b", **common)
+
+        assert first != second
 
     def test_commit_with_identity_adds_signature(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -271,6 +313,49 @@ class TestVersionStore:
         assert v2.branch == v.branch
         assert v2.message == v.message
         assert v2.signature == v.signature
+        assert v2.chain_hash_version == 2
+
+    def test_rehash_migration_produces_store_that_passes_integrity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_dir = Path(tmpdir) / ".cortex"
+            first = _write_legacy_commit(store_dir, _sample_graph(), "legacy first")
+            second = _write_legacy_commit(store_dir, _sample_graph(" v2"), "legacy second", parent_id=first["version_id"])
+            (store_dir / "history.json").write_text(json.dumps([first, second], indent=2), encoding="utf-8")
+            (store_dir / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+            (store_dir / "refs" / "heads" / "main").write_text(second["version_id"], encoding="utf-8")
+            (store_dir / "HEAD").write_text("ref: refs/heads/main", encoding="utf-8")
+
+            store = VersionStore(store_dir)
+            result = store.rehash_chain_v2(confirm=True)
+            integrity = check_store_integrity(store_dir)
+
+            assert result["status"] == "ok"
+            assert result["mapping"][first["version_id"]] != first["version_id"]
+            assert store.resolve_ref("HEAD") == result["mapping"][second["version_id"]]
+            assert integrity["status"] == "ok"
+            assert integrity["chain_integrity"]["chain_hash_version"] == 2
+            assert integrity["chain_integrity"]["legacy_unchained"] is False
+            assert (store_dir / "migrations" / "rehash-v2.log").exists()
+
+    def test_store_integrity_detects_intermediate_snapshot_tampering(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_dir = Path(tmpdir) / ".cortex"
+            store = VersionStore(store_dir)
+            store.commit(_sample_graph(), "first")
+            intermediate = store.commit(_sample_graph(" v2"), "second")
+            store.commit(_sample_graph(" v3"), "third")
+            snapshot_path = store_dir / "versions" / f"{intermediate.version_id}.json"
+            payload = json.loads(snapshot_path.read_text())
+            payload["graph"]["nodes"]["n1"]["label"] = "Tampered Python"
+            snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+            integrity = check_store_integrity(store_dir)
+
+            assert integrity["status"] == "error"
+            assert any(
+                issue["version_id"] == intermediate.version_id
+                for issue in integrity["snapshot_integrity_issues"]
+            )
 
     def test_commit_with_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:

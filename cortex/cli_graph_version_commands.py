@@ -127,6 +127,27 @@ def run_integrity(args, *, ctx: GraphVersionCliContext):
     """Check store lineage, version history, and graph consistency."""
     from cortex.integrity import check_store_integrity
 
+    if args.integrity_subcommand == "rehash":
+        from cortex.upai.versioning import VersionStore
+
+        if not args.confirm:
+            print("Refusing to rehash version history without --confirm.")
+            print(f"  Inspect first: cortex integrity check{_store_dir_hint(args.store_dir)}")
+            return 1
+        store = VersionStore(Path(args.store_dir))
+        try:
+            payload = store.rehash_chain_v2(confirm=True)
+        except Exception as exc:  # noqa: BLE001 - CLI should report migration failures clearly
+            print(f"Rehash failed: {exc}")
+            return 1
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        print("Integrity rehash: OK")
+        print(f"  Migrated versions: {payload.get('migrated', 0)}")
+        print(f"  Migration log: {payload.get('log_path')}")
+        _print_next_steps(f"cortex integrity check{_store_dir_hint(args.store_dir)}")
+        return 0
+
     payload = check_store_integrity(Path(args.store_dir))
     exit_code = 1 if payload.get("status") == "error" else 0
     if ctx.emit_result(payload, args.format) == 0:
@@ -144,14 +165,34 @@ def run_integrity(args, *, ctx: GraphVersionCliContext):
         print(f"  Broken version chain entries: {len(broken_chain)}")
         for version_id in broken_chain[:20]:
             print(f"    - {version_id}")
+    snapshot_issues = payload.get("snapshot_integrity_issues", [])
+    if snapshot_issues:
+        print(f"  Snapshot integrity issues: {len(snapshot_issues)}")
+        for issue in snapshot_issues[:20]:
+            print(f"    - {issue.get('version_id')}: {issue.get('message', '')}")
+    chain_integrity = payload.get("chain_integrity", {})
+    legacy_unchained = bool(chain_integrity.get("legacy_unchained"))
+    if legacy_unchained:
+        print("  Chain hash: legacy unchained")
+        print(f"    Legacy versions: {len(chain_integrity.get('legacy_versions', []))}")
+        print(f"    Migrate: cortex integrity rehash --confirm{_store_dir_hint(args.store_dir)}")
+    chain_issues = list(chain_integrity.get("chain_issues", []))
+    if chain_issues:
+        print(f"  Chain hash issues: {len(chain_issues)}")
+        for issue in chain_issues[:20]:
+            print(
+                f"    - {issue.get('version_id')}: expected {issue.get('expected_version_id')} "
+                f"({issue.get('message', '')})"
+            )
     issues = list(graph_integrity.get("issues", []))
-    if not issues and not broken_chain:
+    if not issues and not broken_chain and not snapshot_issues and not chain_issues and not legacy_unchained:
         print("  No integrity issues detected.")
         return exit_code
-    print("  Issues:")
-    for issue in issues:
-        severity = str(issue.get("severity", "warning")).upper()
-        print(f"    - {severity} {issue.get('code', 'unknown')}: {issue.get('message', '')}")
+    if issues:
+        print("  Issues:")
+        for issue in issues:
+            severity = str(issue.get("severity", "warning")).upper()
+            print(f"    - {severity} {issue.get('code', 'unknown')}: {issue.get('message', '')}")
     return exit_code
 
 

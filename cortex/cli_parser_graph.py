@@ -465,5 +465,10 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     integ_check.add_argument("--store-dir", default=".cortex", help="Store directory to inspect (default: .cortex)")
     integ_check.add_argument("--format", choices=["json", "text"], default="text")
 
+    integ_rehash = integ_sub.add_parser("rehash", help="Rewrite legacy unchained version IDs to chain hash v2")
+    integ_rehash.add_argument("--store-dir", default=".cortex", help="Store directory to migrate (default: .cortex)")
+    integ_rehash.add_argument("--confirm", action="store_true", help="Confirm rewriting history, snapshots, refs, and HEAD")
+    integ_rehash.add_argument("--format", choices=["json", "text"], default="text")
+
     vr = sub.add_parser("verify", help="Verify a signed export")
     vr.add_argument("input_file", help="Path to signed export file")
