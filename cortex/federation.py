@@ -21,6 +21,8 @@ Usage::
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import secrets
@@ -114,6 +116,21 @@ class ImportResult:
             "edges_added": self.edges_added,
             "edges_updated": self.edges_updated,
             "errors": list(self.errors),
+        }
+
+
+class FederationSignatureError(ValueError):
+    """Raised when a signed federation bundle cannot be trusted."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code or message.split(":", 1)[0].replace(" ", "_")
+
+    def to_dict(self) -> dict:
+        """Return a structured error payload for CLI/service callers."""
+        return {
+            "code": self.code,
+            "message": str(self),
         }
 
 
@@ -253,6 +270,50 @@ class FederationManager:
         self._seen_nonces.add(nonce)
         self._save_seen_nonces()
 
+    def _verify_signature(self, bundle: FederationBundle, *, check_trust: bool = True) -> bool:
+        """Verify a signed Ed25519 bundle or raise a structured error."""
+        if check_trust and bundle.exporter_did not in self.trusted_dids:
+            raise FederationSignatureError("untrusted key", code="untrusted_key")
+
+        try:
+            from nacl.exceptions import BadSignatureError as InvalidSignature
+            from nacl.signing import VerifyKey
+
+            from cortex.upai.identity import _did_key_to_public_key
+
+            if not bundle.signature:
+                raise ValueError("missing signature")
+            if not bundle.exporter_public_key_b64:
+                raise ValueError("missing exporter public key")
+
+            signature = base64.b64decode(bundle.signature, validate=True)
+            public_key = base64.b64decode(bundle.exporter_public_key_b64, validate=True)
+
+            if bundle.exporter_did.startswith("did:key:"):
+                did_public_key = _did_key_to_public_key(bundle.exporter_did)
+                if did_public_key != public_key:
+                    raise FederationSignatureError("untrusted key", code="untrusted_key")
+
+            verify_key = VerifyKey(public_key)
+        except FederationSignatureError:
+            raise
+        except (ImportError, ValueError, TypeError, binascii.Error) as exc:
+            raise FederationSignatureError(
+                "malformed bundle: " + str(exc),
+                code="malformed_bundle",
+            ) from exc
+
+        signing_dict = bundle.to_dict()
+        signing_dict["content_hash"] = _compute_content_hash(bundle.graph_data)
+        signing_input = _compute_signing_input(signing_dict)
+
+        try:
+            verify_key.verify(signing_input, signature)
+        except InvalidSignature as exc:
+            raise FederationSignatureError("signature invalid", code="signature_invalid") from exc
+
+        return True
+
     # ── Export ────────────────────────────────────────────────────────
 
     def export_bundle(
@@ -345,8 +406,14 @@ class FederationManager:
         """
         errors: list[str] = []
 
-        # 1. Trust check
-        if check_trust and bundle.exporter_did not in self.trusted_dids:
+        is_ed25519_exporter = bundle.exporter_did.startswith("did:key:") or bundle.exporter_did.startswith(
+            "did:upai:ed25519:"
+        )
+
+        # 1. Signature/trust check
+        if verify_signature and is_ed25519_exporter:
+            self._verify_signature(bundle, check_trust=check_trust)
+        elif check_trust and bundle.exporter_did not in self.trusted_dids:
             return ImportResult(
                 success=False,
                 errors=[f"Untrusted exporter: {bundle.exporter_did}"],
@@ -381,24 +448,6 @@ class FederationManager:
                 success=False,
                 errors=["Content hash mismatch — bundle may be tampered"],
             )
-
-        # 5. Signature verification
-        is_ed25519_exporter = bundle.exporter_did.startswith("did:key:") or bundle.exporter_did.startswith(
-            "did:upai:ed25519:"
-        )
-        if verify_signature and is_ed25519_exporter and bundle.signature and bundle.exporter_public_key_b64:
-            from cortex.upai.identity import UPAIIdentity as _Identity
-
-            signing_input = _compute_signing_input(bundle.to_dict())
-            if not _Identity.verify(
-                signing_input,
-                bundle.signature,
-                bundle.exporter_public_key_b64,
-            ):
-                return ImportResult(
-                    success=False,
-                    errors=["Invalid signature"],
-                )
 
         # Record nonce
         self._record_nonce(bundle.nonce)
