@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 from cortex.claims import RetractionPlanningError, retract_graph_source, stamp_graph_provenance
+from cortex.cli import main
 from cortex.compat import upgrade_v4_to_v5
 from cortex.extract_memory import AggressiveExtractor
-from cortex.cli import main
 from cortex.graph import CortexGraph, Edge, Node, ensure_provenance, make_edge_id, make_node_id
 from cortex.minds import adopt_graph_into_mind, init_mind, load_mind_core_graph
 from cortex.sources import (
