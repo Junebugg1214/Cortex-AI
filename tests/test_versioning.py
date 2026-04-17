@@ -18,8 +18,8 @@ Covers:
 
 import hashlib
 import json
-import tempfile
 from pathlib import Path
+import tempfile
 
 from cortex.integrity import check_store_integrity
 from cortex.graph import CortexGraph, Edge, Node
@@ -33,6 +33,13 @@ def _sample_graph(label_suffix: str = "") -> CortexGraph:
     g.add_node(Node(id="n2", label=f"Healthcare{label_suffix}", tags=["domain_knowledge"], confidence=0.8))
     g.add_edge(Edge(id="e1", source_id="n1", target_id="n2", relation="used_in"))
     return g
+
+
+def _sample_graph_with_provenance(label_suffix: str = "") -> CortexGraph:
+    graph = _sample_graph(label_suffix)
+    for node in graph.nodes.values():
+        node.provenance = [{"source": "test-source", "method": "test"}]
+    return graph
 
 
 def _write_legacy_commit(store_dir: Path, graph: CortexGraph, message: str, parent_id: str | None = None) -> dict:
@@ -318,8 +325,13 @@ class TestVersionStore:
     def test_rehash_migration_produces_store_that_passes_integrity(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store_dir = Path(tmpdir) / ".cortex"
-            first = _write_legacy_commit(store_dir, _sample_graph(), "legacy first")
-            second = _write_legacy_commit(store_dir, _sample_graph(" v2"), "legacy second", parent_id=first["version_id"])
+            first = _write_legacy_commit(store_dir, _sample_graph_with_provenance(), "legacy first")
+            second = _write_legacy_commit(
+                store_dir,
+                _sample_graph_with_provenance(" v2"),
+                "legacy second",
+                parent_id=first["version_id"],
+            )
             (store_dir / "history.json").write_text(json.dumps([first, second], indent=2), encoding="utf-8")
             (store_dir / "refs" / "heads").mkdir(parents=True, exist_ok=True)
             (store_dir / "refs" / "heads" / "main").write_text(second["version_id"], encoding="utf-8")
