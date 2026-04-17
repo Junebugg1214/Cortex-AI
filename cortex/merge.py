@@ -38,6 +38,21 @@ def _clone_graph(graph: CortexGraph) -> CortexGraph:
     return CortexGraph.from_v5_json(graph.export_v5())
 
 
+def _graph_hash(graph: CortexGraph) -> str:
+    payload = json.dumps(graph.export_v5(), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _merge_external_provenance(incoming_graph_hash: str) -> dict[str, str]:
+    return {"source": "merge:external", "source_id": incoming_graph_hash}
+
+
+def _ensure_merge_external_provenance(item: Node | Edge, incoming_graph_hash: str) -> None:
+    if item.provenance:
+        return
+    item.provenance.append(_merge_external_provenance(incoming_graph_hash))
+
+
 def _make_merge_conflict_id(kind: str, node_id: str, field: str, description: str) -> str:
     payload = f"{kind}:{node_id}:{field}:{description.strip().lower()}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -316,16 +331,20 @@ def _normalize_other_graph(
     registry = CanonicalEntityRegistry(current)
     id_map: dict[str, str] = {}
     novel_entities: list[dict[str, Any]] = []
+    incoming_graph_hash = _graph_hash(other)
 
     for node in other.nodes.values():
         if node.id in current.nodes:
-            normalized.add_node(copy.deepcopy(node))
+            node_copy = copy.deepcopy(node)
+            _ensure_merge_external_provenance(node_copy, incoming_graph_hash)
+            normalized.add_node(node_copy)
             id_map[node.id] = node.id
             continue
 
         matched = registry.match(node)
         if matched is None:
             node_copy = copy.deepcopy(node)
+            _ensure_merge_external_provenance(node_copy, incoming_graph_hash)
             normalized.add_node(node_copy)
             registry.register(node_copy)
             id_map[node.id] = node.id
@@ -341,6 +360,7 @@ def _normalize_other_graph(
 
         registry.note_alias_resolution(matched, node)
         mapped = copy.deepcopy(node)
+        _ensure_merge_external_provenance(mapped, incoming_graph_hash)
         mapped.id = matched.id
         mapped.label = matched.label
         mapped.canonical_id = matched.canonical_id or matched.id
@@ -370,6 +390,7 @@ def _normalize_other_graph(
         src = id_map.get(edge.source_id, edge.source_id)
         tgt = id_map.get(edge.target_id, edge.target_id)
         edge_copy = copy.deepcopy(edge)
+        _ensure_merge_external_provenance(edge_copy, incoming_graph_hash)
         edge_copy.source_id = src
         edge_copy.target_id = tgt
         normalized.add_edge(edge_copy)

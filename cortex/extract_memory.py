@@ -17,8 +17,10 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cortex.extract_memory_context as _extract_memory_context
@@ -103,11 +105,66 @@ def extract_entities(text: str) -> list[tuple[str, str]]:
 
 
 class AggressiveExtractor(AggressiveExtractionProcessingMixin, AggressiveExtractionTopicMixin):
-    def __init__(self, redactor: PIIRedactor | None = None):
+    def __init__(self, redactor: PIIRedactor | None = None, extractor_run_id: str | None = None):
         self.context = ExtractionContext()
         self.all_user_text = []
         self._negated_items = set()  # Track negated items for cross-category filtering
         self._redactor = redactor
+        self.extractor_run_id = extractor_run_id or self._make_extractor_run_id()
+
+    def _make_extractor_run_id(self) -> str:
+        seed = f"{datetime.now(timezone.utc).isoformat()}:{id(self)}"
+        return f"extractor-run:{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+
+    def _finalize_result(self, result: dict) -> dict:
+        provenance_entry = {
+            "source": "extractor:aggressive",
+            "source_id": self.extractor_run_id,
+            "reason": "auto",
+        }
+        result.setdefault("meta", {})["extractor_run_id"] = self.extractor_run_id
+        result["meta"]["require_provenance"] = True
+        for topics in result.get("categories", {}).values():
+            for topic in topics:
+                provenance = list(topic.get("_provenance", []))
+                if provenance:
+                    topic["_provenance"] = provenance
+                    continue
+                topic["_provenance"] = [dict(provenance_entry)]
+        return result
+
+    def process_openai_export(self, data: list | dict) -> dict:
+        return self._finalize_result(super().process_openai_export(data))
+
+    def process_messages_list(self, messages: list) -> dict:
+        return self._finalize_result(super().process_messages_list(messages))
+
+    def process_plain_text(self, text: str) -> dict:
+        return self._finalize_result(super().process_plain_text(text))
+
+    def process_gemini_export(self, data: dict) -> dict:
+        return self._finalize_result(super().process_gemini_export(data))
+
+    def process_perplexity_export(self, data: dict) -> dict:
+        return self._finalize_result(super().process_perplexity_export(data))
+
+    def process_grok_export(self, data: list | dict) -> dict:
+        return self._finalize_result(super().process_grok_export(data))
+
+    def process_cursor_export(self, data: list | dict) -> dict:
+        return self._finalize_result(super().process_cursor_export(data))
+
+    def process_windsurf_export(self, data: list | dict) -> dict:
+        return self._finalize_result(super().process_windsurf_export(data))
+
+    def process_copilot_export(self, data: list | dict) -> dict:
+        return self._finalize_result(super().process_copilot_export(data))
+
+    def process_jsonl_messages(self, messages: list) -> dict:
+        return self._finalize_result(super().process_jsonl_messages(messages))
+
+    def process_api_logs(self, data: dict) -> dict:
+        return self._finalize_result(super().process_api_logs(data))
 
 
 # ============================================================================

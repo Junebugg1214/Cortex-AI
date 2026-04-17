@@ -7,7 +7,9 @@ import pytest
 
 from cortex.claims import RetractionPlanningError, retract_graph_source, stamp_graph_provenance
 from cortex.cli import main
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.compat import upgrade_v4_to_v5
+from cortex.extract_memory import AggressiveExtractor
+from cortex.graph import CortexGraph, Edge, Node, ensure_provenance, make_edge_id, make_node_id
 from cortex.minds import adopt_graph_into_mind, init_mind, load_mind_core_graph
 from cortex.sources import (
     AmbiguousSourceLabelError,
@@ -230,3 +232,42 @@ def test_sources_retract_cli_dry_run_reports_prune_set_and_preserves_graph(tmp_p
     assert len(output["pruned_nodes"]) == 2
     assert len(output["pruned_edges"]) == 1
     assert before == after
+
+
+def test_retract_is_total(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    registry = _registry(store_dir)
+    source_text = (
+        "I am a Python developer. I use Python and React. "
+        "I work in healthcare AI. My current priority is building Atlas service."
+    )
+    payload = registry.register_bytes(source_text.encode("utf-8"), label="profile.txt")
+    extractor = AggressiveExtractor(extractor_run_id=payload["stable_id"])
+    extracted = extractor.process_plain_text(source_text)
+    graph = upgrade_v4_to_v5(extracted)
+
+    assert graph.nodes
+    assert ensure_provenance(graph) == []
+
+    retract_graph_source(
+        graph,
+        identifier="profile.txt",
+        registry=registry,
+        dry_run=False,
+        confirm=True,
+    )
+
+    source_id = payload["stable_id"]
+    residual_node_refs = [
+        node.id
+        for node in graph.nodes.values()
+        if any(item.get("source_id") == source_id or item.get("source") == source_id for item in node.provenance)
+    ]
+    residual_edge_refs = [
+        edge.id
+        for edge in graph.edges.values()
+        if any(item.get("source_id") == source_id or item.get("source") == source_id for item in edge.provenance)
+    ]
+    assert residual_node_refs == []
+    assert residual_edge_refs == []
+    assert ensure_provenance(graph) == []
