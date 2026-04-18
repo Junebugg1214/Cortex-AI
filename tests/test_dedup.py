@@ -208,6 +208,54 @@ class TestDeduplicate:
         results = deduplicate(g, threshold=0.80)
         assert results == []
 
+    def test_transitive_duplicates_merge_equivalence_class(self, monkeypatch):
+        g = CortexGraph()
+        g.add_node(
+            Node(
+                id="a",
+                label="Alpha",
+                tags=["tech"],
+                confidence=0.70,
+                first_seen="2026-03-01T00:00:00+00:00",
+            )
+        )
+        g.add_node(
+            Node(
+                id="b",
+                label="Beta",
+                tags=["tech"],
+                confidence=0.90,
+                first_seen="2026-02-01T00:00:00+00:00",
+            )
+        )
+        g.add_node(
+            Node(
+                id="c",
+                label="Gamma",
+                tags=["tech"],
+                confidence=0.90,
+                first_seen="2026-01-01T00:00:00+00:00",
+            )
+        )
+
+        pairwise_similarity = {
+            frozenset(("a", "b")): 0.82,
+            frozenset(("b", "c")): 0.81,
+            frozenset(("a", "c")): 0.65,
+        }
+
+        def fake_similarity(_graph, node_a, node_b, _text_weight=0.7, _neighbor_weight=0.3):
+            return pairwise_similarity[frozenset((node_a.id, node_b.id))]
+
+        monkeypatch.setattr("cortex.dedup.combined_similarity", fake_similarity)
+
+        results = deduplicate(g, threshold=0.80)
+
+        assert set(g.nodes) == {"c"}
+        assert set(results) == {("c", "a"), ("c", "b")}
+        assert g.get_node("c").confidence == 0.90
+        assert g.get_node("c").first_seen == "2026-01-01T00:00:00+00:00"
+
 
 # ============================================================================
 # Runner
