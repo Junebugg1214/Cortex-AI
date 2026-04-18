@@ -139,15 +139,8 @@ def run(fast: bool) -> int:
     )
     demo.blank()
 
-    demo.comment("switching from ChatGPT to Claude mid-project")
-    demo.command("cortex switch --from chatgpt-export.zip --to claude --output portable --dry-run")
-    demo.output(
-        [
-            ("Portable switch ready: openai -> claude", "OUT_GREEN"),
-            ("  claude: portable/claude/claude_preferences.txt, portable/claude/claude_memories.json [dry-run]", "OUT_MID"),
-        ]
-    )
-    demo.command("cortex switch --from chatgpt-export.zip --to claude --output portable")
+    demo.comment("syncing a ChatGPT export into Claude-ready artifacts")
+    demo.command("cortex sync chatgpt-export.zip --to claude --output portable")
     demo.output(
         [
             ("Portable switch ready: openai -> claude", "OUT_GREEN"),

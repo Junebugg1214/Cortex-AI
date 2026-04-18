@@ -5,31 +5,31 @@ import sys
 
 from cortex.upai.disclosure import BUILTIN_POLICIES
 
-FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "connect", "serve", "doctor")
+FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "mount", "sync", "serve", "admin")
 GUIDED_HELP_NOTE = "Guided help:\n  cortex help init\n  cortex help runtime\n  cortex help legacy\n"
 ADVANCED_HELP_NOTE = (
     "Advanced / compatibility:\n"
     "  Run `cortex --help-all` for graph/versioning internals and legacy aliases such as "
-    "`scan`, `sync`, `status`, `portable`, `remember`, `build`, `audit`, `server`, and `mcp`."
+    "`connect`, `rollback`, `scan`, `checkout`, `sources`, and `pull`."
 )
 DEFAULT_HELP_START_HERE = (
     "Start Here:\n"
     "  1. cortex init\n"
-    "  2. cortex ui\n"
+    "  2. cortex serve ui\n"
     '  3. cortex mind remember self "I prefer concise, implementation-first answers."\n'
     "  4. cortex connect manus\n"
 )
 DEFAULT_HELP_SURFACE_MAP = (
     "Surface Map:\n"
-    "  Core user flows      init, ui, mind, pack, connect\n"
-    "  Audience / lineage   sources, audience\n"
-    "  Runtime / admin      serve, doctor, integrity\n"
+    "  Core user flows      init, remember, mount, sync, compose\n"
+    "  Audience / lineage   source, audience\n"
+    "  Runtime / admin      serve, admin doctor, admin integrity\n"
     "  Advanced internals   graph/versioning + compatibility aliases via --help-all\n"
 )
 INIT_HELP_EPILOG = (
     "Bootstrap flow:\n"
     "  cortex init\n"
-    "  cortex ui\n"
+    "  cortex serve ui\n"
     '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
     "\nAdvanced init flags live under `cortex help init`.\n"
 )
@@ -66,11 +66,11 @@ SERVE_HELP_EPILOG = (
 )
 DOCTOR_HELP_EPILOG = (
     "Health / repair flow:\n"
-    "  cortex doctor\n"
-    "  cortex integrity check\n"
-    "  cortex doctor --fix --dry-run\n"
-    "  cortex doctor --fix-store\n"
-    "  cortex doctor --portability\n"
+    "  cortex admin doctor\n"
+    "  cortex admin integrity check\n"
+    "  cortex admin doctor --fix --dry-run\n"
+    "  cortex admin doctor --fix-store\n"
+    "  cortex admin doctor --portability\n"
 )
 CONNECT_RUNTIME_TARGETS = ("hermes", "codex", "cursor", "claude-code")
 HELP_TOPIC_TEXT = {
@@ -101,9 +101,9 @@ HELP_TOPIC_TEXT = {
         "  - prepares the first-run wizard so the UI can guide the first workflow\n"
         "\n"
         "Common beginner flow:\n"
-        "  cortex ui\n"
+        "  cortex serve ui\n"
         '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
-        "  cortex doctor\n"
+        "  cortex admin doctor\n"
         "\n"
         "Advanced init flags:\n"
         "  --label            override the display label for the default Mind\n"
@@ -130,17 +130,17 @@ HELP_TOPIC_TEXT = {
         "  cortex mind mount self --to codex\n"
     ),
     "legacy": (
-        "Cortex legacy compatibility\n"
+        "Cortex permanent aliases\n"
         "\n"
-        "Legacy commands still work, but they are compatibility paths:\n"
-        "  portable  -> cortex mind ingest / mount\n"
-        "  remember  -> cortex mind remember\n"
-        "  build     -> cortex pack ...\n"
-        "  audit     -> cortex doctor\n"
-        "  server    -> cortex serve api\n"
-        "  mcp       -> cortex serve mcp\n"
+        "Most CLI v1 flat verbs were retired in the CLI v2 cutover. These aliases remain:\n"
+        "  connect  -> cortex remote add / runtime connector setup\n"
+        "  rollback -> cortex checkout --at <ref>\n"
+        "  scan     -> cortex source status\n"
+        "  checkout -> explicit snapshot export\n"
+        "  sources  -> cortex source\n"
+        "  pull     -> cortex source ingest --pull\n"
         "\n"
-        "Use `cortex --help-all` only when you need the full legacy or graph/versioning surface.\n"
+        "Use namespaces such as `cortex admin`, `cortex debug`, and `cortex extract` for advanced flows.\n"
     ),
 }
 ARGPARSE_RECOVERY_HINTS = {

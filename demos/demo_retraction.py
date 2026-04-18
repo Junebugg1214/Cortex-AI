@@ -131,14 +131,14 @@ def run(fast: bool) -> int:
     demo.blank()
 
     demo.comment("demo fixture: policy_v3.pdf is already registered on this Mind")
-    demo.command("cortex sources list --mind compliance-kb")
+    demo.command("cortex source list --mind compliance-kb")
     demo.output(
         [
             ("Mind `compliance-kb` sources", "OUT_MID"),
             (f"  {stable_id} (policy_v3.pdf)", "OUT_MID"),
             ("Next:", "OUT_DIM"),
             (
-                f"  Preview a retraction safely: cortex sources retract {stable_id} --mind compliance-kb --dry-run --store-dir {store_dir}",
+                f"  Preview a retraction safely: cortex source retract {stable_id} --mind compliance-kb --dry-run --store-dir {store_dir}",
                 "OUT_DIM",
             ),
         ]
@@ -175,7 +175,7 @@ def run(fast: bool) -> int:
     demo.blank()
 
     demo.comment("6 hours later — source flagged as incorrect")
-    demo.command("cortex sources retract policy_v3.pdf --mind compliance-kb --dry-run")
+    demo.command("cortex source retract policy_v3.pdf --mind compliance-kb --dry-run")
     demo.output(
         [
             (f"Previewing source {stable_id} on Mind `compliance-kb`", "OUT_AMBER"),
@@ -184,11 +184,11 @@ def run(fast: bool) -> int:
             ("  edges pruned: 2", "OUT_MID"),
             ("Next:", "OUT_DIM"),
             (
-                f"  Apply this retraction: cortex sources retract {stable_id} --mind compliance-kb --confirm --store-dir {store_dir}",
+                f"  Apply this retraction: cortex source retract {stable_id} --mind compliance-kb --confirm --store-dir {store_dir}",
                 "OUT_DIM",
             ),
             (
-                f"  List the current lineage again: cortex sources list --mind compliance-kb --store-dir {store_dir}",
+                f"  List the current lineage again: cortex source list --mind compliance-kb --store-dir {store_dir}",
                 "OUT_DIM",
             ),
         ]
@@ -196,7 +196,7 @@ def run(fast: bool) -> int:
     demo.comment("no orphaned nodes remain in the retraction plan")
     demo.blank()
 
-    demo.command("cortex sources retract policy_v3.pdf --mind compliance-kb --confirm")
+    demo.command("cortex source retract policy_v3.pdf --mind compliance-kb --confirm")
     demo.progress("Pruning facts...           ", 14, "[==============]", count_text=" 14/14")
     demo.progress(
         "Retracting claims...       ",
@@ -221,15 +221,15 @@ def run(fast: bool) -> int:
             ("  edges pruned: 2", "OUT_MID"),
             ("Next:", "OUT_DIM"),
             (
-                f"  Verify the remaining lineage: cortex sources list --mind compliance-kb --store-dir {store_dir}",
+                f"  Verify the remaining lineage: cortex source list --mind compliance-kb --store-dir {store_dir}",
                 "OUT_DIM",
             ),
-            (f"  Run an integrity check: cortex integrity check --store-dir {store_dir}", "OUT_DIM"),
+            (f"  Run an integrity check: cortex admin integrity check --store-dir {store_dir}", "OUT_DIM"),
         ]
     )
     demo.blank()
 
-    demo.command("cortex integrity check")
+    demo.command("cortex admin integrity check")
     demo.output(
         [
             ("✓ lineage intact", "OUT_GREEN"),
