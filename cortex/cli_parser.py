@@ -51,6 +51,7 @@ CLI_V2_INTERNAL_COMMANDS: dict[str, tuple[str, str]] = {
     "memory": ("__cli_v2_memory", "remember/source/debug"),
     "migrate": ("__cli_v2_migrate", "admin migrate"),
     "query": ("__cli_v2_query", "debug query"),
+    "extractions-tail": ("__cli_v2_extractions_tail", "debug extractions tail"),
     "stats": ("__cli_v2_stats", "debug stats"),
     "timeline": ("__cli_v2_timeline", "debug timeline"),
     "contradictions": ("__cli_v2_contradictions", "debug contradictions"),
@@ -150,6 +151,12 @@ def _no_args(_parser: argparse.ArgumentParser) -> None:
     return None
 
 
+def _configure_debug_extractions(parser: argparse.ArgumentParser) -> None:
+    sub = parser.add_subparsers(dest="debug_extractions_subcommand")
+    tail = sub.add_parser("tail", help="Pretty-print recent extraction diagnostics")
+    tail.add_argument("--limit", type=int, default=20, help="Number of records to show (default: 20)")
+
+
 def _register_cli_v2_namespaces(sub) -> None:
     if "compose" not in getattr(sub, "choices", {}):
         sub.add_parser("compose", help="Render context without writing a persistent mount target")
@@ -200,6 +207,7 @@ def _register_cli_v2_namespaces(sub) -> None:
             "digest": _no_args,
             "gaps": _no_args,
             "watch": _no_args,
+            "extractions": _configure_debug_extractions,
             "query": _no_args,
             "blame": _no_args,
             "history": _no_args,

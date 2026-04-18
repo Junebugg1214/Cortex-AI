@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from time import perf_counter
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from cortex.graph import CortexGraph
 
+from .diagnostics import ExtractionDiagnostics
 from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship
 from .types import ExtractedEdge, ExtractedNode
 from .types import ExtractionResult as BackendExtractionResult
@@ -62,18 +63,6 @@ class ExtractionContext:
     budget: ExtractionBudget = field(default_factory=ExtractionBudget)
     prompt_version: str = ""
     canonical_resolver: CanonicalResolver = field(default_factory=NoopCanonicalResolver)
-
-
-@dataclass
-class ExtractionDiagnostics:
-    """Runtime diagnostics emitted by an extraction pipeline."""
-
-    tokens_in: int = 0
-    tokens_out: int = 0
-    latency_ms: float = 0.0
-    cost_usd: float = 0.0
-    stage_timings: dict[str, float] = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -207,6 +196,18 @@ def result_from_backend_result(
         for item in items_from_backend_result(backend_result)
     ]
     latency_ms = (perf_counter() - started_at) * 1000.0
+    backend_diagnostics = getattr(backend_result, "_diagnostics", None)
+    if isinstance(backend_diagnostics, ExtractionDiagnostics):
+        stage_timings = dict(backend_diagnostics.stage_timings)
+        stage_timings["extract"] = latency_ms
+        diagnostics = replace(
+            backend_diagnostics,
+            latency_ms=latency_ms,
+            stage_timings=stage_timings,
+            warnings=list(backend_result.warnings),
+            prompt_version=backend_diagnostics.prompt_version or context.prompt_version,
+        )
+        return ExtractionResult(items=items, diagnostics=diagnostics)
     return ExtractionResult(
         items=items,
         diagnostics=ExtractionDiagnostics(
@@ -215,6 +216,7 @@ def result_from_backend_result(
             latency_ms=latency_ms,
             cost_usd=0.0,
             stage_timings={"extract": latency_ms},
+            prompt_version=context.prompt_version,
             warnings=list(backend_result.warnings),
         ),
     )

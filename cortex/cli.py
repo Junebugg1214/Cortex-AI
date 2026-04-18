@@ -101,6 +101,7 @@ CLI_V2_ROUTES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("debug", "digest"): (_internal_command("digest"),),
     ("debug", "gaps"): (_internal_command("gaps"),),
     ("debug", "watch"): (_internal_command("watch"),),
+    ("debug", "extractions", "tail"): (_internal_command("extractions-tail"),),
     ("debug", "query"): (_internal_command("query"),),
     ("debug", "blame"): (_internal_command("blame"),),
     ("debug", "history"): (_internal_command("history"),),
@@ -561,6 +562,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
         _internal_command("memory"): run_memory,
         _internal_command("migrate"): run_migrate,
         _internal_command("query"): run_query,
+        _internal_command("extractions-tail"): run_extractions_tail,
         _internal_command("stats"): run_stats,
         _internal_command("timeline"): run_timeline,
         _internal_command("contradictions"): run_contradictions,
@@ -1097,6 +1099,10 @@ def run_backup(args):
 
 def run_stats(args):
     return cli_misc_commands_module.run_stats(args, ctx=_misc_cli_context())
+
+
+def run_extractions_tail(args):
+    return cli_misc_commands_module.run_extractions_tail(args, ctx=_misc_cli_context())
 
 
 def run_pull(args):
