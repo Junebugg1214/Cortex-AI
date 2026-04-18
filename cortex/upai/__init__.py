@@ -1,9 +1,18 @@
-"""UPAI — Universal Portable AI Identity Protocol (v5.2)"""
+from __future__ import annotations
 
-from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure  # noqa: F401
-from cortex.upai.errors import ERROR_CODES, UPAIError  # noqa: F401
-from cortex.upai.identity import SignedEnvelope, UPAIIdentity, has_crypto  # noqa: F401
-from cortex.upai.keychain import Keychain, KeyRecord  # noqa: F401
-from cortex.upai.pagination import Page, paginate  # noqa: F401
-from cortex.upai.schemas import SCHEMAS, is_valid, validate  # noqa: F401
-from cortex.upai.versioning import ContextVersion, VersionStore  # noqa: F401
+import warnings as _warnings
+from importlib import import_module as _import_module
+
+_warnings.warn(
+    "cortex.upai is deprecated; use cortex.versioning.upai instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.versioning.upai import *  # pragma: deprecation  # noqa: F401,F403,E402
+
+_module = _import_module("cortex.versioning.upai")
+for _name, _value in vars(_module).items():
+    if _name not in {"__name__", "__package__", "__loader__", "__spec__"}:
+        globals()[_name] = _value
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+del _import_module, _module, _name, _warnings

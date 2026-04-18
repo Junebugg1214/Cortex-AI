@@ -1,46 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
+import warnings as _warnings
+from importlib import import_module as _import_module
 
-from cortex.embeddings import get_embedding_provider
-from cortex.storage.base import StorageBackend
+_warnings.warn(
+    "cortex.service_runtime_common is deprecated; use cortex.service.service_runtime_common instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.service_runtime_common import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-
-def _backend_name(backend: StorageBackend) -> str:
-    module_name = type(backend).__module__
-    if module_name.endswith(".sqlite"):
-        return "sqlite"
-    return "filesystem"
-
-
-def _safe_head_ref(service: Any) -> str:
-    try:
-        return service.backend.versions.resolve_ref("HEAD")
-    except (FileNotFoundError, ValueError):
-        return ""
-
-
-def _safe_index_status(service: Any) -> dict[str, Any]:
-    try:
-        return service.backend.indexing.status(ref="HEAD")
-    except (FileNotFoundError, ValueError):
-        provider = get_embedding_provider()
-        backend_name = _backend_name(service.backend)
-        return {
-            "status": "missing",
-            "backend": backend_name,
-            "persistent": backend_name == "sqlite",
-            "supported": provider.enabled,
-            "ref": "HEAD",
-            "resolved_ref": "",
-            "last_indexed_commit": None,
-            "doc_count": 0,
-            "stale": False,
-            "updated_at": None,
-            "lag_commits": 0,
-            "embedding_provider": provider.name,
-            "embedding_enabled": provider.enabled,
-        }
-
-
-__all__ = ["_backend_name", "_safe_head_ref", "_safe_index_status"]
+_module = _import_module("cortex.service.service_runtime_common")
+for _name, _value in vars(_module).items():
+    if _name not in {"__name__", "__package__", "__loader__", "__spec__"}:
+        globals()[_name] = _value
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+del _import_module, _module, _name, _warnings

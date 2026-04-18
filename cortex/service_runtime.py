@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-from cortex.service_runtime_agents import MemoryRuntimeAgentMixin
-from cortex.service_runtime_channels import MemoryRuntimeChannelMixin
-from cortex.service_runtime_common import _backend_name, _safe_head_ref, _safe_index_status
-from cortex.service_runtime_meta import MemoryRuntimeMetaMixin
-from cortex.service_runtime_minds import MemoryRuntimeMindMixin
-from cortex.service_runtime_packs import MemoryRuntimePackMixin
-from cortex.service_runtime_portability import MemoryRuntimePortabilityMixin
+import warnings as _warnings
+from importlib import import_module as _import_module
 
+_warnings.warn(
+    "cortex.service_runtime is deprecated; use cortex.service.service_runtime instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.service_runtime import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-class MemoryRuntimeServiceMixin(
-    MemoryRuntimeAgentMixin,
-    MemoryRuntimeMetaMixin,
-    MemoryRuntimePortabilityMixin,
-    MemoryRuntimeMindMixin,
-    MemoryRuntimePackMixin,
-    MemoryRuntimeChannelMixin,
-):
-    pass
-
-
-__all__ = ["MemoryRuntimeServiceMixin", "_backend_name", "_safe_head_ref", "_safe_index_status"]
+_module = _import_module("cortex.service.service_runtime")
+for _name, _value in vars(_module).items():
+    if _name not in {"__name__", "__package__", "__loader__", "__spec__"}:
+        globals()[_name] = _value
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+del _import_module, _module, _name, _warnings

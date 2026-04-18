@@ -1,29 +1,18 @@
-"""Static Cortex UI shell and session constants."""
+from __future__ import annotations
 
-from cortex.webapp_shell_body import UI_BODY
-from cortex.webapp_shell_css import UI_CSS
-from cortex.webapp_shell_js import UI_JS
+import warnings as _warnings
+from importlib import import_module as _import_module
 
-UI_SESSION_HEADER = "X-Cortex-UI-Session"
-UI_SESSION_PLACEHOLDER = "__CORTEX_UI_SESSION_TOKEN__"
+_warnings.warn(
+    "cortex.webapp_shell is deprecated; use cortex.service.webapp_shell instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.webapp_shell import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-
-UI_HTML = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cortex UI</title>
-  <style>
-{UI_CSS}
-  </style>
-</head>
-<body>
-{UI_BODY}
-
-  <script>
-{UI_JS}
-  </script>
-</body>
-</html>
-"""
+_module = _import_module("cortex.service.webapp_shell")
+for _name, _value in vars(_module).items():
+    if _name not in {"__name__", "__package__", "__loader__", "__spec__"}:
+        globals()[_name] = _value
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+del _import_module, _module, _name, _warnings

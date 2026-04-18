@@ -1,79 +1,18 @@
 from __future__ import annotations
 
-from pathlib import Path
+import warnings as _warnings
+from importlib import import_module as _import_module
 
-from cortex.portable_runtime import (
-    audit_portability,
-    render_portability_context,
-    scan_portability,
-    status_portability,
+_warnings.warn(
+    "cortex.service_runtime_portability is deprecated; use cortex.service.service_runtime_portability instead.",
+    DeprecationWarning,
+    stacklevel=2,
 )
+from cortex.service.service_runtime_portability import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-
-class MemoryRuntimePortabilityMixin:
-    def portability_context(
-        self,
-        *,
-        target: str,
-        project_dir: str = "",
-        smart: bool | None = None,
-        policy: str | None = None,
-        max_chars: int = 1500,
-    ) -> dict[str, object]:
-        project_path = Path(project_dir).resolve() if project_dir else None
-        payload = render_portability_context(
-            store_dir=self.store_dir,
-            target=target,
-            project_dir=project_path,
-            smart=smart,
-            policy_name=policy,
-            max_chars=max_chars,
-        )
-        payload["release"] = self.release()
-        return payload
-
-    def portability_scan(
-        self,
-        *,
-        project_dir: str = "",
-        search_roots: list[str] | None = None,
-        metadata_only: bool = False,
-    ) -> dict[str, object]:
-        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
-        payload = scan_portability(
-            store_dir=self.store_dir,
-            project_dir=project_path,
-            extra_roots=[Path(root).resolve() for root in (search_roots or [])],
-            metadata_only=metadata_only,
-        )
-        payload["release"] = self.release()
-        return payload
-
-    def portability_status(
-        self,
-        *,
-        project_dir: str = "",
-    ) -> dict[str, object]:
-        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
-        payload = status_portability(
-            store_dir=self.store_dir,
-            project_dir=project_path,
-        )
-        payload["release"] = self.release()
-        return payload
-
-    def portability_audit(
-        self,
-        *,
-        project_dir: str = "",
-    ) -> dict[str, object]:
-        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
-        payload = audit_portability(
-            store_dir=self.store_dir,
-            project_dir=project_path,
-        )
-        payload["release"] = self.release()
-        return payload
-
-
-__all__ = ["MemoryRuntimePortabilityMixin"]
+_module = _import_module("cortex.service.service_runtime_portability")
+for _name, _value in vars(_module).items():
+    if _name not in {"__name__", "__package__", "__loader__", "__spec__"}:
+        globals()[_name] = _value
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+del _import_module, _module, _name, _warnings
