@@ -48,27 +48,34 @@ def test_default_help_is_first_class_and_mind_first():
     assert ADVANCED_HELP_NOTE in help_text
 
 
-def test_help_all_shows_full_command_list(capsys):
-    rc = main(["--help-all"])
+def test_help_subcommand_prints_generated_tree_under_80_lines(capsys):
+    rc = main(["help"])
     out = capsys.readouterr().out
-    commands = _listed_commands(out)
+    lines = out.splitlines()
 
     assert rc == 0
-    assert set(FIRST_CLASS_COMMANDS).issubset(commands)
-    assert {
-        "remember",
-        "merge",
-        "governance",
-        "remote",
-        "admin",
-        "debug",
-        "extract",
-        "compose",
-        "source",
-        "scan",
-        "sync",
-        "status",
-    }.issubset(commands)
+    assert len(lines) < 80
+    assert "Cortex help tree" in out
+    assert "Tier 1 verbs:" in out
+    assert "Namespaces:" in out
+    assert "  init" in out
+    assert "  verify" in out
+    assert "  admin" in out
+    assert "doctor" in out
+    assert ADVANCED_HELP_NOTE not in out
+
+
+def test_help_all_uses_generated_help_tree(capsys):
+    rc = main(["--help-all"])
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+
+    assert rc == 0
+    assert len(lines) < 80
+    assert "Cortex help tree" in out
+    assert "Tier 1 verbs:" in out
+    assert "Namespaces:" in out
+    assert "Permanent aliases:" in out
     assert ADVANCED_HELP_NOTE not in out
 
 

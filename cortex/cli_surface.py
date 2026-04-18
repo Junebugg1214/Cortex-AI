@@ -9,8 +9,8 @@ FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "mount", "sync", "serve", "admin
 GUIDED_HELP_NOTE = "Guided help:\n  cortex help init\n  cortex help runtime\n  cortex help legacy\n"
 ADVANCED_HELP_NOTE = (
     "Advanced / compatibility:\n"
-    "  Run `cortex --help-all` for graph/versioning internals and legacy aliases such as "
-    "`connect`, `rollback`, `scan`, `checkout`, `sources`, and `pull`."
+    "  Run `cortex help` or `cortex --help-all` for the generated command tree, including "
+    "namespaces and compatibility aliases."
 )
 DEFAULT_HELP_START_HERE = (
     "Start Here:\n"
@@ -24,7 +24,7 @@ DEFAULT_HELP_SURFACE_MAP = (
     "  Core user flows      init, remember, mount, sync, compose\n"
     "  Audience / lineage   source, audience\n"
     "  Runtime / admin      serve, admin doctor, admin integrity\n"
-    "  Advanced internals   graph/versioning + compatibility aliases via --help-all\n"
+    "  Command tree         namespaces + compatibility aliases via cortex help\n"
 )
 INIT_HELP_EPILOG = (
     "Bootstrap flow:\n"
@@ -234,8 +234,8 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
         "topic",
         nargs="?",
         choices=tuple(HELP_TOPIC_TEXT.keys()),
-        default="overview",
-        help="Help topic to print (default: overview)",
+        default=None,
+        help="Help topic to print; omit for the generated command tree",
     )
 
     init = sub.add_parser(

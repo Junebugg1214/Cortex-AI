@@ -8,6 +8,7 @@ Usage:
     cortex import context.json --to notion -o ./output
 """
 
+import argparse
 import json
 import os
 import shlex
@@ -51,6 +52,20 @@ CLI_V2_TIER2_NAMESPACES = (
     "serve",
     "admin",
     "debug",
+)
+CLI_HELP_TIER1_VERBS = (
+    "init",
+    "remember",
+    "mount",
+    "sync",
+    "compose",
+    "status",
+    "commit",
+    "branch",
+    "merge",
+    "log",
+    "diff",
+    "verify",
 )
 
 
@@ -167,6 +182,76 @@ def _route_cli_v2_argv(argv: list[str]) -> tuple[list[str], bool]:
         if tuple(argv[: len(route)]) == route:
             return [*replacement, *argv[len(route) :]], True
     return argv, False
+
+
+def _subparser_action(parser) -> argparse._SubParsersAction | None:
+    return next((item for item in parser._actions if isinstance(item, argparse._SubParsersAction)), None)
+
+
+def _visible_choice_actions(action: argparse._SubParsersAction) -> dict[str, Any]:
+    return {
+        choice.dest: choice
+        for choice in action._choices_actions
+        if choice.dest and choice.help is not argparse.SUPPRESS and not choice.dest.startswith("__cli_v2_")
+    }
+
+
+def _choice_help(choice) -> str:
+    help_text = getattr(choice, "help", "") or "No description available."
+    return " ".join(str(help_text).strip().split())
+
+
+def _namespace_subcommands(parser) -> list[str]:
+    action = _subparser_action(parser)
+    if action is None:
+        return []
+    visible = _visible_choice_actions(action)
+    return [name for name in action.choices if name in visible]
+
+
+def _format_help_tree(parser=None) -> str:
+    parser = parser or build_parser()
+    action = _subparser_action(parser)
+    if action is None:
+        return parser.format_help()
+    choices = _visible_choice_actions(action)
+
+    lines = [
+        "Cortex help tree",
+        "",
+        "Tier 1 verbs:",
+    ]
+    for command in CLI_HELP_TIER1_VERBS:
+        choice = choices.get(command)
+        if choice is None:
+            continue
+        lines.append(f"  {command:<10} {_choice_help(choice)}")
+
+    lines.extend(["", "Namespaces:"])
+    for namespace in CLI_V2_TIER2_NAMESPACES:
+        choice = choices.get(namespace)
+        namespace_parser = action.choices.get(namespace)
+        if choice is None or namespace_parser is None:
+            continue
+        subcommands = _namespace_subcommands(namespace_parser)
+        subcommand_text = ", ".join(subcommands) if subcommands else "(no subcommands)"
+        lines.append(f"  {namespace:<10} {_choice_help(choice)}")
+        lines.append(f"             {subcommand_text}")
+
+    alias_names = ("connect", "rollback", "scan", "checkout", "sources", "pull")
+    aliases = [name for name in alias_names if name in choices]
+    if aliases:
+        lines.extend(["", f"Permanent aliases: {', '.join(aliases)}"])
+
+    lines.extend(
+        [
+            "",
+            "Use `cortex <verb> --help` or `cortex <namespace> <subcommand> --help` for details.",
+            "Use `cortex help init`, `cortex help runtime`, or `cortex help legacy` for guided topics.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _resolve_store_selection(store_dir: str | Path | None):
@@ -518,6 +603,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
         set_cli_quiet=_set_cli_quiet,
         handlers=handlers,
         route_argv=_route_cli_v2_argv,
+        format_help_tree=_format_help_tree,
     )
 
 
@@ -826,6 +912,9 @@ def run_init(args):
 
 
 def run_help_topic(args):
+    if getattr(args, "topic", None) is None:
+        _echo(_format_help_tree(), force=True)
+        return 0
     return cli_workspace_commands_module.run_help_topic(args, ctx=_workspace_cli_context())
 
 

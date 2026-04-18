@@ -53,6 +53,7 @@ class EntryPointCliContext:
     set_cli_quiet: Callable[[bool], None]
     handlers: Mapping[str, Callable[[Any], int]]
     route_argv: Callable[[list[str]], tuple[list[str], bool]] | None = None
+    format_help_tree: Callable[[Any], str] | None = None
 
 
 def _route_default_subcommand(argv: list[str]) -> tuple[list[str], bool]:
@@ -91,8 +92,11 @@ def main(argv=None, *, ctx: EntryPointCliContext) -> int:
     setattr(args, "_cli_v2_routed", cli_v2_routed)
 
     if getattr(args, "help_all", False):
-        parser.show_all_commands = True
-        print(parser.format_help(), end="")
+        if ctx.format_help_tree is not None:
+            print(ctx.format_help_tree(parser), end="")
+        else:
+            parser.show_all_commands = True
+            print(parser.format_help(), end="")
         return 0
 
     if args.subcommand is None:
