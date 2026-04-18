@@ -138,49 +138,66 @@ def _resolve_single_edge_match(
     return None, ""
 
 
-def _claim_lineage_from_records(records: list[ClaimRecord]) -> dict[str, Any]:
-    if not records:
-        return {
-            "event_count": 0,
-            "claim_count": 0,
-            "assert_count": 0,
-            "retract_count": 0,
-            "sources": [],
-            "claim_ids": [],
-            "introduced_at": None,
-            "latest_event": None,
-            "events": [],
-        }
-    chronological = list(reversed(records))
+def _claim_lineage_empty() -> dict[str, Any]:
+    return {
+        "event_count": 0,
+        "claim_count": 0,
+        "assert_count": 0,
+        "retract_count": 0,
+        "sources": [],
+        "claim_ids": [],
+        "introduced_at": None,
+        "latest_event": None,
+        "events": [],
+    }
+
+
+def _claim_lineage_counts(records: list[ClaimRecord]) -> dict[str, Any]:
     claim_ids = sorted({record.claim_id for record in records})
-    sources = sorted({record.source for record in records if record.source})
-    assert_count = sum(1 for record in records if record.op == "assert")
-    retract_count = sum(1 for record in records if record.op == "retract")
-    introduced = chronological[0]
-    latest = records[0]
     return {
         "event_count": len(records),
         "claim_count": len(claim_ids),
-        "assert_count": assert_count,
-        "retract_count": retract_count,
-        "sources": sources,
+        "assert_count": sum(1 for record in records if record.op == "assert"),
+        "retract_count": sum(1 for record in records if record.op == "retract"),
+        "sources": sorted({record.source for record in records if record.source}),
         "claim_ids": claim_ids,
-        "introduced_at": {
-            "timestamp": introduced.timestamp,
-            "source": introduced.source,
-            "method": introduced.method,
-            "claim_id": introduced.claim_id,
-            "version_id": introduced.version_id,
-        },
-        "latest_event": {
-            "timestamp": latest.timestamp,
-            "op": latest.op,
-            "source": latest.source,
-            "method": latest.method,
-            "claim_id": latest.claim_id,
-            "version_id": latest.version_id,
-        },
-        "events": [record.to_dict() for record in records],
+    }
+
+
+def _claim_lineage_introduced(record: ClaimRecord) -> dict[str, Any]:
+    return {
+        "timestamp": record.timestamp,
+        "source": record.source,
+        "method": record.method,
+        "claim_id": record.claim_id,
+        "version_id": record.version_id,
+    }
+
+
+def _claim_lineage_latest(record: ClaimRecord) -> dict[str, Any]:
+    return {
+        "timestamp": record.timestamp,
+        "op": record.op,
+        "source": record.source,
+        "method": record.method,
+        "claim_id": record.claim_id,
+        "version_id": record.version_id,
+    }
+
+
+def _claim_lineage_events(records: list[ClaimRecord]) -> list[dict[str, Any]]:
+    return [record.to_dict() for record in records]
+
+
+def _claim_lineage_from_records(records: list[ClaimRecord]) -> dict[str, Any]:
+    if not records:
+        return _claim_lineage_empty()
+    chronological = list(reversed(records))
+    return {
+        **_claim_lineage_counts(records),
+        "introduced_at": _claim_lineage_introduced(chronological[0]),
+        "latest_event": _claim_lineage_latest(records[0]),
+        "events": _claim_lineage_events(records),
     }
 
 
