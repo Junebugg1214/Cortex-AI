@@ -1,62 +1,132 @@
 from __future__ import annotations
 
+import os
+from typing import Any
+
 from .backend import ExtractionBackend
 from .types import ExtractedNode, ExtractionResult
 
 EMBEDDING_BACKEND_DISABLED_MESSAGE = (
-    "EmbeddingBackend is a roadmap stub; set CORTEX_HOT_PATH_BACKEND=heuristic or model"
+    "EmbeddingBackend requires optional embedding dependencies. Install with "
+    "`pip install cortex-identity[fast,embeddings]` or set "
+    "CORTEX_HOT_PATH_BACKEND=heuristic or model."
 )
 
 
 class EmbeddingBackend(ExtractionBackend):
-    """EmbeddingBackend: JEPA-ready extraction backend stub.
+    """SentenceTransformer-backed embedding backend with a flat NumPy index."""
 
-    This backend is the architectural target for replacing both
-    the heuristic AggressiveExtractor and the ModelBackend LLM
-    calls with a representation-space model.
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        try:
+            import numpy as np
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise NotImplementedError(EMBEDDING_BACKEND_DISABLED_MESSAGE) from exc
 
-    Intended backbone: LLM-JEPA (arXiv:2509.14252) or a
-    fine-tuned text encoder trained on Cortex graph data.
+        self._np = np
+        self.model_name = model_name
+        self.model = SentenceTransformer(model_name)
+        self.match_threshold = self._load_match_threshold()
+        self._index_ids: list[str] = []
+        self._index_labels: list[str] = []
+        self._index_records: list[Any] = []
+        self._index_embeddings = None
 
-    Two capabilities this backend will provide when implemented:
+    @staticmethod
+    def _load_match_threshold() -> float:
+        raw = os.environ.get("CORTEX_EMBEDDING_MATCH_THRESHOLD", "").strip()
+        if not raw:
+            return 0.92
+        try:
+            return float(raw)
+        except ValueError:
+            return 0.92
 
-    1. Semantic extraction in embedding space
-       Instead of pattern-matching surface syntax or calling a
-       generative LLM, extract_statement() will encode the input
-       into a high-dimensional representation and decode graph
-       structure from that space. Semantically equivalent inputs
-       will produce similar representations regardless of surface
-       wording — solving the deduplication and entity resolution
-       failures in the current heuristic pipeline.
+    def _encode_many(self, texts: list[str]):
+        vectors = self.model.encode(
+            texts,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        matrix = self._np.asarray(vectors, dtype="float32")
+        if matrix.ndim == 1:
+            matrix = matrix.reshape(1, -1)
+        return matrix
 
-    2. Vector-similarity canonical matching
-       canonical_match() will replace ModelBackend's LLM judgment
-       call with cosine similarity between node.embedding and
-       embeddings of existing graph nodes. Threshold configurable
-       via CORTEX_EMBEDDING_MATCH_THRESHOLD (default: 0.92).
-       This eliminates per-match API calls and makes deduplication
-       consistent and fast.
+    def _normalize(self, matrix):
+        normalized = self._np.asarray(matrix, dtype="float32")
+        if normalized.ndim == 1:
+            normalized = normalized.reshape(1, -1)
+        norms = self._np.linalg.norm(normalized, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        return normalized / norms
 
-    Current state: all methods raise NotImplementedError.
-    The interface is complete and stable. Implement by replacing
-    the NotImplementedError bodies — no interface changes needed.
+    @staticmethod
+    def _record_id(record: Any, fallback: int) -> str:
+        if isinstance(record, ExtractedNode):
+            return record.canonical_match or record.label or str(fallback)
+        if isinstance(record, dict):
+            return str(record.get("id") or record.get("node_id") or record.get("label") or fallback)
+        return str(fallback)
 
-    To activate once implemented:
-      CORTEX_HOT_PATH_BACKEND=embedding
-      CORTEX_BULK_BACKEND=embedding
-    """
-
-    def __init__(self) -> None:
-        raise NotImplementedError(EMBEDDING_BACKEND_DISABLED_MESSAGE)
+    @staticmethod
+    def _record_label(record: Any) -> str:
+        if isinstance(record, ExtractedNode):
+            return record.label
+        if isinstance(record, dict):
+            return str(record.get("label") or record.get("topic") or record.get("text") or record.get("value") or "")
+        return str(record)
 
     def embed(self, text: str) -> list[float]:
-        """Encode text into the model's representation space."""
+        """Encode text into a normalized SentenceTransformer representation."""
 
-        raise NotImplementedError(
-            "EmbeddingBackend.embed() is not yet implemented. "
-            "Intended backbone: LLM-JEPA (arXiv:2509.14252). "
-            "See cortex/extraction/embedding_backend.py for design notes."
-        )
+        return [float(value) for value in self._encode_many([text or ""])[0].tolist()]
+
+    def build_index(self, nodes: list[Any]) -> None:
+        """Build a flat in-memory NumPy index over node labels."""
+
+        self._index_records = list(nodes)
+        self._index_ids = [self._record_id(node, index) for index, node in enumerate(nodes)]
+        self._index_labels = [self._record_label(node) for node in nodes]
+        self._index_embeddings = self._encode_many(self._index_labels) if self._index_labels else None
+
+    def search(self, query: str, top_k: int = 5, threshold: float = 0.0) -> list[dict[str, Any]]:
+        """Return top indexed nodes by cosine similarity to the query."""
+
+        if self._index_embeddings is None or not self._index_ids:
+            raise ValueError("Embedding index is empty; call build_index(nodes) before search().")
+
+        query_vector = self._encode_many([query or ""])[0]
+        scores = self._index_embeddings @ query_vector
+        order = self._np.argsort(-scores)
+        results: list[dict[str, Any]] = []
+        for raw_index in order[: max(top_k, 0)]:
+            index = int(raw_index)
+            score = float(scores[index])
+            if score < threshold:
+                continue
+            results.append(
+                {
+                    "id": self._index_ids[index],
+                    "label": self._index_labels[index],
+                    "score": score,
+                    "node": self._index_records[index],
+                }
+            )
+        return results
+
+    def search_nodes(
+        self,
+        query: str,
+        nodes: list[Any],
+        top_k: int = 5,
+        threshold: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Build a temporary flat index and search it."""
+
+        self.build_index(nodes)
+        return self.search(query, top_k=top_k, threshold=threshold)
 
     def canonical_match_by_similarity(
         self,
@@ -64,49 +134,89 @@ class EmbeddingBackend(ExtractionBackend):
         existing_embeddings: list[tuple[str, list[float]]],
         threshold: float = 0.92,
     ) -> tuple[str | None, float]:
-        """Resolve canonical matches via vector similarity once implemented."""
+        """Resolve canonical matches via cosine similarity."""
 
-        raise NotImplementedError("EmbeddingBackend.canonical_match_by_similarity() is not yet implemented.")
+        if not embedding or not existing_embeddings:
+            return None, 0.0
+
+        query = self._normalize(self._np.asarray(embedding, dtype="float32"))
+        ids: list[str] = []
+        vectors: list[list[float]] = []
+        for existing_id, vector in existing_embeddings:
+            if len(vector) != len(embedding):
+                continue
+            ids.append(existing_id)
+            vectors.append(vector)
+        if not vectors:
+            return None, 0.0
+
+        matrix = self._normalize(self._np.asarray(vectors, dtype="float32"))
+        scores = matrix @ query[0]
+        best_index = int(self._np.argmax(scores))
+        score = float(scores[best_index])
+        return (ids[best_index], score) if score >= threshold else (None, score)
 
     def extract_statement(self, text: str, context: dict | None = None) -> ExtractionResult:
-        """Extract graph facts from one statement once the embedding model exists."""
+        """Emit one embedding-bearing node for a statement."""
 
-        raise NotImplementedError(
-            "EmbeddingBackend.extract_statement() is not yet implemented. "
-            "Intended backbone: LLM-JEPA (arXiv:2509.14252). "
-            "See cortex/extraction/embedding_backend.py for design notes."
+        label = (text or "").strip()
+        if not label:
+            return ExtractionResult(extraction_method="embedding", raw_source=text or "")
+
+        return ExtractionResult(
+            nodes=[
+                ExtractedNode(
+                    label=label,
+                    category="mentions",
+                    value=label,
+                    confidence=0.65,
+                    embedding=self.embed(label),
+                )
+            ],
+            extraction_method="embedding",
+            raw_source=text,
         )
 
     def extract_bulk(self, texts: list[str], context: dict | None = None) -> list[ExtractionResult]:
-        """Extract graph facts from many statements once the embedding model exists."""
+        """Extract embedding-bearing nodes from many statements."""
 
-        raise NotImplementedError(
-            "EmbeddingBackend.extract_bulk() is not yet implemented. "
-            "Intended backbone: LLM-JEPA (arXiv:2509.14252). "
-            "See cortex/extraction/embedding_backend.py for design notes."
-        )
+        return [self.extract_statement(text, context=context) for text in texts]
 
     def canonical_match(
         self,
         node: ExtractedNode,
         existing_nodes: list[dict],
     ) -> tuple[str | None, float]:
-        """Resolve canonical matches once vector similarity is implemented."""
+        """Resolve a candidate node to an existing canonical node id."""
 
-        raise NotImplementedError(
-            "EmbeddingBackend.canonical_match() is not yet implemented. "
-            "Intended backbone: LLM-JEPA (arXiv:2509.14252). "
-            "See cortex/extraction/embedding_backend.py for design notes."
-        )
+        candidate = node.embedding or self.embed(node.label)
+        existing_embeddings: list[tuple[str, list[float]]] = []
+        pending_ids: list[str] = []
+        pending_labels: list[str] = []
+
+        for index, existing in enumerate(existing_nodes):
+            node_id = self._record_id(existing, index)
+            embedding = existing.get("embedding") if isinstance(existing, dict) else None
+            if embedding:
+                existing_embeddings.append((node_id, [float(value) for value in embedding]))
+                continue
+            pending_ids.append(node_id)
+            pending_labels.append(self._record_label(existing))
+
+        if pending_labels:
+            for node_id, vector in zip(pending_ids, self._encode_many(pending_labels), strict=True):
+                existing_embeddings.append((node_id, [float(value) for value in vector.tolist()]))
+
+        return self.canonical_match_by_similarity(candidate, existing_embeddings, threshold=self.match_threshold)
 
     @property
     def supports_async_rescoring(self) -> bool:
-        """Return true because embedding backends are intended for async rescoring."""
+        """Return true because embedding search is suitable for async rescoring."""
 
         return True
 
     @property
     def supports_embeddings(self) -> bool:
-        """Return true because this backend is responsible for embeddings."""
+        """Return true because this backend emits embeddings."""
 
         return True
