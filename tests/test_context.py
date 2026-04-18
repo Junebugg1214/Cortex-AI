@@ -492,6 +492,7 @@ class TestWatchAndRefresh:
         graph_path = _make_sample_graph_file(tmp_path)
         project_dir = str(tmp_path / "project")
         Path(project_dir).mkdir()
+        stop_event = threading.Event()
 
         # Run in thread and interrupt quickly
         def run():
@@ -501,6 +502,7 @@ class TestWatchAndRefresh:
                     platforms=["gemini-cli"],
                     project_dir=project_dir,
                     interval=60,  # Long interval so it doesn't loop
+                    stop_event=stop_event,
                 )
             except (KeyboardInterrupt, SystemExit):
                 pass
@@ -513,6 +515,76 @@ class TestWatchAndRefresh:
         gemini_path = Path(project_dir) / "GEMINI.md"
         assert gemini_path.exists()
         assert CORTEX_START in gemini_path.read_text()
+        stop_event.set()
+        t.join(timeout=1)
+
+    def test_watch_refresh_triggers_on_graph_change(self, tmp_path):
+        """Graph mtime changes trigger a mounted context re-render."""
+        import threading
+        import time
+
+        graph_path = _make_sample_graph_file(tmp_path)
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        gemini_path = project_dir / "GEMINI.md"
+        interval = 0.25
+        stop_event = threading.Event()
+        errors = []
+
+        def run():
+            try:
+                watch_and_refresh(
+                    graph_path=str(graph_path),
+                    platforms=["gemini-cli"],
+                    project_dir=str(project_dir),
+                    interval=interval,
+                    stop_event=stop_event,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        try:
+            startup_deadline = time.monotonic() + 2
+            while time.monotonic() < startup_deadline and not gemini_path.exists():
+                time.sleep(0.01)
+            assert gemini_path.exists()
+            assert "Rust" not in gemini_path.read_text(encoding="utf-8")
+
+            data = json.loads(graph_path.read_text(encoding="utf-8"))
+            data["categories"]["technical_expertise"].append(
+                {
+                    "topic": "Rust",
+                    "brief": "Uses Rust",
+                    "confidence": 0.8,
+                    "mention_count": 2,
+                    "extraction_method": "behavioral",
+                    "metrics": [],
+                    "relationships": [],
+                    "timeline": ["current"],
+                    "source_quotes": [],
+                    "first_seen": "",
+                    "last_seen": "",
+                }
+            )
+            graph_path.write_text(json.dumps(data), encoding="utf-8")
+
+            changed_at = time.monotonic()
+            refresh_deadline = changed_at + (interval * 2)
+            refreshed_at = None
+            while time.monotonic() <= refresh_deadline:
+                if "Rust" in gemini_path.read_text(encoding="utf-8"):
+                    refreshed_at = time.monotonic()
+                    break
+                time.sleep(interval / 10)
+
+            assert refreshed_at is not None
+            assert refreshed_at - changed_at <= interval * 2
+            assert errors == []
+        finally:
+            stop_event.set()
+            thread.join(timeout=1)
 
 
 # ===========================================================================

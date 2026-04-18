@@ -79,6 +79,10 @@ $ cortex mind mount self --to codex --task "product strategy"
 #   codex        ok  Updated 1 file(s)
 #     → ./AGENTS.md
 #   total persisted mounts: 1
+
+$ cortex mount watch --project . --interval 30
+# Polls ./.cortex/portable/context.json and refreshes mounted context files
+# when the graph mtime changes. This is polling-based, not inotify/FSEvents.
 ```
 
 ## Install
@@ -277,7 +281,7 @@ $ cortex agent monitor --interval 300
     Queued for review. Run: cortex review pending --mind compliance-kb
 ```
 
-The context dispatcher watches for trigger events and compiles updated context packs automatically — no prompt required.
+For mounted context files, use `cortex mount watch --project . --interval 30` to poll for graph changes and refresh generated tool context. This watcher uses `os.stat` mtime polling, not inotify/FSEvents.
 
 ```
 $ cortex agent compile --mind personal --output cv

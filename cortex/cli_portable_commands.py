@@ -690,6 +690,72 @@ def run_context_write(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 
     return 0
 
 
+def run_mount(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 - ctx reserved for future consistency
+    """Manage mounted context runtime files."""
+    if args.mount_subcommand != "watch":
+        print("Specify a mount subcommand. Try: cortex mount watch --project .")
+        return 1
+
+    import signal
+    import threading
+
+    from cortex.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh
+    from cortex.portable_state import default_graph_path
+
+    project_dir = Path(args.project or ".").expanduser().resolve()
+    store_dir = Path(args.store_dir).expanduser()
+    if not store_dir.is_absolute():
+        store_dir = project_dir / store_dir
+
+    if args.graph:
+        graph_path = Path(args.graph).expanduser()
+        if not graph_path.is_absolute():
+            graph_path = project_dir / graph_path
+        graph_path = graph_path.resolve()
+    else:
+        graph_path = default_graph_path(store_dir)
+
+    if not graph_path.exists():
+        print(f"File not found: {graph_path}")
+        return 1
+
+    try:
+        platforms = resolve_context_targets(args.to)
+    except ValueError as exc:
+        print(str(exc))
+        print(f"Available: {', '.join(CONTEXT_TARGETS.keys())}, all")
+        return 1
+
+    stop_event = threading.Event()
+    previous_handler = None
+    installed_handler = False
+
+    def _handle_sigint(_signum, _frame) -> None:
+        stop_event.set()
+        print("\nStopping mount watcher...")
+
+    if threading.current_thread() is threading.main_thread():
+        previous_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, _handle_sigint)
+        installed_handler = True
+
+    try:
+        watch_and_refresh(
+            graph_path=str(graph_path),
+            platforms=platforms,
+            project_dir=str(project_dir),
+            policy=args.policy,
+            max_chars=args.max_chars,
+            interval=args.interval,
+            stop_event=stop_event,
+        )
+    finally:
+        if installed_handler:
+            signal.signal(signal.SIGINT, previous_handler)
+
+    return 0
+
+
 def run_portable(args, *, ctx: PortableCliContext) -> int:
     """One-command portability flow: load or extract context, then install it across tools."""
     from cortex.hooks import _load_graph as load_graph_optional
@@ -936,6 +1002,7 @@ __all__ = [
     "run_digest",
     "run_extract_coding",
     "run_gaps",
+    "run_mount",
     "run_portable",
     "run_sync",
     "run_sync_schedule",
