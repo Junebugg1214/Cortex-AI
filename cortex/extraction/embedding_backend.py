@@ -3,6 +3,10 @@ from __future__ import annotations
 from .backend import ExtractionBackend
 from .types import ExtractedNode, ExtractionResult
 
+EMBEDDING_BACKEND_DISABLED_MESSAGE = (
+    "EmbeddingBackend is a roadmap stub; set CORTEX_HOT_PATH_BACKEND=heuristic or model"
+)
+
 
 class EmbeddingBackend(ExtractionBackend):
     """EmbeddingBackend: JEPA-ready extraction backend stub.
@@ -41,6 +45,9 @@ class EmbeddingBackend(ExtractionBackend):
       CORTEX_HOT_PATH_BACKEND=embedding
       CORTEX_BULK_BACKEND=embedding
     """
+
+    def __init__(self) -> None:
+        raise NotImplementedError(EMBEDDING_BACKEND_DISABLED_MESSAGE)
 
     def embed(self, text: str) -> list[float]:
         """Encode text into the model's representation space."""

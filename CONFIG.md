@@ -21,10 +21,10 @@ Cortex reads configuration from three layers, in this order:
 - `CORTEX_HOT_PATH_BACKEND`
   Values: `heuristic` (default), `model`, `hybrid`.
   Warning: `model` makes every `cortex mind remember` call network-latency-bound.
-  `embedding` is reserved but not yet implemented.
+  `embedding` is roadmap only — it currently raises `NotImplementedError`; do not enable it.
 - `CORTEX_BULK_BACKEND`
   Values: `model` (default if an API key is configured and the Anthropic client is installed), `heuristic`.
-  `embedding` is reserved but not yet implemented.
+  `embedding` is roadmap only — it currently raises `NotImplementedError`; do not enable it.
 - `CORTEX_ANTHROPIC_API_KEY`
   API key for `ModelBackend`.
   Falls back to `ANTHROPIC_API_KEY` if not set.
