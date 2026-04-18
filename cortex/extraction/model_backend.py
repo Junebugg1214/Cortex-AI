@@ -5,12 +5,13 @@ import logging
 import os
 from dataclasses import replace
 from time import perf_counter
-from typing import Any, Mapping
+from typing import Annotated, Any, Literal, Mapping
 
 from cortex.graph import CATEGORY_ORDER
 
 from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
 from .diagnostics import ExtractionDiagnostics, write_extraction_record
+from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship
 from .pipeline import (
     Document,
     empty_result,
@@ -25,6 +26,18 @@ from .pipeline import (
 )
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
+try:  # pragma: no cover - missing dependency path is exercised by install profiles.
+    from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+except ImportError as exc:  # pragma: no cover
+    BaseModel = object  # type: ignore[misc,assignment]
+    ConfigDict = None  # type: ignore[assignment]
+    Field = None  # type: ignore[assignment]
+    TypeAdapter = None  # type: ignore[assignment]
+    ValidationError = ValueError  # type: ignore[assignment]
+    _PYDANTIC_IMPORT_ERROR: ImportError | None = exc
+else:
+    _PYDANTIC_IMPORT_ERROR = None
+
 LOGGER = logging.getLogger(__name__)
 
 MODEL_KEY_ERROR = (
@@ -32,43 +45,20 @@ MODEL_KEY_ERROR = (
 )
 
 EXTRACTION_SYSTEM_PROMPT = """You are a knowledge graph extractor.
-Return only a JSON object. No explanation. No markdown fences.
-
-Schema:
-{
-  "nodes": [
-    {
-      "label": string,
-      "category": string,
-      "value": string,
-      "confidence": float between 0.0 and 1.0,
-      "canonical_match": string or null,
-      "match_confidence": float or null
-    }
-  ],
-  "edges": [
-    {
-      "source": string,
-      "target": string,
-      "relationship": string,
-      "direction_confidence": float between 0.0 and 1.0
-    }
-  ],
-  "warnings": [string]
-}
+Call the extraction tool exactly once with schema-valid typed memory items.
 
 Rules:
 - Do not invent facts not present in the input text.
-- If relationship direction is ambiguous, return both
-  directions as separate edge objects each with
-  direction_confidence below 0.6.
-- Only return canonical_match if semantic equivalence
-  is unambiguous. Do not guess.
+- Use fact for stable attributes, preferences, skills, identities, and explicit details.
+- Use claim for user assertions, denials, corrections, or statements whose truth is being represented as asserted.
+- Use relationship for typed links between entities.
+- If relationship direction is ambiguous, return both directions as separate relationship items with confidence below 0.6.
 - confidence reflects how clearly the fact is stated,
   not how likely it is to be true.
 """
 
 DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+_TYPED_EXTRACTION_TOOL_NAME = "emit_extracted_memory_items"
 _ANTHROPIC_PRICING_PER_MILLION = (
     ("claude-3-opus", 15.0, 75.0),
     ("claude-opus", 15.0, 75.0),
@@ -99,6 +89,77 @@ _CATEGORY_ALIASES = {
     "date": "mentions",
     "number": "mentions",
 }
+
+
+if _PYDANTIC_IMPORT_ERROR is None:
+
+    class _BaseTypedToolItem(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        topic: str
+        category: str
+        brief: str = ""
+        full_description: str = ""
+        confidence: float = Field(0.5, ge=0.0, le=1.0)
+        extraction_method: str = "model"
+        source_quotes: list[str] = Field(default_factory=list)
+        source_span: str = ""
+        extraction_confidence: float = Field(0.0, ge=0.0, le=1.0)
+        entity_resolution: str = ""
+        extraction_flags: list[str] = Field(default_factory=list)
+
+    class _FactToolItem(_BaseTypedToolItem):
+        extraction_type: Literal["fact"]
+        attribute_name: str
+        attribute_value: str
+
+    class _ClaimToolItem(_BaseTypedToolItem):
+        extraction_type: Literal["claim"]
+        assertion: str
+        stance: Literal["asserts", "denies", "corrects"] = "asserts"
+
+    class _RelationshipToolItem(_BaseTypedToolItem):
+        extraction_type: Literal["relationship"]
+        source_label: str = "self"
+        relation: str
+        target_label: str
+        qualifiers: dict[str, str] = Field(default_factory=dict)
+
+    _TypedToolItem = Annotated[
+        _FactToolItem | _ClaimToolItem | _RelationshipToolItem,
+        Field(discriminator="extraction_type"),
+    ]
+
+    class _TypedExtractionPayload(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        items: list[_TypedToolItem] = Field(default_factory=list)
+        warnings: list[str] = Field(default_factory=list)
+
+    _TYPED_EXTRACTION_ADAPTER = TypeAdapter(_TypedExtractionPayload)
+else:
+    _BaseTypedToolItem = object
+    _FactToolItem = object
+    _ClaimToolItem = object
+    _RelationshipToolItem = object
+    _TypedExtractionPayload = object
+    _TYPED_EXTRACTION_ADAPTER = None
+
+
+def typed_extraction_input_schema() -> dict[str, Any]:
+    """Return the JSON Schema for typed ExtractedFact/Claim/Relationship output."""
+
+    return _typed_extraction_adapter().json_schema()
+
+
+def _typed_extraction_adapter() -> Any:
+    """Return the Pydantic adapter or raise the model-extra install hint."""
+
+    if _TYPED_EXTRACTION_ADAPTER is None:
+        raise ExtractionBackendError(
+            "Pydantic >= 2.6 is required for ModelBackend schema validation. Install cortex-identity[model]."
+        ) from _PYDANTIC_IMPORT_ERROR
+    return _TYPED_EXTRACTION_ADAPTER
 
 
 class ModelBackend(ExtractionBackend):
@@ -150,16 +211,19 @@ class ModelBackend(ExtractionBackend):
 
         started = perf_counter()
         context = dict(context or {})
-        raw = self._request_json(
-            system_prompt=EXTRACTION_SYSTEM_PROMPT,
-            user_prompt=json.dumps({"text": text}, ensure_ascii=False),
-        )
-        diagnostics = self._consume_request_diagnostics(
-            started_at=started,
-            prompt_version=str(context.get("prompt_version") or ""),
-        )
-        payload = self._parse_json_payload(raw)
-        result = self._result_from_payload(payload, raw_source=text)
+        prompt_version = str(context.get("prompt_version") or "")
+        if self._uses_legacy_request_json_override():
+            result, diagnostics = self._extract_statement_legacy_json(
+                text,
+                started_at=started,
+                prompt_version=prompt_version,
+            )
+        else:
+            result, diagnostics = self._extract_statement_with_tool_schema(
+                text,
+                started_at=started,
+                prompt_version=prompt_version,
+            )
         diagnostics = replace(diagnostics, warnings=list(result.warnings))
         result._diagnostics = diagnostics
         if not self._skip_diagnostics_log(context):
@@ -235,6 +299,94 @@ class ModelBackend(ExtractionBackend):
                 item_count=sum(len(result.nodes) + len(result.edges) for result in results),
             )
         return results
+
+    def _extract_statement_legacy_json(
+        self,
+        text: str,
+        *,
+        started_at: float,
+        prompt_version: str,
+    ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
+        """Compatibility path for tests and callers that override _request_json."""
+
+        request_diagnostics: list[ExtractionDiagnostics] = []
+        for _attempt in range(3):
+            raw = self._request_json(
+                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                user_prompt=json.dumps({"text": text}, ensure_ascii=False),
+            )
+            request_diagnostics.append(
+                self._consume_request_diagnostics(started_at=started_at, prompt_version=prompt_version)
+            )
+            try:
+                payload = self._parse_json_payload(raw)
+            except ExtractionParseError:
+                continue
+            if not isinstance(payload, Mapping):
+                continue
+            result = self._result_from_payload(payload, raw_source=text)
+            diagnostics = self._combine_diagnostics(
+                request_diagnostics,
+                started_at=started_at,
+                prompt_version=prompt_version,
+                warnings=list(result.warnings),
+            )
+            return result, diagnostics
+
+        warnings = ["schema_violation"]
+        diagnostics = self._combine_diagnostics(
+            request_diagnostics,
+            started_at=started_at,
+            prompt_version=prompt_version,
+            warnings=warnings,
+        )
+        return (
+            ExtractionResult(extraction_method="model", raw_source=text, warnings=warnings),
+            diagnostics,
+        )
+
+    def _extract_statement_with_tool_schema(
+        self,
+        text: str,
+        *,
+        started_at: float,
+        prompt_version: str,
+    ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
+        """Extract one statement through the schema-constrained Anthropic tool path."""
+
+        messages: list[dict[str, Any]] = [{"role": "user", "content": json.dumps({"text": text}, ensure_ascii=False)}]
+        request_diagnostics: list[ExtractionDiagnostics] = []
+        for attempt in range(3):
+            response, diagnostics = self._request_typed_tool_response(
+                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                messages=messages,
+            )
+            request_diagnostics.append(diagnostics)
+            try:
+                tool_input = self._tool_input_from_response(response)
+                result = self._result_from_typed_payload(tool_input, raw_source=text)
+                diagnostics = self._combine_diagnostics(
+                    request_diagnostics,
+                    started_at=started_at,
+                    prompt_version=prompt_version,
+                    warnings=list(result.warnings),
+                )
+                return result, diagnostics
+            except (ExtractionParseError, TypeError, ValueError, ValidationError) as exc:
+                if attempt < 2:
+                    messages.extend(self._schema_feedback_messages(str(exc)))
+
+        warnings = ["schema_violation"]
+        diagnostics = self._combine_diagnostics(
+            request_diagnostics,
+            started_at=started_at,
+            prompt_version=prompt_version,
+            warnings=warnings,
+        )
+        return (
+            ExtractionResult(extraction_method="model", raw_source=text, warnings=warnings),
+            diagnostics,
+        )
 
     def canonical_match(
         self,
@@ -352,9 +504,87 @@ class ModelBackend(ExtractionBackend):
         )
         return "".join(parts).strip()
 
+    def _request_typed_tool_response(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+    ) -> tuple[Any, ExtractionDiagnostics]:
+        """Call Anthropic and require a typed extraction tool_use response."""
+
+        api_key = self._api_key()
+        client = self._anthropic_client_cls()(api_key=api_key)
+        model_name = self._model_name()
+        started = perf_counter()
+        response = client.messages.create(
+            model=model_name,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+            tools=[
+                {
+                    "name": _TYPED_EXTRACTION_TOOL_NAME,
+                    "description": "Emit typed Cortex memory items extracted from the input text.",
+                    "input_schema": typed_extraction_input_schema(),
+                }
+            ],
+            tool_choice={"type": "tool", "name": _TYPED_EXTRACTION_TOOL_NAME},
+        )
+        latency_ms = (perf_counter() - started) * 1000.0
+        return (
+            response,
+            self._diagnostics_from_response(
+                response,
+                fallback_model=model_name,
+                latency_ms=latency_ms,
+            ),
+        )
+
+    def _tool_input_from_response(self, response: Any) -> Any:
+        """Return the tool_use input emitted by Anthropic."""
+
+        raw_text: list[str] = []
+        for block in getattr(response, "content", []):
+            block_type = self._object_value(block, "type")
+            block_name = self._object_value(block, "name")
+            if block_type == "tool_use" and block_name == _TYPED_EXTRACTION_TOOL_NAME:
+                tool_input = self._object_value(block, "input")
+                if isinstance(tool_input, str):
+                    return self._parse_json_payload(tool_input)
+                return tool_input
+            text = self._object_value(block, "text")
+            if isinstance(text, str):
+                raw_text.append(text)
+        if raw_text:
+            return self._parse_json_payload("".join(raw_text).strip())
+        raise ExtractionParseError(
+            "ModelBackend did not return the required typed extraction tool_use.",
+            raw_response=str(getattr(response, "content", "")),
+        )
+
+    @staticmethod
+    def _schema_feedback_messages(validation_error: str) -> list[dict[str, str]]:
+        return [
+            {
+                "role": "assistant",
+                "content": "I attempted the extraction tool call, but the input failed schema validation.",
+            },
+            {
+                "role": "user",
+                "content": (
+                    "The previous tool input did not match the required JSON Schema. "
+                    f"Validation error:\n{validation_error}\n"
+                    f"Call {_TYPED_EXTRACTION_TOOL_NAME} again with corrected input only."
+                ),
+            },
+        ]
+
     @staticmethod
     def _skip_diagnostics_log(context: dict[str, Any]) -> bool:
         return bool(context.get("_skip_diagnostics_log", False))
+
+    def _uses_legacy_request_json_override(self) -> bool:
+        return "_request_json" in self.__dict__
 
     @staticmethod
     def _object_value(source: Any, key: str) -> Any:
@@ -495,6 +725,107 @@ class ModelBackend(ExtractionBackend):
                 f"ModelBackend returned invalid JSON: {exc.msg}",
                 raw_response=raw,
             ) from exc
+
+    def _result_from_typed_payload(self, payload: Any, *, raw_source: str) -> ExtractionResult:
+        """Validate typed tool output and convert it into legacy-compatible output."""
+
+        typed_payload = _typed_extraction_adapter().validate_python(payload)
+        typed_items = [
+            self._memory_item_from_tool_item(tool_item, raw_source=raw_source) for tool_item in typed_payload.items
+        ]
+        warnings = [warning for warning in typed_payload.warnings if warning.strip()]
+        return self._result_from_typed_items(typed_items, warnings=warnings, raw_source=raw_source)
+
+    def _memory_item_from_tool_item(
+        self,
+        item: _FactToolItem | _ClaimToolItem | _RelationshipToolItem,
+        *,
+        raw_source: str,
+    ) -> ExtractedMemoryItem:
+        source_quotes = [quote.strip() for quote in item.source_quotes if quote.strip()]
+        source_span = (item.source_span or raw_source[:240]).strip()
+        common = {
+            "topic": item.topic.strip(),
+            "category": self._normalize_category(item.category),
+            "brief": item.brief.strip() or item.topic.strip(),
+            "full_description": item.full_description.strip(),
+            "confidence": float(item.confidence),
+            "extraction_method": "model",
+            "source_quotes": source_quotes or ([raw_source.strip()] if raw_source.strip() else []),
+            "source_span": source_span[:240],
+            "extraction_confidence": float(item.extraction_confidence or item.confidence),
+            "entity_resolution": item.entity_resolution.strip(),
+            "extraction_flags": [flag.strip() for flag in item.extraction_flags if flag.strip()],
+        }
+        if isinstance(item, _FactToolItem):
+            return ExtractedFact(
+                attribute_name=item.attribute_name.strip(),
+                attribute_value=item.attribute_value.strip(),
+                **common,
+            )
+        if isinstance(item, _ClaimToolItem):
+            return ExtractedClaim(
+                assertion=item.assertion.strip(),
+                stance=item.stance,
+                **common,
+            )
+        return ExtractedRelationship(
+            source_label=item.source_label.strip() or "self",
+            relation=item.relation.strip() or "related_to",
+            target_label=item.target_label.strip(),
+            qualifiers={str(key): str(value) for key, value in item.qualifiers.items()},
+            relationship_type=item.relation.strip() or "related_to",
+            **common,
+        )
+
+    def _result_from_typed_items(
+        self,
+        typed_items: list[ExtractedMemoryItem],
+        *,
+        warnings: list[str],
+        raw_source: str,
+    ) -> ExtractionResult:
+        nodes: list[ExtractedNode] = []
+        edges: list[ExtractedEdge] = []
+        for item in typed_items:
+            confidence = float(item.extraction_confidence or item.confidence)
+            needs_review = "needs_review" in item.extraction_flags or confidence < 0.6
+            if isinstance(item, ExtractedRelationship):
+                edges.append(
+                    ExtractedEdge(
+                        source=item.source_label,
+                        target=item.target_label,
+                        relationship=item.relation or "related_to",
+                        direction_confidence=confidence,
+                        needs_review=needs_review,
+                    )
+                )
+                continue
+            value = item.full_description or item.brief or item.topic
+            if isinstance(item, ExtractedFact):
+                value = item.attribute_value or value
+            if isinstance(item, ExtractedClaim):
+                value = item.assertion or value
+            nodes.append(
+                ExtractedNode(
+                    label=item.topic,
+                    category=self._normalize_category(item.category),
+                    value=value,
+                    confidence=item.confidence,
+                    canonical_match=item.entity_resolution or None,
+                    match_confidence=confidence,
+                    needs_review=needs_review,
+                )
+            )
+        result = ExtractionResult(
+            nodes=nodes,
+            edges=edges,
+            extraction_method="model",
+            raw_source=raw_source,
+            warnings=warnings,
+        )
+        result._typed_items = list(typed_items)
+        return result
 
     def _result_from_payload(self, payload: Mapping[str, Any], *, raw_source: str) -> ExtractionResult:
         """Normalize a parsed model payload into an ExtractionResult."""

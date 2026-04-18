@@ -34,6 +34,7 @@ asgi = ["starlette>=0.37.0", "uvicorn>=0.30.0"]
 crypto = ["pynacl>=1.5.0"]
 embeddings = ["sentence-transformers>=2.7.0"]
 fast = ["numpy>=1.24.0"]
+model = ["pydantic>=2.6"]
 server = ["pynacl>=1.5.0"]
 full = [
     "pynacl>=1.5.0",
@@ -41,6 +42,7 @@ full = [
     "starlette>=0.37.0",
     "uvicorn>=0.30.0",
     "sentence-transformers>=2.7.0",
+    "pydantic>=2.6",
 ]
 dev = ["pytest>=7.0", "pynacl>=1.5.0", "ruff>=0.6.0", "starlette>=0.37.0", "uvicorn>=0.30.0"]
 
