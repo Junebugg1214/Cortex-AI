@@ -33,6 +33,936 @@ def _request_body(schema_ref: str, *, required: bool = True) -> dict[str, Any]:
     }
 
 
+def _spec_v1_health() -> tuple[str, dict[str, Any]]:
+    return "/v1/health", {
+        "get": {
+            "operationId": "health",
+            "summary": "Check API health",
+            "tags": ["meta"],
+            "responses": {
+                "200": {
+                    "description": "Service health",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_meta() -> tuple[str, dict[str, Any]]:
+    return "/v1/meta", {
+        "get": {
+            "operationId": "meta",
+            "summary": "Read service metadata",
+            "tags": ["meta"],
+            "responses": {
+                "200": {
+                    "description": "Service metadata",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_metrics() -> tuple[str, dict[str, Any]]:
+    return "/v1/metrics", {
+        "get": {
+            "operationId": "metrics",
+            "summary": "Read self-hosted service metrics",
+            "tags": ["meta"],
+            "responses": {
+                "200": {
+                    "description": "Service metrics",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_index_status() -> tuple[str, dict[str, Any]]:
+    return "/v1/index/status", {
+        "get": {
+            "operationId": "indexStatus",
+            "summary": "Read lexical index status for a stored ref",
+            "tags": ["index"],
+            "parameters": [
+                {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Index status",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_prune_status() -> tuple[str, dict[str, Any]]:
+    return "/v1/prune/status", {
+        "get": {
+            "operationId": "pruneStatus",
+            "summary": "Preview maintenance and pruning work",
+            "tags": ["maintenance"],
+            "parameters": [
+                {"name": "retention_days", "in": "query", "schema": {"type": "integer", "default": 7}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Prune status",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_prune_audit() -> tuple[str, dict[str, Any]]:
+    return "/v1/prune/audit", {
+        "get": {
+            "operationId": "pruneAudit",
+            "summary": "Read maintenance audit history",
+            "tags": ["maintenance"],
+            "parameters": [
+                {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Prune audit log",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_openapi_json() -> tuple[str, dict[str, Any]]:
+    return "/v1/openapi.json", {
+        "get": {
+            "operationId": "openapi",
+            "summary": "Fetch the OpenAPI contract",
+            "tags": ["meta"],
+            "responses": {
+                "200": {
+                    "description": "OpenAPI specification",
+                    "content": {"application/json": {"schema": _json_object_schema(description="OpenAPI v1 document")}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_status() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/status", {
+        "get": {
+            "operationId": "agentStatus",
+            "summary": "Read agent monitor, pending conflict, and schedule state",
+            "tags": ["agent"],
+            "responses": {
+                "200": {
+                    "description": "Agent runtime status",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_monitor_run() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/monitor/run", {
+        "post": {
+            "operationId": "agentMonitorRun",
+            "summary": "Run one autonomous conflict monitor cycle",
+            "tags": ["agent"],
+            "requestBody": _request_body("#/components/schemas/AgentMonitorRunRequest"),
+            "responses": {
+                "200": {
+                    "description": "Conflict monitor cycle result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_compile() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/compile", {
+        "post": {
+            "operationId": "agentCompile",
+            "summary": "Compile one audience-specific agent artifact",
+            "tags": ["agent"],
+            "requestBody": _request_body("#/components/schemas/AgentCompileRequest"),
+            "responses": {
+                "200": {
+                    "description": "Compiled agent artifact",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_dispatch() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/dispatch", {
+        "post": {
+            "operationId": "agentDispatch",
+            "summary": "Dispatch one agent event through the context dispatcher",
+            "tags": ["agent"],
+            "requestBody": _request_body("#/components/schemas/AgentDispatchRequest"),
+            "responses": {
+                "200": {
+                    "description": "Dispatched agent event result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_schedule() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/schedule", {
+        "post": {
+            "operationId": "agentSchedule",
+            "summary": "Register a recurring agent dispatch schedule",
+            "tags": ["agent"],
+            "requestBody": _request_body("#/components/schemas/AgentScheduleRequest"),
+            "responses": {
+                "200": {
+                    "description": "Registered agent schedule",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_agent_conflicts_review() -> tuple[str, dict[str, Any]]:
+    return "/v1/agent/conflicts/review", {
+        "post": {
+            "operationId": "agentReviewConflicts",
+            "summary": "Apply explicit resolution choices to queued agent conflicts",
+            "tags": ["agent"],
+            "requestBody": _request_body("#/components/schemas/AgentConflictReviewRequest"),
+            "responses": {
+                "200": {
+                    "description": "Applied agent conflict review decisions",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_nodes() -> tuple[str, dict[str, Any]]:
+    return "/v1/nodes", {
+        "get": {
+            "operationId": "lookupNodes",
+            "summary": "Lookup memory nodes by id, canonical id, or label",
+            "tags": ["objects"],
+            "parameters": [
+                {"name": "id", "in": "query", "schema": {"type": "string"}},
+                {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "label", "in": "query", "schema": {"type": "string"}},
+                {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Node lookup result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_nodes_node_id() -> tuple[str, dict[str, Any]]:
+    return "/v1/nodes/{node_id}", {
+        "get": {
+            "operationId": "getNode",
+            "summary": "Read a memory node by id",
+            "tags": ["objects"],
+            "parameters": [
+                {"name": "node_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Node detail",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_nodes_upsert() -> tuple[str, dict[str, Any]]:
+    return "/v1/nodes/upsert", {
+        "post": {
+            "operationId": "upsertNode",
+            "summary": "Upsert a memory node and materialize a commit",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/UpsertNodeRequest"),
+            "responses": {
+                "200": {
+                    "description": "Upserted node",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_nodes_delete() -> tuple[str, dict[str, Any]]:
+    return "/v1/nodes/delete", {
+        "post": {
+            "operationId": "deleteNode",
+            "summary": "Delete a memory node and materialize a commit",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/DeleteNodeRequest"),
+            "responses": {
+                "200": {
+                    "description": "Deleted node",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_edges() -> tuple[str, dict[str, Any]]:
+    return "/v1/edges", {
+        "get": {
+            "operationId": "lookupEdges",
+            "summary": "Lookup memory edges by id or endpoint triple",
+            "tags": ["objects"],
+            "parameters": [
+                {"name": "id", "in": "query", "schema": {"type": "string"}},
+                {"name": "source_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "target_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "relation", "in": "query", "schema": {"type": "string"}},
+                {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+                {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Edge lookup result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_edges_edge_id() -> tuple[str, dict[str, Any]]:
+    return "/v1/edges/{edge_id}", {
+        "get": {
+            "operationId": "getEdge",
+            "summary": "Read a memory edge by id",
+            "tags": ["objects"],
+            "parameters": [
+                {"name": "edge_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Edge detail",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_edges_upsert() -> tuple[str, dict[str, Any]]:
+    return "/v1/edges/upsert", {
+        "post": {
+            "operationId": "upsertEdge",
+            "summary": "Upsert a memory edge and materialize a commit",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/UpsertEdgeRequest"),
+            "responses": {
+                "200": {
+                    "description": "Upserted edge",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_edges_delete() -> tuple[str, dict[str, Any]]:
+    return "/v1/edges/delete", {
+        "post": {
+            "operationId": "deleteEdge",
+            "summary": "Delete a memory edge and materialize a commit",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/DeleteEdgeRequest"),
+            "responses": {
+                "200": {
+                    "description": "Deleted edge",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_claims() -> tuple[str, dict[str, Any]]:
+    return "/v1/claims", {
+        "get": {
+            "operationId": "listClaims",
+            "summary": "List claim events with optional filters",
+            "tags": ["objects"],
+            "parameters": [
+                {"name": "claim_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "node_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
+                {"name": "label", "in": "query", "schema": {"type": "string"}},
+                {"name": "source", "in": "query", "schema": {"type": "string"}},
+                {"name": "ref", "in": "query", "schema": {"type": "string"}},
+                {"name": "version_ref", "in": "query", "schema": {"type": "string"}},
+                {"name": "op", "in": "query", "schema": {"type": "string"}},
+                {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Claim list",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_claims_assert() -> tuple[str, dict[str, Any]]:
+    return "/v1/claims/assert", {
+        "post": {
+            "operationId": "assertClaim",
+            "summary": "Append a claim assertion and optionally materialize it",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/AssertClaimRequest"),
+            "responses": {
+                "200": {
+                    "description": "Asserted claim",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_claims_retract() -> tuple[str, dict[str, Any]]:
+    return "/v1/claims/retract", {
+        "post": {
+            "operationId": "retractClaim",
+            "summary": "Retract a claim and optionally materialize it",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/RetractClaimRequest"),
+            "responses": {
+                "200": {
+                    "description": "Retracted claim",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_memory_batch() -> tuple[str, dict[str, Any]]:
+    return "/v1/memory/batch", {
+        "post": {
+            "operationId": "memoryBatch",
+            "summary": "Apply multiple object operations in a single commit-backed batch",
+            "tags": ["objects"],
+            "requestBody": _request_body("#/components/schemas/MemoryBatchRequest"),
+            "responses": {
+                "200": {
+                    "description": "Applied memory object batch",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_branches() -> tuple[str, dict[str, Any]]:
+    return "/v1/branches", {
+        "get": {
+            "operationId": "listBranches",
+            "summary": "List memory branches",
+            "tags": ["branches"],
+            "responses": {
+                "200": {
+                    "description": "Branch list",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        },
+        "post": {
+            "operationId": "createBranch",
+            "summary": "Create a branch",
+            "tags": ["branches"],
+            "requestBody": _request_body("#/components/schemas/CreateBranchRequest"),
+            "responses": {
+                "201": {
+                    "description": "Branch created",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        },
+    }
+
+
+def _spec_v1_branches_switch() -> tuple[str, dict[str, Any]]:
+    return "/v1/branches/switch", {
+        "post": {
+            "operationId": "switchBranch",
+            "summary": "Switch the active branch",
+            "tags": ["branches"],
+            "requestBody": _request_body("#/components/schemas/SwitchBranchRequest"),
+            "responses": {
+                "200": {
+                    "description": "Switched branch",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_commits() -> tuple[str, dict[str, Any]]:
+    return "/v1/commits", {
+        "get": {
+            "operationId": "listCommits",
+            "summary": "List commits for a branch or ref",
+            "tags": ["versions"],
+            "parameters": [
+                {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
+                {"name": "ref", "in": "query", "schema": {"type": "string"}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Commit log",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_commit() -> tuple[str, dict[str, Any]]:
+    return "/v1/commit", {
+        "post": {
+            "operationId": "commit",
+            "summary": "Commit a graph snapshot",
+            "tags": ["versions"],
+            "requestBody": _request_body("#/components/schemas/CommitRequest"),
+            "responses": {
+                "201": {
+                    "description": "Committed graph",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_checkout() -> tuple[str, dict[str, Any]]:
+    return "/v1/checkout", {
+        "post": {
+            "operationId": "checkout",
+            "summary": "Checkout a graph version or ref",
+            "tags": ["versions"],
+            "requestBody": _request_body("#/components/schemas/CheckoutRequest"),
+            "responses": {
+                "200": {
+                    "description": "Checked out graph",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_diff() -> tuple[str, dict[str, Any]]:
+    return "/v1/diff", {
+        "post": {
+            "operationId": "diff",
+            "summary": "Diff two refs or versions",
+            "tags": ["versions"],
+            "requestBody": _request_body("#/components/schemas/DiffRequest"),
+            "responses": {
+                "200": {
+                    "description": "Graph diff",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_review() -> tuple[str, dict[str, Any]]:
+    return "/v1/review", {
+        "post": {
+            "operationId": "review",
+            "summary": "Review a graph against a baseline ref",
+            "tags": ["review"],
+            "requestBody": _request_body("#/components/schemas/ReviewRequest"),
+            "responses": {
+                "200": {
+                    "description": "Review result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_blame() -> tuple[str, dict[str, Any]]:
+    return "/v1/blame", {
+        "post": {
+            "operationId": "blame",
+            "summary": "Trace why a memory node exists",
+            "tags": ["audit"],
+            "requestBody": _request_body("#/components/schemas/BlameRequest"),
+            "responses": {
+                "200": {
+                    "description": "Blame result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_history() -> tuple[str, dict[str, Any]]:
+    return "/v1/history", {
+        "post": {
+            "operationId": "history",
+            "summary": "Read chronological receipts for a memory node",
+            "tags": ["audit"],
+            "requestBody": _request_body("#/components/schemas/HistoryRequest"),
+            "responses": {
+                "200": {
+                    "description": "History result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_conflicts_detect() -> tuple[str, dict[str, Any]]:
+    return "/v1/conflicts/detect", {
+        "post": {
+            "operationId": "detectConflicts",
+            "summary": "Detect memory conflicts",
+            "tags": ["conflicts"],
+            "requestBody": _request_body("#/components/schemas/DetectConflictsRequest"),
+            "responses": {
+                "200": {
+                    "description": "Detected conflicts",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_conflicts_resolve() -> tuple[str, dict[str, Any]]:
+    return "/v1/conflicts/resolve", {
+        "post": {
+            "operationId": "resolveConflict",
+            "summary": "Resolve a memory conflict",
+            "tags": ["conflicts"],
+            "requestBody": _request_body("#/components/schemas/ResolveConflictRequest"),
+            "responses": {
+                "200": {
+                    "description": "Resolved conflict",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_index_rebuild() -> tuple[str, dict[str, Any]]:
+    return "/v1/index/rebuild", {
+        "post": {
+            "operationId": "indexRebuild",
+            "summary": "Rebuild persisted lexical indexes",
+            "tags": ["index"],
+            "requestBody": _request_body("#/components/schemas/IndexRebuildRequest"),
+            "responses": {
+                "200": {
+                    "description": "Index rebuild result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_prune() -> tuple[str, dict[str, Any]]:
+    return "/v1/prune", {
+        "post": {
+            "operationId": "prune",
+            "summary": "Run safe garbage collection and pruning",
+            "tags": ["maintenance"],
+            "requestBody": _request_body("#/components/schemas/PruneRequest"),
+            "responses": {
+                "200": {
+                    "description": "Prune result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_category() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/category", {
+        "post": {
+            "operationId": "queryCategory",
+            "summary": "Query nodes by tag",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QueryCategoryRequest"),
+            "responses": {
+                "200": {
+                    "description": "Category query result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_path() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/path", {
+        "post": {
+            "operationId": "queryPath",
+            "summary": "Query shortest path between two labels",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QueryPathRequest"),
+            "responses": {
+                "200": {
+                    "description": "Path query result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_related() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/related", {
+        "post": {
+            "operationId": "queryRelated",
+            "summary": "Query related nodes",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QueryRelatedRequest"),
+            "responses": {
+                "200": {
+                    "description": "Related-node query result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_search() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/search", {
+        "post": {
+            "operationId": "querySearch",
+            "summary": "Run semantic graph search",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QuerySearchRequest"),
+            "responses": {
+                "200": {
+                    "description": "Search result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_dsl() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/dsl", {
+        "post": {
+            "operationId": "queryDsl",
+            "summary": "Run the Cortex query DSL",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QueryDslRequest"),
+            "responses": {
+                "200": {
+                    "description": "DSL query result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_query_nl() -> tuple[str, dict[str, Any]]:
+    return "/v1/query/nl", {
+        "post": {
+            "operationId": "queryNl",
+            "summary": "Run a natural-language query",
+            "tags": ["query"],
+            "requestBody": _request_body("#/components/schemas/QueryNlRequest"),
+            "responses": {
+                "200": {
+                    "description": "Natural-language query result",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_merge_preview() -> tuple[str, dict[str, Any]]:
+    return "/v1/merge-preview", {
+        "post": {
+            "operationId": "mergePreview",
+            "summary": "Preview a merge between refs",
+            "tags": ["merge"],
+            "requestBody": _request_body("#/components/schemas/MergePreviewRequest"),
+            "responses": {
+                "200": {
+                    "description": "Merge preview",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_merge_conflicts() -> tuple[str, dict[str, Any]]:
+    return "/v1/merge/conflicts", {
+        "post": {
+            "operationId": "mergeConflicts",
+            "summary": "Inspect pending merge conflicts",
+            "tags": ["merge"],
+            "requestBody": _request_body("#/components/schemas/EmptyRequest"),
+            "responses": {
+                "200": {
+                    "description": "Pending merge state",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_merge_resolve() -> tuple[str, dict[str, Any]]:
+    return "/v1/merge/resolve", {
+        "post": {
+            "operationId": "mergeResolve",
+            "summary": "Resolve a pending merge conflict",
+            "tags": ["merge"],
+            "requestBody": _request_body("#/components/schemas/MergeResolveRequest"),
+            "responses": {
+                "200": {
+                    "description": "Resolved merge conflict",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_merge_commit_resolved() -> tuple[str, dict[str, Any]]:
+    return "/v1/merge/commit-resolved", {
+        "post": {
+            "operationId": "mergeCommitResolved",
+            "summary": "Commit a resolved merge",
+            "tags": ["merge"],
+            "requestBody": _request_body("#/components/schemas/MergeCommitResolvedRequest"),
+            "responses": {
+                "200": {
+                    "description": "Committed merge",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_merge_abort() -> tuple[str, dict[str, Any]]:
+    return "/v1/merge/abort", {
+        "post": {
+            "operationId": "mergeAbort",
+            "summary": "Abort a pending merge",
+            "tags": ["merge"],
+            "requestBody": _request_body("#/components/schemas/EmptyRequest"),
+            "responses": {
+                "200": {
+                    "description": "Aborted merge",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+PATHS = (
+    _spec_v1_health,
+    _spec_v1_meta,
+    _spec_v1_metrics,
+    _spec_v1_index_status,
+    _spec_v1_prune_status,
+    _spec_v1_prune_audit,
+    _spec_v1_openapi_json,
+    _spec_v1_agent_status,
+    _spec_v1_agent_monitor_run,
+    _spec_v1_agent_compile,
+    _spec_v1_agent_dispatch,
+    _spec_v1_agent_schedule,
+    _spec_v1_agent_conflicts_review,
+    _spec_v1_nodes,
+    _spec_v1_nodes_node_id,
+    _spec_v1_nodes_upsert,
+    _spec_v1_nodes_delete,
+    _spec_v1_edges,
+    _spec_v1_edges_edge_id,
+    _spec_v1_edges_upsert,
+    _spec_v1_edges_delete,
+    _spec_v1_claims,
+    _spec_v1_claims_assert,
+    _spec_v1_claims_retract,
+    _spec_v1_memory_batch,
+    _spec_v1_branches,
+    _spec_v1_branches_switch,
+    _spec_v1_commits,
+    _spec_v1_commit,
+    _spec_v1_checkout,
+    _spec_v1_diff,
+    _spec_v1_review,
+    _spec_v1_blame,
+    _spec_v1_history,
+    _spec_v1_conflicts_detect,
+    _spec_v1_conflicts_resolve,
+    _spec_v1_index_rebuild,
+    _spec_v1_prune,
+    _spec_v1_query_category,
+    _spec_v1_query_path,
+    _spec_v1_query_related,
+    _spec_v1_query_search,
+    _spec_v1_query_dsl,
+    _spec_v1_query_nl,
+    _spec_v1_merge_preview,
+    _spec_v1_merge_conflicts,
+    _spec_v1_merge_resolve,
+    _spec_v1_merge_commit_resolved,
+    _spec_v1_merge_abort,
+)
+
+
 def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
     spec: dict[str, Any] = {
         "openapi": "3.1.0",
@@ -45,740 +975,7 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
             ),
             "x-cortex-release": build_release_metadata(),
         },
-        "paths": {
-            "/v1/health": {
-                "get": {
-                    "operationId": "health",
-                    "summary": "Check API health",
-                    "tags": ["meta"],
-                    "responses": {
-                        "200": {
-                            "description": "Service health",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/meta": {
-                "get": {
-                    "operationId": "meta",
-                    "summary": "Read service metadata",
-                    "tags": ["meta"],
-                    "responses": {
-                        "200": {
-                            "description": "Service metadata",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/metrics": {
-                "get": {
-                    "operationId": "metrics",
-                    "summary": "Read self-hosted service metrics",
-                    "tags": ["meta"],
-                    "responses": {
-                        "200": {
-                            "description": "Service metrics",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/index/status": {
-                "get": {
-                    "operationId": "indexStatus",
-                    "summary": "Read lexical index status for a stored ref",
-                    "tags": ["index"],
-                    "parameters": [
-                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Index status",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/prune/status": {
-                "get": {
-                    "operationId": "pruneStatus",
-                    "summary": "Preview maintenance and pruning work",
-                    "tags": ["maintenance"],
-                    "parameters": [
-                        {"name": "retention_days", "in": "query", "schema": {"type": "integer", "default": 7}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Prune status",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/prune/audit": {
-                "get": {
-                    "operationId": "pruneAudit",
-                    "summary": "Read maintenance audit history",
-                    "tags": ["maintenance"],
-                    "parameters": [
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Prune audit log",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/openapi.json": {
-                "get": {
-                    "operationId": "openapi",
-                    "summary": "Fetch the OpenAPI contract",
-                    "tags": ["meta"],
-                    "responses": {
-                        "200": {
-                            "description": "OpenAPI specification",
-                            "content": {
-                                "application/json": {"schema": _json_object_schema(description="OpenAPI v1 document")}
-                            },
-                        }
-                    },
-                }
-            },
-            "/v1/agent/status": {
-                "get": {
-                    "operationId": "agentStatus",
-                    "summary": "Read agent monitor, pending conflict, and schedule state",
-                    "tags": ["agent"],
-                    "responses": {
-                        "200": {
-                            "description": "Agent runtime status",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/agent/monitor/run": {
-                "post": {
-                    "operationId": "agentMonitorRun",
-                    "summary": "Run one autonomous conflict monitor cycle",
-                    "tags": ["agent"],
-                    "requestBody": _request_body("#/components/schemas/AgentMonitorRunRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Conflict monitor cycle result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/agent/compile": {
-                "post": {
-                    "operationId": "agentCompile",
-                    "summary": "Compile one audience-specific agent artifact",
-                    "tags": ["agent"],
-                    "requestBody": _request_body("#/components/schemas/AgentCompileRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Compiled agent artifact",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/agent/dispatch": {
-                "post": {
-                    "operationId": "agentDispatch",
-                    "summary": "Dispatch one agent event through the context dispatcher",
-                    "tags": ["agent"],
-                    "requestBody": _request_body("#/components/schemas/AgentDispatchRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Dispatched agent event result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/agent/schedule": {
-                "post": {
-                    "operationId": "agentSchedule",
-                    "summary": "Register a recurring agent dispatch schedule",
-                    "tags": ["agent"],
-                    "requestBody": _request_body("#/components/schemas/AgentScheduleRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Registered agent schedule",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/agent/conflicts/review": {
-                "post": {
-                    "operationId": "agentReviewConflicts",
-                    "summary": "Apply explicit resolution choices to queued agent conflicts",
-                    "tags": ["agent"],
-                    "requestBody": _request_body("#/components/schemas/AgentConflictReviewRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Applied agent conflict review decisions",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/nodes": {
-                "get": {
-                    "operationId": "lookupNodes",
-                    "summary": "Lookup memory nodes by id, canonical id, or label",
-                    "tags": ["objects"],
-                    "parameters": [
-                        {"name": "id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "label", "in": "query", "schema": {"type": "string"}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Node lookup result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/nodes/{node_id}": {
-                "get": {
-                    "operationId": "getNode",
-                    "summary": "Read a memory node by id",
-                    "tags": ["objects"],
-                    "parameters": [
-                        {"name": "node_id", "in": "path", "required": True, "schema": {"type": "string"}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Node detail",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/nodes/upsert": {
-                "post": {
-                    "operationId": "upsertNode",
-                    "summary": "Upsert a memory node and materialize a commit",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/UpsertNodeRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Upserted node",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/nodes/delete": {
-                "post": {
-                    "operationId": "deleteNode",
-                    "summary": "Delete a memory node and materialize a commit",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/DeleteNodeRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Deleted node",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/edges": {
-                "get": {
-                    "operationId": "lookupEdges",
-                    "summary": "Lookup memory edges by id or endpoint triple",
-                    "tags": ["objects"],
-                    "parameters": [
-                        {"name": "id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "source_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "target_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "relation", "in": "query", "schema": {"type": "string"}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Edge lookup result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/edges/{edge_id}": {
-                "get": {
-                    "operationId": "getEdge",
-                    "summary": "Read a memory edge by id",
-                    "tags": ["objects"],
-                    "parameters": [
-                        {"name": "edge_id", "in": "path", "required": True, "schema": {"type": "string"}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string", "default": "HEAD"}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Edge detail",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/edges/upsert": {
-                "post": {
-                    "operationId": "upsertEdge",
-                    "summary": "Upsert a memory edge and materialize a commit",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/UpsertEdgeRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Upserted edge",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/edges/delete": {
-                "post": {
-                    "operationId": "deleteEdge",
-                    "summary": "Delete a memory edge and materialize a commit",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/DeleteEdgeRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Deleted edge",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/claims": {
-                "get": {
-                    "operationId": "listClaims",
-                    "summary": "List claim events with optional filters",
-                    "tags": ["objects"],
-                    "parameters": [
-                        {"name": "claim_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "node_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "canonical_id", "in": "query", "schema": {"type": "string"}},
-                        {"name": "label", "in": "query", "schema": {"type": "string"}},
-                        {"name": "source", "in": "query", "schema": {"type": "string"}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string"}},
-                        {"name": "version_ref", "in": "query", "schema": {"type": "string"}},
-                        {"name": "op", "in": "query", "schema": {"type": "string"}},
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Claim list",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/claims/assert": {
-                "post": {
-                    "operationId": "assertClaim",
-                    "summary": "Append a claim assertion and optionally materialize it",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/AssertClaimRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Asserted claim",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/claims/retract": {
-                "post": {
-                    "operationId": "retractClaim",
-                    "summary": "Retract a claim and optionally materialize it",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/RetractClaimRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Retracted claim",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/memory/batch": {
-                "post": {
-                    "operationId": "memoryBatch",
-                    "summary": "Apply multiple object operations in a single commit-backed batch",
-                    "tags": ["objects"],
-                    "requestBody": _request_body("#/components/schemas/MemoryBatchRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Applied memory object batch",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/branches": {
-                "get": {
-                    "operationId": "listBranches",
-                    "summary": "List memory branches",
-                    "tags": ["branches"],
-                    "responses": {
-                        "200": {
-                            "description": "Branch list",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                },
-                "post": {
-                    "operationId": "createBranch",
-                    "summary": "Create a branch",
-                    "tags": ["branches"],
-                    "requestBody": _request_body("#/components/schemas/CreateBranchRequest"),
-                    "responses": {
-                        "201": {
-                            "description": "Branch created",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                },
-            },
-            "/v1/branches/switch": {
-                "post": {
-                    "operationId": "switchBranch",
-                    "summary": "Switch the active branch",
-                    "tags": ["branches"],
-                    "requestBody": _request_body("#/components/schemas/SwitchBranchRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Switched branch",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/commits": {
-                "get": {
-                    "operationId": "listCommits",
-                    "summary": "List commits for a branch or ref",
-                    "tags": ["versions"],
-                    "parameters": [
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 10}},
-                        {"name": "ref", "in": "query", "schema": {"type": "string"}},
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Commit log",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/commit": {
-                "post": {
-                    "operationId": "commit",
-                    "summary": "Commit a graph snapshot",
-                    "tags": ["versions"],
-                    "requestBody": _request_body("#/components/schemas/CommitRequest"),
-                    "responses": {
-                        "201": {
-                            "description": "Committed graph",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/checkout": {
-                "post": {
-                    "operationId": "checkout",
-                    "summary": "Checkout a graph version or ref",
-                    "tags": ["versions"],
-                    "requestBody": _request_body("#/components/schemas/CheckoutRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Checked out graph",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/diff": {
-                "post": {
-                    "operationId": "diff",
-                    "summary": "Diff two refs or versions",
-                    "tags": ["versions"],
-                    "requestBody": _request_body("#/components/schemas/DiffRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Graph diff",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/review": {
-                "post": {
-                    "operationId": "review",
-                    "summary": "Review a graph against a baseline ref",
-                    "tags": ["review"],
-                    "requestBody": _request_body("#/components/schemas/ReviewRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Review result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/blame": {
-                "post": {
-                    "operationId": "blame",
-                    "summary": "Trace why a memory node exists",
-                    "tags": ["audit"],
-                    "requestBody": _request_body("#/components/schemas/BlameRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Blame result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/history": {
-                "post": {
-                    "operationId": "history",
-                    "summary": "Read chronological receipts for a memory node",
-                    "tags": ["audit"],
-                    "requestBody": _request_body("#/components/schemas/HistoryRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "History result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/conflicts/detect": {
-                "post": {
-                    "operationId": "detectConflicts",
-                    "summary": "Detect memory conflicts",
-                    "tags": ["conflicts"],
-                    "requestBody": _request_body("#/components/schemas/DetectConflictsRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Detected conflicts",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/conflicts/resolve": {
-                "post": {
-                    "operationId": "resolveConflict",
-                    "summary": "Resolve a memory conflict",
-                    "tags": ["conflicts"],
-                    "requestBody": _request_body("#/components/schemas/ResolveConflictRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Resolved conflict",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/index/rebuild": {
-                "post": {
-                    "operationId": "indexRebuild",
-                    "summary": "Rebuild persisted lexical indexes",
-                    "tags": ["index"],
-                    "requestBody": _request_body("#/components/schemas/IndexRebuildRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Index rebuild result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/prune": {
-                "post": {
-                    "operationId": "prune",
-                    "summary": "Run safe garbage collection and pruning",
-                    "tags": ["maintenance"],
-                    "requestBody": _request_body("#/components/schemas/PruneRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Prune result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/category": {
-                "post": {
-                    "operationId": "queryCategory",
-                    "summary": "Query nodes by tag",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QueryCategoryRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Category query result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/path": {
-                "post": {
-                    "operationId": "queryPath",
-                    "summary": "Query shortest path between two labels",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QueryPathRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Path query result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/related": {
-                "post": {
-                    "operationId": "queryRelated",
-                    "summary": "Query related nodes",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QueryRelatedRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Related-node query result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/search": {
-                "post": {
-                    "operationId": "querySearch",
-                    "summary": "Run semantic graph search",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QuerySearchRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Search result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/dsl": {
-                "post": {
-                    "operationId": "queryDsl",
-                    "summary": "Run the Cortex query DSL",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QueryDslRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "DSL query result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/query/nl": {
-                "post": {
-                    "operationId": "queryNl",
-                    "summary": "Run a natural-language query",
-                    "tags": ["query"],
-                    "requestBody": _request_body("#/components/schemas/QueryNlRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Natural-language query result",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/merge-preview": {
-                "post": {
-                    "operationId": "mergePreview",
-                    "summary": "Preview a merge between refs",
-                    "tags": ["merge"],
-                    "requestBody": _request_body("#/components/schemas/MergePreviewRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Merge preview",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/merge/conflicts": {
-                "post": {
-                    "operationId": "mergeConflicts",
-                    "summary": "Inspect pending merge conflicts",
-                    "tags": ["merge"],
-                    "requestBody": _request_body("#/components/schemas/EmptyRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Pending merge state",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/merge/resolve": {
-                "post": {
-                    "operationId": "mergeResolve",
-                    "summary": "Resolve a pending merge conflict",
-                    "tags": ["merge"],
-                    "requestBody": _request_body("#/components/schemas/MergeResolveRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Resolved merge conflict",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/merge/commit-resolved": {
-                "post": {
-                    "operationId": "mergeCommitResolved",
-                    "summary": "Commit a resolved merge",
-                    "tags": ["merge"],
-                    "requestBody": _request_body("#/components/schemas/MergeCommitResolvedRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Committed merge",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-            "/v1/merge/abort": {
-                "post": {
-                    "operationId": "mergeAbort",
-                    "summary": "Abort a pending merge",
-                    "tags": ["merge"],
-                    "requestBody": _request_body("#/components/schemas/EmptyRequest"),
-                    "responses": {
-                        "200": {
-                            "description": "Aborted merge",
-                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
-                        }
-                    },
-                }
-            },
-        },
+        "paths": {route: spec for route, spec in (builder() for builder in PATHS)},
         "components": {
             "securitySchemes": {
                 "BearerAuth": {"type": "http", "scheme": "bearer"},
