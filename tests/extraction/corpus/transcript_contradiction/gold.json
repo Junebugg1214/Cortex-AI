@@ -1,0 +1,73 @@
+{
+  "schema_version": "extraction-eval-v1",
+  "case_id": "transcript_contradiction",
+  "source_type": "transcript",
+  "expected_graph": {
+    "nodes": [
+      {
+        "id": "speaker:alex",
+        "canonical_id": "speaker:alex",
+        "label": "Alex",
+        "type": "identity",
+        "confidence": 0.9
+      },
+      {
+        "id": "speaker:blair",
+        "canonical_id": "speaker:blair",
+        "label": "Blair",
+        "type": "identity",
+        "confidence": 0.9
+      },
+      {
+        "id": "project:phoenix",
+        "canonical_id": "project:phoenix",
+        "label": "Phoenix",
+        "type": "business_context",
+        "confidence": 0.89
+      },
+      {
+        "id": "claim:phoenix-launch-june-1",
+        "canonical_id": "claim:phoenix-launch-june-1",
+        "label": "Phoenix launch date is June 1",
+        "type": "claim",
+        "confidence": 0.88,
+        "properties": {
+          "stance": "asserts"
+        }
+      },
+      {
+        "id": "claim:phoenix-launch-july-15",
+        "canonical_id": "claim:phoenix-launch-july-15",
+        "label": "Phoenix launch is delayed until July 15",
+        "type": "claim",
+        "confidence": 0.9,
+        "properties": {
+          "stance": "corrects"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge:alex:asserts:phoenix-june-1",
+        "source": "speaker:alex",
+        "target": "claim:phoenix-launch-june-1",
+        "type": "asserts",
+        "confidence": 0.86
+      },
+      {
+        "id": "edge:blair:corrects:phoenix-july-15",
+        "source": "speaker:blair",
+        "target": "claim:phoenix-launch-july-15",
+        "type": "corrects",
+        "confidence": 0.88
+      },
+      {
+        "id": "edge:phoenix-june-1:contradicts:phoenix-july-15",
+        "source": "claim:phoenix-launch-june-1",
+        "target": "claim:phoenix-launch-july-15",
+        "type": "contradicts",
+        "confidence": 0.92
+      }
+    ]
+  }
+}

@@ -39,4 +39,6 @@ sample_*.json
 local/
 .cortex/
 corpus/
+!tests/extraction/corpus/
+!tests/extraction/corpus/**
 portable/

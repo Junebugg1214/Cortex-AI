@@ -1,0 +1,46 @@
+{
+  "schema_version": "extraction-eval-v1",
+  "case_id": "policy_two_rules",
+  "source_type": "doc",
+  "expected_graph": {
+    "nodes": [
+      {
+        "id": "policy:remote-access",
+        "canonical_id": "policy:remote-access",
+        "label": "Remote Access Policy",
+        "type": "policy",
+        "confidence": 0.95
+      },
+      {
+        "id": "rule:mfa-for-remote-login",
+        "canonical_id": "rule:mfa-for-remote-login",
+        "label": "Employees must use multi-factor authentication for every remote login",
+        "type": "policy_rule",
+        "confidence": 0.94
+      },
+      {
+        "id": "rule:laptops-lock-after-five-minutes",
+        "canonical_id": "rule:laptops-lock-after-five-minutes",
+        "label": "Company laptops must lock automatically after five minutes of inactivity",
+        "type": "policy_rule",
+        "confidence": 0.94
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge:remote-access:contains:mfa-rule",
+        "source": "policy:remote-access",
+        "target": "rule:mfa-for-remote-login",
+        "type": "contains_rule",
+        "confidence": 0.91
+      },
+      {
+        "id": "edge:remote-access:contains:laptop-lock-rule",
+        "source": "policy:remote-access",
+        "target": "rule:laptops-lock-after-five-minutes",
+        "type": "contains_rule",
+        "confidence": 0.91
+      }
+    ]
+  }
+}
