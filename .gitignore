@@ -38,6 +38,7 @@ sample_*.json
 # Local-only (not tracked)
 local/
 .cortex/
+.cortex-cache/
 corpus/
 !tests/extraction/corpus/
 !tests/extraction/corpus/**

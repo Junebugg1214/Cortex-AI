@@ -112,6 +112,19 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
     ext.add_argument("--store-dir", default=".cortex", help="Claim ledger directory (default: .cortex)")
     ext.add_argument("--no-claims", action="store_true", help="Skip provenance stamping and claim-ledger recording")
 
+    rc = sub.add_parser("extract-refresh-cache", help="Refresh model replay cache from an extraction corpus")
+    rc.add_argument(
+        "--corpus",
+        default="tests/extraction/corpus",
+        help="Extraction corpus directory (default: tests/extraction/corpus)",
+    )
+    rc.add_argument(
+        "--prompt-version",
+        default="corpus-v1",
+        help="Prompt version to include in replay cache keys (default: corpus-v1)",
+    )
+    rc.add_argument("--model", help="Anthropic model id to use while refreshing the cache")
+
     ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
     ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
     ing.add_argument("input_file", help="Path to connector export file or directory")
