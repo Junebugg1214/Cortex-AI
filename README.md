@@ -51,7 +51,7 @@ EOF_POLICY
 Extract it into a Cortex graph:
 
 ```bash
-cortex extract policy_v3.md --output policy_v3.context.json
+cortex extract run policy_v3.md --output policy_v3.context.json
 cortex mount watch --project . --graph policy_v3.context.json --interval 30 --to codex
 ```
 
@@ -60,7 +60,7 @@ Default extraction is rule-based: regular expressions plus keyword lists. The LL
 ```bash
 export CORTEX_HOT_PATH_BACKEND=model
 export CORTEX_ANTHROPIC_API_KEY=sk-ant-...
-cortex extract policy_v3.md --output policy_v3.context.json
+cortex extract run policy_v3.md --output policy_v3.context.json
 ```
 
 PDFs require pre-conversion to a supported text or JSON format before ingest. See [docs/INGEST_FORMATS.md](docs/INGEST_FORMATS.md) for the exact loader catalog.
@@ -92,7 +92,7 @@ cortex commit policy_v3.context.json -m "Initial policy memory"
 cortex log --limit 5
 cortex branch policy-review --switch
 cortex commit policy_v3.context.json -m "Review policy context"
-cortex switch main
+cortex branch switch main
 cortex merge policy-review --dry-run
 ```
 
@@ -103,10 +103,10 @@ Cortex stores graph snapshots with refs and branch pointers under `.cortex/`. Re
 Cortex can retract source-backed graph content when nodes and edges carry provenance. The current safe workflow is to inspect source lineage first, then retract with a dry run:
 
 ```bash
-cortex sources list --mind self
+cortex source list --mind self
 ```
 
-After `cortex sources list` shows a real source id, use `cortex sources retract <source-id> --mind self --dry-run` before confirming a retraction. Extraction and merge paths attach provenance for generated nodes so retraction has lineage to follow.
+After `cortex source list` shows a real source id, use `cortex source retract <source-id> --mind self --dry-run` before confirming a retraction. Extraction and merge paths attach provenance for generated nodes so retraction has lineage to follow.
 
 ## Portability
 
@@ -130,13 +130,13 @@ Cortex can write target-specific context files and artifacts. Round-trip pull su
 Examples:
 
 ```bash
-cortex portable policy_v3.md --input-format text --to codex cursor --project .
-cortex context-write policy_v3.context.json --platforms codex cursor --project .
-cortex scan --project .
+cortex sync policy_v3.context.json --to codex --project .
+cortex mount watch --project . --graph policy_v3.context.json --to codex cursor
+cortex source status --project .
 cortex status --project .
 ```
 
-`cortex portable` and `cortex context-write` preserve user content outside Cortex marker blocks when writing instruction files.
+`cortex sync` and `cortex mount watch` preserve user content outside Cortex marker blocks when writing instruction files.
 
 ## Deduplication
 
@@ -150,20 +150,20 @@ Federation bundles are signed graph exports for cross-instance sharing. Signatur
 
 ## Agent runtime
 
-The agent runtime commands are available from the CLI:
+The agent runtime commands are available under the admin namespace:
 
-`$ cortex agent monitor --interval 300`
+`$ cortex admin agent monitor --interval 300`
 
-`$ cortex agent compile --mind personal --output cv`
+`$ cortex admin agent compile --mind personal --output cv`
 
-`$ cortex agent status`
+`$ cortex admin agent status`
 
 ## MCP and local service surfaces
 
 ```bash
-cortex mcp --help
+cortex serve mcp --help
 cortex serve --help
-cortex openapi --help
+cortex admin openapi --help
 ```
 
 The HTTP server is intended for local or operator-managed deployments. Put it behind a real TLS/auth/rate-limit boundary before exposing it beyond localhost.
@@ -177,21 +177,21 @@ The HTTP server is intended for local or operator-managed deployments. Put it be
 | `cortex mind compose` | Preview a target-specific runtime slice |
 | `cortex mind mount` | Write a Mind slice into supported local tool files |
 | `cortex mount watch` | Poll a graph and refresh mounted context files |
-| `cortex extract` | Convert supported input files into a Cortex graph |
-| `cortex portable` | Extract or load context and write target artifacts |
-| `cortex context-write` | Write an existing graph into AI tool config files |
+| `cortex extract run` | Convert supported input files into a Cortex graph |
+| `cortex sync` | Propagate context across configured targets |
+| `cortex compose` | Render context without writing a persistent mount |
 | `cortex commit` | Save a graph snapshot to the version store |
 | `cortex branch` | Create or list memory branches |
-| `cortex switch` | Switch active branch or run legacy portability switching |
+| `cortex branch switch` | Switch active branch |
 | `cortex merge` | Merge another memory branch |
 | `cortex diff` | Compare two versions |
-| `cortex review` | Review a graph or branch before merge |
-| `cortex sources` | Inspect and retract source lineage from Minds |
+| `cortex debug review` | Review a graph or branch before merge |
+| `cortex source` | Inspect and retract source lineage from Minds |
 | `cortex pack` | Manage Brainpacks |
 | `cortex audience` | Manage audience disclosure policies |
 | `cortex remote` | Push/pull local-filesystem remotes |
 | `cortex verify` | Verify signed exports or store integrity |
-| `cortex doctor` | Inspect and repair local store/config issues |
+| `cortex admin doctor` | Inspect and repair local store/config issues |
 
 Run `cortex COMMAND --help` for the exact flags supported by your installed version.
 

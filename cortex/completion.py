@@ -15,7 +15,7 @@ def _get_subcommands(parser: argparse.ArgumentParser) -> list[str]:
     """Return the top-level subcommand names for a parser."""
     for action in getattr(parser, "_actions", []):
         if isinstance(action, argparse._SubParsersAction):
-            return sorted(action.choices.keys())
+            return sorted(command for command in action.choices if not command.startswith("__cli_v2_"))
     return []
 
 
@@ -111,6 +111,7 @@ def _script_command(shell: str, *, kind: str, mind: str = "") -> str:
     """Return the command used by generated shell hooks to fetch candidates."""
     command = [
         "cortex",
+        "admin",
         "completion",
         "--shell",
         shell,
@@ -310,7 +311,7 @@ def generate_fish(parser: argparse.ArgumentParser) -> str:
 
     lines.extend(
         [
-            "complete -c cortex -n '__fish_seen_subcommand_from completion; and test (commandline -ct) = \"\"' -a 'mind audience source'",
+            "complete -c cortex -n '__fish_seen_subcommand_from admin; and test (commandline -ct) = \"\"' -a 'mind audience source'",
             "complete -c cortex -n '__fish_seen_subcommand_from sources; and test (commandline -ct) = \"\"' -a '(__cortex_sources)'",
             "complete -c cortex -n '__fish_seen_subcommand_from audience; and test (commandline -ct) = \"\"' -a '(__cortex_audiences)'",
             "complete -c cortex -n '__fish_seen_subcommand_from mind; and test (commandline -ct) = \"\"' -a '(__cortex_minds)'",

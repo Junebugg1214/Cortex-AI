@@ -506,24 +506,27 @@ class TestMigratePipeline:
         argv = ["somefile.zip", "--to", "claude"]
         if argv[0] not in ("extract", "import", "migrate"):
             argv = ["migrate"] + argv
+        argv, _ = mod._route_cli_v2_argv(argv)
         args = parser.parse_args(argv)
-        assert args.subcommand == "migrate"
+        assert args.subcommand == "__cli_v2_migrate"
 
     # 3
     def test_argv_routing_extract_subcommand(self):
         """'extract' is recognized as a subcommand"""
         mod = self._import_migrate()
         parser = mod.build_parser()
-        args = parser.parse_args(["extract", "somefile.zip"])
-        assert args.subcommand == "extract"
+        argv, _ = mod._route_cli_v2_argv(["extract", "somefile.zip"])
+        args = parser.parse_args(argv)
+        assert args.subcommand == "__cli_v2_extract"
 
     # 4
     def test_argv_routing_import_subcommand(self):
         """'import' is recognized as a subcommand"""
         mod = self._import_migrate()
         parser = mod.build_parser()
-        args = parser.parse_args(["import", "somefile.json", "--to", "claude"])
-        assert args.subcommand == "import"
+        argv, _ = mod._route_cli_v2_argv(["import", "somefile.json", "--to", "claude"])
+        args = parser.parse_args(argv)
+        assert args.subcommand == "__cli_v2_import"
 
     # 5
     def test_run_extraction_routes_correctly(self):

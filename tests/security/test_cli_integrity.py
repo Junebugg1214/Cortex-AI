@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cortex.cli import build_parser, main
+from cortex.cli import _route_cli_v2_argv, build_parser, main
 from cortex.graph import CortexGraph, Edge, Node
 from cortex.storage import build_sqlite_backend
 
 
 def test_integrity_help_lists_check_subcommand(capsys):
     parser = build_parser(show_all_commands=True)
+    argv, _ = _route_cli_v2_argv(["admin", "integrity", "--help"])
 
     try:
-        parser.parse_args(["integrity", "--help"])
+        parser.parse_args(argv)
     except SystemExit as exc:
         assert exc.code == 0
 
@@ -28,7 +29,7 @@ def test_integrity_check_returns_json_payload_for_clean_store(tmp_path: Path, ca
     graph.add_node(Node(id="n1", label="Atlas", tags=["project"], provenance=[{"source": "doc"}]))
     backend.versions.commit(graph, "seed")
 
-    rc = main(["integrity", "check", "--store-dir", str(store_dir), "--format", "json"])
+    rc = main(["admin", "integrity", "check", "--store-dir", str(store_dir), "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
 
     assert rc == 0
@@ -44,7 +45,7 @@ def test_integrity_check_prints_warning_for_orphaned_nodes(tmp_path: Path, capsy
     graph.add_node(Node(id="n1", label="Atlas", tags=["project"]))
     backend.versions.commit(graph, "seed")
 
-    rc = main(["integrity", "check", "--store-dir", str(store_dir)])
+    rc = main(["admin", "integrity", "check", "--store-dir", str(store_dir)])
     output = capsys.readouterr().out
 
     assert rc == 0
@@ -60,7 +61,7 @@ def test_integrity_check_exits_nonzero_for_error_state(tmp_path: Path, capsys):
     graph.add_edge(Edge(id="e1", source_id="n1", target_id="missing", relation="depends_on"))
     backend.versions.commit(graph, "seed")
 
-    rc = main(["integrity", "check", "--store-dir", str(store_dir), "--format", "json"])
+    rc = main(["admin", "integrity", "check", "--store-dir", str(store_dir), "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
 
     assert rc == 1

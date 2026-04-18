@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, build_parser, main
+from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, _route_cli_v2_argv, build_parser, main
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 
 
@@ -24,19 +24,15 @@ def test_default_help_is_first_class_and_mind_first():
 
     assert set(FIRST_CLASS_COMMANDS).issubset(commands)
     assert {
-        "portable",
         "remember",
-        "build",
-        "audit",
-        "integrity",
         "merge",
         "governance",
         "remote",
-        "backup",
-        "server",
-        "mcp",
-        "ui",
-        "memory",
+        "admin",
+        "debug",
+        "extract",
+        "compose",
+        "source",
         "scan",
         "sync",
         "status",
@@ -47,7 +43,7 @@ def test_default_help_is_first_class_and_mind_first():
     assert "Surface Map:" in help_text
     assert "Command index:" in help_text
     assert "Example: cortex init --help" in help_text
-    assert "cortex ui" in help_text
+    assert "cortex serve ui" in help_text
     assert "cortex help init" in help_text
     assert ADVANCED_HELP_NOTE in help_text
 
@@ -60,18 +56,15 @@ def test_help_all_shows_full_command_list(capsys):
     assert rc == 0
     assert set(FIRST_CLASS_COMMANDS).issubset(commands)
     assert {
-        "portable",
         "remember",
-        "build",
-        "audit",
         "merge",
         "governance",
         "remote",
-        "backup",
-        "server",
-        "mcp",
-        "ui",
-        "memory",
+        "admin",
+        "debug",
+        "extract",
+        "compose",
+        "source",
         "scan",
         "sync",
         "status",
@@ -83,15 +76,15 @@ def test_compatibility_subcommand_help_labels_are_visible(capsys):
     parser = build_parser(show_all_commands=True)
 
     with pytest.raises(SystemExit, match="0"):
-        parser.parse_args(["portable", "--help"])
-    portable_help = capsys.readouterr().out
+        parser.parse_args(["scan", "--help"])
+    scan_help = capsys.readouterr().out
 
     with pytest.raises(SystemExit, match="0"):
-        parser.parse_args(["server", "--help"])
-    server_help = capsys.readouterr().out
+        parser.parse_args(["connect", "--help"])
+    connect_help = capsys.readouterr().out
 
-    assert "Compatibility command for legacy portability-first context sync" in portable_help
-    assert "Compatibility alias for `cortex serve api`" in server_help
+    assert "inspect runtime context coverage" in scan_help
+    assert "Prepare runtime wiring" in connect_help
 
 
 def test_first_class_subcommand_help_explains_product_surfaces(capsys):
@@ -109,8 +102,9 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
         parser.parse_args(["serve", "--help"])
     serve_help = capsys.readouterr().out
 
+    doctor_argv, _ = _route_cli_v2_argv(["admin", "doctor", "--help"])
     with pytest.raises(SystemExit, match="0"):
-        parser.parse_args(["doctor", "--help"])
+        parser.parse_args(doctor_argv)
     doctor_help = capsys.readouterr().out
 
     assert "cortex help init" in init_help
@@ -124,9 +118,9 @@ def test_first_class_subcommand_help_explains_product_surfaces(capsys):
     assert "Runtime / admin surfaces:" in serve_help
     assert "day-to-day workflows usually start with `cortex init`" in serve_help
     assert "store, config, and runtime drift" in doctor_help
-    assert "cortex doctor --fix-store" in doctor_help
-    assert "cortex doctor --portability" in doctor_help
-    assert "cortex integrity check" in doctor_help
+    assert "cortex admin doctor --fix-store" in doctor_help
+    assert "cortex admin doctor --portability" in doctor_help
+    assert "cortex admin integrity check" in doctor_help
     assert "--portability" in doctor_help
 
 
@@ -147,15 +141,15 @@ def _write_graph(path):
 def test_server_and_mcp_commands_print_compatibility_hints(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
 
-    server_rc = main(["server", "--store-dir", str(store_dir), "--check"])
+    server_rc = main(["serve", "api", "--store-dir", str(store_dir), "--check"])
     server_streams = capsys.readouterr()
-    mcp_rc = main(["mcp", "--store-dir", str(store_dir), "--check"])
+    mcp_rc = main(["serve", "mcp", "--store-dir", str(store_dir), "--check"])
     mcp_streams = capsys.readouterr()
 
     assert server_rc == 0
-    assert "cortex serve api" in server_streams.err
+    assert "Cortex server diagnostics" in server_streams.out
     assert mcp_rc == 0
-    assert "cortex serve mcp" in mcp_streams.err
+    assert "Cortex mcp diagnostics" in mcp_streams.out
 
 
 def test_argparse_required_argument_errors_include_task_hints(capsys):
@@ -200,8 +194,8 @@ def test_topic_help_surfaces_beginner_and_legacy_guidance(capsys):
     assert "cortex connect manus --check" in runtime_help
     assert "cortex serve manus" in runtime_help
     assert legacy_rc == 0
-    assert "portable  -> cortex mind ingest / mount" in legacy_help
-    assert "cortex --help-all" in legacy_help
+    assert "Most CLI v1 flat verbs were retired" in legacy_help
+    assert "connect  -> cortex remote add" in legacy_help
 
 
 def test_portable_remember_build_and_audit_print_compatibility_hints(tmp_path, capsys, monkeypatch):

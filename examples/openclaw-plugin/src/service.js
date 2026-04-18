@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 
-const PACKAGE_VERSION = "1.4.1";
+const PACKAGE_VERSION = "1.6.0";
 const BRAINPACK_MOUNTS_FILE = "brainpacks.mounted.json";
 const MIND_MOUNTS_FILE = "minds.mounted.json";
 const DEFAULT_IDENTITY_FIELDS = Object.freeze({

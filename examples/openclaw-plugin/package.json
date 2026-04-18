@@ -1,6 +1,6 @@
 {
   "name": "@cortex/openclaw",
-  "version": "1.4.1",
+  "version": "1.6.0",
   "type": "module",
   "description": "Native OpenClaw plugin for Cortex portable context, cross-channel identity resolution, and durable per-user/per-thread memory.",
   "license": "MIT",

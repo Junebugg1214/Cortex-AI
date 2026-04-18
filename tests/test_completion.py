@@ -29,13 +29,12 @@ class TestGetSubcommands:
     def test_known_subcommands_present(self, parser):
         subs = _get_subcommands(parser)
         for expected in (
-            "query",
-            "migrate",
             "extract",
-            "import",
-            "identity",
-            "rotate",
-            "completion",
+            "debug",
+            "admin",
+            "source",
+            "compose",
+            "scan",
             "connect",
             "serve",
         ):
@@ -47,15 +46,15 @@ class TestGetFlags:
         flags = _get_flags(parser)
         assert "-h" in flags or "--help" in flags
 
-    def test_rotate_flags(self, parser):
-        flags = _get_flags(parser, "rotate")
+    def test_scan_flags(self, parser):
+        flags = _get_flags(parser, "scan")
         assert "--store-dir" in flags
-        assert "--reason" in flags
+        assert "--project" in flags
 
-    def test_query_flags(self, parser):
-        flags = _get_flags(parser, "query")
-        assert "--node" in flags
-        assert "--neighbors" in flags
+    def test_commit_flags(self, parser):
+        flags = _get_flags(parser, "commit")
+        assert "--store-dir" in flags
+        assert "--message" in flags
 
     def test_unknown_subcommand_returns_global(self, parser):
         flags = _get_flags(parser, "nonexistent-subcommand-xyz")
@@ -68,12 +67,12 @@ class TestBashCompletion:
         script = generate_bash(parser)
         assert "_cortex_completion" in script
         assert "complete -F _cortex_completion cortex" in script
-        assert "rotate" in script
-        assert "query" in script
+        assert "admin" in script
+        assert "debug" in script
 
     def test_contains_subcommand_flags(self, parser):
         script = generate_bash(parser)
-        assert "--reason" in script
+        assert "--project" in script
         assert "--store-dir" in script
 
 
@@ -82,7 +81,7 @@ class TestZshCompletion:
         script = generate_zsh(parser)
         assert "#compdef cortex" in script
         assert "_cortex" in script
-        assert "rotate" in script
+        assert "admin" in script
 
     def test_contains_arguments(self, parser):
         script = generate_zsh(parser)
@@ -94,11 +93,11 @@ class TestFishCompletion:
         script = generate_fish(parser)
         assert "complete -c cortex" in script
         assert "__fish_use_subcommand" in script
-        assert "rotate" in script
+        assert "admin" in script
 
     def test_contains_long_flags(self, parser):
         script = generate_fish(parser)
-        assert "__fish_seen_subcommand_from rotate" in script
+        assert "__fish_seen_subcommand_from scan" in script
 
 
 class TestGenerateCompletion:

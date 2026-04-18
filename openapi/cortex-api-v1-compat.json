@@ -1,7 +1,7 @@
 {
   "api_version": "v1",
   "openapi_version": "1.0.0",
-  "project_version": "1.4.1",
+  "project_version": "1.6.0",
   "maturity": "beta",
   "storage_model": "user-owned",
   "release_channel": "self-hosted",

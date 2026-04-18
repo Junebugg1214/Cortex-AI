@@ -161,9 +161,9 @@ def test_docs_reference_agent_runtime_surface():
     sdk_readme = Path("sdk/typescript/README.md").read_text(encoding="utf-8")
     self_hosting = Path("docs/SELF_HOSTING.md").read_text(encoding="utf-8")
 
-    assert "`$ cortex agent monitor --interval 300`" in readme
-    assert "`$ cortex agent compile --mind personal --output cv`" in readme
-    assert "`$ cortex agent status`" in readme
+    assert "`$ cortex admin agent monitor --interval 300`" in readme
+    assert "`$ cortex admin agent compile --mind personal --output cv`" in readme
+    assert "`$ cortex admin agent status`" in readme
 
     assert "client.agentStatus()" in sdk_readme
     assert "client.agentCompile({" in sdk_readme

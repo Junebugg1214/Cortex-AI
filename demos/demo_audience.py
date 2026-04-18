@@ -197,7 +197,7 @@ def run(fast: bool) -> int:
     demo.blank()
 
     demo.comment("conflict monitor catches what humans miss")
-    demo.command("cortex agent monitor --once --mind project-alpha")
+    demo.command("cortex admin agent monitor --once --mind project-alpha")
     demo.output(
         [
             ("Detected 1 conflicts; auto-resolved 0; queued 1.", "OUT_AMBER"),

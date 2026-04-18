@@ -863,15 +863,17 @@ class TestMigrateSubcommands:
     def test_query_subcommand_recognized(self):
         mod = self._import_migrate()
         parser = mod.build_parser()
-        args = parser.parse_args(["query", "file.json", "--node", "Python"])
-        assert args.subcommand == "query"
+        argv, _ = mod._route_cli_v2_argv(["query", "file.json", "--node", "Python"])
+        args = parser.parse_args(argv)
+        assert args.subcommand == "__cli_v2_query"
         assert args.node == "Python"
 
     def test_stats_subcommand_recognized(self):
         mod = self._import_migrate()
         parser = mod.build_parser()
-        args = parser.parse_args(["stats", "file.json"])
-        assert args.subcommand == "stats"
+        argv, _ = mod._route_cli_v2_argv(["stats", "file.json"])
+        args = parser.parse_args(argv)
+        assert args.subcommand == "__cli_v2_stats"
 
     def test_query_with_v4_file(self):
         mod = self._import_migrate()
