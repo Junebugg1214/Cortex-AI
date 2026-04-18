@@ -54,6 +54,13 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
     add_runtime_security_args(srv)
     srv.add_argument("--api-key", help="Optional API key required for requests")
     srv.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    srv.add_argument("--asgi", action="store_true", help="Run the REST API through Starlette/Uvicorn")
+    srv.add_argument(
+        "--cors-origin",
+        action="append",
+        default=[],
+        help="Allowed CORS origin for the ASGI server. Repeatable; use '*' to allow all origins.",
+    )
     srv.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     srv.add_argument("--format", choices=["json", "text"], default="text")
 

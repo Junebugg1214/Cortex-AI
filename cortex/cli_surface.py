@@ -366,6 +366,13 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
     add_runtime_security_args(serve_api)
     serve_api.add_argument("--api-key", help="Optional API key required for requests")
     serve_api.add_argument("--config", help="Path to shared Cortex self-host config.toml")
+    serve_api.add_argument("--asgi", action="store_true", help="Run the REST API through Starlette/Uvicorn")
+    serve_api.add_argument(
+        "--cors-origin",
+        action="append",
+        default=[],
+        help="Allowed CORS origin for the ASGI server. Repeatable; use '*' to allow all origins.",
+    )
     serve_api.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     serve_api.add_argument("--format", choices=["json", "text"], default="text")
 
