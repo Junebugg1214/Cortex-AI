@@ -107,13 +107,14 @@ def test_extract_statement_falls_back_to_mentions_for_unknown_category(monkeypat
     assert result.nodes[0].category == "mentions"
 
 
-def test_extract_statement_json_parse_failure_raises_with_raw_response(monkeypatch):
+def test_extract_statement_json_parse_failure_returns_schema_warning(monkeypatch):
     backend = ModelBackend(api_key="test-key")
     raw = "not json"
     monkeypatch.setattr(backend, "_request_json", lambda **_: raw)
-    with pytest.raises(ExtractionParseError) as excinfo:
-        backend.extract_statement("I use Python.")
-    assert excinfo.value.raw_response == raw
+    result = backend.extract_statement("I use Python.")
+    assert result.nodes == []
+    assert result.edges == []
+    assert result.warnings == ["schema_violation"]
 
 
 def test_missing_api_key_raises_actionable_error(monkeypatch):

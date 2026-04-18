@@ -6,7 +6,7 @@ import pytest
 
 from cortex.cli import main
 from cortex.extraction.diagnostics import ExtractionDiagnostics, write_extraction_record
-from cortex.extraction.model_backend import DEFAULT_MODEL, ModelBackend
+from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME, DEFAULT_MODEL, ModelBackend
 from cortex.extraction.pipeline import Document, ExtractionContext
 
 
@@ -15,15 +15,17 @@ def test_model_backend_records_cost_and_tokens(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(log_path))
 
     response_payload = {
-        "nodes": [
+        "items": [
             {
-                "label": "Python",
+                "extraction_type": "fact",
+                "topic": "Python",
                 "category": "technical_expertise",
-                "value": "Python",
+                "brief": "Uses Python",
                 "confidence": 0.91,
+                "attribute_name": "skill",
+                "attribute_value": "Python",
             }
         ],
-        "edges": [],
         "warnings": ["stubbed warning"],
     }
 
@@ -32,7 +34,9 @@ def test_model_backend_records_cost_and_tokens(monkeypatch, tmp_path) -> None:
         output_tokens = 45
 
     class _Block:
-        text = json.dumps(response_payload)
+        type = "tool_use"
+        name = _TYPED_EXTRACTION_TOOL_NAME
+        input = response_payload
 
     class _Response:
         content = [_Block()]

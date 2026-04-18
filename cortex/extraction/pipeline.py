@@ -163,6 +163,10 @@ def _item_from_edge(edge: ExtractedEdge, backend_result: BackendExtractionResult
 def items_from_backend_result(backend_result: BackendExtractionResult) -> list[ExtractedMemoryItem]:
     """Translate legacy backend node/edge output into typed memory items."""
 
+    typed_items = getattr(backend_result, "_typed_items", None)
+    if typed_items is not None:
+        return [item for item in typed_items if isinstance(item, ExtractedMemoryItem)]
+
     items: list[ExtractedMemoryItem] = []
     items.extend(_item_from_node(node, backend_result) for node in backend_result.nodes)
     items.extend(_item_from_edge(edge, backend_result) for edge in backend_result.edges)
