@@ -53,6 +53,7 @@ CLI_V2_TIER2_NAMESPACES = (
     "debug",
 )
 
+
 def _internal_command(command: str) -> str:
     return cli_parser_module.CLI_V2_INTERNAL_COMMANDS[command][0]
 
