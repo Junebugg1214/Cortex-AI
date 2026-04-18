@@ -24,6 +24,7 @@ from .pipeline import (
 from .pipeline import (
     ExtractionResult as PipelineExtractionResult,
 )
+from .retrieval import NodeHint, retrieve_similar_nodes
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
 try:  # pragma: no cover - missing dependency path is exercised by install profiles.
@@ -105,7 +106,14 @@ if _PYDANTIC_IMPORT_ERROR is None:
         source_quotes: list[str] = Field(default_factory=list)
         source_span: str = ""
         extraction_confidence: float = Field(0.0, ge=0.0, le=1.0)
-        entity_resolution: str = ""
+        entity_resolution: str = Field(
+            "",
+            description="Existing Cortex node_id to attach this item to when retrieval hints identify a known entity.",
+        )
+        node_id: str = Field(
+            "",
+            description="Optional alias for entity_resolution; use only IDs provided in retrieval hints.",
+        )
         extraction_flags: list[str] = Field(default_factory=list)
 
     class _FactToolItem(_BaseTypedToolItem):
@@ -165,8 +173,18 @@ def _typed_extraction_adapter() -> Any:
 class ModelBackend(ExtractionBackend):
     """Anthropic-backed extraction backend."""
 
-    def __init__(self, *, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        embedding_backend: Any | None = None,
+        retrieval_top_k: int = 8,
+        retrieval_threshold: float = 0.72,
+    ) -> None:
         self._configured_api_key = api_key
+        self._embedding_backend = embedding_backend
+        self._retrieval_top_k = retrieval_top_k
+        self._retrieval_threshold = retrieval_threshold
         self._last_request_diagnostics: ExtractionDiagnostics | None = None
 
     def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
@@ -187,6 +205,10 @@ class ModelBackend(ExtractionBackend):
             return result
         legacy_context = legacy_context_from_pipeline_context(context)
         legacy_context["_skip_diagnostics_log"] = True
+        legacy_context["retrieval_hints"] = self._retrieve_hints(
+            document.content,
+            graph=context.existing_graph,
+        )
         result = self.extract_statement(
             document.content,
             context=legacy_context,
@@ -212,17 +234,20 @@ class ModelBackend(ExtractionBackend):
         started = perf_counter()
         context = dict(context or {})
         prompt_version = str(context.get("prompt_version") or "")
+        retrieval_hints = self._coerce_retrieval_hints(context.get("retrieval_hints"))
         if self._uses_legacy_request_json_override():
             result, diagnostics = self._extract_statement_legacy_json(
                 text,
                 started_at=started,
                 prompt_version=prompt_version,
+                retrieval_hints=retrieval_hints,
             )
         else:
             result, diagnostics = self._extract_statement_with_tool_schema(
                 text,
                 started_at=started,
                 prompt_version=prompt_version,
+                retrieval_hints=retrieval_hints,
             )
         diagnostics = replace(diagnostics, warnings=list(result.warnings))
         result._diagnostics = diagnostics
@@ -306,14 +331,16 @@ class ModelBackend(ExtractionBackend):
         *,
         started_at: float,
         prompt_version: str,
+        retrieval_hints: list[NodeHint],
     ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
         """Compatibility path for tests and callers that override _request_json."""
 
+        user_prompt = self._statement_user_prompt(text, retrieval_hints=retrieval_hints)
         request_diagnostics: list[ExtractionDiagnostics] = []
         for _attempt in range(3):
             raw = self._request_json(
                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
-                user_prompt=json.dumps({"text": text}, ensure_ascii=False),
+                user_prompt=user_prompt,
             )
             request_diagnostics.append(
                 self._consume_request_diagnostics(started_at=started_at, prompt_version=prompt_version)
@@ -351,10 +378,13 @@ class ModelBackend(ExtractionBackend):
         *,
         started_at: float,
         prompt_version: str,
+        retrieval_hints: list[NodeHint],
     ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
         """Extract one statement through the schema-constrained Anthropic tool path."""
 
-        messages: list[dict[str, Any]] = [{"role": "user", "content": json.dumps({"text": text}, ensure_ascii=False)}]
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": self._statement_user_prompt(text, retrieval_hints=retrieval_hints)}
+        ]
         request_diagnostics: list[ExtractionDiagnostics] = []
         for attempt in range(3):
             response, diagnostics = self._request_typed_tool_response(
@@ -437,6 +467,67 @@ class ModelBackend(ExtractionBackend):
         if match not in valid_ids:
             return None, 0.0
         return str(match), confidence
+
+    def _retrieve_hints(self, chunk_text: str, *, graph: Any) -> list[NodeHint]:
+        if self._embedding_backend is None:
+            return []
+        try:
+            return retrieve_similar_nodes(
+                self._embedding_backend,
+                graph,
+                chunk_text,
+                top_k=self._retrieval_top_k,
+                threshold=self._retrieval_threshold,
+            )
+        except Exception as exc:  # pragma: no cover - optional retrieval should not break extraction
+            LOGGER.warning("ModelBackend retrieval hints failed: %s", exc)
+            return []
+
+    @staticmethod
+    def _coerce_retrieval_hints(raw_hints: Any) -> list[NodeHint]:
+        hints: list[NodeHint] = []
+        if not raw_hints:
+            return hints
+        for raw_hint in raw_hints:
+            if isinstance(raw_hint, NodeHint):
+                hints.append(raw_hint)
+                continue
+            if not isinstance(raw_hint, Mapping):
+                continue
+            try:
+                hints.append(
+                    NodeHint(
+                        node_id=str(raw_hint.get("node_id", "")).strip(),
+                        label=str(raw_hint.get("label", "")).strip(),
+                        type=str(raw_hint.get("type", "") or "mentions"),
+                        confidence=float(raw_hint.get("confidence", 0.0) or 0.0),
+                        similarity=float(raw_hint.get("similarity", 0.0) or 0.0),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        return [hint for hint in hints if hint.node_id and hint.label]
+
+    @staticmethod
+    def _statement_user_prompt(text: str, *, retrieval_hints: list[NodeHint]) -> str:
+        if not retrieval_hints:
+            return json.dumps({"text": text}, ensure_ascii=False)
+        hint_lines = [
+            "## Existing known entities",
+            "Reuse these IDs when a new mention refers to the same entity. Do not invent new IDs for known entities.",
+            "Set entity_resolution to the matching node_id when an extracted item refers to one of these entities.",
+        ]
+        for hint in retrieval_hints:
+            hint_lines.extend(
+                [
+                    f"- node_id: {hint.node_id}",
+                    f"  label: {hint.label}",
+                    f"  type: {hint.type}",
+                    f"  confidence: {hint.confidence:.3f}",
+                    f"  similarity: {hint.similarity:.3f}",
+                ]
+            )
+        return "\n".join([*hint_lines, "", "## Chunk", text])
 
     @property
     def supports_async_rescoring(self) -> bool:
@@ -754,7 +845,7 @@ class ModelBackend(ExtractionBackend):
             "source_quotes": source_quotes or ([raw_source.strip()] if raw_source.strip() else []),
             "source_span": source_span[:240],
             "extraction_confidence": float(item.extraction_confidence or item.confidence),
-            "entity_resolution": item.entity_resolution.strip(),
+            "entity_resolution": (item.entity_resolution or item.node_id).strip(),
             "extraction_flags": [flag.strip() for flag in item.extraction_flags if flag.strip()],
         }
         if isinstance(item, _FactToolItem):
