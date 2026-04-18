@@ -1,5 +1,5 @@
 export const SDK_NAME = "@cortex-ai/sdk";
-export const SDK_VERSION = "1.4.1";
+export const SDK_VERSION = "1.6.0";
 export const API_VERSION = "v1";
 export const OPENAPI_VERSION = "1.0.0";
 

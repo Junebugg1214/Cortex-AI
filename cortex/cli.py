@@ -100,6 +100,9 @@ CLI_V2_ROUTES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("pack", "publish"): ("pack", "export"),
     ("governance", "remove"): ("governance", "delete"),
 }
+CLI_V2_ROUTES.update(
+    {(command,): (internal,) for command, (internal, _display) in cli_parser_module.CLI_V2_INTERNAL_COMMANDS.items()}
+)
 
 # ---------------------------------------------------------------------------
 # Export dispatch table: format-key → (export_fn, filename, is_json)

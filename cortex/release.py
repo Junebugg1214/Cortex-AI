@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-PROJECT_VERSION = "1.4.1"
+PROJECT_VERSION = "1.6.0"
 PACKAGE_NAME = "cortex-identity"
 API_VERSION = "v1"
 OPENAPI_VERSION = "1.0.0"

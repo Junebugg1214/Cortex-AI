@@ -94,12 +94,13 @@ def test_internal_targets_are_hidden_from_public_help():
         ["context-export", "context.json"],
     ],
 )
-def test_removed_old_invocation_shapes_fail(argv):
+def test_removed_old_invocation_shapes_are_invisible_routes(argv):
     parser = build_parser(show_all_commands=True)
     routed, was_routed = _route_cli_v2_argv(argv)
 
-    assert routed == argv
-    assert not was_routed
+    assert routed != argv
+    assert was_routed
+    assert routed[0].startswith("__cli_v2_")
     with pytest.raises(SystemExit) as exc:
-        parser.parse_args(argv)
-    assert exc.value.code == 2
+        parser.parse_args([routed[0], "--help"])
+    assert exc.value.code == 0
