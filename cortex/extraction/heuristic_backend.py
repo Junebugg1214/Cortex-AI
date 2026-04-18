@@ -6,17 +6,16 @@ from time import perf_counter
 from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor
-from cortex.extract_memory import build_eval_compat_view as _build_eval_compat_view
+from cortex.extraction.extract_memory_context import build_eval_compat_view as _build_eval_compat_view
+from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
 from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.temporal import apply_temporal_review_policy
 
 from .backend import ExtractionBackend
 from .pipeline import (
     Document,
+    ExtractionDiagnostics,
     empty_result,
-    legacy_context_from_pipeline_context,
-    result_from_backend_result,
 )
 from .pipeline import (
     ExtractionContext as PipelineExtractionContext,
@@ -25,6 +24,58 @@ from .pipeline import (
     ExtractionResult as PipelineExtractionResult,
 )
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
+
+
+def _estimate_tokens(text: str) -> int:
+    return len((text or "").split())
+
+
+def _item_text(item: Any) -> str:
+    return " ".join(
+        part
+        for part in (
+            getattr(item, "topic", ""),
+            getattr(item, "brief", ""),
+            getattr(item, "full_description", ""),
+        )
+        if part
+    )
+
+
+def _is_heuristic_processor(candidate: Any) -> bool:
+    return all(hasattr(candidate, attr) for attr in ("context", "extract_from_text", "post_process"))
+
+
+def _process_export_data(extractor: Any, data: Any, fmt: str) -> None:
+    if fmt == "openai":
+        extractor.process_openai_export(data)
+    elif fmt == "gemini":
+        extractor.process_gemini_export(data)
+    elif fmt == "perplexity":
+        extractor.process_perplexity_export(data)
+    elif fmt == "grok":
+        extractor.process_grok_export(data)
+    elif fmt == "cursor":
+        extractor.process_cursor_export(data)
+    elif fmt == "windsurf":
+        extractor.process_windsurf_export(data)
+    elif fmt == "copilot":
+        extractor.process_copilot_export(data)
+    elif fmt in ("jsonl", "claude_code"):
+        extractor.process_jsonl_messages(data)
+    elif fmt == "api_logs":
+        extractor.process_api_logs(data)
+    elif fmt == "messages":
+        extractor.process_messages_list(data["messages"] if isinstance(data, dict) and "messages" in data else data)
+    elif fmt == "text":
+        extractor.process_plain_text(data)
+    else:
+        if isinstance(data, list):
+            extractor.process_messages_list(data)
+        elif isinstance(data, dict) and "messages" in data:
+            extractor.process_messages_list(data["messages"])
+        else:
+            extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
 
 
 def _primary_tag(node: Node) -> str:
@@ -235,30 +286,40 @@ class HeuristicBackend(ExtractionBackend):
     """Extraction backend that preserves the current heuristic pipeline."""
 
     def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
-        """Run heuristic extraction through the unified pipeline contract."""
+        """Run heuristic extraction and return typed memory items directly."""
 
         started = perf_counter()
         if not document.content.strip():
             return empty_result(document, started_at=started)
-        result = self.extract_statement(
-            document.content,
-            context=legacy_context_from_pipeline_context(context),
+        extractor = HeuristicRuleExtractor()
+        extractor.extract_from_text(document.content)
+        extractor.post_process()
+        items = [context.canonical_resolver.resolve(item, context.existing_graph) for item in extractor.items()]
+        latency_ms = (perf_counter() - started) * 1000.0
+        return PipelineExtractionResult(
+            items=items,
+            diagnostics=ExtractionDiagnostics(
+                tokens_in=_estimate_tokens(document.content),
+                tokens_out=sum(_estimate_tokens(_item_text(item)) for item in items),
+                latency_ms=latency_ms,
+                cost_usd=0.0,
+                stage_timings={"extract": latency_ms},
+            ),
         )
-        return result_from_backend_result(result, document=document, context=context, started_at=started)
 
     def extract_statement(
         self,
         text: str,
         context: dict | None = None,
     ) -> ExtractionResult:
-        """Run the existing AggressiveExtractor on one statement."""
+        """Run heuristic extraction on one statement and expose legacy node/edge output."""
 
         extractor = None
         if context:
             candidate = context.get("extractor")
-            if isinstance(candidate, AggressiveExtractor):
+            if _is_heuristic_processor(candidate):
                 extractor = candidate
-        extractor = extractor or AggressiveExtractor()
+        extractor = extractor or HeuristicRuleExtractor()
         extractor.extract_from_text(text)
         extractor.post_process()
         payload = extractor.context.export()
@@ -279,47 +340,19 @@ class HeuristicBackend(ExtractionBackend):
         texts: list[str],
         context: dict | None = None,
     ) -> list[ExtractionResult]:
-        """Run the existing processing router over a batch of texts or parsed export data."""
+        """Run the heuristic processing router over a batch of texts or parsed export data."""
 
         ctx = dict(context or {})
         extractor = ctx.get("extractor")
         data = ctx.get("data")
         fmt = str(ctx.get("fmt") or "")
-        if isinstance(extractor, AggressiveExtractor) and fmt:
-            if fmt == "openai":
-                extractor.process_openai_export(data)
-            elif fmt == "gemini":
-                extractor.process_gemini_export(data)
-            elif fmt == "perplexity":
-                extractor.process_perplexity_export(data)
-            elif fmt == "grok":
-                extractor.process_grok_export(data)
-            elif fmt == "cursor":
-                extractor.process_cursor_export(data)
-            elif fmt == "windsurf":
-                extractor.process_windsurf_export(data)
-            elif fmt == "copilot":
-                extractor.process_copilot_export(data)
-            elif fmt in ("jsonl", "claude_code"):
-                extractor.process_jsonl_messages(data)
-            elif fmt == "api_logs":
-                extractor.process_api_logs(data)
-            elif fmt == "messages":
-                extractor.process_messages_list(
-                    data["messages"] if isinstance(data, dict) and "messages" in data else data
-                )
-            elif fmt == "text":
-                extractor.process_plain_text(data)
-            else:
-                if isinstance(data, list):
-                    extractor.process_messages_list(data)
-                elif isinstance(data, dict) and "messages" in data:
-                    extractor.process_messages_list(data["messages"])
-                else:
-                    extractor.process_plain_text(json.dumps(data) if not isinstance(data, str) else data)
+        if fmt:
+            extractor = extractor if _is_heuristic_processor(extractor) else HeuristicRuleExtractor()
+            _process_export_data(extractor, data, fmt)
             payload = extractor.context.export()
             graph = upgrade_v4_to_v5(payload)
-            result = result_from_graph(graph, raw_source="\n\n".join(texts), extraction_method="heuristic")
+            raw_source = "\n\n".join(texts or getattr(extractor, "all_user_text", []))
+            result = result_from_graph(graph, raw_source=raw_source, extraction_method="heuristic")
             result._graph = graph
             result._v4_output = payload
             return [result]

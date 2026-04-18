@@ -11,7 +11,7 @@ try:  # pragma: no cover - Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
-from cortex.extract_memory_processing import AggressiveExtractionProcessingMixin
+from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
 
 from .pipeline import ExtractionPipeline
 
@@ -89,7 +89,7 @@ class _NullExportContext:
         return {}
 
 
-class BulkTextCollector(AggressiveExtractionProcessingMixin):
+class BulkTextCollector(HeuristicRuleExtractor):
     """Collect flattened user text with the existing processing router."""
 
     def __init__(self) -> None:

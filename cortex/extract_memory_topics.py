@@ -5,13 +5,13 @@ import warnings as _warnings
 from importlib import import_module as _import_module
 
 _warnings.warn(
-    "cortex.extract_memory_topics is deprecated; use cortex.extraction.extract_memory_topics instead.",
+    "cortex.extract_memory_topics is deprecated; use cortex.extraction.heuristic_rules instead.",
     DeprecationWarning,
     stacklevel=2,
 )
-from cortex.extraction.extract_memory_topics import *  # pragma: deprecation  # noqa: F401,F403,E402
+from cortex.extraction.heuristic_rules import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-_module = _import_module("cortex.extraction.extract_memory_topics")
+_module = _import_module("cortex.extraction.heuristic_rules")
 globals().update(
     {
         _name: _value
