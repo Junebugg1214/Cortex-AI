@@ -11,6 +11,7 @@ from cortex.graph import CATEGORY_ORDER
 
 from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
 from .diagnostics import ExtractionDiagnostics, write_extraction_record
+from .eval.replay_cache import ReplayCache
 from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship
 from .pipeline import (
     Document,
@@ -188,11 +189,13 @@ class ModelBackend(ExtractionBackend):
         *,
         api_key: str | None = None,
         embedding_backend: Any | None = None,
+        replay_cache: ReplayCache | None = None,
         retrieval_top_k: int = 8,
         retrieval_threshold: float = 0.72,
     ) -> None:
         self._configured_api_key = api_key
         self._embedding_backend = embedding_backend
+        self._replay_cache = replay_cache if replay_cache is not None else ReplayCache.from_env()
         self._retrieval_top_k = retrieval_top_k
         self._retrieval_threshold = retrieval_threshold
         self._last_request_diagnostics: ExtractionDiagnostics | None = None
@@ -385,6 +388,7 @@ class ModelBackend(ExtractionBackend):
                     + '\nWhen given multiple texts, return {"results": [schema, ...]} in the same order.'
                 ),
                 user_prompt=json.dumps({"texts": batch}, ensure_ascii=False),
+                prompt_version=prompt_version,
             )
             request_diagnostics.append(
                 self._consume_request_diagnostics(started_at=started, prompt_version=prompt_version)
@@ -446,6 +450,7 @@ class ModelBackend(ExtractionBackend):
             raw = self._request_json(
                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
+                prompt_version=prompt_version,
             )
             request_diagnostics.append(
                 self._consume_request_diagnostics(started_at=started_at, prompt_version=prompt_version)
@@ -495,6 +500,7 @@ class ModelBackend(ExtractionBackend):
             response, diagnostics = self._request_typed_tool_response(
                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
                 messages=messages,
+                prompt_version=prompt_version,
             )
             request_diagnostics.append(diagnostics)
             try:
@@ -669,12 +675,28 @@ class ModelBackend(ExtractionBackend):
             ) from exc
         return Anthropic
 
-    def _request_json(self, *, system_prompt: str, user_prompt: str) -> str:
+    def _request_json(self, *, system_prompt: str, user_prompt: str, prompt_version: str = "") -> str:
         """Call Anthropic and return the raw text response."""
+
+        model_name = self._model_name()
+        input_content = self._replay_input_content(system_prompt=system_prompt, user_prompt=user_prompt)
+        cached = self._read_replay_response(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+        )
+        if cached is not None:
+            payload = cached.get("payload")
+            if isinstance(payload, Mapping) and isinstance(payload.get("raw_text"), str):
+                self._last_request_diagnostics = self._diagnostics_from_replay_payload(
+                    payload,
+                    fallback_model=model_name,
+                    prompt_version=prompt_version,
+                )
+                return str(payload["raw_text"]).strip()
 
         api_key = self._api_key()
         client = self._anthropic_client_cls()(api_key=api_key)
-        model_name = self._model_name()
         started = perf_counter()
         response = client.messages.create(
             model=model_name,
@@ -694,19 +716,50 @@ class ModelBackend(ExtractionBackend):
             fallback_model=model_name,
             latency_ms=latency_ms,
         )
-        return "".join(parts).strip()
+        raw_text = "".join(parts).strip()
+        self._write_replay_response(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+            payload={
+                "kind": "text",
+                "raw_text": raw_text,
+                "response": self._serializable_response(response),
+                "diagnostics": self._last_request_diagnostics.as_dict(),
+            },
+        )
+        return raw_text
 
     def _request_typed_tool_response(
         self,
         *,
         system_prompt: str,
         messages: list[dict[str, Any]],
+        prompt_version: str = "",
     ) -> tuple[Any, ExtractionDiagnostics]:
         """Call Anthropic and require a typed extraction tool_use response."""
 
+        model_name = self._model_name()
+        input_content = self._replay_input_content(system_prompt=system_prompt, messages=messages)
+        cached = self._read_replay_response(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+        )
+        if cached is not None:
+            payload = cached.get("payload")
+            if isinstance(payload, Mapping) and isinstance(payload.get("response"), Mapping):
+                return (
+                    dict(payload["response"]),
+                    self._diagnostics_from_replay_payload(
+                        payload,
+                        fallback_model=model_name,
+                        prompt_version=prompt_version,
+                    ),
+                )
+
         api_key = self._api_key()
         client = self._anthropic_client_cls()(api_key=api_key)
-        model_name = self._model_name()
         started = perf_counter()
         response = client.messages.create(
             model=model_name,
@@ -723,20 +776,32 @@ class ModelBackend(ExtractionBackend):
             tool_choice={"type": "tool", "name": _TYPED_EXTRACTION_TOOL_NAME},
         )
         latency_ms = (perf_counter() - started) * 1000.0
+        diagnostics = self._diagnostics_from_response(
+            response,
+            fallback_model=model_name,
+            latency_ms=latency_ms,
+        )
+        self._write_replay_response(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+            payload={
+                "kind": "typed_tool",
+                "response": self._serializable_response(response),
+                "diagnostics": diagnostics.as_dict(),
+            },
+        )
         return (
             response,
-            self._diagnostics_from_response(
-                response,
-                fallback_model=model_name,
-                latency_ms=latency_ms,
-            ),
+            diagnostics,
         )
 
     def _tool_input_from_response(self, response: Any) -> Any:
         """Return the tool_use input emitted by Anthropic."""
 
         raw_text: list[str] = []
-        for block in getattr(response, "content", []):
+        content = self._object_value(response, "content") or []
+        for block in content:
             block_type = self._object_value(block, "type")
             block_name = self._object_value(block, "name")
             if block_type == "tool_use" and block_name == _TYPED_EXTRACTION_TOOL_NAME:
@@ -774,6 +839,109 @@ class ModelBackend(ExtractionBackend):
     @staticmethod
     def _skip_diagnostics_log(context: dict[str, Any]) -> bool:
         return bool(context.get("_skip_diagnostics_log", False))
+
+    @staticmethod
+    def _replay_input_content(**parts: Any) -> str:
+        return json.dumps(parts, ensure_ascii=False, sort_keys=True)
+
+    def _read_replay_response(
+        self,
+        *,
+        prompt_version: str,
+        input_content: str,
+        model_id: str,
+    ) -> dict[str, Any] | None:
+        try:
+            return self._replay_cache.read(
+                prompt_version=prompt_version,
+                input_content=input_content,
+                model_id=model_id,
+            )
+        except OSError as exc:  # pragma: no cover - cache should never break extraction
+            LOGGER.warning("Unable to read extraction replay cache: %s", exc)
+            return None
+
+    def _write_replay_response(
+        self,
+        *,
+        prompt_version: str,
+        input_content: str,
+        model_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        try:
+            self._replay_cache.write(
+                prompt_version=prompt_version,
+                input_content=input_content,
+                model_id=model_id,
+                payload=payload,
+            )
+        except OSError as exc:  # pragma: no cover - cache should never break extraction
+            LOGGER.warning("Unable to write extraction replay cache: %s", exc)
+
+    def _diagnostics_from_replay_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        fallback_model: str,
+        prompt_version: str,
+    ) -> ExtractionDiagnostics:
+        raw = payload.get("diagnostics")
+        diagnostics = raw if isinstance(raw, Mapping) else {}
+        stage_timings = diagnostics.get("stage_timings")
+        return ExtractionDiagnostics(
+            tokens_in=int(diagnostics.get("tokens_in") or 0),
+            tokens_out=int(diagnostics.get("tokens_out") or 0),
+            cost_usd=0.0,
+            latency_ms=0.0,
+            stage_timings={**(dict(stage_timings) if isinstance(stage_timings, Mapping) else {}), "request": 0.0},
+            model=str(diagnostics.get("model") or fallback_model),
+            prompt_version=str(diagnostics.get("prompt_version") or prompt_version),
+            warnings=list(diagnostics.get("warnings") or []),
+            cache_hit=True,
+        )
+
+    @classmethod
+    def _serializable_response(cls, response: Any) -> dict[str, Any]:
+        return {
+            "content": [cls._json_safe(block) for block in (cls._object_value(response, "content") or [])],
+            "usage": cls._json_safe(cls._object_value(response, "usage") or {}),
+            "model": str(cls._object_value(response, "model") or ""),
+        }
+
+    @classmethod
+    def _json_safe(cls, value: Any) -> Any:
+        if value is None or isinstance(value, str | int | float | bool):
+            return value
+        if isinstance(value, Mapping):
+            return {str(key): cls._json_safe(item) for key, item in value.items()}
+        if isinstance(value, list | tuple | set):
+            return [cls._json_safe(item) for item in value]
+        if hasattr(value, "model_dump"):
+            return cls._json_safe(value.model_dump())
+
+        payload: dict[str, Any] = {}
+        try:
+            payload.update(vars(value))
+        except TypeError:
+            pass
+        for key in (
+            "id",
+            "type",
+            "name",
+            "input",
+            "text",
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "cost_usd",
+        ):
+            if hasattr(value, key):
+                payload[key] = getattr(value, key)
+        if payload:
+            return cls._json_safe(payload)
+        return str(value)
 
     def _uses_legacy_request_json_override(self) -> bool:
         return "_request_json" in self.__dict__

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -394,6 +395,110 @@ def run_extract(args, *, ctx: ExtractCliContext) -> int:
         ctx.echo(f"Saved to: {output_path}")
         if not args.no_claims:
             ctx.echo(f"Recorded {claim_count} claim event(s) to {Path(args.store_dir) / 'claims.jsonl'}")
+    return 0
+
+
+def _parse_corpus_manifest(path: Path) -> list[dict[str, str]]:
+    cases: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        stripped = raw_line.strip()
+        if stripped.startswith("- "):
+            if current is not None:
+                cases.append(current)
+            current = {}
+            stripped = stripped[2:]
+        if current is None or ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        current[key.strip()] = value.strip().strip("\"'")
+    if current is not None:
+        cases.append(current)
+    return cases
+
+
+def _read_corpus_input(case_dir: Path, input_name: str) -> str:
+    input_path = case_dir / input_name
+    return input_path.read_text(encoding="utf-8")
+
+
+def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
+    """Refresh the model replay cache from the extraction eval corpus."""
+
+    from cortex.extraction import Document, ExtractionContext, ModelBackend
+    from cortex.extraction.eval.replay_cache import ReplayCache
+
+    corpus_root = Path(args.corpus)
+    manifest_path = corpus_root / "manifest.yml"
+    if not corpus_root.exists():
+        return ctx.missing_path_error(corpus_root, label="Extraction corpus")
+    if not manifest_path.exists():
+        return ctx.missing_path_error(manifest_path, label="Extraction corpus manifest")
+
+    try:
+        cases = _parse_corpus_manifest(manifest_path)
+    except PermissionError:
+        return ctx.permission_error(manifest_path, action="read extraction corpus manifest")
+    except OSError as exc:
+        return ctx.error(f"Could not read extraction corpus manifest: {exc}")
+    if not cases:
+        return ctx.error(f"No corpus cases found in {manifest_path}")
+
+    previous_replay_mode = os.environ.get("CORTEX_EXTRACTION_REPLAY")
+    previous_model = os.environ.get("CORTEX_ANTHROPIC_MODEL")
+    os.environ["CORTEX_EXTRACTION_REPLAY"] = "write"
+    if getattr(args, "model", None):
+        os.environ["CORTEX_ANTHROPIC_MODEL"] = str(args.model)
+
+    refreshed = 0
+    cache_hits = 0
+    try:
+        backend = ModelBackend(replay_cache=ReplayCache.from_env())
+        for case in cases:
+            case_id = case.get("id", "")
+            source_type = case.get("source_type", "")
+            input_name = case.get("input", "")
+            if not case_id or not source_type or not input_name:
+                return ctx.error(f"Invalid corpus manifest case entry: {case}")
+            case_dir = corpus_root / case_id
+            input_path = case_dir / input_name
+            if not input_path.exists():
+                return ctx.missing_path_error(input_path, label=f"Corpus input for {case_id}")
+            try:
+                content = _read_corpus_input(case_dir, input_name)
+            except PermissionError:
+                return ctx.permission_error(input_path, action="read corpus input")
+            except OSError as exc:
+                return ctx.error(f"Could not read corpus input {input_path}: {exc}")
+            result = backend.run(
+                Document(
+                    source_id=case_id,
+                    source_type=source_type,
+                    content=content,
+                    metadata={"corpus": str(corpus_root), "input": input_name},
+                ),
+                ExtractionContext(prompt_version=str(args.prompt_version)),
+            )
+            refreshed += 1
+            if result.diagnostics.cache_hit:
+                cache_hits += 1
+            if not ctx.is_quiet():
+                ctx.echo(f"refreshed {case_id}: items={len(result.items)} cache_hit={result.diagnostics.cache_hit}")
+    except Exception as exc:
+        return ctx.error(str(exc))
+    finally:
+        if previous_replay_mode is None:
+            os.environ.pop("CORTEX_EXTRACTION_REPLAY", None)
+        else:
+            os.environ["CORTEX_EXTRACTION_REPLAY"] = previous_replay_mode
+        if previous_model is None:
+            os.environ.pop("CORTEX_ANTHROPIC_MODEL", None)
+        else:
+            os.environ["CORTEX_ANTHROPIC_MODEL"] = previous_model
+
+    ctx.echo(f"Refreshed extraction replay cache for {refreshed} corpus case(s); cache hits={cache_hits}.")
     return 0
 
 
