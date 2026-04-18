@@ -9,8 +9,12 @@ from cortex.extraction.extract_memory_context import (
     ExtractedRelationship,
     normalize_text,
 )
+from cortex.extraction.prompts import load_prompt
 
 from .state import PipelineState
+
+RELATIONS_PROMPT = load_prompt("relations", "v1")
+PROMPT_REFERENCES = (RELATIONS_PROMPT.reference,)
 
 
 def _register_endpoint(label_to_id: dict[str, str], label: str, node_id: str) -> None:
@@ -63,5 +67,6 @@ def link_relations(state: PipelineState) -> PipelineState:
 
     metadata = dict(state.metadata)
     metadata["dropped_dangling_relationships"] = int(metadata.get("dropped_dangling_relationships", 0)) + dropped
+    metadata["relations_prompt_version"] = RELATIONS_PROMPT.version
     next_state = replace(state, items=tuple(linked_items), metadata=metadata)
     return next_state.with_timing("link_relations", (perf_counter() - started) * 1000.0)

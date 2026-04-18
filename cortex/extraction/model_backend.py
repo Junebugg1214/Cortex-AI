@@ -24,6 +24,7 @@ from .pipeline import (
 from .pipeline import (
     ExtractionResult as PipelineExtractionResult,
 )
+from .prompts import load_prompt
 from .retrieval import NodeHint, retrieve_similar_nodes
 from .stages import (
     CandidateBatch,
@@ -57,18 +58,15 @@ MODEL_KEY_ERROR = (
     "ModelBackend requires an API key. Set CORTEX_ANTHROPIC_API_KEY\nor ANTHROPIC_API_KEY. See CONFIG.md for details."
 )
 
-EXTRACTION_SYSTEM_PROMPT = """You are a knowledge graph extractor.
-Call the extraction tool exactly once with schema-valid typed memory items.
-
-Rules:
-- Do not invent facts not present in the input text.
-- Use fact for stable attributes, preferences, skills, identities, and explicit details.
-- Use claim for user assertions, denials, corrections, or statements whose truth is being represented as asserted.
-- Use relationship for typed links between entities.
-- If relationship direction is ambiguous, return both directions as separate relationship items with confidence below 0.6.
-- confidence reflects how clearly the fact is stated,
-  not how likely it is to be true.
-"""
+CANDIDATES_PROMPT = load_prompt("candidates", "v1")
+TYPING_PROMPT = load_prompt("typing", "v1")
+CANONICALIZE_PROMPT = load_prompt("canonicalize", "v1")
+PROMPT_REFERENCES = (
+    CANDIDATES_PROMPT.reference,
+    TYPING_PROMPT.reference,
+    CANONICALIZE_PROMPT.reference,
+)
+EXTRACTION_SYSTEM_PROMPT = CANDIDATES_PROMPT.content
 
 DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 _TYPED_EXTRACTION_TOOL_NAME = "emit_extracted_memory_items"
@@ -289,11 +287,9 @@ class ModelBackend(ExtractionBackend):
         context: PipelineExtractionContext,
     ) -> Refinement:
         raw_source = item.source_span or "\n".join(item.source_quotes) or item.brief or item.topic
-        user_prompt = (
-            "Re-evaluate this low-confidence Cortex extraction item as a fact or claim only. "
-            "Return one corrected typed item preserving the source meaning.\n\n"
-            f"Source text:\n{raw_source}\n\n"
-            f"Current item:\n{json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True)}"
+        user_prompt = TYPING_PROMPT.render(
+            source_text=raw_source,
+            current_item=json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True),
         )
         legacy_context = legacy_context_from_pipeline_context(context)
         legacy_context["_skip_diagnostics_log"] = True
@@ -621,11 +617,7 @@ class ModelBackend(ExtractionBackend):
     def _statement_user_prompt(text: str, *, retrieval_hints: list[NodeHint]) -> str:
         if not retrieval_hints:
             return json.dumps({"text": text}, ensure_ascii=False)
-        hint_lines = [
-            "## Existing known entities",
-            "Reuse these IDs when a new mention refers to the same entity. Do not invent new IDs for known entities.",
-            "Set entity_resolution to the matching node_id when an extracted item refers to one of these entities.",
-        ]
+        hint_lines = CANONICALIZE_PROMPT.content.splitlines()
         for hint in retrieval_hints:
             hint_lines.extend(
                 [

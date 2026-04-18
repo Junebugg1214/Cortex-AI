@@ -58,7 +58,7 @@ cortex-bench = "cortex.benchmark:main"
 include = ["cortex*"]
 
 [tool.setuptools.package-data]
-cortex = ["py.typed"]
+cortex = ["py.typed", "extraction/prompts/*.md"]
 
 [tool.ruff]
 target-version = "py310"
