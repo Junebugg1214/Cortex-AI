@@ -87,10 +87,11 @@ class EntryPointCliContext:
     extract_global_flags: Callable[[list[str]], tuple[list[str], bool, bool]]
     set_cli_quiet: Callable[[bool], None]
     handlers: Mapping[str, Callable[[Any], int]]
+    route_argv: Callable[[list[str]], tuple[list[str], bool]] | None = None
 
 
-def _route_default_subcommand(argv: list[str]) -> list[str]:
-    return argv
+def _route_default_subcommand(argv: list[str]) -> tuple[list[str], bool]:
+    return argv, False
 
 
 def _apply_json_mode(args: Any, *, force_json: bool, ctx: EntryPointCliContext) -> int | None:
@@ -115,12 +116,14 @@ def main(argv=None, *, ctx: EntryPointCliContext) -> int:
 
     argv, force_json, quiet = ctx.extract_global_flags(argv)
     ctx.set_cli_quiet(quiet or force_json)
-    argv = _route_default_subcommand(argv)
+    route_argv = ctx.route_argv or _route_default_subcommand
+    argv, cli_v2_routed = route_argv(argv)
 
     parser = ctx.build_parser()
     args = parser.parse_args(argv)
     setattr(args, "json_output", force_json)
     setattr(args, "quiet", quiet)
+    setattr(args, "_cli_v2_routed", cli_v2_routed)
 
     if getattr(args, "help_all", False):
         parser.show_all_commands = True

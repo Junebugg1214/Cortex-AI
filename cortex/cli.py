@@ -12,8 +12,9 @@ import json
 import os
 import shlex
 import sys
+import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cortex import agent as agent_module
 from cortex import cli_entrypoint as cli_entrypoint_module
@@ -39,6 +40,109 @@ _doctor_raw_config_payload = cli_workspace_commands_module._doctor_raw_config_pa
 _doctor_store_entries = cli_workspace_commands_module._doctor_store_entries
 
 _CLI_QUIET = False
+
+CLI_V2_TIER2_NAMESPACES = (
+    "mind",
+    "pack",
+    "source",
+    "audience",
+    "remote",
+    "governance",
+    "extract",
+    "serve",
+    "admin",
+    "debug",
+)
+
+CLI_V2_DEPRECATED_COMMANDS = {
+    "connect": "remote add",
+    "extract": "extract run",
+    "ingest": "extract run",
+    "import": "sync --to <target>",
+    "memory": "remember, source retract, or debug query",
+    "migrate": "admin migrate",
+    "query": "debug query",
+    "stats": "debug stats",
+    "timeline": "debug timeline",
+    "contradictions": "debug contradictions",
+    "drift": "debug drift",
+    "blame": "debug blame",
+    "history": "debug history",
+    "claim": "debug claims",
+    "checkout": "checkout --at <ref>",
+    "rollback": "checkout --at <ref>",
+    "identity": "admin identity",
+    "switch": "branch switch",
+    "review": "debug review",
+    "gaps": "debug gaps",
+    "digest": "debug digest",
+    "viz": "debug viz",
+    "watch": "debug watch",
+    "sync-schedule": "debug watch --sync",
+    "extract-coding": "extract run --kind coding",
+    "context-hook": "mount hook",
+    "context-export": "compose --target <target> --stdout",
+    "context-write": "mount <target>",
+    "portable": "sync, mount, or compose",
+    "scan": "source status",
+    "build": "pack compile",
+    "audit": "admin integrity",
+    "doctor": "admin doctor",
+    "integrity": "admin integrity",
+    "help": "--help",
+    "sources": "source",
+    "ui": "serve ui",
+    "benchmark": "admin benchmark",
+    "server": "serve api",
+    "mcp": "serve mcp",
+    "backup": "admin backup",
+    "agent": "admin agent",
+    "openapi": "admin openapi",
+    "release-notes": "admin release-notes",
+    "rotate": "admin rotate",
+    "pull": "source ingest --pull",
+    "completion": "admin completion",
+}
+
+CLI_V2_ROUTES: dict[tuple[str, ...], tuple[str, ...]] = {
+    ("source", "ingest"): ("ingest",),
+    ("source", "list"): ("sources", "list"),
+    ("source", "retract"): ("sources", "retract"),
+    ("source", "status"): ("scan",),
+    ("extract", "run"): ("extract",),
+    ("extract", "coding"): ("extract-coding",),
+    ("admin", "doctor"): ("doctor",),
+    ("admin", "integrity"): ("integrity",),
+    ("admin", "rehash"): ("integrity", "rehash"),
+    ("admin", "backup"): ("backup",),
+    ("admin", "restore"): ("backup", "restore"),
+    ("admin", "rotate"): ("rotate",),
+    ("admin", "completion"): ("completion",),
+    ("admin", "openapi"): ("openapi",),
+    ("admin", "benchmark"): ("benchmark",),
+    ("admin", "release-notes"): ("release-notes",),
+    ("admin", "migrate"): ("migrate",),
+    ("admin", "identity"): ("identity",),
+    ("admin", "agent"): ("agent",),
+    ("debug", "viz"): ("viz",),
+    ("debug", "timeline"): ("timeline",),
+    ("debug", "digest"): ("digest",),
+    ("debug", "gaps"): ("gaps",),
+    ("debug", "watch"): ("watch",),
+    ("debug", "query"): ("query",),
+    ("debug", "blame"): ("blame",),
+    ("debug", "history"): ("history",),
+    ("debug", "claims"): ("claim",),
+    ("debug", "contradictions"): ("contradictions",),
+    ("debug", "drift"): ("drift",),
+    ("debug", "review"): ("review",),
+    ("debug", "stats"): ("stats",),
+    ("mind", "switch"): ("mind", "default"),
+    ("mind", "attach"): ("mind", "attach-pack"),
+    ("mind", "detach"): ("mind", "detach-pack"),
+    ("pack", "publish"): ("pack", "export"),
+    ("governance", "remove"): ("governance", "delete"),
+}
 
 # ---------------------------------------------------------------------------
 # Export dispatch table: format-key → (export_fn, filename, is_json)
@@ -96,6 +200,26 @@ def _extract_global_flags(argv: list[str]) -> tuple[list[str], bool, bool]:
             continue
         cleaned.append(token)
     return cleaned, force_json, quiet
+
+
+def _route_cli_v2_argv(argv: list[str]) -> tuple[list[str], bool]:
+    for route, replacement in sorted(CLI_V2_ROUTES.items(), key=lambda item: len(item[0]), reverse=True):
+        if tuple(argv[: len(route)]) == route:
+            return [*replacement, *argv[len(route) :]], True
+    return argv, False
+
+
+def _deprecated_cli_v2_handler(command: str, replacement: str, handler: Callable[[Any], int]) -> Callable[[Any], int]:
+    def run(args: Any) -> int:
+        if not getattr(args, "_cli_v2_routed", False):
+            warnings.warn(
+                f"'cortex {command}' is deprecated; use 'cortex {replacement}'",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return handler(args)
+
+    return run
 
 
 def _resolve_store_selection(store_dir: str | Path | None):
@@ -374,77 +498,87 @@ def _set_cli_quiet(value: bool) -> None:
 
 
 def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
+    handlers = {
+        "init": run_init,
+        "help": run_help_topic,
+        "connect": run_connect,
+        "serve": run_serve,
+        "extract": run_extract,
+        "ingest": run_ingest,
+        "import": run_import,
+        "memory": run_memory,
+        "query": run_query,
+        "stats": run_stats,
+        "timeline": run_timeline,
+        "contradictions": run_contradictions,
+        "drift": run_drift,
+        "diff": run_diff,
+        "blame": run_blame,
+        "history": run_history,
+        "claim": run_claim,
+        "checkout": run_checkout,
+        "rollback": run_rollback,
+        "identity": run_identity,
+        "commit": run_commit,
+        "branch": run_branch,
+        "switch": run_switch,
+        "merge": run_merge,
+        "review": run_review,
+        "log": run_log,
+        "governance": run_governance,
+        "remote": run_remote,
+        "sync": run_sync,
+        "verify": run_verify,
+        "gaps": run_gaps,
+        "digest": run_digest,
+        "viz": run_viz,
+        "watch": run_watch,
+        "sync-schedule": run_sync_schedule,
+        "extract-coding": run_extract_coding,
+        "context-hook": run_context_hook,
+        "context-export": run_context_export,
+        "pull": run_pull,
+        "rotate": run_rotate,
+        "context-write": run_context_write,
+        "portable": run_portable,
+        "scan": run_scan,
+        "remember": run_remember,
+        "status": run_status,
+        "mount": run_mount,
+        "build": run_build,
+        "audit": run_audit,
+        "doctor": run_doctor,
+        "integrity": run_integrity,
+        "mind": run_mind,
+        "sources": run_sources,
+        "audience": run_audience,
+        "pack": run_pack,
+        "ui": run_ui,
+        "benchmark": run_benchmark,
+        "backup": run_backup,
+        "agent": run_agent,
+        "openapi": run_openapi,
+        "release-notes": run_release_notes,
+        "server": run_server,
+        "mcp": run_mcp,
+        "completion": run_completion,
+        "migrate": run_migrate,
+    }
+    handlers = {
+        command: (
+            _deprecated_cli_v2_handler(command, CLI_V2_DEPRECATED_COMMANDS[command], handler)
+            if command in CLI_V2_DEPRECATED_COMMANDS
+            else handler
+        )
+        for command, handler in handlers.items()
+    }
     return cli_entrypoint_module.EntryPointCliContext(
         build_parser=build_parser,
         error=_error,
         extract_global_flags=_extract_global_flags,
         set_cli_quiet=_set_cli_quiet,
-        handlers={
-            "init": run_init,
-            "help": run_help_topic,
-            "connect": run_connect,
-            "serve": run_serve,
-            "extract": run_extract,
-            "ingest": run_ingest,
-            "import": run_import,
-            "memory": run_memory,
-            "query": run_query,
-            "stats": run_stats,
-            "timeline": run_timeline,
-            "contradictions": run_contradictions,
-            "drift": run_drift,
-            "diff": run_diff,
-            "blame": run_blame,
-            "history": run_history,
-            "claim": run_claim,
-            "checkout": run_checkout,
-            "rollback": run_rollback,
-            "identity": run_identity,
-            "commit": run_commit,
-            "branch": run_branch,
-            "switch": run_switch,
-            "merge": run_merge,
-            "review": run_review,
-            "log": run_log,
-            "governance": run_governance,
-            "remote": run_remote,
-            "sync": run_sync,
-            "verify": run_verify,
-            "gaps": run_gaps,
-            "digest": run_digest,
-            "viz": run_viz,
-            "watch": run_watch,
-            "sync-schedule": run_sync_schedule,
-            "extract-coding": run_extract_coding,
-            "context-hook": run_context_hook,
-            "context-export": run_context_export,
-            "pull": run_pull,
-            "rotate": run_rotate,
-            "context-write": run_context_write,
-            "portable": run_portable,
-            "scan": run_scan,
-            "remember": run_remember,
-            "status": run_status,
-            "mount": run_mount,
-            "build": run_build,
-            "audit": run_audit,
-            "doctor": run_doctor,
-            "integrity": run_integrity,
-            "mind": run_mind,
-            "sources": run_sources,
-            "audience": run_audience,
-            "pack": run_pack,
-            "ui": run_ui,
-            "benchmark": run_benchmark,
-            "backup": run_backup,
-            "agent": run_agent,
-            "openapi": run_openapi,
-            "release-notes": run_release_notes,
-            "server": run_server,
-            "mcp": run_mcp,
-            "completion": run_completion,
-            "migrate": run_migrate,
-        },
+        handlers=handlers,
+        route_argv=_route_cli_v2_argv,
     )
 
 
