@@ -35,7 +35,13 @@ crypto = ["pynacl>=1.5.0"]
 embeddings = ["sentence-transformers>=2.7.0"]
 fast = ["numpy>=1.24.0"]
 server = ["pynacl>=1.5.0"]
-full = ["pynacl>=1.5.0", "numpy>=1.24.0"]
+full = [
+    "pynacl>=1.5.0",
+    "numpy>=1.24.0",
+    "starlette>=0.37.0",
+    "uvicorn>=0.30.0",
+    "sentence-transformers>=2.7.0",
+]
 dev = ["pytest>=7.0", "pynacl>=1.5.0", "ruff>=0.6.0", "starlette>=0.37.0", "uvicorn>=0.30.0"]
 
 [project.scripts]
