@@ -52,7 +52,11 @@ from cortex.extract_memory_text import (
 from cortex.extract_memory_topics import AggressiveExtractionTopicMixin
 
 ExtractionContext = _extract_memory_context.ExtractionContext
+ExtractedMemoryItem = _extract_memory_context.ExtractedMemoryItem
 ExtractedTopic = _extract_memory_context.ExtractedTopic
+ExtractedFact = _extract_memory_context.ExtractedFact
+ExtractedClaim = _extract_memory_context.ExtractedClaim
+ExtractedRelationship = _extract_memory_context.ExtractedRelationship
 are_similar = _extract_memory_context.are_similar
 build_eval_compat_view = _extract_memory_context.build_eval_compat_view
 find_best_match = _extract_memory_context.find_best_match
@@ -318,6 +322,12 @@ def main():
 
     stats = extractor.context.stats()
     print(f"✅ Extracted {stats['total']} topics across {len(stats['by_category'])} categories")
+    typed = stats.get("by_type", {})
+    print(
+        f"   Typed output: {typed.get('facts', 0)} facts, "
+        f"{typed.get('claims', 0)} claims, "
+        f"{typed.get('relationships', 0)} relationships"
+    )
     print(
         f"   By confidence: {stats['by_confidence']['high']} high, {stats['by_confidence']['medium']} medium, {stats['by_confidence']['low']} low"
     )
