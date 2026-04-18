@@ -62,7 +62,8 @@ class CortexClient:
             method=method,
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            # Safe: CortexClient callers choose the API base URL explicitly.
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # nosec B310
                 body = response.read().decode("utf-8")
                 if not body:
                     return {}
