@@ -1,3 +1,13 @@
+"""MemoryService final MRO:
+
+MemoryService -> MemoryRuntimeAgentMixin -> MemoryRuntimeMetaMixin ->
+MemoryRuntimeMindMixin -> MemoryRuntimePackMixin -> MemoryGraphMergeServiceMixin ->
+MemoryGraphQueryServiceMixin -> MemoryObjectServiceMixin -> object.
+
+Channel and portability helpers are implemented directly on MemoryService; the
+previous empty aggregate mixins are intentionally absent from the MRO.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,17 +17,35 @@ from typing import Any
 
 from cortex.graph import CortexGraph
 from cortex.observability import CortexObservability
+from cortex.portability.portable_runtime import (
+    audit_portability,
+    render_portability_context,
+    scan_portability,
+    status_portability,
+)
 from cortex.security.secrets import SecretsScanner
-from cortex.service_common import _coerce_graph
-from cortex.service_objects import MemoryObjectServiceMixin
-from cortex.service_runtime import MemoryRuntimeServiceMixin
-from cortex.service_versioned_graph import MemoryVersionedGraphServiceMixin
+from cortex.service.service_common import _coerce_graph
+from cortex.service.service_graph_merge import MemoryGraphMergeServiceMixin
+from cortex.service.service_graph_queries import MemoryGraphQueryServiceMixin
+from cortex.service.service_objects import MemoryObjectServiceMixin
+from cortex.service.service_runtime_agents import MemoryRuntimeAgentMixin
+from cortex.service.service_runtime_meta import MemoryRuntimeMetaMixin
+from cortex.service.service_runtime_minds import MemoryRuntimeMindMixin
+from cortex.service.service_runtime_packs import MemoryRuntimePackMixin
 from cortex.storage import get_storage_backend
 from cortex.storage.base import StorageBackend
 
 
 @dataclass(slots=True)
-class MemoryService(MemoryRuntimeServiceMixin, MemoryVersionedGraphServiceMixin, MemoryObjectServiceMixin):
+class MemoryService(
+    MemoryRuntimeAgentMixin,
+    MemoryRuntimeMetaMixin,
+    MemoryRuntimeMindMixin,
+    MemoryRuntimePackMixin,
+    MemoryGraphMergeServiceMixin,
+    MemoryGraphQueryServiceMixin,
+    MemoryObjectServiceMixin,
+):
     store_dir: Path
     backend: StorageBackend
     observability: CortexObservability
@@ -42,6 +70,119 @@ class MemoryService(MemoryRuntimeServiceMixin, MemoryVersionedGraphServiceMixin,
                 self.backend.versions.checkout(head),
                 operation="service_startup",
             )
+
+    def channel_prepare_turn(
+        self,
+        *,
+        message: dict[str, Any],
+        target: str | None = None,
+        smart: bool = True,
+        max_chars: int = 1500,
+        project_dir: str = "",
+    ) -> dict[str, Any]:
+        from cortex.channel_runtime import (
+            ChannelContextBridge,
+            channel_message_from_dict,
+            channel_turn_to_dict,
+        )
+
+        channel_message = channel_message_from_dict(message)
+        if project_dir and not channel_message.project_dir:
+            channel_message.project_dir = str(Path(project_dir).resolve())
+        bridge = ChannelContextBridge(self, default_project_dir=Path(project_dir).resolve() if project_dir else None)
+        turn = bridge.prepare_turn(
+            channel_message,
+            target=target,
+            smart=smart,
+            max_chars=max_chars,
+        )
+        payload = {"status": "ok", "turn": channel_turn_to_dict(turn)}
+        payload["release"] = self.release()
+        return payload
+
+    def channel_seed_turn_memory(
+        self,
+        *,
+        turn: dict[str, Any],
+        ref: str = "HEAD",
+        source: str = "channel.runtime",
+        approve: bool = False,
+    ) -> dict[str, Any]:
+        from cortex.channel_runtime import ChannelContextBridge, channel_turn_from_dict
+
+        bridge = ChannelContextBridge(self)
+        payload = bridge.seed_turn_memory(
+            channel_turn_from_dict(turn),
+            ref=ref,
+            source=source,
+            approve=approve,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_context(
+        self,
+        *,
+        target: str,
+        project_dir: str = "",
+        smart: bool | None = None,
+        policy: str | None = None,
+        max_chars: int = 1500,
+    ) -> dict[str, object]:
+        project_path = Path(project_dir).resolve() if project_dir else None
+        payload = render_portability_context(
+            store_dir=self.store_dir,
+            target=target,
+            project_dir=project_path,
+            smart=smart,
+            policy_name=policy,
+            max_chars=max_chars,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_scan(
+        self,
+        *,
+        project_dir: str = "",
+        search_roots: list[str] | None = None,
+        metadata_only: bool = False,
+    ) -> dict[str, object]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = scan_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+            extra_roots=[Path(root).resolve() for root in (search_roots or [])],
+            metadata_only=metadata_only,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_status(
+        self,
+        *,
+        project_dir: str = "",
+    ) -> dict[str, object]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = status_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+        )
+        payload["release"] = self.release()
+        return payload
+
+    def portability_audit(
+        self,
+        *,
+        project_dir: str = "",
+    ) -> dict[str, object]:
+        project_path = Path(project_dir).resolve() if project_dir else Path.cwd()
+        payload = audit_portability(
+            store_dir=self.store_dir,
+            project_dir=project_path,
+        )
+        payload["release"] = self.release()
+        return payload
 
     def _default_graph_ref(self) -> str:
         return "HEAD"
