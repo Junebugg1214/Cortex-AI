@@ -1,58 +1,28 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import sys as _sys
+import warnings as _warnings
+from importlib import import_module as _import_module
 
+_warnings.warn(
+    "cortex.service_runtime_channels is deprecated; use cortex.service.service_runtime_channels instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.service_runtime_channels import *  # pragma: deprecation  # noqa: F401,F403,E402
 
-class MemoryRuntimeChannelMixin:
-    def channel_prepare_turn(
-        self,
-        *,
-        message: dict[str, Any],
-        target: str | None = None,
-        smart: bool = True,
-        max_chars: int = 1500,
-        project_dir: str = "",
-    ) -> dict[str, Any]:
-        from cortex.channel_runtime import (
-            ChannelContextBridge,
-            channel_message_from_dict,
-            channel_turn_to_dict,
-        )
+_module = _import_module("cortex.service.service_runtime_channels")
+globals().update(
+    {
+        _name: _value
+        for _name, _value in vars(_module).items()
+        if _name not in {"__name__", "__package__", "__loader__", "__spec__"}
+    }
+)
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+_sys.modules[__name__] = _module
 
-        channel_message = channel_message_from_dict(message)
-        if project_dir and not channel_message.project_dir:
-            channel_message.project_dir = str(Path(project_dir).resolve())
-        bridge = ChannelContextBridge(self, default_project_dir=Path(project_dir).resolve() if project_dir else None)
-        turn = bridge.prepare_turn(
-            channel_message,
-            target=target,
-            smart=smart,
-            max_chars=max_chars,
-        )
-        payload = {"status": "ok", "turn": channel_turn_to_dict(turn)}
-        payload["release"] = self.release()
-        return payload
+if __name__ == "__main__" and hasattr(_module, "main"):
+    raise SystemExit(_module.main())
 
-    def channel_seed_turn_memory(
-        self,
-        *,
-        turn: dict[str, Any],
-        ref: str = "HEAD",
-        source: str = "channel.runtime",
-        approve: bool = False,
-    ) -> dict[str, Any]:
-        from cortex.channel_runtime import ChannelContextBridge, channel_turn_from_dict
-
-        bridge = ChannelContextBridge(self)
-        payload = bridge.seed_turn_memory(
-            channel_turn_from_dict(turn),
-            ref=ref,
-            source=source,
-            approve=approve,
-        )
-        payload["release"] = self.release()
-        return payload
-
-
-__all__ = ["MemoryRuntimeChannelMixin"]
+del _import_module, _module, _sys, _warnings

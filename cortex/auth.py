@@ -1,93 +1,28 @@
 from __future__ import annotations
 
-import secrets
-from dataclasses import dataclass
+import sys as _sys
+import warnings as _warnings
+from importlib import import_module as _import_module
 
-from cortex.config import APIKeyConfig
+_warnings.warn(
+    "cortex.auth is deprecated; use cortex.service.auth instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.auth import *  # pragma: deprecation  # noqa: F401,F403,E402
 
+_module = _import_module("cortex.service.auth")
+globals().update(
+    {
+        _name: _value
+        for _name, _value in vars(_module).items()
+        if _name not in {"__name__", "__package__", "__loader__", "__spec__"}
+    }
+)
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+_sys.modules[__name__] = _module
 
-@dataclass(slots=True)
-class AuthDecision:
-    allowed: bool
-    status_code: int = 200
-    error: str = ""
-    key_name: str = ""
-    namespace: str | None = None
+if __name__ == "__main__" and hasattr(_module, "main"):
+    raise SystemExit(_module.main())
 
-
-def extract_api_token(headers: dict[str, str]) -> str:
-    normalized = {key.lower(): value for key, value in headers.items()}
-    header_key = normalized.get("x-api-key", "").strip()
-    if header_key:
-        return header_key
-    auth_header = normalized.get("authorization", "").strip()
-    if auth_header:
-        scheme, _, token = auth_header.partition(" ")
-        if scheme.lower() == "bearer":
-            return token.strip()
-    return ""
-
-
-def authorize_api_key(
-    *,
-    keys: tuple[APIKeyConfig, ...],
-    headers: dict[str, str],
-    required_scope: str,
-    namespace: str | None,
-    namespace_required: bool,
-) -> AuthDecision:
-    if not keys:
-        return AuthDecision(allowed=True, namespace=namespace)
-
-    token = extract_api_token(headers)
-    if not token:
-        return AuthDecision(
-            allowed=False,
-            status_code=401,
-            error="Unauthorized: missing API key. Configure Authorization: Bearer <token> or X-API-Key.",
-        )
-
-    key = next((item for item in keys if secrets.compare_digest(item.token, token)), None)
-    if key is None:
-        return AuthDecision(allowed=False, status_code=401, error="Unauthorized: invalid API key.")
-    if required_scope and not key.allows_scope(required_scope):
-        return AuthDecision(
-            allowed=False,
-            status_code=403,
-            error=f"Forbidden: API key '{key.name}' does not allow scope '{required_scope}'.",
-        )
-
-    effective_namespace = namespace
-    namespace_prefixes = [item for item in key.namespaces if item != "*"]
-    if namespace_prefixes:
-        if namespace:
-            if not key.allows_namespace(namespace):
-                return AuthDecision(
-                    allowed=False,
-                    status_code=403,
-                    error=(
-                        f"Forbidden: namespace '{namespace}' is outside API key '{key.name}' namespace scope "
-                        f"{list(key.namespaces)}."
-                    ),
-                )
-        elif namespace_required:
-            default_namespace = key.single_namespace()
-            if default_namespace is None:
-                return AuthDecision(
-                    allowed=False,
-                    status_code=403,
-                    error=(
-                        f"Forbidden: API key '{key.name}' spans multiple namespaces; "
-                        "send X-Cortex-Namespace or include namespace in the request."
-                    ),
-                )
-            effective_namespace = default_namespace
-
-    return AuthDecision(
-        allowed=True,
-        key_name=key.name,
-        namespace=effective_namespace,
-    )
-
-
-__all__ = ["AuthDecision", "authorize_api_key", "extract_api_token"]
+del _import_module, _module, _sys, _warnings

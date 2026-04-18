@@ -1,29 +1,28 @@
-"""Static Cortex UI shell and session constants."""
+from __future__ import annotations
 
-from cortex.webapp_shell_body import UI_BODY
-from cortex.webapp_shell_css import UI_CSS
-from cortex.webapp_shell_js import UI_JS
+import sys as _sys
+import warnings as _warnings
+from importlib import import_module as _import_module
 
-UI_SESSION_HEADER = "X-Cortex-UI-Session"
-UI_SESSION_PLACEHOLDER = "__CORTEX_UI_SESSION_TOKEN__"
+_warnings.warn(
+    "cortex.webapp_shell is deprecated; use cortex.service.webapp_shell instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from cortex.service.webapp_shell import *  # pragma: deprecation  # noqa: F401,F403,E402
 
+_module = _import_module("cortex.service.webapp_shell")
+globals().update(
+    {
+        _name: _value
+        for _name, _value in vars(_module).items()
+        if _name not in {"__name__", "__package__", "__loader__", "__spec__"}
+    }
+)
+__all__ = getattr(_module, "__all__", [_name for _name in vars(_module) if not _name.startswith("_")])
+_sys.modules[__name__] = _module
 
-UI_HTML = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cortex UI</title>
-  <style>
-{UI_CSS}
-  </style>
-</head>
-<body>
-{UI_BODY}
+if __name__ == "__main__" and hasattr(_module, "main"):
+    raise SystemExit(_module.main())
 
-  <script>
-{UI_JS}
-  </script>
-</body>
-</html>
-"""
+del _import_module, _module, _sys, _warnings
