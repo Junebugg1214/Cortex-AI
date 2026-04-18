@@ -69,9 +69,7 @@ def prepare_remote_fields(remote: Any) -> dict[str, Any]:
         pinned_did = str(getattr(remote, "trusted_did", "") or "").strip()
         pinned_public_key = str(getattr(remote, "trusted_public_key_b64", "") or "").strip()
         if not pinned_did:
-            raise ValueError(
-                f"Network remote '{getattr(remote, 'name', 'origin')}' requires a pinned trusted_did."
-            )
+            raise ValueError(f"Network remote '{getattr(remote, 'name', 'origin')}' requires a pinned trusted_did.")
         if pinned_did.startswith("did:upai:") and not pinned_public_key:
             raise ValueError(
                 f"Network remote '{getattr(remote, 'name', 'origin')}' requires a pinned public key for {pinned_did}."
@@ -83,9 +81,7 @@ def prepare_remote_fields(remote: Any) -> dict[str, Any]:
             "allowed_namespaces": allowed_namespaces,
         }
     if scheme and scheme != "file":
-        raise ValueError(
-            f"Unsupported remote scheme '{scheme}'. Supported schemes: file, http, https."
-        )
+        raise ValueError(f"Unsupported remote scheme '{scheme}'. Supported schemes: file, http, https.")
 
     store_path = _remote_store_path(remote)
     identity = ensure_store_identity(store_path, name_hint=f"Remote {getattr(remote, 'name', 'origin')}")
