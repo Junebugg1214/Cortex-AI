@@ -282,6 +282,14 @@ The image defaults to:
 cortexd --config /data/.cortex/config.toml
 ```
 
+The default Docker build installs the server, fast, and model extras while
+leaving out the heavyweight local embedding stack. To include local
+sentence-transformer embeddings in a custom image, build with:
+
+```bash
+docker build --build-arg CORTEX_EXTRAS=full -t cortex-ai:full .
+```
+
 ## MCP Client Example
 
 See [config.toml example](examples/config.toml) and

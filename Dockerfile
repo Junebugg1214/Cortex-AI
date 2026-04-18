@@ -3,7 +3,13 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 COPY . .
-RUN pip install --no-cache-dir --prefix=/install ".[full]"
+
+# Keep the default runtime image lean. The embedding extra pulls the PyTorch/CUDA
+# stack and can add several minutes to CI builds; opt into it with
+# --build-arg CORTEX_EXTRAS=full when local sentence-transformer embeddings are
+# required inside the container.
+ARG CORTEX_EXTRAS=server,fast,model
+RUN pip install --no-cache-dir --prefix=/install ".[${CORTEX_EXTRAS}]"
 
 # ---------- runtime stage ----------
 FROM python:3.12-slim
