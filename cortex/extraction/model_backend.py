@@ -15,8 +15,8 @@ from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemo
 from .pipeline import (
     Document,
     empty_result,
+    items_from_backend_result,
     legacy_context_from_pipeline_context,
-    result_from_backend_result,
 )
 from .pipeline import (
     ExtractionContext as PipelineExtractionContext,
@@ -25,6 +25,18 @@ from .pipeline import (
     ExtractionResult as PipelineExtractionResult,
 )
 from .retrieval import NodeHint, retrieve_similar_nodes
+from .stages import (
+    CandidateBatch,
+    PipelineState,
+    Refinement,
+    calibrate_confidence,
+    generate_candidates,
+    link_relations,
+    link_to_graph,
+    refine_types,
+    split_document,
+)
+from .stages.state import DocumentChunk
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
 try:  # pragma: no cover - missing dependency path is exercised by install profiles.
@@ -203,17 +215,43 @@ class ModelBackend(ExtractionBackend):
                 item_count=0,
             )
             return result
-        legacy_context = legacy_context_from_pipeline_context(context)
-        legacy_context["_skip_diagnostics_log"] = True
-        legacy_context["retrieval_hints"] = self._retrieve_hints(
-            document.content,
-            graph=context.existing_graph,
+
+        state = PipelineState(
+            document=document,
+            context=context,
+            diagnostics=ExtractionDiagnostics(prompt_version=context.prompt_version),
         )
-        result = self.extract_statement(
-            document.content,
-            context=legacy_context,
+        state = split_document(state)
+        state = generate_candidates(
+            state,
+            extractor=lambda chunk, hints: self._candidate_batch_from_chunk(chunk, hints, context=context),
+            hint_provider=lambda chunk: self._retrieve_hints(chunk.text, graph=context.existing_graph),
         )
-        pipeline_result = result_from_backend_result(result, document=document, context=context, started_at=started)
+        state = refine_types(
+            state,
+            refiner=lambda item: self._refine_low_confidence_item(item, context=context),
+        )
+        state = link_to_graph(
+            state,
+            embedding_backend=self._embedding_backend,
+            retrieval_top_k=self._retrieval_top_k,
+            retrieval_threshold=self._retrieval_threshold,
+        )
+        state = link_relations(state)
+        state = calibrate_confidence(state)
+        state = self._detect_contradictions(state)
+
+        latency_ms = (perf_counter() - started) * 1000.0
+        stage_timings = dict(state.diagnostics.stage_timings)
+        stage_timings["extract"] = latency_ms
+        diagnostics = replace(
+            state.diagnostics,
+            latency_ms=latency_ms,
+            stage_timings=stage_timings,
+            prompt_version=state.diagnostics.prompt_version or context.prompt_version,
+            warnings=list(state.warnings),
+        )
+        pipeline_result = PipelineExtractionResult(items=list(state.items), diagnostics=diagnostics)
         write_extraction_record(
             pipeline_result.diagnostics,
             backend="model",
@@ -223,6 +261,77 @@ class ModelBackend(ExtractionBackend):
             item_count=len(pipeline_result.items),
         )
         return pipeline_result
+
+    def _candidate_batch_from_chunk(
+        self,
+        chunk: DocumentChunk,
+        hints: Any,
+        *,
+        context: PipelineExtractionContext,
+    ) -> CandidateBatch:
+        legacy_context = legacy_context_from_pipeline_context(context)
+        legacy_context["_skip_diagnostics_log"] = True
+        legacy_context["retrieval_hints"] = list(hints)
+        result = self.extract_statement(chunk.text, context=legacy_context)
+        diagnostics = getattr(result, "_diagnostics", None)
+        if not isinstance(diagnostics, ExtractionDiagnostics):
+            diagnostics = ExtractionDiagnostics(prompt_version=context.prompt_version)
+        return CandidateBatch(
+            items=tuple(items_from_backend_result(result)),
+            diagnostics=diagnostics,
+            warnings=tuple(result.warnings),
+        )
+
+    def _refine_low_confidence_item(
+        self,
+        item: ExtractedMemoryItem,
+        *,
+        context: PipelineExtractionContext,
+    ) -> Refinement:
+        raw_source = item.source_span or "\n".join(item.source_quotes) or item.brief or item.topic
+        user_prompt = (
+            "Re-evaluate this low-confidence Cortex extraction item as a fact or claim only. "
+            "Return one corrected typed item preserving the source meaning.\n\n"
+            f"Source text:\n{raw_source}\n\n"
+            f"Current item:\n{json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True)}"
+        )
+        legacy_context = legacy_context_from_pipeline_context(context)
+        legacy_context["_skip_diagnostics_log"] = True
+        result = self.extract_statement(user_prompt, context=legacy_context)
+        diagnostics = getattr(result, "_diagnostics", None)
+        if not isinstance(diagnostics, ExtractionDiagnostics):
+            diagnostics = ExtractionDiagnostics(prompt_version=context.prompt_version)
+        refined = next(
+            (
+                candidate
+                for candidate in items_from_backend_result(result)
+                if isinstance(candidate, ExtractedFact | ExtractedClaim)
+            ),
+            item,
+        )
+        return Refinement(item=refined, diagnostics=diagnostics, warnings=tuple(result.warnings))
+
+    @staticmethod
+    def _detect_contradictions(state: PipelineState) -> PipelineState:
+        started = perf_counter()
+        graph = state.context.existing_graph
+        metadata = dict(state.metadata)
+        warnings = list(state.warnings)
+        if graph is not None:
+            try:
+                from cortex.graph.contradictions import ContradictionEngine
+
+                contradictions = ContradictionEngine().detect_all(graph)
+                if contradictions:
+                    graph.meta["contradictions"] = [item.to_dict() for item in contradictions]
+                    metadata["contradictions_detected"] = len(contradictions)
+            except Exception:  # pragma: no cover - contradiction scan should not break extraction
+                if "contradiction_detection_failed" not in warnings:
+                    warnings.append("contradiction_detection_failed")
+        next_state = replace(state, metadata=metadata, warnings=tuple(warnings))
+        if warnings != list(state.warnings):
+            next_state = next_state.with_warnings(tuple(warnings))
+        return next_state.with_timing("contradictions.detect", (perf_counter() - started) * 1000.0)
 
     def extract_statement(
         self,
