@@ -254,7 +254,7 @@ class SQLiteMaintenanceBackend:
     def _orphan_count(self, table_name: str) -> int:
         with self._connect() as conn:
             row = conn.execute(
-                f"""
+                f"""  # nosec B608 - table_name is selected from internal indexing tables only.
                 SELECT COUNT(*) AS total
                 FROM {table_name}
                 WHERE version_id NOT IN (SELECT version_id FROM snapshots)

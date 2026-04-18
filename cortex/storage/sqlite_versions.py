@@ -633,7 +633,7 @@ class SQLiteVersionBackend:
                 {
                     row["version_id"]: row["graph_json"]
                     for row in conn.execute(
-                        f"SELECT version_id, graph_json FROM snapshots WHERE version_id IN ({','.join('?' * len(version_ids))})",
+                        f"SELECT version_id, graph_json FROM snapshots WHERE version_id IN ({','.join('?' * len(version_ids))})",  # nosec B608 - dynamic fragment only expands parameter placeholders.
                         tuple(sorted(version_ids)),
                     ).fetchall()
                 }

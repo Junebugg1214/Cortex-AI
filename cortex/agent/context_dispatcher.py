@@ -562,7 +562,7 @@ def _deliver_webhook(url: str, payload: dict[str, Any]) -> dict[str, Any]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=10.0) as response:
+        with urllib.request.urlopen(request, timeout=10.0) as response:  # nosec B310 - request URL is policy-routed before dispatch.
             body = response.read().decode("utf-8", errors="replace")
         return {"status": "ok", "code": 200, "response": body}
     except urllib.error.HTTPError as exc:

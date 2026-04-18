@@ -64,7 +64,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,full]" cyclonedx-bom
-      - run: cyclonedx-py environment --format json -o sbom.json
+      - run: cyclonedx-py environment --output-format JSON --output-file sbom.json
       - uses: actions/upload-artifact@v4
         with:
           name: sbom-json
