@@ -185,7 +185,8 @@ class MemoryUIBackend:
                 raise FileNotFoundError(f"Source file not found: {path}")
             statement = path.read_text(encoding="utf-8")
         elif source_kind == "url":
-            with urlopen(source_value, timeout=10.0) as response:  # nosec B310 - source_kind=url is an explicit user import path.
+            # Safe: source_kind=url is an explicit user import path.
+            with urlopen(source_value, timeout=10.0) as response:  # nosec B310
                 statement = response.read().decode("utf-8", errors="replace")
         elif source_kind == "paste":
             statement = source_value

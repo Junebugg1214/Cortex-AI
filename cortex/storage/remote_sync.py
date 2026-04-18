@@ -112,7 +112,8 @@ def _http_json(remote: RemoteRecord, method: str, path: str, payload: dict[str, 
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=data, headers=_http_headers(remote), method=method)
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 - remote URL scheme is restricted to http(s).
+        # Safe: remote URL scheme is restricted to http(s).
+        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         raise _decode_http_error(exc) from exc

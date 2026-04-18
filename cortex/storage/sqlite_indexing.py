@@ -252,14 +252,22 @@ class SQLiteMaintenanceBackend:
         return [self.versions.store_dir / "merge_state.json", self.versions.store_dir / "merge_working.json"]
 
     def _orphan_count(self, table_name: str) -> int:
+        if table_name == "lexical_indices":
+            sql = """
+            SELECT COUNT(*) AS total
+            FROM lexical_indices
+            WHERE version_id NOT IN (SELECT version_id FROM snapshots)
+            """
+        elif table_name == "embedding_indices":
+            sql = """
+            SELECT COUNT(*) AS total
+            FROM embedding_indices
+            WHERE version_id NOT IN (SELECT version_id FROM snapshots)
+            """
+        else:
+            raise ValueError(f"Unsupported index table: {table_name}")
         with self._connect() as conn:
-            row = conn.execute(
-                f"""  # nosec B608 - table_name is selected from internal indexing tables only.
-                SELECT COUNT(*) AS total
-                FROM {table_name}
-                WHERE version_id NOT IN (SELECT version_id FROM snapshots)
-                """
-            ).fetchone()
+            row = conn.execute(sql).fetchone()
         return int(row["total"]) if row is not None else 0
 
     def _stale_merge_artifacts(self, retention_days: int) -> list[str]:
