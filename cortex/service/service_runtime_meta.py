@@ -6,7 +6,7 @@ from cortex.embeddings import get_embedding_provider
 from cortex.integrity import check_store_integrity
 from cortex.openapi import build_openapi_spec
 from cortex.release import build_release_metadata
-from cortex.service_runtime_common import _backend_name, _safe_head_ref, _safe_index_status
+from cortex.service.service_runtime_common import _backend_name, _safe_head_ref, _safe_index_status
 
 
 class MemoryRuntimeMetaMixin:
