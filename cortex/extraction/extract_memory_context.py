@@ -313,7 +313,9 @@ class ExtractionContext:
             )
 
         if topic_cls is ExtractedClaim:
-            stance = "denies" if category == "negations" else "corrects" if category == "correction_history" else "asserts"
+            stance = (
+                "denies" if category == "negations" else "corrects" if category == "correction_history" else "asserts"
+            )
             assertion = kwargs.get("brief") or kwargs.get("full_description") or topic
             return ExtractedClaim(assertion=str(assertion), stance=stance, **kwargs)
 
