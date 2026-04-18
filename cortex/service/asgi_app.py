@@ -24,7 +24,8 @@ from cortex.service import MemoryService
 from cortex.service.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
-    InMemoryRateLimiter,
+    RateLimiter,
+    build_rate_limiter,
     enforce_rate_limit,
     request_policy_for_mode,
 )
@@ -152,13 +153,14 @@ def build_asgi_app(
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
     request_policy: HTTPRequestPolicy | None = None,
+    rate_limiter: RateLimiter | None = None,
     external_base_url: str | None = None,
     cors_origins: Iterable[str] = (),
 ) -> Starlette:
     """Build a Starlette app that mirrors the stdlib Cortex REST API."""
 
     policy = request_policy or HTTPRequestPolicy()
-    rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
+    resolved_rate_limiter = rate_limiter if rate_limiter is not None else build_rate_limiter(policy)
 
     async def api_endpoint(request: Request) -> Response:
         if request.method == "OPTIONS":
@@ -169,7 +171,7 @@ def build_asgi_app(
         client_port = request.client.port if request.client else 0
         rate_error = enforce_rate_limit(
             _ASGIClientView(client_address=(client_host, client_port), headers=headers),
-            limiter=rate_limiter,
+            limiter=resolved_rate_limiter,
             policy=policy,
         )
         if rate_error:
@@ -226,6 +228,7 @@ def run_asgi_server(
     auth_keys: tuple[APIKeyConfig, ...] = (),
     allow_unsafe_bind: bool = False,
     request_policy: HTTPRequestPolicy | None = None,
+    rate_limit_backend: str = "memory",
     external_base_url: str | None = None,
     cors_origins: Iterable[str] = (),
 ) -> int:
@@ -242,11 +245,13 @@ def run_asgi_server(
     )
     service = MemoryService(store_dir=store_dir, context_file=context_file)
     policy = request_policy or request_policy_for_mode(runtime_mode)
+    rate_limiter = build_rate_limiter(policy, store_dir=store_dir, backend=rate_limit_backend)
     app = build_asgi_app(
         service,
         api_key=api_key,
         auth_keys=auth_keys,
         request_policy=policy,
+        rate_limiter=rate_limiter,
         external_base_url=external_base_url,
         cors_origins=cors_origins,
     )

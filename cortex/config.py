@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from cortex.http_hardening import request_policy_for_mode
+from cortex.http_hardening import RATE_LIMIT_BACKENDS, request_policy_for_mode
 from cortex.namespaces import (
     WILDCARD_NAMESPACE,
     acl_allows_namespace,
@@ -89,6 +89,13 @@ def _normalize_runtime_mode(value: str | None) -> str:
     if mode not in RUNTIME_MODES:
         raise ValueError(f"Runtime mode must be one of: {', '.join(RUNTIME_MODES)}.")
     return mode
+
+
+def _normalize_ratelimit_backend(value: str | None) -> str:
+    backend = str(value or "").strip().lower() or "memory"
+    if backend not in RATE_LIMIT_BACKENDS:
+        raise ValueError(f"Rate limit backend must be one of: {', '.join(RATE_LIMIT_BACKENDS)}.")
+    return backend
 
 
 def is_loopback_host(host: str) -> bool:
@@ -208,6 +215,7 @@ class CortexSelfHostConfig:
     server_port: int = 8766
     external_base_url: str | None = None
     runtime_mode: str = "local-single-user"
+    ratelimit_backend: str = "memory"
     mcp_namespace: str | None = None
     api_keys: tuple[APIKeyConfig, ...] = field(default_factory=tuple)
 
@@ -457,6 +465,9 @@ def load_selfhost_config(
     server_table = raw_config.get("server") or {}
     if server_table and not isinstance(server_table, dict):
         raise ValueError("Config table [server] must be a TOML table.")
+    ratelimit_table = server_table.get("ratelimit") or {}
+    if ratelimit_table and not isinstance(ratelimit_table, dict):
+        raise ValueError("Config table [server.ratelimit] must be a TOML table.")
     mcp_table = raw_config.get("mcp") or {}
     if mcp_table and not isinstance(mcp_table, dict):
         raise ValueError("Config table [mcp] must be a TOML table.")
@@ -496,6 +507,11 @@ def load_selfhost_config(
         or str(server_table.get("external_base_url", "")).strip()
         or None
     )
+    configured_ratelimit_backend = (
+        env_map.get("CORTEX_RATELIMIT_BACKEND", "").strip()
+        or str(ratelimit_table.get("backend", "")).strip()
+        or "memory"
+    )
     configured_mcp_namespace = (
         str(mcp_namespace).strip()
         if mcp_namespace is not None
@@ -516,6 +532,7 @@ def load_selfhost_config(
         server_port=_normalize_server_port(configured_port),
         external_base_url=configured_external_base_url,
         runtime_mode=_normalize_runtime_mode(configured_runtime_mode),
+        ratelimit_backend=_normalize_ratelimit_backend(configured_ratelimit_backend),
         mcp_namespace=normalize_resource_namespace(configured_mcp_namespace),
         api_keys=configured_keys,
     )
@@ -619,6 +636,7 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
                     if policy["rate_limit_per_minute"]
                     else "rate limit disabled"
                 )
+                + f", backend {config.ratelimit_backend}"
             )
         if mode == "ui":
             session_note = "browser session token (loopback)"

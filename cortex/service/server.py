@@ -25,8 +25,8 @@ from cortex.error_envelopes import error_envelope
 from cortex.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
-    InMemoryRateLimiter,
     apply_read_timeout,
+    build_rate_limiter,
     enforce_rate_limit,
     read_json_request,
     request_policy_for_mode,
@@ -437,15 +437,16 @@ def make_api_handler(
     api_key: str | None = None,
     auth_keys: tuple[APIKeyConfig, ...] = (),
     request_policy: HTTPRequestPolicy | None = None,
+    rate_limiter=None,
     external_base_url: str | None = None,
 ):
     policy = request_policy or HTTPRequestPolicy()
-    rate_limiter = InMemoryRateLimiter(policy.rate_limit_per_minute) if policy.rate_limit_per_minute else None
+    resolved_rate_limiter = rate_limiter if rate_limiter is not None else build_rate_limiter(policy)
 
     class CortexAPIHandler(BaseHTTPRequestHandler):
         server_version = f"CortexAPI/{OPENAPI_VERSION}"
         _request_policy = policy
-        _rate_limiter = rate_limiter
+        _rate_limiter = resolved_rate_limiter
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
@@ -543,6 +544,7 @@ def start_api_server(
     auth_keys: tuple[APIKeyConfig, ...] = (),
     allow_unsafe_bind: bool = False,
     request_policy: HTTPRequestPolicy | None = None,
+    rate_limit_backend: str = "memory",
     external_base_url: str | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     validate_runtime_security(
@@ -554,6 +556,7 @@ def start_api_server(
     )
     service = MemoryService(store_dir=store_dir, context_file=context_file)
     policy = request_policy or request_policy_for_mode(runtime_mode)
+    rate_limiter = build_rate_limiter(policy, store_dir=store_dir, backend=rate_limit_backend)
     server = ThreadingHTTPServer(
         (host, port),
         make_api_handler(
@@ -561,6 +564,7 @@ def start_api_server(
             api_key=api_key,
             auth_keys=auth_keys,
             request_policy=policy,
+            rate_limiter=rate_limiter,
             external_base_url=external_base_url,
         ),
     )
@@ -631,6 +635,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_mode=config.runtime_mode,
         auth_keys=config.api_keys,
         allow_unsafe_bind=args.allow_unsafe_bind,
+        rate_limit_backend=config.ratelimit_backend,
         external_base_url=config.external_base_url,
     )
     controller = ShutdownController()

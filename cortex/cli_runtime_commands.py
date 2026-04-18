@@ -678,6 +678,7 @@ def run_server(args, *, ctx: RuntimeCliContext) -> int:
             auth_keys=config.api_keys,
             allow_unsafe_bind=args.allow_unsafe_bind,
             external_base_url=config.external_base_url,
+            rate_limit_backend=config.ratelimit_backend,
             cors_origins=tuple(getattr(args, "cors_origin", ()) or ()),
         )
     argv = ctx.runtime_forward_argv(
