@@ -89,9 +89,10 @@ def _tool_call(server: CortexMCPServer, *, tool: str, arguments: dict | None = N
 
 
 def test_cli_parser_supports_mcp_subcommand():
-    args = build_parser().parse_args(["mcp", "--store-dir", ".cortex", "--namespace", "team"])
+    args = build_parser().parse_args(["serve", "mcp", "--store-dir", ".cortex", "--namespace", "team"])
 
-    assert args.subcommand == "mcp"
+    assert args.subcommand == "serve"
+    assert args.serve_subcommand == "mcp"
     assert args.store_dir == ".cortex"
     assert args.namespace == "team"
 
