@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from cortex.extraction import (
@@ -10,6 +12,11 @@ from cortex.extraction import (
     ModelBackend,
 )
 from cortex.extraction.registry import get_backend, get_bulk_backend, get_hot_path_backend
+
+requires_missing_embeddings_extra = pytest.mark.skipif(
+    importlib.util.find_spec("sentence_transformers") is not None,
+    reason="embedding backend constructs when the optional embeddings extra is installed",
+)
 
 
 def test_get_backend_returns_heuristic():
@@ -24,6 +31,7 @@ def test_get_backend_returns_hybrid():
     assert isinstance(get_backend("hybrid"), HybridBackend)
 
 
+@requires_missing_embeddings_extra
 def test_get_backend_embedding_raises_disabled_stub():
     with pytest.raises(NotImplementedError) as excinfo:
         get_backend("embedding")
@@ -88,6 +96,7 @@ def test_bulk_config_is_used_when_env_missing(monkeypatch):
     assert isinstance(get_bulk_backend(), HeuristicBackend)
 
 
+@requires_missing_embeddings_extra
 def test_embedding_hot_backend_raises(monkeypatch):
     monkeypatch.setenv("CORTEX_HOT_PATH_BACKEND", "embedding")
     with pytest.raises(NotImplementedError) as excinfo:
@@ -95,6 +104,7 @@ def test_embedding_hot_backend_raises(monkeypatch):
     assert str(excinfo.value) == EMBEDDING_BACKEND_DISABLED_MESSAGE
 
 
+@requires_missing_embeddings_extra
 def test_embedding_bulk_backend_raises(monkeypatch):
     monkeypatch.setenv("CORTEX_BULK_BACKEND", "embedding")
     with pytest.raises(NotImplementedError) as excinfo:
