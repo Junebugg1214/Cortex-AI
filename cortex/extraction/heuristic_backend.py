@@ -6,6 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
+from cortex.extraction.diagnostics import ExtractionDiagnostics, write_extraction_record
 from cortex.extraction.extract_memory_context import build_eval_compat_view as _build_eval_compat_view
 from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
 from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
@@ -14,8 +15,6 @@ from cortex.temporal import apply_temporal_review_policy
 from .backend import ExtractionBackend
 from .pipeline import (
     Document,
-    ExtractionDiagnostics,
-    empty_result,
 )
 from .pipeline import (
     ExtractionContext as PipelineExtractionContext,
@@ -26,19 +25,15 @@ from .pipeline import (
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
 
-def _estimate_tokens(text: str) -> int:
-    return len((text or "").split())
+def _skip_diagnostics_log(context: dict | None) -> bool:
+    return bool((context or {}).get("_skip_diagnostics_log", False))
 
 
-def _item_text(item: Any) -> str:
-    return " ".join(
-        part
-        for part in (
-            getattr(item, "topic", ""),
-            getattr(item, "brief", ""),
-            getattr(item, "full_description", ""),
-        )
-        if part
+def _heuristic_diagnostics(started_at: float) -> ExtractionDiagnostics:
+    latency_ms = (perf_counter() - started_at) * 1000.0
+    return ExtractionDiagnostics(
+        latency_ms=latency_ms,
+        stage_timings={"extract": latency_ms},
     )
 
 
@@ -290,22 +285,35 @@ class HeuristicBackend(ExtractionBackend):
 
         started = perf_counter()
         if not document.content.strip():
-            return empty_result(document, started_at=started)
+            diagnostics = _heuristic_diagnostics(started)
+            result = PipelineExtractionResult(diagnostics=diagnostics)
+            write_extraction_record(
+                diagnostics,
+                backend="heuristic",
+                operation="run",
+                source_id=document.source_id,
+                source_type=document.source_type,
+                item_count=0,
+            )
+            return result
         extractor = HeuristicRuleExtractor()
         extractor.extract_from_text(document.content)
         extractor.post_process()
         items = [context.canonical_resolver.resolve(item, context.existing_graph) for item in extractor.items()]
-        latency_ms = (perf_counter() - started) * 1000.0
-        return PipelineExtractionResult(
+        diagnostics = _heuristic_diagnostics(started)
+        result = PipelineExtractionResult(
             items=items,
-            diagnostics=ExtractionDiagnostics(
-                tokens_in=_estimate_tokens(document.content),
-                tokens_out=sum(_estimate_tokens(_item_text(item)) for item in items),
-                latency_ms=latency_ms,
-                cost_usd=0.0,
-                stage_timings={"extract": latency_ms},
-            ),
+            diagnostics=diagnostics,
         )
+        write_extraction_record(
+            diagnostics,
+            backend="heuristic",
+            operation="run",
+            source_id=document.source_id,
+            source_type=document.source_type,
+            item_count=len(items),
+        )
+        return result
 
     def extract_statement(
         self,
@@ -314,6 +322,7 @@ class HeuristicBackend(ExtractionBackend):
     ) -> ExtractionResult:
         """Run heuristic extraction on one statement and expose legacy node/edge output."""
 
+        started = perf_counter()
         extractor = None
         if context:
             candidate = context.get("extractor")
@@ -333,6 +342,15 @@ class HeuristicBackend(ExtractionBackend):
         result = result_from_graph(graph, raw_source=text, extraction_method="heuristic")
         result._graph = graph
         result._v4_output = payload
+        diagnostics = _heuristic_diagnostics(started)
+        result._diagnostics = diagnostics
+        if not _skip_diagnostics_log(context):
+            write_extraction_record(
+                diagnostics,
+                backend="heuristic",
+                operation="extract_statement",
+                item_count=len(result.nodes) + len(result.edges),
+            )
         return result
 
     def extract_bulk(
@@ -347,6 +365,7 @@ class HeuristicBackend(ExtractionBackend):
         data = ctx.get("data")
         fmt = str(ctx.get("fmt") or "")
         if fmt:
+            started = perf_counter()
             extractor = extractor if _is_heuristic_processor(extractor) else HeuristicRuleExtractor()
             _process_export_data(extractor, data, fmt)
             payload = extractor.context.export()
@@ -355,9 +374,32 @@ class HeuristicBackend(ExtractionBackend):
             result = result_from_graph(graph, raw_source=raw_source, extraction_method="heuristic")
             result._graph = graph
             result._v4_output = payload
+            diagnostics = _heuristic_diagnostics(started)
+            result._diagnostics = diagnostics
+            if not _skip_diagnostics_log(context):
+                write_extraction_record(
+                    diagnostics,
+                    backend="heuristic",
+                    operation="extract_bulk",
+                    item_count=len(result.nodes) + len(result.edges),
+                )
             return [result]
 
-        return [self.extract_statement(text, context=context) for text in texts]
+        started = perf_counter()
+        inner_context = dict(context or {})
+        inner_context["_skip_diagnostics_log"] = True
+        results = [self.extract_statement(text, context=inner_context) for text in texts]
+        diagnostics = _heuristic_diagnostics(started)
+        for result in results:
+            result._diagnostics = diagnostics
+        if not _skip_diagnostics_log(context):
+            write_extraction_record(
+                diagnostics,
+                backend="heuristic",
+                operation="extract_bulk",
+                item_count=sum(len(result.nodes) + len(result.edges) for result in results),
+            )
+        return results
 
     def canonical_match(
         self,

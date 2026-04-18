@@ -115,6 +115,9 @@ def add_runtime_misc_parsers(sub, *, add_runtime_security_args):
     cp.add_argument("--mind", default="", help=argparse.SUPPRESS)
     cp.add_argument("--store-dir", default=".cortex", help=argparse.SUPPRESS)
 
+    extraction_tail = sub.add_parser("extractions-tail", help="Show recent extraction diagnostics")
+    extraction_tail.add_argument("--limit", type=int, default=20, help="Number of records to show (default: 20)")
+
     ro = sub.add_parser("rotate", help="Rotate UPAI identity key")
     ro.add_argument("--store-dir", default=".cortex", help="Identity store directory (default: .cortex)")
     ro.add_argument(

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import replace
 from time import perf_counter
 from typing import Any, Mapping
 
 from cortex.graph import CATEGORY_ORDER
 
 from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
+from .diagnostics import ExtractionDiagnostics, write_extraction_record
 from .pipeline import (
     Document,
     empty_result,
@@ -67,6 +69,15 @@ Rules:
 """
 
 DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+_ANTHROPIC_PRICING_PER_MILLION = (
+    ("claude-3-opus", 15.0, 75.0),
+    ("claude-opus", 15.0, 75.0),
+    ("claude-3-5-haiku", 0.80, 4.0),
+    ("claude-3-haiku", 0.25, 1.25),
+    ("claude-3-7-sonnet", 3.0, 15.0),
+    ("claude-3-5-sonnet", 3.0, 15.0),
+    ("claude-sonnet", 3.0, 15.0),
+)
 _CATEGORY_ALIASES = {
     "person": "identity",
     "people": "identity",
@@ -95,18 +106,40 @@ class ModelBackend(ExtractionBackend):
 
     def __init__(self, *, api_key: str | None = None) -> None:
         self._configured_api_key = api_key
+        self._last_request_diagnostics: ExtractionDiagnostics | None = None
 
     def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
         """Run model extraction through the unified pipeline contract."""
 
         started = perf_counter()
         if not document.content.strip():
-            return empty_result(document, started_at=started)
+            result = empty_result(document, started_at=started)
+            result.diagnostics = replace(result.diagnostics, prompt_version=context.prompt_version)
+            write_extraction_record(
+                result.diagnostics,
+                backend="model",
+                operation="run",
+                source_id=document.source_id,
+                source_type=document.source_type,
+                item_count=0,
+            )
+            return result
+        legacy_context = legacy_context_from_pipeline_context(context)
+        legacy_context["_skip_diagnostics_log"] = True
         result = self.extract_statement(
             document.content,
-            context=legacy_context_from_pipeline_context(context),
+            context=legacy_context,
         )
-        return result_from_backend_result(result, document=document, context=context, started_at=started)
+        pipeline_result = result_from_backend_result(result, document=document, context=context, started_at=started)
+        write_extraction_record(
+            pipeline_result.diagnostics,
+            backend="model",
+            operation="run",
+            source_id=document.source_id,
+            source_type=document.source_type,
+            item_count=len(pipeline_result.items),
+        )
+        return pipeline_result
 
     def extract_statement(
         self,
@@ -115,12 +148,28 @@ class ModelBackend(ExtractionBackend):
     ) -> ExtractionResult:
         """Extract graph facts from one statement with Claude."""
 
+        started = perf_counter()
+        context = dict(context or {})
         raw = self._request_json(
             system_prompt=EXTRACTION_SYSTEM_PROMPT,
             user_prompt=json.dumps({"text": text}, ensure_ascii=False),
         )
+        diagnostics = self._consume_request_diagnostics(
+            started_at=started,
+            prompt_version=str(context.get("prompt_version") or ""),
+        )
         payload = self._parse_json_payload(raw)
-        return self._result_from_payload(payload, raw_source=text)
+        result = self._result_from_payload(payload, raw_source=text)
+        diagnostics = replace(diagnostics, warnings=list(result.warnings))
+        result._diagnostics = diagnostics
+        if not self._skip_diagnostics_log(context):
+            write_extraction_record(
+                diagnostics,
+                backend="model",
+                operation="extract_statement",
+                item_count=len(result.nodes) + len(result.edges),
+            )
+        return result
 
     def extract_bulk(
         self,
@@ -129,7 +178,11 @@ class ModelBackend(ExtractionBackend):
     ) -> list[ExtractionResult]:
         """Extract graph facts from a batch of statements in batches of 10 API calls."""
 
+        started = perf_counter()
+        context = dict(context or {})
+        prompt_version = str(context.get("prompt_version") or "")
         results: list[ExtractionResult] = []
+        request_diagnostics: list[ExtractionDiagnostics] = []
         for batch_start in range(0, len(texts), 10):
             batch = texts[batch_start : batch_start + 10]
             raw = self._request_json(
@@ -138,6 +191,9 @@ class ModelBackend(ExtractionBackend):
                     + '\nWhen given multiple texts, return {"results": [schema, ...]} in the same order.'
                 ),
                 user_prompt=json.dumps({"texts": batch}, ensure_ascii=False),
+            )
+            request_diagnostics.append(
+                self._consume_request_diagnostics(started_at=started, prompt_version=prompt_version)
             )
             payload = self._parse_json_payload(raw)
             if isinstance(payload, dict) and isinstance(payload.get("results"), list):
@@ -163,6 +219,21 @@ class ModelBackend(ExtractionBackend):
                         raw_response=raw,
                     )
                 results.append(self._result_from_payload(item, raw_source=text))
+        diagnostics = self._combine_diagnostics(
+            request_diagnostics,
+            started_at=started,
+            prompt_version=prompt_version,
+            warnings=[warning for result in results for warning in result.warnings],
+        )
+        for result in results:
+            result._diagnostics = diagnostics
+        if not self._skip_diagnostics_log(context):
+            write_extraction_record(
+                diagnostics,
+                backend="model",
+                operation="extract_bulk",
+                item_count=sum(len(result.nodes) + len(result.edges) for result in results),
+            )
         return results
 
     def canonical_match(
@@ -202,6 +273,7 @@ class ModelBackend(ExtractionBackend):
                 ensure_ascii=False,
             ),
         )
+        self._last_request_diagnostics = None
         payload = self._parse_json_payload(raw)
         if not isinstance(payload, dict):
             raise ExtractionParseError("ModelBackend canonical_match returned a non-object payload.", raw_response=raw)
@@ -258,19 +330,134 @@ class ModelBackend(ExtractionBackend):
 
         api_key = self._api_key()
         client = self._anthropic_client_cls()(api_key=api_key)
+        model_name = self._model_name()
+        started = perf_counter()
         response = client.messages.create(
-            model=self._model_name(),
+            model=model_name,
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
+        latency_ms = (perf_counter() - started) * 1000.0
         content = getattr(response, "content", [])
         parts: list[str] = []
         for block in content:
-            text = getattr(block, "text", None)
+            text = block.get("text") if isinstance(block, Mapping) else getattr(block, "text", None)
             if isinstance(text, str):
                 parts.append(text)
+        self._last_request_diagnostics = self._diagnostics_from_response(
+            response,
+            fallback_model=model_name,
+            latency_ms=latency_ms,
+        )
         return "".join(parts).strip()
+
+    @staticmethod
+    def _skip_diagnostics_log(context: dict[str, Any]) -> bool:
+        return bool(context.get("_skip_diagnostics_log", False))
+
+    @staticmethod
+    def _object_value(source: Any, key: str) -> Any:
+        if isinstance(source, Mapping):
+            return source.get(key)
+        return getattr(source, key, None)
+
+    @classmethod
+    def _int_value(cls, source: Any, key: str) -> int:
+        value = cls._object_value(source, key)
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _float_value(cls, source: Any, key: str) -> float | None:
+        value = cls._object_value(source, key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _cost_from_usage(*, model: str, tokens_in: int, tokens_out: int) -> float:
+        normalized_model = model.lower()
+        for marker, input_price, output_price in _ANTHROPIC_PRICING_PER_MILLION:
+            if marker in normalized_model:
+                return (tokens_in * input_price + tokens_out * output_price) / 1_000_000.0
+        return 0.0
+
+    def _diagnostics_from_response(
+        self,
+        response: Any,
+        *,
+        fallback_model: str,
+        latency_ms: float,
+    ) -> ExtractionDiagnostics:
+        usage = self._object_value(response, "usage") or {}
+        cache_creation_tokens = self._int_value(usage, "cache_creation_input_tokens")
+        cache_read_tokens = self._int_value(usage, "cache_read_input_tokens")
+        tokens_in = self._int_value(usage, "input_tokens") + cache_creation_tokens + cache_read_tokens
+        tokens_out = self._int_value(usage, "output_tokens")
+        model_name = str(self._object_value(response, "model") or fallback_model)
+        cost_usd = self._float_value(response, "cost_usd")
+        if cost_usd is None:
+            cost_usd = self._float_value(usage, "cost_usd")
+        if cost_usd is None:
+            cost_usd = self._cost_from_usage(model=model_name, tokens_in=tokens_in, tokens_out=tokens_out)
+        return ExtractionDiagnostics(
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+            stage_timings={"request": latency_ms},
+            model=model_name,
+            cache_hit=cache_read_tokens > 0,
+        )
+
+    def _consume_request_diagnostics(
+        self,
+        *,
+        started_at: float,
+        prompt_version: str,
+    ) -> ExtractionDiagnostics:
+        latency_ms = (perf_counter() - started_at) * 1000.0
+        diagnostics = self._last_request_diagnostics
+        self._last_request_diagnostics = None
+        if diagnostics is None:
+            diagnostics = ExtractionDiagnostics(model=self._model_name())
+        stage_timings = dict(diagnostics.stage_timings)
+        stage_timings["extract"] = latency_ms
+        return replace(
+            diagnostics,
+            latency_ms=latency_ms,
+            stage_timings=stage_timings,
+            prompt_version=prompt_version,
+        )
+
+    @staticmethod
+    def _combine_diagnostics(
+        diagnostics: list[ExtractionDiagnostics],
+        *,
+        started_at: float,
+        prompt_version: str,
+        warnings: list[str],
+    ) -> ExtractionDiagnostics:
+        latency_ms = (perf_counter() - started_at) * 1000.0
+        request_ms = sum(item.stage_timings.get("request", 0.0) for item in diagnostics)
+        model = next((item.model for item in diagnostics if item.model), "")
+        return ExtractionDiagnostics(
+            tokens_in=sum(item.tokens_in for item in diagnostics),
+            tokens_out=sum(item.tokens_out for item in diagnostics),
+            cost_usd=sum(item.cost_usd for item in diagnostics),
+            latency_ms=latency_ms,
+            stage_timings={"request": request_ms, "extract": latency_ms},
+            model=model,
+            prompt_version=prompt_version,
+            warnings=list(warnings),
+            cache_hit=any(item.cache_hit for item in diagnostics),
+        )
 
     def _model_name(self) -> str:
         """Resolve the Anthropic model name from config or environment."""

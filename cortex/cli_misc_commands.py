@@ -57,6 +57,16 @@ def run_stats(args, *, ctx: MiscCliContext) -> int:
     return 0
 
 
+def run_extractions_tail(args, *, ctx: MiscCliContext) -> int:
+    """Show recent extraction diagnostics records."""
+
+    from cortex.extraction.diagnostics import format_extraction_records, tail_extraction_records
+
+    records = tail_extraction_records(limit=max(int(args.limit), 0))
+    ctx.echo(format_extraction_records(records))
+    return 0
+
+
 def run_pull(args, *, ctx: MiscCliContext) -> int:
     """Import a platform export file back into a CortexGraph."""
     input_path = Path(args.input_file)

@@ -23,7 +23,7 @@ _LAZY_ATTRS = {
     "ExtractionBackendError": "cortex.extraction.backend",
     "ExtractionBudget": "cortex.extraction.pipeline",
     "ExtractionContext": "cortex.extraction.pipeline",
-    "ExtractionDiagnostics": "cortex.extraction.pipeline",
+    "ExtractionDiagnostics": "cortex.extraction.diagnostics",
     "ExtractionParseError": "cortex.extraction.backend",
     "ExtractionPipeline": "cortex.extraction.pipeline",
     "ExtractionResult": "cortex.extraction.types",
