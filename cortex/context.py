@@ -335,7 +335,8 @@ def watch_and_refresh(
     project_dir: str | None = None,
     policy: str | None = None,
     max_chars: int = 1500,
-    interval: int = 30,
+    interval: float = 30,
+    stop_event: threading.Event | None = None,
 ) -> None:
     """Poll graph file and re-write context when it changes.
 
@@ -346,16 +347,16 @@ def watch_and_refresh(
         return
 
     last_mtime = path.stat().st_mtime
-    stop_event = threading.Event()
+    watcher_stop = stop_event or threading.Event()
 
     # Initial write
     write_context(graph_path, platforms, project_dir, policy, max_chars)
     print(f"Watching {graph_path} (interval: {interval}s)...")
 
     try:
-        while not stop_event.is_set():
-            stop_event.wait(interval)
-            if stop_event.is_set():
+        while not watcher_stop.is_set():
+            watcher_stop.wait(interval)
+            if watcher_stop.is_set():
                 break
 
             try:

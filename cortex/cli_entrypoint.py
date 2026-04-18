@@ -51,6 +51,7 @@ KNOWN_SUBCOMMANDS = (
     "scan",
     "remember",
     "status",
+    "mount",
     "build",
     "audit",
     "doctor",

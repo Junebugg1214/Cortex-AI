@@ -425,6 +425,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
             "scan": run_scan,
             "remember": run_remember,
             "status": run_status,
+            "mount": run_mount,
             "build": run_build,
             "audit": run_audit,
             "doctor": run_doctor,
@@ -674,6 +675,10 @@ def run_context_export(args):
 
 def run_context_write(args):
     return cli_portable_commands_module.run_context_write(args, ctx=_portable_cli_context())
+
+
+def run_mount(args):
+    return cli_portable_commands_module.run_mount(args, ctx=_portable_cli_context())
 
 
 def run_portable(args):

@@ -131,6 +131,45 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     sts.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
     sts.add_argument("--format", choices=["json", "text"], default="text")
 
+    mount = sub.add_parser(
+        "mount",
+        help="Watch and refresh mounted context files",
+        description="Watch a Cortex graph and refresh mounted AI runtime context files.",
+    )
+    mount_sub = mount.add_subparsers(dest="mount_subcommand")
+
+    mount_watch = mount_sub.add_parser(
+        "watch",
+        help="Poll a Cortex graph and refresh mounted context files when it changes",
+        description="Poll a Cortex graph file and refresh mounted context files when its mtime changes.",
+    )
+    mount_watch.add_argument(
+        "--project",
+        "-d",
+        default=".",
+        help="Project directory for project-scoped targets and the default graph path (default: cwd)",
+    )
+    mount_watch.add_argument(
+        "--graph",
+        help="Cortex graph JSON to watch (default: <project>/<store-dir>/portable/context.json)",
+    )
+    mount_watch.add_argument(
+        "--to",
+        "-t",
+        nargs="+",
+        default=["all"],
+        help="Targets: claude-code, claude-code-project, codex, cursor, copilot, windsurf, gemini, or all",
+    )
+    mount_watch.add_argument(
+        "--policy",
+        default=None,
+        choices=list(builtin_policies.keys()),
+        help="Override disclosure policy for all refreshed targets",
+    )
+    mount_watch.add_argument("--max-chars", type=int, default=1500, help="Max characters per context file")
+    mount_watch.add_argument("--interval", type=float, default=30, help="Polling interval in seconds (default: 30)")
+    mount_watch.add_argument("--store-dir", default=".cortex", help="Store directory used for the default graph path")
+
     bld = sub.add_parser(
         "build",
         help="Compatibility command for legacy digital-footprint imports",
