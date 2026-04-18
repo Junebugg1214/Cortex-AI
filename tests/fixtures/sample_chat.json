@@ -1,0 +1,16 @@
+[
+  {
+    "role": "user",
+    "content": "I use Python and React every day for AI memory tooling. I collaborate with Sarah Chen on Cortex planning. I do not use Java for this project.",
+    "timestamp": "2026-04-17T10:00:00Z"
+  },
+  {
+    "role": "assistant",
+    "content": "Noted."
+  },
+  {
+    "role": "user",
+    "content": "Correction: my mentor is Sarah Chen, and the project priority is local-first versioned memory.",
+    "timestamp": "2026-04-17T10:05:00Z"
+  }
+]

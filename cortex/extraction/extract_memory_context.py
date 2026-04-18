@@ -111,7 +111,7 @@ def build_eval_compat_view(v4_output: dict) -> dict[str, list[dict]]:
 
 
 @dataclass
-class ExtractedTopic:
+class ExtractedMemoryItem:
     topic: str
     category: str
     brief: str = ""
@@ -168,6 +168,9 @@ class ExtractedTopic:
         if other.last_seen and (self.last_seen is None or other.last_seen > self.last_seen):
             self.last_seen = other.last_seen
 
+    def as_dict(self) -> dict:
+        return self.to_dict()
+
     def to_dict(self) -> dict:
         result = {
             "topic": self.topic,
@@ -200,6 +203,81 @@ class ExtractedTopic:
 
 
 @dataclass
+class ExtractedTopic(ExtractedMemoryItem):
+    """Backward-compatible extraction item used by older callers."""
+
+
+@dataclass
+class ExtractedFact(ExtractedTopic):
+    """Atomic typed attribute extracted from user text."""
+
+    attribute_name: str = ""
+    attribute_value: str = ""
+
+    def as_dict(self) -> dict:
+        data = ExtractedMemoryItem.to_dict(self)
+        data.update(
+            {
+                "extraction_type": "fact",
+                "attribute_name": self.attribute_name,
+                "attribute_value": self.attribute_value,
+            }
+        )
+        return data
+
+    def to_dict(self) -> dict:
+        return self.as_dict()
+
+
+@dataclass
+class ExtractedClaim(ExtractedTopic):
+    """Assertion extracted from user text with a stance and confidence."""
+
+    assertion: str = ""
+    stance: str = "asserts"
+
+    def as_dict(self) -> dict:
+        data = ExtractedMemoryItem.to_dict(self)
+        data.update(
+            {
+                "extraction_type": "claim",
+                "assertion": self.assertion,
+                "stance": self.stance,
+            }
+        )
+        return data
+
+    def to_dict(self) -> dict:
+        return self.as_dict()
+
+
+@dataclass
+class ExtractedRelationship(ExtractedTopic):
+    """Typed relationship between a source label and target label."""
+
+    source_label: str = "self"
+    relation: str = "related_to"
+    target_label: str = ""
+    qualifiers: dict[str, str] = field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        data = ExtractedMemoryItem.to_dict(self)
+        data.update(
+            {
+                "extraction_type": "relationship",
+                "source_label": self.source_label,
+                "relation": self.relation,
+                "target_label": self.target_label,
+                "qualifiers": self.qualifiers,
+            }
+        )
+        return data
+
+    def to_dict(self) -> dict:
+        return self.as_dict()
+
+
+@dataclass
 class ExtractionContext:
     topics: dict[str, dict[str, ExtractedTopic]] = field(default_factory=lambda: defaultdict(dict))
     extraction_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -207,6 +285,39 @@ class ExtractionContext:
     resolution_conflicts: list[dict] = field(default_factory=list)
     redaction_summary: dict | None = field(default=None)
     active_source_context: dict[str, object] = field(default_factory=dict)
+
+    @staticmethod
+    def _topic_class_for(category: str, relationship_type: str = "") -> type[ExtractedTopic]:
+        if category == "relationships" or relationship_type:
+            return ExtractedRelationship
+        if category in {"negations", "correction_history"}:
+            return ExtractedClaim
+        return ExtractedFact
+
+    def _build_topic(self, **kwargs) -> ExtractedTopic:
+        category = str(kwargs.get("category", ""))
+        topic = str(kwargs.get("topic", ""))
+        relationship_type = str(kwargs.get("relationship_type", "") or "")
+        topic_cls = self._topic_class_for(category, relationship_type)
+
+        if topic_cls is ExtractedRelationship:
+            qualifiers = {"category": category}
+            if kwargs.get("extraction_method"):
+                qualifiers["extraction_method"] = str(kwargs["extraction_method"])
+            return ExtractedRelationship(
+                source_label="self",
+                relation=relationship_type or "related_to",
+                target_label=topic,
+                qualifiers=qualifiers,
+                **kwargs,
+            )
+
+        if topic_cls is ExtractedClaim:
+            stance = "denies" if category == "negations" else "corrects" if category == "correction_history" else "asserts"
+            assertion = kwargs.get("brief") or kwargs.get("full_description") or topic
+            return ExtractedClaim(assertion=str(assertion), stance=stance, **kwargs)
+
+        return ExtractedFact(attribute_name=category, attribute_value=topic, **kwargs)
 
     def set_active_source_context(self, text: str, timestamp: datetime | None = None) -> None:
         """Set the active source span for downstream extraction heuristics."""
@@ -329,7 +440,7 @@ class ExtractionContext:
                     confidence=resolved_confidence,
                     metadata={"matched_existing_key": existing_key},
                 )
-            return
+            return existing
 
         resolved_confidence = extraction_confidence
         resolved_state = entity_resolution
@@ -342,7 +453,7 @@ class ExtractionContext:
             else:
                 resolved_confidence = 0.82
                 resolved_state = resolved_state or "net_new_observed"
-        self.topics[category][key] = ExtractedTopic(
+        new_topic = self._build_topic(
             topic=topic,
             category=category,
             brief=brief or topic,
@@ -364,6 +475,8 @@ class ExtractionContext:
             extraction_flags=flags,
             source_span=source_span[:240],
         )
+        self.topics[category][key] = new_topic
+        return new_topic
         if resolved_confidence < 0.5:
             self._record_resolution_conflict(
                 conflict_type="low_confidence_extraction",
@@ -479,13 +592,23 @@ class ExtractionContext:
 
     def stats(self) -> dict:
         total = sum(len(topics) for topics in self.topics.values())
+        all_topics = [topic for topics in self.topics.values() for topic in topics.values()]
         by_category = {category: len(topics) for category, topics in self.topics.items()}
-        high = sum(1 for topics in self.topics.values() for topic in topics.values() if topic.confidence >= 0.8)
-        medium = sum(1 for topics in self.topics.values() for topic in topics.values() if 0.6 <= topic.confidence < 0.8)
-        low = sum(1 for topics in self.topics.values() for topic in topics.values() if topic.confidence < 0.6)
+        by_type = {
+            "facts": sum(isinstance(topic, ExtractedFact) for topic in all_topics),
+            "claims": sum(isinstance(topic, ExtractedClaim) for topic in all_topics),
+            "relationships": sum(isinstance(topic, ExtractedRelationship) for topic in all_topics),
+            "legacy_topics": sum(
+                not isinstance(topic, (ExtractedFact, ExtractedClaim, ExtractedRelationship)) for topic in all_topics
+            ),
+        }
+        high = sum(1 for topic in all_topics if topic.confidence >= 0.8)
+        medium = sum(1 for topic in all_topics if 0.6 <= topic.confidence < 0.8)
+        low = sum(1 for topic in all_topics if topic.confidence < 0.6)
         return {
             "total": total,
             "by_category": by_category,
+            "by_type": by_type,
             "by_confidence": {"high": high, "medium": medium, "low": low},
         }
 
@@ -499,7 +622,11 @@ class ExtractionContext:
 __all__ = [
     "BASE_CONFIDENCE",
     "ExtractionContext",
+    "ExtractedMemoryItem",
     "ExtractedTopic",
+    "ExtractedFact",
+    "ExtractedClaim",
+    "ExtractedRelationship",
     "MENTION_COUNT_BOOST",
     "MERGEABLE_CATEGORIES",
     "SIMILARITY_THRESHOLD",
