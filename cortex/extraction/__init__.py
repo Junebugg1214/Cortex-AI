@@ -8,7 +8,7 @@ from .backend import (
     collect_bulk_texts,
     load_extraction_config,
 )
-from .embedding_backend import EmbeddingBackend
+from .embedding_backend import EMBEDDING_BACKEND_DISABLED_MESSAGE, EmbeddingBackend
 from .heuristic_backend import (
     HeuristicBackend,
     graph_from_result,
@@ -25,6 +25,7 @@ from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 __all__ = [
     "BACKENDS",
     "BulkTextCollector",
+    "EMBEDDING_BACKEND_DISABLED_MESSAGE",
     "EmbeddingBackend",
     "ExtractedEdge",
     "ExtractedNode",

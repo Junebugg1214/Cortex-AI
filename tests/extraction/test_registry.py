@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from cortex.extraction import EmbeddingBackend, ExtractionBackendError, HeuristicBackend, HybridBackend, ModelBackend
+from cortex.extraction import (
+    EMBEDDING_BACKEND_DISABLED_MESSAGE,
+    ExtractionBackendError,
+    HeuristicBackend,
+    HybridBackend,
+    ModelBackend,
+)
 from cortex.extraction.registry import get_backend, get_bulk_backend, get_hot_path_backend
 
 
@@ -18,8 +24,10 @@ def test_get_backend_returns_hybrid():
     assert isinstance(get_backend("hybrid"), HybridBackend)
 
 
-def test_get_backend_returns_embedding():
-    assert isinstance(get_backend("embedding"), EmbeddingBackend)
+def test_get_backend_embedding_raises_disabled_stub():
+    with pytest.raises(NotImplementedError) as excinfo:
+        get_backend("embedding")
+    assert str(excinfo.value) == EMBEDDING_BACKEND_DISABLED_MESSAGE
 
 
 def test_unknown_backend_raises_with_valid_names():
@@ -82,13 +90,13 @@ def test_bulk_config_is_used_when_env_missing(monkeypatch):
 
 def test_embedding_hot_backend_raises(monkeypatch):
     monkeypatch.setenv("CORTEX_HOT_PATH_BACKEND", "embedding")
-    with pytest.raises(ExtractionBackendError) as excinfo:
+    with pytest.raises(NotImplementedError) as excinfo:
         get_hot_path_backend()
-    assert "embedding_backend.py" in str(excinfo.value)
+    assert str(excinfo.value) == EMBEDDING_BACKEND_DISABLED_MESSAGE
 
 
 def test_embedding_bulk_backend_raises(monkeypatch):
     monkeypatch.setenv("CORTEX_BULK_BACKEND", "embedding")
-    with pytest.raises(ExtractionBackendError) as excinfo:
+    with pytest.raises(NotImplementedError) as excinfo:
         get_bulk_backend()
-    assert "embedding_backend.py" in str(excinfo.value)
+    assert str(excinfo.value) == EMBEDDING_BACKEND_DISABLED_MESSAGE

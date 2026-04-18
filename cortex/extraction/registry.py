@@ -32,13 +32,6 @@ def _model_backend_available() -> bool:
     return importlib.util.find_spec("anthropic") is not None
 
 
-def _guard_embedding(name: str) -> None:
-    if name == "embedding":
-        raise ExtractionBackendError(
-            "EmbeddingBackend is not yet implemented. See\ncortex/extraction/embedding_backend.py."
-        )
-
-
 def get_backend(name: str) -> ExtractionBackend:
     """Instantiate one named extraction backend."""
 
@@ -57,7 +50,6 @@ def get_hot_path_backend() -> ExtractionBackend:
     if not name:
         config = load_extraction_config()
         name = str(config.get("hot_path_backend", "")).strip().lower() or "heuristic"
-    _guard_embedding(name)
     return get_backend(name)
 
 
@@ -70,5 +62,4 @@ def get_bulk_backend() -> ExtractionBackend:
         name = str(config.get("bulk_backend", "")).strip().lower()
     if not name:
         name = "model" if _api_key_present() and _model_backend_available() else "heuristic"
-    _guard_embedding(name)
     return get_backend(name)
