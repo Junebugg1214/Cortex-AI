@@ -23,33 +23,31 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-import cortex.extract_memory_context as _extract_memory_context
-import cortex.extract_memory_patterns as _extract_memory_patterns
-from cortex.extract_memory_loaders import load_file
-from cortex.extract_memory_processing import AggressiveExtractionProcessingMixin
-from cortex.extract_memory_streams import parse_timestamp
-from cortex.extract_memory_text import (
+import cortex.extraction.extract_memory_context as _extract_memory_context
+import cortex.extraction.heuristic_rules as _heuristic_rules
+from cortex.extraction.extract_memory_loaders import load_file
+from cortex.extraction.extract_memory_streams import parse_timestamp
+from cortex.extraction.extract_memory_text import (
     clean_extracted_text as _clean_extracted_text,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     clean_role_phrase as _clean_role_phrase,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     extract_entities as _extract_entities,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     extract_match_context as _extract_match_context,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     extract_numbers as _extract_numbers,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     extract_with_context as _extract_with_context,
 )
-from cortex.extract_memory_text import (
+from cortex.extraction.extract_memory_text import (
     keyword_search as _keyword_search,
 )
-from cortex.extract_memory_topics import AggressiveExtractionTopicMixin
 
 ExtractionContext = _extract_memory_context.ExtractionContext
 ExtractedMemoryItem = _extract_memory_context.ExtractedMemoryItem
@@ -62,10 +60,11 @@ build_eval_compat_view = _extract_memory_context.build_eval_compat_view
 find_best_match = _extract_memory_context.find_best_match
 normalize_text = _extract_memory_context.normalize_text
 
-PIIRedactor = _extract_memory_patterns.PIIRedactor
-RELATIONSHIP_TYPE_PATTERNS = _extract_memory_patterns.RELATIONSHIP_TYPE_PATTERNS
-SKIP_WORDS = _extract_memory_patterns.SKIP_WORDS
-STRIP_PREFIXES = _extract_memory_patterns.STRIP_PREFIXES
+HeuristicRuleExtractor = _heuristic_rules.HeuristicRuleExtractor
+PIIRedactor = _heuristic_rules.PIIRedactor
+RELATIONSHIP_TYPE_PATTERNS = _heuristic_rules.RELATIONSHIP_TYPE_PATTERNS
+SKIP_WORDS = _heuristic_rules.SKIP_WORDS
+STRIP_PREFIXES = _heuristic_rules.STRIP_PREFIXES
 
 _KEYWORD_PATTERN_CACHE: dict[str, object] = {}
 
@@ -108,12 +107,11 @@ def extract_entities(text: str) -> list[tuple[str, str]]:
 # ============================================================================
 
 
-class AggressiveExtractor(AggressiveExtractionProcessingMixin, AggressiveExtractionTopicMixin):
+class HeuristicExtractorCompat(HeuristicRuleExtractor):
+    """Deprecated compatibility facade backed by HeuristicRuleExtractor."""
+
     def __init__(self, redactor: PIIRedactor | None = None, extractor_run_id: str | None = None):
-        self.context = ExtractionContext()
-        self.all_user_text = []
-        self._negated_items = set()  # Track negated items for cross-category filtering
-        self._redactor = redactor
+        super().__init__(redactor=redactor, context=ExtractionContext())
         self.extractor_run_id = extractor_run_id or self._make_extractor_run_id()
 
     def _make_extractor_run_id(self) -> str:
@@ -169,6 +167,9 @@ class AggressiveExtractor(AggressiveExtractionProcessingMixin, AggressiveExtract
 
     def process_api_logs(self, data: dict) -> dict:
         return self._finalize_result(super().process_api_logs(data))
+
+
+AggressiveExtractor = HeuristicExtractorCompat
 
 
 # ============================================================================

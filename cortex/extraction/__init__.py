@@ -28,6 +28,7 @@ _LAZY_ATTRS = {
     "ExtractionPipeline": "cortex.extraction.pipeline",
     "ExtractionResult": "cortex.extraction.types",
     "HeuristicBackend": "cortex.extraction.heuristic_backend",
+    "HeuristicRuleExtractor": "cortex.extraction.heuristic_rules",
     "HybridBackend": "cortex.extraction.hybrid_backend",
     "ModelBackend": "cortex.extraction.model_backend",
     "collect_bulk_texts": "cortex.extraction.backend",
