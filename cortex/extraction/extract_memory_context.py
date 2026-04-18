@@ -478,7 +478,6 @@ class ExtractionContext:
             source_span=source_span[:240],
         )
         self.topics[category][key] = new_topic
-        return new_topic
         if resolved_confidence < 0.5:
             self._record_resolution_conflict(
                 conflict_type="low_confidence_extraction",
@@ -488,6 +487,7 @@ class ExtractionContext:
                 confidence=resolved_confidence,
                 metadata={"entity_resolution": resolved_state, "flags": list(flags)},
             )
+        return new_topic
 
     def merge_similar_topics(self):
         for category in MERGEABLE_CATEGORIES:
