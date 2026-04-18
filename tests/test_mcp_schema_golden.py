@@ -6,7 +6,6 @@ import json
 from cortex.mcp.mcp_tools import MCPToolRegistry
 from cortex.service import MemoryService
 
-
 MCP_TOOLS_SORT_KEYS_SHA256 = "89566318da3a5541751b78177fb332b2a9a1f139a3ee9d03c1046e839e97d2f5"
 MCP_TOOLS_SORT_KEYS_LENGTH = 58071
 

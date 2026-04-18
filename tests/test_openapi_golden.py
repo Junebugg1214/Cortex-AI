@@ -5,7 +5,6 @@ import json
 
 from cortex.openapi import build_openapi_spec
 
-
 OPENAPI_SORT_KEYS_SHA256 = "dd23ca4b8b88c27e9c70ac90f16b729f6c8337d1618759100f8f483a32487cff"
 OPENAPI_SORT_KEYS_LENGTH = 34438
 
