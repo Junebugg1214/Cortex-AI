@@ -22,7 +22,7 @@ try:  # pragma: no cover - exercised implicitly on Python 3.10
 except ModuleNotFoundError:  # pragma: no cover - Python <3.11
     import tomli as tomllib
 
-ALL_SCOPES = ("read", "write", "branch", "merge", "index", "prune")
+ALL_SCOPES = ("read", "write", "branch", "merge", "index", "prune", "remote")
 VALID_SCOPES = set(ALL_SCOPES) | {"*", "admin"}
 RUNTIME_MODES = ("local-single-user", "hosted-service")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}

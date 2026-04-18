@@ -12,9 +12,10 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.remote_trust import _normalize_store_path, prepare_remote_fields
+from cortex.remote_trust import NETWORK_REMOTE_SCHEMES, _normalize_store_path, prepare_remote_fields
 from cortex.upai.versioning import VersionStore
 
 
@@ -50,7 +51,17 @@ class MemoryRemote:
 
     @property
     def store_path(self) -> Path:
+        if self.is_network:
+            raise AttributeError("Network remotes do not have a local store_path.")
         return _normalize_store_path(self.path)
+
+    @property
+    def scheme(self) -> str:
+        return urlparse(self.path).scheme.lower() or "file"
+
+    @property
+    def is_network(self) -> bool:
+        return self.scheme in NETWORK_REMOTE_SCHEMES
 
 
 class RemoteRegistry:
@@ -145,6 +156,19 @@ def push_remote(
     target_branch: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
+    if remote.is_network:
+        from cortex.schemas.memory_v1 import RemoteRecord
+        from cortex.storage.filesystem import FilesystemStorageBackend
+        from cortex.storage.remote_sync import push_remote_backend
+
+        return push_remote_backend(
+            FilesystemStorageBackend(local_store.store_dir),
+            RemoteRecord.from_memory_remote(remote),
+            branch,
+            target_branch,
+            force,
+        )
+
     remote_store = VersionStore(remote.store_path)
     records, local_head = _required_records(local_store, branch)
     copied = _import_records(remote_store, local_store, records)
@@ -177,6 +201,20 @@ def pull_remote(
     force: bool = False,
     switch: bool = False,
 ) -> dict[str, Any]:
+    if remote.is_network:
+        from cortex.schemas.memory_v1 import RemoteRecord
+        from cortex.storage.filesystem import FilesystemStorageBackend
+        from cortex.storage.remote_sync import pull_remote_backend
+
+        return pull_remote_backend(
+            FilesystemStorageBackend(local_store.store_dir),
+            RemoteRecord.from_memory_remote(remote),
+            branch,
+            into_branch,
+            force,
+            switch,
+        )
+
     remote_store = VersionStore(remote.store_path)
     records, remote_head = _required_records(remote_store, branch)
     copied = _import_records(local_store, remote_store, records)
