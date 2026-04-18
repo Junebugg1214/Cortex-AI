@@ -6,9 +6,13 @@ from time import perf_counter
 
 from cortex.extraction.diagnostics import ExtractionDiagnostics
 from cortex.extraction.extract_memory_context import ExtractedMemoryItem
+from cortex.extraction.prompts import load_prompt
 from cortex.extraction.retrieval import NodeHint
 
 from .state import DocumentChunk, PipelineState
+
+CANDIDATES_PROMPT = load_prompt("candidates", "v1")
+PROMPT_REFERENCES = (CANDIDATES_PROMPT.reference,)
 
 
 @dataclass(frozen=True)

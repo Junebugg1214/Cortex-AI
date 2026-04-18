@@ -6,8 +6,12 @@ from time import perf_counter
 
 from cortex.extraction.diagnostics import ExtractionDiagnostics
 from cortex.extraction.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem
+from cortex.extraction.prompts import load_prompt
 
 from .state import PipelineState
+
+TYPING_PROMPT = load_prompt("typing", "v1")
+PROMPT_REFERENCES = (TYPING_PROMPT.reference,)
 
 
 @dataclass(frozen=True)
