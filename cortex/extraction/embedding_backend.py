@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 import os
+from time import perf_counter
 from typing import Any
 
 from .backend import ExtractionBackend
+from .pipeline import (
+    Document,
+    empty_result,
+    legacy_context_from_pipeline_context,
+    result_from_backend_result,
+)
+from .pipeline import (
+    ExtractionContext as PipelineExtractionContext,
+)
+from .pipeline import (
+    ExtractionResult as PipelineExtractionResult,
+)
 from .types import ExtractedNode, ExtractionResult
 
 EMBEDDING_BACKEND_DISABLED_MESSAGE = (
@@ -176,6 +189,18 @@ class EmbeddingBackend(ExtractionBackend):
             extraction_method="embedding",
             raw_source=text,
         )
+
+    def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
+        """Run embedding extraction through the unified pipeline contract."""
+
+        started = perf_counter()
+        if not document.content.strip():
+            return empty_result(document, started_at=started)
+        result = self.extract_statement(
+            document.content,
+            context=legacy_context_from_pipeline_context(context),
+        )
+        return result_from_backend_result(result, document=document, context=context, started_at=started)
 
     def extract_bulk(self, texts: list[str], context: dict | None = None) -> list[ExtractionResult]:
         """Extract embedding-bearing nodes from many statements."""

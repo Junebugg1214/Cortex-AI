@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from time import perf_counter
 from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
@@ -11,6 +12,18 @@ from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.temporal import apply_temporal_review_policy
 
 from .backend import ExtractionBackend
+from .pipeline import (
+    Document,
+    empty_result,
+    legacy_context_from_pipeline_context,
+    result_from_backend_result,
+)
+from .pipeline import (
+    ExtractionContext as PipelineExtractionContext,
+)
+from .pipeline import (
+    ExtractionResult as PipelineExtractionResult,
+)
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
 
@@ -220,6 +233,18 @@ def merged_v4_from_results(results: list[ExtractionResult]) -> dict[str, Any]:
 
 class HeuristicBackend(ExtractionBackend):
     """Extraction backend that preserves the current heuristic pipeline."""
+
+    def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
+        """Run heuristic extraction through the unified pipeline contract."""
+
+        started = perf_counter()
+        if not document.content.strip():
+            return empty_result(document, started_at=started)
+        result = self.extract_statement(
+            document.content,
+            context=legacy_context_from_pipeline_context(context),
+        )
+        return result_from_backend_result(result, document=document, context=context, started_at=started)
 
     def extract_statement(
         self,
