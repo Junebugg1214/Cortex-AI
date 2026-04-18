@@ -1,0 +1,18 @@
+{
+  "source_id": "corpus-chat-name-role-preference",
+  "source_type": "chat",
+  "turns": [
+    {
+      "role": "user",
+      "content": "Hi, I am Maya Chen."
+    },
+    {
+      "role": "assistant",
+      "content": "Nice to meet you, Maya. What should I remember?"
+    },
+    {
+      "role": "user",
+      "content": "I am the platform reliability lead, and I prefer concise weekly status updates."
+    }
+  ]
+}

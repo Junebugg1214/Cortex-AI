@@ -1,0 +1,58 @@
+{
+  "schema_version": "extraction-eval-v1",
+  "case_id": "chat_name_role_preference",
+  "source_type": "chat",
+  "expected_graph": {
+    "nodes": [
+      {
+        "id": "person:maya-chen",
+        "canonical_id": "person:maya-chen",
+        "label": "Maya Chen",
+        "type": "identity",
+        "confidence": 0.98,
+        "properties": {
+          "attribute_name": "name",
+          "attribute_value": "Maya Chen"
+        }
+      },
+      {
+        "id": "role:platform-reliability-lead",
+        "canonical_id": "role:platform-reliability-lead",
+        "label": "platform reliability lead",
+        "type": "professional_context",
+        "confidence": 0.93,
+        "properties": {
+          "attribute_name": "role",
+          "attribute_value": "platform reliability lead"
+        }
+      },
+      {
+        "id": "preference:concise-weekly-status-updates",
+        "canonical_id": "preference:concise-weekly-status-updates",
+        "label": "concise weekly status updates",
+        "type": "communication_preferences",
+        "confidence": 0.92,
+        "properties": {
+          "attribute_name": "preference",
+          "attribute_value": "concise weekly status updates"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge:maya-chen:has-role:platform-reliability-lead",
+        "source": "person:maya-chen",
+        "target": "role:platform-reliability-lead",
+        "type": "has_role",
+        "confidence": 0.9
+      },
+      {
+        "id": "edge:maya-chen:prefers:concise-weekly-status-updates",
+        "source": "person:maya-chen",
+        "target": "preference:concise-weekly-status-updates",
+        "type": "prefers",
+        "confidence": 0.9
+      }
+    ]
+  }
+}

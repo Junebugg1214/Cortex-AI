@@ -1,0 +1,27 @@
+schema_version: extraction-corpus-v1
+cases:
+  - id: chat_name_role_preference
+    source_type: chat
+    input: input.json
+    gold: gold.json
+    description: 3-turn chat containing a name, role, and preference.
+  - id: policy_two_rules
+    source_type: doc
+    input: input.md
+    gold: gold.json
+    description: Short policy document with two explicit rules.
+  - id: transcript_contradiction
+    source_type: transcript
+    input: input.jsonl
+    gold: gold.json
+    description: Transcript with a contradiction across two speakers.
+  - id: code_readme_stack_mentions
+    source_type: code
+    input: input.md
+    gold: gold.json
+    description: Code README with two stack mentions.
+  - id: pathological_empty_garbled_profanity
+    source_type: doc
+    input: input.md
+    gold: gold.json
+    description: Empty, garbled, and profane text that should extract no graph items.

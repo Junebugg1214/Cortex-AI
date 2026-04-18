@@ -1,0 +1,9 @@
+{
+  "schema_version": "extraction-eval-v1",
+  "case_id": "pathological_empty_garbled_profanity",
+  "source_type": "doc",
+  "expected_graph": {
+    "nodes": [],
+    "edges": []
+  }
+}

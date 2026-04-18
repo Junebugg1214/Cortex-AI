@@ -1,0 +1,46 @@
+{
+  "schema_version": "extraction-eval-v1",
+  "case_id": "code_readme_stack_mentions",
+  "source_type": "code",
+  "expected_graph": {
+    "nodes": [
+      {
+        "id": "project:atlas-api",
+        "canonical_id": "project:atlas-api",
+        "label": "Atlas API",
+        "type": "code_project",
+        "confidence": 0.95
+      },
+      {
+        "id": "stack:fastapi",
+        "canonical_id": "stack:fastapi",
+        "label": "FastAPI",
+        "type": "technical_expertise",
+        "confidence": 0.94
+      },
+      {
+        "id": "stack:postgresql",
+        "canonical_id": "stack:postgresql",
+        "label": "PostgreSQL",
+        "type": "technical_expertise",
+        "confidence": 0.94
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge:atlas-api:uses:fastapi",
+        "source": "project:atlas-api",
+        "target": "stack:fastapi",
+        "type": "uses_stack",
+        "confidence": 0.9
+      },
+      {
+        "id": "edge:atlas-api:uses:postgresql",
+        "source": "project:atlas-api",
+        "target": "stack:postgresql",
+        "type": "uses_stack",
+        "confidence": 0.9
+      }
+    ]
+  }
+}
