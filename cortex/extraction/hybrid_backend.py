@@ -6,6 +6,7 @@ import os
 import signal
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
+from time import perf_counter
 from typing import Any
 
 from cortex.contradictions import ContradictionEngine
@@ -14,6 +15,18 @@ from cortex.graph import Node, make_node_id_with_tag
 from .backend import ExtractionBackend, load_extraction_config
 from .heuristic_backend import HeuristicBackend
 from .model_backend import ModelBackend
+from .pipeline import (
+    Document,
+    empty_result,
+    legacy_context_from_pipeline_context,
+    result_from_backend_result,
+)
+from .pipeline import (
+    ExtractionContext as PipelineExtractionContext,
+)
+from .pipeline import (
+    ExtractionResult as PipelineExtractionResult,
+)
 from .types import ExtractedNode, ExtractionResult
 
 LOGGER = logging.getLogger(__name__)
@@ -51,6 +64,18 @@ class HybridBackend(ExtractionBackend):
         self._closed = False
         self._previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
         signal.signal(signal.SIGTERM, self._handle_sigterm)
+
+    def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
+        """Run hybrid extraction through the unified pipeline contract."""
+
+        started = perf_counter()
+        if not document.content.strip():
+            return empty_result(document, started_at=started)
+        result = self.extract_statement(
+            document.content,
+            context=legacy_context_from_pipeline_context(context),
+        )
+        return result_from_backend_result(result, document=document, context=context, started_at=started)
 
     def extract_statement(
         self,

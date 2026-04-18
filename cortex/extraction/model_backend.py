@@ -3,11 +3,24 @@ from __future__ import annotations
 import json
 import logging
 import os
+from time import perf_counter
 from typing import Any, Mapping
 
 from cortex.graph import CATEGORY_ORDER
 
 from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
+from .pipeline import (
+    Document,
+    empty_result,
+    legacy_context_from_pipeline_context,
+    result_from_backend_result,
+)
+from .pipeline import (
+    ExtractionContext as PipelineExtractionContext,
+)
+from .pipeline import (
+    ExtractionResult as PipelineExtractionResult,
+)
 from .types import ExtractedEdge, ExtractedNode, ExtractionResult
 
 LOGGER = logging.getLogger(__name__)
@@ -82,6 +95,18 @@ class ModelBackend(ExtractionBackend):
 
     def __init__(self, *, api_key: str | None = None) -> None:
         self._configured_api_key = api_key
+
+    def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
+        """Run model extraction through the unified pipeline contract."""
+
+        started = perf_counter()
+        if not document.content.strip():
+            return empty_result(document, started_at=started)
+        result = self.extract_statement(
+            document.content,
+            context=legacy_context_from_pipeline_context(context),
+        )
+        return result_from_backend_result(result, document=document, context=context, started_at=started)
 
     def extract_statement(
         self,

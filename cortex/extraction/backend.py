@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from abc import ABC, abstractmethod
+import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
 
 from cortex.extract_memory_processing import AggressiveExtractionProcessingMixin
 
-from .types import ExtractedNode, ExtractionResult
+from .pipeline import ExtractionPipeline
 
 
 class ExtractionBackendError(RuntimeError):
@@ -28,42 +28,12 @@ class ExtractionParseError(ExtractionBackendError):
         self.raw_response = raw_response
 
 
-class ExtractionBackend(ABC):
-    """Abstract extraction backend interface."""
-
-    @abstractmethod
-    def extract_statement(
-        self,
-        text: str,
-        context: dict | None = None,
-    ) -> ExtractionResult:
-        """Extract graph facts from one statement."""
-
-    @abstractmethod
-    def extract_bulk(
-        self,
-        texts: list[str],
-        context: dict | None = None,
-    ) -> list[ExtractionResult]:
-        """Extract graph facts from a batch of statements."""
-
-    @abstractmethod
-    def canonical_match(
-        self,
-        node: ExtractedNode,
-        existing_nodes: list[dict],
-    ) -> tuple[str | None, float]:
-        """Resolve a candidate node to an existing canonical node id."""
-
-    @property
-    @abstractmethod
-    def supports_async_rescoring(self) -> bool:
-        """Return true when the backend supports asynchronous rescoring."""
-
-    @property
-    @abstractmethod
-    def supports_embeddings(self) -> bool:
-        """Return true when the backend emits embeddings."""
+warnings.warn(
+    "cortex.extraction.backend.ExtractionBackend is deprecated; use cortex.extraction.pipeline.ExtractionPipeline.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+ExtractionBackend = ExtractionPipeline
 
 
 def _safe_load_toml(path: Path | None) -> dict[str, Any]:
