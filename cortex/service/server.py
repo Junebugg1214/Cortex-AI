@@ -22,6 +22,7 @@ from cortex.config import (
     validate_runtime_security,
 )
 from cortex.error_envelopes import error_envelope
+from cortex.federation import FederationSignatureError
 from cortex.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
@@ -35,6 +36,7 @@ from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.runtime_control import ShutdownController, install_shutdown_handlers
 from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 from cortex.service import MemoryService
+from cortex.storage.remote_sync import export_signed_remote_bundle, import_signed_remote_bundle
 
 LOGGER = get_logger("cortex.server")
 
@@ -116,6 +118,13 @@ def _error_envelope(
 
 
 def _error_payload(exc: Exception) -> tuple[int, dict[str, Any]]:
+    if isinstance(exc, FederationSignatureError):
+        status = 403 if exc.code in {"untrusted_key", "signature_invalid"} else 400
+        return status, _error_envelope(
+            str(exc),
+            code=exc.code,
+            suggestion="Check the remote trust pin, bundle shape, and signature, then retry.",
+        )
     if isinstance(exc, FileNotFoundError):
         return 404, _error_envelope(
             str(exc),
@@ -162,6 +171,8 @@ def _required_scope(method: str, path: str) -> str:
     }
     if path in {"/v1/health", "/v1/meta", "/v1/openapi.json", "/v1/metrics"}:
         return "read"
+    if path.startswith("/v1/remotes/"):
+        return "remote"
     if path.startswith("/v1/index/"):
         return "index"
     if path.startswith("/v1/prune"):
@@ -340,6 +351,14 @@ def dispatch_api_request(
                         namespace=namespace,
                     ),
                 )
+            elif parsed.path == "/v1/remotes/pull":
+                status, response = (
+                    200,
+                    export_signed_remote_bundle(
+                        service.backend,
+                        branch=_query_value(query, "branch", "main") or "main",
+                    ),
+                )
 
         if method == "POST":
             if parsed.path == "/v1/commit":
@@ -412,6 +431,18 @@ def dispatch_api_request(
                 status, response = 201, service.create_branch(**payload)
             elif parsed.path == "/v1/branches/switch":
                 status, response = 200, service.switch_branch(**payload)
+            elif parsed.path == "/v1/remotes/push":
+                bundle_payload = payload.get("bundle")
+                if not isinstance(bundle_payload, dict):
+                    raise FederationSignatureError("malformed bundle: missing bundle", code="malformed_bundle")
+                status, response = (
+                    200,
+                    import_signed_remote_bundle(
+                        service.backend,
+                        bundle_payload=bundle_payload,
+                        force=bool(payload.get("force", False)),
+                    ),
+                )
     except Exception as exc:  # pragma: no cover - exercised through tests and handler
         _log_unhandled_exception(request_id=request_id, exc=exc)
         status, response = _error_payload(exc)

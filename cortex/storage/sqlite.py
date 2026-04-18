@@ -5,6 +5,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from cortex.claims import ClaimEvent
 from cortex.governance import GovernanceRule
@@ -24,6 +25,10 @@ from cortex.storage.sqlite_versions import (
     SQLiteVersionBackend,
     sqlite_db_path,
 )
+
+
+def _is_network_remote_path(path: str) -> bool:
+    return urlparse(str(path)).scheme.lower() in {"http", "https"}
 
 
 @dataclass(slots=True)
@@ -330,7 +335,7 @@ class SQLiteRemoteBackend:
         for row in rows:
             payload = json.loads(row["payload"])
             record = RemoteRecord.from_memory_remote(payload, tenant_id=self.tenant_id)
-            if not record.resolved_store_path:
+            if not record.resolved_store_path and not _is_network_remote_path(record.path):
                 record = RemoteRecord(
                     tenant_id=record.tenant_id,
                     name=record.name,

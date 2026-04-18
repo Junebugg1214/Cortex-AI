@@ -5,10 +5,21 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from cortex.atomic_io import atomic_write_json
 from cortex.namespaces import acl_allows_namespace, normalize_acl_namespaces
 from cortex.upai.identity import UPAIIdentity
+
+NETWORK_REMOTE_SCHEMES = {"http", "https"}
+
+
+def _remote_scheme(path: str | Path) -> str:
+    return urlparse(str(path)).scheme.lower()
+
+
+def _is_network_remote_path(path: str | Path) -> bool:
+    return _remote_scheme(path) in NETWORK_REMOTE_SCHEMES
 
 
 def _iso_now() -> str:
@@ -20,6 +31,9 @@ def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 def _normalize_store_path(path: str | Path) -> Path:
+    parsed = urlparse(str(path))
+    if parsed.scheme == "file":
+        path = unquote(parsed.path)
     raw = Path(path)
     if raw.name == ".cortex":
         return raw
@@ -44,6 +58,31 @@ def ensure_store_identity(store_dir: Path, *, name_hint: str) -> UPAIIdentity:
 
 
 def prepare_remote_fields(remote: Any) -> dict[str, Any]:
+    raw_path = str(getattr(remote, "path", "") or "").strip()
+    scheme = _remote_scheme(raw_path)
+    allowed_namespaces = list(
+        normalize_acl_namespaces(
+            list(getattr(remote, "allowed_namespaces", []) or []) or [str(getattr(remote, "default_branch", "main"))]
+        )
+    )
+    if scheme in NETWORK_REMOTE_SCHEMES:
+        pinned_did = str(getattr(remote, "trusted_did", "") or "").strip()
+        pinned_public_key = str(getattr(remote, "trusted_public_key_b64", "") or "").strip()
+        if not pinned_did:
+            raise ValueError(f"Network remote '{getattr(remote, 'name', 'origin')}' requires a pinned trusted_did.")
+        if pinned_did.startswith("did:upai:") and not pinned_public_key:
+            raise ValueError(
+                f"Network remote '{getattr(remote, 'name', 'origin')}' requires a pinned public key for {pinned_did}."
+            )
+        return {
+            "resolved_store_path": "",
+            "trusted_did": pinned_did,
+            "trusted_public_key_b64": pinned_public_key,
+            "allowed_namespaces": allowed_namespaces,
+        }
+    if scheme and scheme != "file":
+        raise ValueError(f"Unsupported remote scheme '{scheme}'. Supported schemes: file, http, https.")
+
     store_path = _remote_store_path(remote)
     identity = ensure_store_identity(store_path, name_hint=f"Remote {getattr(remote, 'name', 'origin')}")
     pinned_did = str(getattr(remote, "trusted_did", "") or "").strip()
@@ -56,11 +95,6 @@ def prepare_remote_fields(remote: Any) -> dict[str, Any]:
         raise ValueError(
             f"Remote '{getattr(remote, 'name', 'origin')}' public key mismatch with the pinned trust record."
         )
-    allowed_namespaces = list(
-        normalize_acl_namespaces(
-            list(getattr(remote, "allowed_namespaces", []) or []) or [str(getattr(remote, "default_branch", "main"))]
-        )
-    )
     return {
         "resolved_store_path": str(store_path),
         "trusted_did": identity.did,
@@ -140,6 +174,8 @@ def write_remote_sync_receipt(local_store_dir: Path, payload: dict[str, Any]) ->
 
 
 __all__ = [
+    "NETWORK_REMOTE_SCHEMES",
+    "_is_network_remote_path",
     "_normalize_store_path",
     "ensure_store_identity",
     "perform_remote_handshake",

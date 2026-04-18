@@ -399,6 +399,12 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     rem_add.add_argument("name", help="Remote name")
     rem_add.add_argument("path", help="Path to another .cortex store or its parent directory")
     rem_add.add_argument("--default-branch", default="main", help="Default remote branch (default: main)")
+    rem_add.add_argument("--trusted-did", default="", help="Pinned DID for http(s) remotes")
+    rem_add.add_argument(
+        "--trusted-public-key-b64",
+        default="",
+        help="Pinned exporter public key for http(s) remotes when the DID does not encode it",
+    )
     rem_add.add_argument(
         "--allow-namespace",
         action="append",

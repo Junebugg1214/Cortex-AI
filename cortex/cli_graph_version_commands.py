@@ -1168,6 +1168,8 @@ def run_remote(args, *, ctx: GraphVersionCliContext):
             name=args.name,
             path=args.path,
             default_branch=args.default_branch,
+            trusted_did=args.trusted_did,
+            trusted_public_key_b64=args.trusted_public_key_b64,
             allowed_namespaces=list(args.allow_namespace or []),
         )
         try:

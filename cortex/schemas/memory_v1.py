@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 from cortex.namespaces import normalize_acl_namespaces
 
 DEFAULT_TENANT_ID = "default"
 DEFAULT_NAMESPACE = "main"
+
+
+def _is_network_remote_path(path: str) -> bool:
+    return urlparse(str(path)).scheme.lower() in {"http", "https"}
 
 
 class _RecordMixin:
@@ -354,13 +359,14 @@ class RemoteRecord(_RecordMixin):
         tenant_id: str = DEFAULT_TENANT_ID,
     ) -> "RemoteRecord":
         payload = remote.to_dict() if hasattr(remote, "to_dict") else dict(remote)
+        path = payload["path"]
         resolved_store_path = payload.get("resolved_store_path")
-        if not resolved_store_path and hasattr(remote, "store_path"):
+        if not resolved_store_path and not _is_network_remote_path(path) and hasattr(remote, "store_path"):
             resolved_store_path = str(remote.store_path)
         return cls(
             tenant_id=tenant_id,
             name=payload["name"],
-            path=payload["path"],
+            path=path,
             resolved_store_path=resolved_store_path or "",
             default_branch=payload.get("default_branch", DEFAULT_NAMESPACE),
             trusted_did=payload.get("trusted_did", ""),
