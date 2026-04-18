@@ -148,6 +148,16 @@ Remotes today are local-filesystem paths only. Network transport is on the roadm
 
 Federation bundles are signed graph exports for cross-instance sharing. Signature verification reports structured failures for malformed bundles, untrusted keys, and invalid signatures.
 
+## Agent runtime
+
+The agent runtime commands are available from the CLI:
+
+`$ cortex agent monitor --interval 300`
+
+`$ cortex agent compile --mind personal --output cv`
+
+`$ cortex agent status`
+
 ## MCP and local service surfaces
 
 ```bash
