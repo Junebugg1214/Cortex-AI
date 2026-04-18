@@ -646,7 +646,7 @@ def run_server(args, *, ctx: RuntimeCliContext) -> int:
         return 0
 
     try:
-        _config, selection = _load_runtime_check_config(
+        config, selection = _load_runtime_check_config(
             ctx,
             command="serve api",
             store_dir=args.store_dir,
@@ -661,6 +661,25 @@ def run_server(args, *, ctx: RuntimeCliContext) -> int:
         return ctx.error(str(exc))
     for warning in selection.warnings:
         ctx.echo(f"Warning: {warning}", stderr=True)
+    if getattr(args, "asgi", False):
+        try:
+            from cortex.service.asgi_app import run_asgi_server
+        except ImportError:
+            return ctx.error(
+                "ASGI serving requires optional dependencies.",
+                hint="Install `cortex-identity[asgi]`, then rerun `cortex serve api --asgi`.",
+            )
+        return run_asgi_server(
+            host=config.server_host,
+            port=config.server_port,
+            store_dir=config.store_dir,
+            context_file=config.context_file,
+            runtime_mode=config.runtime_mode,
+            auth_keys=config.api_keys,
+            allow_unsafe_bind=args.allow_unsafe_bind,
+            external_base_url=config.external_base_url,
+            cors_origins=tuple(getattr(args, "cors_origin", ()) or ()),
+        )
     argv = ctx.runtime_forward_argv(
         selection=selection,
         explicit_config_path=args.config,
