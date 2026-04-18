@@ -140,26 +140,53 @@ def deduplicate(
 ) -> list[tuple[str, str]]:
     """Find and merge duplicate nodes.
 
-    Greedy: highest similarity first. If a node was already merged, skip.
+    Computes the transitive closure of duplicate pairs, then compacts each
+    equivalence class into one canonical node. Canonical selection prefers the
+    highest confidence node, then the earliest first_seen timestamp.
     Returns list of (survivor_id, merged_id) tuples.
-
-    Note: This is a single-pass greedy strategy — it does not handle
-    transitive closure. If A~B and B~C both exceed the threshold,
-    only (A,B) may be merged. The merged node A is not re-compared to C.
-    For most knowledge graphs this is acceptable; run multiple passes if needed.
     """
     candidates = find_duplicates(graph, threshold)
-    merged_away: set[str] = set()
-    results: list[tuple[str, str]] = []
+    if not candidates:
+        return []
+
+    parent: dict[str, str] = {}
+
+    def find(node_id: str) -> str:
+        parent.setdefault(node_id, node_id)
+        if parent[node_id] != node_id:
+            parent[node_id] = find(parent[node_id])
+        return parent[node_id]
+
+    def union(node_id_a: str, node_id_b: str) -> None:
+        root_a = find(node_id_a)
+        root_b = find(node_id_b)
+        if root_a != root_b:
+            parent[root_b] = root_a
 
     for nid_a, nid_b, _sim in candidates:
-        if nid_a in merged_away or nid_b in merged_away:
-            continue
-        if graph.get_node(nid_a) is None or graph.get_node(nid_b) is None:
+        union(nid_a, nid_b)
+
+    classes: dict[str, list[str]] = {}
+    for node_id in parent:
+        classes.setdefault(find(node_id), []).append(node_id)
+
+    results: list[tuple[str, str]] = []
+
+    def canonical_sort_key(node_id: str) -> tuple[float, str, str]:
+        node = graph.nodes[node_id]
+        first_seen = node.first_seen or "9999-12-31T23:59:59.999999+00:00"
+        return (-node.confidence, first_seen, node_id)
+
+    for node_ids in classes.values():
+        live_node_ids = [node_id for node_id in node_ids if graph.get_node(node_id) is not None]
+        if len(live_node_ids) < 2:
             continue
 
-        graph.merge_nodes(nid_a, nid_b)
-        merged_away.add(nid_b)
-        results.append((nid_a, nid_b))
+        canonical_id = min(live_node_ids, key=canonical_sort_key)
+        for merged_id in sorted(node_id for node_id in live_node_ids if node_id != canonical_id):
+            if graph.get_node(merged_id) is None:
+                continue
+            graph.merge_nodes(canonical_id, merged_id)
+            results.append((canonical_id, merged_id))
 
     return results
