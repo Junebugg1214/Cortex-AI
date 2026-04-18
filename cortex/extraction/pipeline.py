@@ -99,6 +99,45 @@ def _item_text(item: ExtractedMemoryItem) -> str:
     )
 
 
+def _normalized_label(label: str) -> str:
+    return " ".join(str(label).lower().strip().split())
+
+
+def _resolution_alias_candidates(item: ExtractedMemoryItem) -> list[str]:
+    candidates = [item.topic]
+    if isinstance(item, ExtractedFact):
+        candidates.append(item.attribute_value)
+    return [candidate.strip() for candidate in candidates if candidate and candidate.strip()]
+
+
+def _apply_existing_graph_resolutions(items: list[ExtractedMemoryItem], graph: CortexGraph | None) -> None:
+    """Apply item entity_resolution node IDs as aliases or merges in the existing graph."""
+
+    if graph is None:
+        return
+    for item in items:
+        node_id = item.entity_resolution.strip()
+        if not node_id or node_id not in graph.nodes:
+            continue
+        for alias in _resolution_alias_candidates(item):
+            node = graph.get_node(node_id)
+            if node is None:
+                break
+            duplicate_ids = [
+                candidate_id for candidate_id in graph.find_node_ids_by_label(alias) if candidate_id != node_id
+            ]
+            for duplicate_id in duplicate_ids:
+                if node_id in graph.nodes and duplicate_id in graph.nodes:
+                    graph.merge_nodes(node_id, duplicate_id)
+            node = graph.get_node(node_id)
+            if node is None:
+                break
+            alias_norm = _normalized_label(alias)
+            known_aliases = {_normalized_label(existing_alias) for existing_alias in node.aliases}
+            if alias_norm and alias_norm != _normalized_label(node.label) and alias_norm not in known_aliases:
+                node.aliases.append(alias)
+
+
 def _node_flags(node: ExtractedNode) -> list[str]:
     flags: list[str] = []
     if node.needs_review:
@@ -199,6 +238,7 @@ def result_from_backend_result(
         context.canonical_resolver.resolve(item, context.existing_graph)
         for item in items_from_backend_result(backend_result)
     ]
+    _apply_existing_graph_resolutions(items, context.existing_graph)
     latency_ms = (perf_counter() - started_at) * 1000.0
     backend_diagnostics = getattr(backend_result, "_diagnostics", None)
     if isinstance(backend_diagnostics, ExtractionDiagnostics):

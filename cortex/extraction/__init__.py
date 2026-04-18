@@ -31,6 +31,7 @@ _LAZY_ATTRS = {
     "HeuristicRuleExtractor": "cortex.extraction.heuristic_rules",
     "HybridBackend": "cortex.extraction.hybrid_backend",
     "ModelBackend": "cortex.extraction.model_backend",
+    "NodeHint": "cortex.extraction.retrieval",
     "collect_bulk_texts": "cortex.extraction.backend",
     "get_backend": "cortex.extraction.registry",
     "get_bulk_backend": "cortex.extraction.registry",
@@ -39,6 +40,7 @@ _LAZY_ATTRS = {
     "load_extraction_config": "cortex.extraction.backend",
     "merged_graph_from_results": "cortex.extraction.heuristic_backend",
     "merged_v4_from_results": "cortex.extraction.heuristic_backend",
+    "retrieve_similar_nodes": "cortex.extraction.retrieval",
     "result_from_graph": "cortex.extraction.heuristic_backend",
     "v4_from_result": "cortex.extraction.heuristic_backend",
 }
