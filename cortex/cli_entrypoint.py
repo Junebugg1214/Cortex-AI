@@ -81,11 +81,13 @@ def main(argv=None, *, ctx: EntryPointCliContext) -> int:
         argv = list(argv)
 
     argv, force_json, quiet = ctx.extract_global_flags(argv)
+    original_argv = list(argv)
     ctx.set_cli_quiet(quiet or force_json)
     route_argv = ctx.route_argv or _route_default_subcommand
     argv, cli_v2_routed = route_argv(argv)
 
     parser = ctx.build_parser()
+    setattr(parser, "_cortex_original_argv", original_argv)
     args = parser.parse_args(argv)
     setattr(args, "json_output", force_json)
     setattr(args, "quiet", quiet)

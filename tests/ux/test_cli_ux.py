@@ -102,6 +102,16 @@ def test_unknown_command_routing_is_no_longer_silent(tmp_path, capsys):
     assert "cortex migrate" in stderr
 
 
+def test_top_level_compose_to_codex_suggests_mind_compose(capsys):
+    with pytest.raises(SystemExit, match="2"):
+        main(["compose", "--to", "codex"])
+    stderr = capsys.readouterr().err
+
+    assert "What went wrong:" in stderr
+    assert "cortex mind compose <mind> --to codex" in stderr
+    assert "cortex migrate" not in stderr
+
+
 def test_merge_help_includes_guided_examples(capsys):
     with pytest.raises(SystemExit, match="0"):
         main(["merge", "--help"])
