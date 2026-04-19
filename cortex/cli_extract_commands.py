@@ -447,8 +447,11 @@ def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
         return ctx.error(f"No corpus cases found in {manifest_path}")
 
     previous_replay_mode = os.environ.get("CORTEX_EXTRACTION_REPLAY")
+    previous_replay_dir = os.environ.get("CORTEX_EXTRACTION_REPLAY_DIR")
     previous_model = os.environ.get("CORTEX_ANTHROPIC_MODEL")
+    replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else corpus_root / "replay"
     os.environ["CORTEX_EXTRACTION_REPLAY"] = "write"
+    os.environ["CORTEX_EXTRACTION_REPLAY_DIR"] = str(replay_root)
     if getattr(args, "model", None):
         os.environ["CORTEX_ANTHROPIC_MODEL"] = str(args.model)
 
@@ -493,13 +496,48 @@ def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
             os.environ.pop("CORTEX_EXTRACTION_REPLAY", None)
         else:
             os.environ["CORTEX_EXTRACTION_REPLAY"] = previous_replay_mode
+        if previous_replay_dir is None:
+            os.environ.pop("CORTEX_EXTRACTION_REPLAY_DIR", None)
+        else:
+            os.environ["CORTEX_EXTRACTION_REPLAY_DIR"] = previous_replay_dir
         if previous_model is None:
             os.environ.pop("CORTEX_ANTHROPIC_MODEL", None)
         else:
             os.environ["CORTEX_ANTHROPIC_MODEL"] = previous_model
 
-    ctx.echo(f"Refreshed extraction replay cache for {refreshed} corpus case(s); cache hits={cache_hits}.")
+    ctx.echo(
+        f"Refreshed extraction replay cache for {refreshed} corpus case(s); cache hits={cache_hits}; dir={replay_root}."
+    )
     return 0
+
+
+def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
+    """Run the extraction eval corpus and compare against its baseline."""
+
+    from cortex.extraction.eval.runner import EvaluationError, run_extraction_eval, write_eval_report
+
+    corpus_root = Path(args.corpus)
+    replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else corpus_root / "replay"
+    try:
+        outcome = run_extraction_eval(
+            corpus=corpus_root,
+            backend=args.backend,
+            tolerance=float(args.tolerance),
+            prompt_version=str(args.prompt_version),
+            update_baseline=bool(args.update_baseline),
+            replay_root=replay_root,
+        )
+        output_path = write_eval_report(outcome.report, Path(args.output))
+    except EvaluationError as exc:
+        return ctx.error(str(exc))
+    except PermissionError as exc:
+        return ctx.permission_error(Path(exc.filename or args.output), action="run extraction eval")
+    except OSError as exc:
+        return ctx.error(f"Could not run extraction eval: {exc}")
+
+    ctx.echo(outcome.summary)
+    ctx.echo(f"Report: {output_path}")
+    return 1 if outcome.failed else 0
 
 
 def run_ingest(args, *, ctx: ExtractCliContext) -> int:

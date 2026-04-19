@@ -81,6 +81,7 @@ CLI_V2_ROUTES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("source", "status"): ("scan",),
     ("extract", "run"): (_internal_command("extract"),),
     ("extract", "coding"): (_internal_command("extract-coding"),),
+    ("extract", "eval"): (_internal_command("extract-eval"),),
     ("extract", "refresh-cache"): (_internal_command("extract-refresh-cache"),),
     ("branch", "switch"): (_internal_command("switch"),),
     ("mount", "hook"): (_internal_command("context-hook"),),
@@ -558,6 +559,7 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
         "audience": run_audience,
         "pack": run_pack,
         _internal_command("extract"): run_extract,
+        _internal_command("extract-eval"): run_extract_eval,
         _internal_command("extract-refresh-cache"): run_extract_refresh_cache,
         _internal_command("ingest"): run_ingest,
         _internal_command("import"): run_import,
@@ -642,6 +644,10 @@ def _build_pii_redactor(args, *, default_enabled: bool = False):
 
 def run_extract(args):
     return cli_extract_commands_module.run_extract(args, ctx=_extract_cli_context())
+
+
+def run_extract_eval(args):
+    return cli_extract_commands_module.run_extract_eval(args, ctx=_extract_cli_context())
 
 
 def run_extract_refresh_cache(args):

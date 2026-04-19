@@ -123,7 +123,45 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         default="corpus-v1",
         help="Prompt version to include in replay cache keys (default: corpus-v1)",
     )
+    rc.add_argument(
+        "--replay-dir",
+        help="Replay cache directory (default: CORPUS/replay)",
+    )
     rc.add_argument("--model", help="Anthropic model id to use while refreshing the cache")
+
+    ev = sub.add_parser("extract-eval", help="Run extraction eval corpus and compare with baseline")
+    ev.add_argument(
+        "--corpus",
+        default="tests/extraction/corpus",
+        help="Extraction corpus directory (default: tests/extraction/corpus)",
+    )
+    ev.add_argument(
+        "--backend",
+        choices=["heuristic", "model", "hybrid"],
+        default="heuristic",
+        help="Extraction backend to evaluate (default: heuristic)",
+    )
+    ev.add_argument(
+        "--output",
+        default="extraction-eval-report.json",
+        help="JSON report path (default: extraction-eval-report.json)",
+    )
+    ev.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.01,
+        help="Allowed metric regression from baseline before failing (default: 0.01)",
+    )
+    ev.add_argument(
+        "--prompt-version",
+        default="corpus-v1",
+        help="Prompt version to include in model replay keys (default: corpus-v1)",
+    )
+    ev.add_argument(
+        "--replay-dir",
+        help="Replay cache directory for model/hybrid evals (default: CORPUS/replay)",
+    )
+    ev.add_argument("--update-baseline", action="store_true", help="Write current results to CORPUS/baseline.json")
 
     ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
     ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
