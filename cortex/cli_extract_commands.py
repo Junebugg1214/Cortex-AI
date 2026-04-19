@@ -732,17 +732,20 @@ def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
 
     previous_replay_mode = os.environ.get("CORTEX_EXTRACTION_REPLAY")
     previous_replay_dir = os.environ.get("CORTEX_EXTRACTION_REPLAY_DIR")
-    previous_model = os.environ.get("CORTEX_ANTHROPIC_MODEL")
     replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else corpus_root / "replay"
     os.environ["CORTEX_EXTRACTION_REPLAY"] = "write"
     os.environ["CORTEX_EXTRACTION_REPLAY_DIR"] = str(replay_root)
-    if getattr(args, "model", None):
-        os.environ["CORTEX_ANTHROPIC_MODEL"] = str(args.model)
 
     refreshed = 0
     cache_hits = 0
     try:
-        backend = ModelBackend(replay_cache=ReplayCache.from_env())
+        provider_name = str(getattr(args, "provider", "") or "").strip() or None
+        model_id = str(getattr(args, "model", "") or "").strip() or None
+        backend = ModelBackend(
+            provider_name=provider_name,
+            model_id=model_id,
+            replay_cache=ReplayCache.from_env(),
+        )
         for case in cases:
             case_id = case.get("id", "")
             source_type = case.get("source_type", "")
@@ -784,10 +787,6 @@ def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
             os.environ.pop("CORTEX_EXTRACTION_REPLAY_DIR", None)
         else:
             os.environ["CORTEX_EXTRACTION_REPLAY_DIR"] = previous_replay_dir
-        if previous_model is None:
-            os.environ.pop("CORTEX_ANTHROPIC_MODEL", None)
-        else:
-            os.environ["CORTEX_ANTHROPIC_MODEL"] = previous_model
 
     ctx.echo(
         f"Refreshed extraction replay cache for {refreshed} corpus case(s); cache hits={cache_hits}; dir={replay_root}."
@@ -811,6 +810,8 @@ def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
             prompt_version=str(args.prompt_version),
             update_baseline=bool(args.update_baseline),
             replay_root=replay_root,
+            provider_name=str(getattr(args, "provider", "") or "").strip() or None,
+            model_id=str(getattr(args, "model", "") or "").strip() or None,
         )
         output_path = write_eval_report(outcome.report, Path(args.output))
     except EvaluationError as exc:

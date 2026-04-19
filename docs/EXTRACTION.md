@@ -119,9 +119,10 @@ flowchart TD
 - `transcript`: timestamped utterances, then paragraphs.
 
 `generate_candidates` calls the candidate extractor per chunk. For the model
-backend, this is the schema-constrained Anthropic tool call. Retrieval hints are
-included before the call when an embedding backend and existing graph are
-available.
+backend, this is the schema-constrained provider tool call. Anthropic is the
+built-in default provider; custom `StructuredLLMProvider` implementations can be
+registered or loaded by `module:function` reference. Retrieval hints are included
+before the call when an embedding backend and existing graph are available.
 
 `refine_types` runs a second pass for low-confidence facts or claims, using the
 typing prompt to disambiguate fact versus claim.
@@ -173,9 +174,9 @@ raise loudly. Stage modules keep a `PROMPT_REFERENCES` tuple so tests can verify
 that every referenced prompt is present.
 
 Model candidate extraction is constrained by a JSON Schema generated from the
-typed output adapter. The Anthropic request uses a tool whose input schema is
-that JSON Schema. If validation fails, the backend retries up to two times with
-the validation error fed back into the conversation. After the third failure it
+typed output adapter. Provider requests use a tool whose input schema is that
+JSON Schema. If validation fails, the backend retries up to two times with the
+validation error fed back into the conversation. After the third failure it
 returns zero items and records `schema_violation` in diagnostics warnings.
 
 ## Diagnostics
@@ -242,10 +243,10 @@ Environment contract:
 | `CORTEX_EXTRACTION_REPLAY_DIR` | path | Override the cache directory. |
 
 On a cache hit, the model backend returns the cached response and sets
-`diagnostics.cache_hit=True`. On a miss, the backend falls through to the normal
-provider request path; offline CI runs should therefore be cache-complete and
-lack provider credentials, so missing replay entries fail visibly instead of
-silently refreshing goldens.
+`diagnostics.cache_hit=True`. On a miss in `read` mode, the backend raises an
+actionable replay-miss error before touching provider credentials or network. In
+`off` and `write` mode, the backend can use the configured provider request
+path.
 
 ## Eval Corpus
 

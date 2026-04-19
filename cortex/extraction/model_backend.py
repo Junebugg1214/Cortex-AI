@@ -13,7 +13,14 @@ from .backend import ExtractionBackendError, ExtractionParseError, load_extracti
 from .diagnostics import ExtractionDiagnostics, write_extraction_record
 from .eval.replay_cache import ReplayCache
 from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship
-from .llm_provider import AnthropicLLMProvider, StructuredLLMProvider
+from .llm_provider import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_PROVIDER_NAME,
+    AnthropicLLMProvider,
+    LLMProviderError,
+    StructuredLLMProvider,
+    create_registered_llm_provider,
+)
 from .pipeline import (
     Document,
     ExtractionPipeline,
@@ -71,7 +78,7 @@ PROMPT_REFERENCES = (
 )
 EXTRACTION_SYSTEM_PROMPT = CANDIDATES_PROMPT.content
 
-DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_MODEL = DEFAULT_ANTHROPIC_MODEL
 _TYPED_EXTRACTION_TOOL_NAME = "emit_extracted_memory_items"
 _ANTHROPIC_PRICING_PER_MILLION = (
     ("claude-3-opus", 15.0, 75.0),
@@ -192,6 +199,8 @@ class ModelBackend(ExtractionPipeline):
         api_key: str | None = None,
         embedding_backend: Any | None = None,
         llm_provider: StructuredLLMProvider | None = None,
+        provider_name: str | None = None,
+        model_id: str | None = None,
         replay_cache: ReplayCache | None = None,
         retrieval_top_k: int = 8,
         retrieval_threshold: float = 0.72,
@@ -199,10 +208,13 @@ class ModelBackend(ExtractionPipeline):
         self._configured_api_key = api_key
         self._embedding_backend = embedding_backend
         self._llm_provider_override = llm_provider
+        self._configured_provider_name = (provider_name or "").strip()
+        self._configured_model_id = (model_id or "").strip()
         self._replay_cache = replay_cache if replay_cache is not None else ReplayCache.from_env()
         self._retrieval_top_k = retrieval_top_k
         self._retrieval_threshold = retrieval_threshold
         self._last_request_diagnostics: ExtractionDiagnostics | None = None
+        self._resolved_llm_provider: StructuredLLMProvider | None = llm_provider
 
     def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:
         """Run model extraction through the unified pipeline contract."""
@@ -499,7 +511,7 @@ class ModelBackend(ExtractionPipeline):
         system_prompt: str,
         retrieval_hints: list[NodeHint],
     ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
-        """Extract one statement through the schema-constrained Anthropic tool path."""
+        """Extract one statement through the schema-constrained provider tool path."""
 
         messages: list[dict[str, Any]] = [
             {"role": "user", "content": self._statement_user_prompt(text, retrieval_hints=retrieval_hints)}
@@ -697,7 +709,7 @@ class ModelBackend(ExtractionPipeline):
         return Anthropic
 
     def _request_json(self, *, system_prompt: str, user_prompt: str, prompt_version: str = "") -> str:
-        """Call Anthropic and return the raw text response."""
+        """Call the configured provider and return the raw text response."""
 
         model_name = self._model_name()
         input_content = self._replay_input_content(system_prompt=system_prompt, user_prompt=user_prompt)
@@ -762,7 +774,7 @@ class ModelBackend(ExtractionPipeline):
         messages: list[dict[str, Any]],
         prompt_version: str = "",
     ) -> tuple[Any, ExtractionDiagnostics]:
-        """Call Anthropic and require a typed extraction tool_use response."""
+        """Call the configured provider and require a typed extraction tool_use response."""
 
         model_name = self._model_name()
         input_content = self._replay_input_content(system_prompt=system_prompt, messages=messages)
@@ -826,12 +838,22 @@ class ModelBackend(ExtractionPipeline):
         )
 
     def _llm_provider(self) -> StructuredLLMProvider:
-        if self._llm_provider_override is not None:
-            return self._llm_provider_override
-        return AnthropicLLMProvider(api_key=self._api_key(), client_cls=self._anthropic_client_cls)
+        if self._resolved_llm_provider is not None:
+            return self._resolved_llm_provider
+        provider_name = self._provider_name()
+        if provider_name == DEFAULT_PROVIDER_NAME:
+            self._resolved_llm_provider = AnthropicLLMProvider(
+                api_key=self._api_key(), client_cls=self._anthropic_client_cls
+            )
+            return self._resolved_llm_provider
+        try:
+            self._resolved_llm_provider = create_registered_llm_provider(provider_name)
+        except LLMProviderError as exc:
+            raise ExtractionBackendError(str(exc)) from exc
+        return self._resolved_llm_provider
 
     def _tool_input_from_response(self, response: Any) -> Any:
-        """Return the tool_use input emitted by Anthropic."""
+        """Return the tool_use input emitted by the provider."""
 
         raw_text: list[str] = []
         content = self._object_value(response, "content") or []
@@ -1110,20 +1132,58 @@ class ModelBackend(ExtractionPipeline):
     def _model_name(self) -> str:
         """Resolve the model id from config or environment."""
 
+        if self._configured_model_id:
+            return self._configured_model_id
         env_model = os.environ.get("CORTEX_MODEL_ID", "").strip()
-        if env_model:
-            return env_model
-        env_model = os.environ.get("CORTEX_ANTHROPIC_MODEL", "").strip()
         if env_model:
             return env_model
         config = load_extraction_config()
         config_model = str(config.get("model_id", "")).strip()
         if config_model:
             return config_model
-        config_model = str(config.get("anthropic_model", "")).strip()
-        if config_model:
-            return config_model
-        return DEFAULT_MODEL
+        provider_name = self._provider_name(config=config)
+        if provider_name == DEFAULT_PROVIDER_NAME:
+            env_model = os.environ.get("CORTEX_ANTHROPIC_MODEL", "").strip()
+            if env_model:
+                return env_model
+            config_model = str(config.get("anthropic_model", "")).strip()
+            if config_model:
+                return config_model
+            return DEFAULT_MODEL
+        provider_default = self._provider_default_model_id()
+        if provider_default:
+            return provider_default
+        raise ExtractionBackendError(
+            f"ModelBackend requires a model_id for LLM provider '{provider_name}'. "
+            "Pass model_id=..., set CORTEX_MODEL_ID, configure model_id, or expose "
+            "default_model_id on the provider."
+        )
+
+    def _provider_name(self, *, config: Mapping[str, Any] | None = None) -> str:
+        """Resolve the configured LLM provider name."""
+
+        if self._llm_provider_override is not None:
+            provider_name = str(getattr(self._llm_provider_override, "provider_name", "")).strip()
+            return provider_name or "injected"
+        if self._configured_provider_name:
+            return self._configured_provider_name
+        env_provider = os.environ.get("CORTEX_LLM_PROVIDER", "").strip()
+        if env_provider:
+            return env_provider
+        config = load_extraction_config() if config is None else config
+        config_provider = str(config.get("llm_provider", "")).strip()
+        if config_provider:
+            return config_provider
+        return DEFAULT_PROVIDER_NAME
+
+    def _provider_default_model_id(self) -> str:
+        """Return an injected or registered provider's default model id, when available."""
+
+        provider = self._llm_provider()
+        default = getattr(provider, "default_model_id", None)
+        if callable(default):
+            default = default()
+        return str(default or "").strip()
 
     @staticmethod
     def _normalize_category(raw_category: str) -> str:

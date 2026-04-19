@@ -25,8 +25,14 @@ Cortex reads configuration from three layers, in this order:
 - `CORTEX_BULK_BACKEND`
   Values: `model` (default if an API key is configured and the Anthropic client is installed), `heuristic`.
   `embedding` is roadmap only — it currently raises `NotImplementedError`; do not enable it.
+- `CORTEX_LLM_PROVIDER`
+  LLM provider name for `ModelBackend`. Default: `anthropic`.
+  Custom providers can be registered in process or referenced as `module:function`.
+- `CORTEX_MODEL_ID`
+  Provider-agnostic model id for `ModelBackend` and replay cache keys.
+  This takes precedence over provider-specific model settings.
 - `CORTEX_ANTHROPIC_API_KEY`
-  API key for `ModelBackend`.
+  API key for the built-in Anthropic provider.
   Falls back to `ANTHROPIC_API_KEY` if not set.
 - `CORTEX_HYBRID_RESCORE_WORKERS`
   Integer. Default: `4`.

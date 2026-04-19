@@ -18,7 +18,7 @@ The command exits non-zero if any metric regresses by more than the default
 tolerance of `0.01`. Use `--tolerance` to tighten or relax the gate for local
 experiments.
 
-Model and hybrid evals read Anthropic responses from the committed replay cache
+Model and hybrid evals read provider responses from the committed replay cache
 under `tests/extraction/corpus/replay`:
 
 ```bash
@@ -26,6 +26,10 @@ CORTEX_EXTRACTION_REPLAY=read \
 CORTEX_EXTRACTION_REPLAY_DIR=tests/extraction/corpus/replay \
 cortex extract eval --backend model
 ```
+
+Use `--model` to pin the replay key model id. Use `--provider` to select a
+registered provider name or a `module:function` provider factory. Anthropic is
+the built-in default provider.
 
 ## Rebaseline
 
@@ -41,7 +45,8 @@ For a fully explicit refresh:
 ```bash
 cortex extract refresh-cache \
   --corpus tests/extraction/corpus \
-  --replay-dir tests/extraction/corpus/replay
+  --replay-dir tests/extraction/corpus/replay \
+  --model claude-3-5-sonnet-20241022
 
 cortex extract eval \
   --corpus tests/extraction/corpus \
