@@ -212,14 +212,21 @@ class CortexArgumentParser(argparse.ArgumentParser):
 
     def error(self, message: str) -> None:
         normalized_prog = " ".join(self.prog.split())
+        original_argv = list(getattr(self, "_cortex_original_argv", []))
         hint = ""
         why = None
         if "the following arguments are required:" in message:
             hint = ARGPARSE_RECOVERY_HINTS.get(normalized_prog, "")
             why = "The command parser expected more input for a required argument."
         elif "invalid choice" in message or "unrecognized arguments" in message or "argument subcommand" in message:
-            why = "Cortex could not match the command you typed to a known subcommand."
-            hint = "If you meant to migrate a chat export, run `cortex migrate <input-file>` explicitly. Otherwise, run `cortex --help` to see the available commands and examples."
+            if normalized_prog == "cortex compose" or (
+                normalized_prog == "cortex" and original_argv[:1] == ["compose"] and "--to" in original_argv
+            ):
+                why = "Top-level `cortex compose` renders a graph JSON file and does not accept target arguments."
+                hint = "Run `cortex mind compose <mind> --to codex` to preview a Mind for Codex, or `cortex compose <graph.json> --policy technical` to render a graph file."
+            else:
+                why = "Cortex could not match the command you typed to a known subcommand."
+                hint = "If you meant to migrate a chat export, run `cortex migrate <input-file>` explicitly. Otherwise, run `cortex --help` to see the available commands and examples."
         structured = format_cli_error(message, hint=hint, why=why)
         self.print_usage(sys.stderr)
         self.exit(2, f"{self.prog}: error: {structured}\n")
