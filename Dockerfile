@@ -1,15 +1,38 @@
+# syntax=docker/dockerfile:1.7
+
 # ---------- builder stage ----------
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
-COPY . .
 
 # Keep the default runtime image lean. The embedding extra pulls the PyTorch/CUDA
 # stack and can add several minutes to CI builds; opt into it with
 # --build-arg CORTEX_EXTRAS=full when local sentence-transformer embeddings are
 # required inside the container.
 ARG CORTEX_EXTRAS=server,fast,model
-RUN pip install --no-cache-dir --prefix=/install ".[${CORTEX_EXTRAS}]"
+COPY pyproject.toml README.md LICENSE MANIFEST.in ./
+RUN --mount=type=cache,target=/root/.cache/pip python - <<'PY'
+import os
+import subprocess
+import sys
+import tomllib
+
+with open("pyproject.toml", "rb") as handle:
+    project = tomllib.load(handle)["project"]
+
+dependencies = list(project.get("dependencies") or [])
+optional_dependencies = project.get("optional-dependencies") or {}
+for extra in [item.strip() for item in os.environ.get("CORTEX_EXTRAS", "").split(",") if item.strip()]:
+    if extra not in optional_dependencies:
+        raise SystemExit(f"Unknown CORTEX_EXTRAS value: {extra}")
+    dependencies.extend(optional_dependencies[extra])
+
+if dependencies:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--prefix=/install", *dependencies])
+PY
+
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/pip pip install --prefix=/install --no-deps .
 
 # ---------- runtime stage ----------
 FROM python:3.12-slim
