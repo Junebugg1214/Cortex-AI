@@ -11,6 +11,7 @@ _LAZY_ATTRS = {
     "EMBEDDING_BACKEND_DISABLED_MESSAGE": "cortex.extraction.embedding_backend",
     "EmbeddingBackend": "cortex.extraction.embedding_backend",
     "CanonicalResolver": "cortex.extraction.pipeline",
+    "CostAwareRouter": "cortex.extraction.hybrid_backend",
     "Document": "cortex.extraction.pipeline",
     "ExtractedEdge": "cortex.extraction.types",
     "ExtractedMemoryItem": "cortex.extraction.extract_memory_context",
