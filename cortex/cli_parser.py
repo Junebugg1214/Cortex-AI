@@ -12,7 +12,7 @@ from cortex.cli_parser_extract import add_extract_pipeline_parsers
 from cortex.cli_parser_graph import add_graph_history_parsers
 from cortex.cli_parser_portable import add_portable_mind_pack_parsers
 from cortex.cli_parser_runtime_misc import add_runtime_misc_parsers
-from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
 ADVANCED_HELP_NOTE = cli_surface_module.ADVANCED_HELP_NOTE
 CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS

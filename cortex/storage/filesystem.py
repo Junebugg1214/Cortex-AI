@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.governance import GovernanceRule, GovernanceStore
-from cortex.graph import CortexGraph, Node
+from cortex.graph.claims import ClaimEvent, ClaimLedger
+from cortex.graph.graph import CortexGraph, Node
 from cortex.remote_trust import prepare_remote_fields
 from cortex.remotes import MemoryRemote, RemoteRegistry
 from cortex.schemas.memory_v1 import (
@@ -18,7 +18,7 @@ from cortex.schemas.memory_v1 import (
 )
 from cortex.storage.filesystem_indexing import FilesystemIndexBackend, FilesystemMaintenanceBackend
 from cortex.storage.filesystem_versions import FilesystemVersionBackend
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _to_governance_model(record: GovernanceRuleRecord) -> GovernanceRule:

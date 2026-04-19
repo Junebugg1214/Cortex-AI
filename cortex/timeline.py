@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 
 
 class TimelineGenerator:

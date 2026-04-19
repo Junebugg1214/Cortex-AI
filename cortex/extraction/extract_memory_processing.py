@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cortex.extract_memory_streams import (
+from cortex.extraction.extract_memory_streams import (
     extract_message_stream,
     first_text_from_paths,
     get_message_text,

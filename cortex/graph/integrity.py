@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 
 
 class IntegrityCheckError(ValueError):

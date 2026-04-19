@@ -22,7 +22,7 @@ Grammar (simplified EBNF)::
 
 Usage::
 
-    from cortex.query_lang import execute_query
+    from cortex.graph.query_lang import execute_query
 
     results = execute_query(graph, 'FIND nodes WHERE tag = "tech" LIMIT 5')
 """
@@ -33,7 +33,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 # ---------------------------------------------------------------------------
 # Tokenizer

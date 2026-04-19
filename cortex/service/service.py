@@ -15,7 +15,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.observability import CortexObservability
 from cortex.portability.portable_runtime import (
     audit_portability,

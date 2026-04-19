@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor, load_file
-from cortex.graph import CortexGraph
+from cortex.extraction.extract_memory import AggressiveExtractor, load_file
+from cortex.graph.graph import CortexGraph
 from cortex.hermes_integration import build_hermes_documents
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
-from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
-from cortex.portable_sources import (
+from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
+from cortex.portability.portable_sources import (
     ALL_PORTABLE_TARGETS,
     candidate_content_paths,
     canonical_target_name,
@@ -31,7 +31,7 @@ from cortex.portable_sources import (
     sanitized_mcp_note,
     search_roots,
 )
-from cortex.portable_state import (
+from cortex.portability.portable_state import (
     PortabilityState,
     TargetState,
     default_output_dir,
@@ -41,7 +41,7 @@ from cortex.portable_state import (
     load_portability_state,
     write_graph,
 )
-from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
 
 DEFAULT_STALE_DAYS = 30
 

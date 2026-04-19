@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from cortex.coding import enrich_project
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
-from cortex.portable_graphs import extract_graph_from_statement, merge_graphs
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.portability.portable_graphs import extract_graph_from_statement, merge_graphs
 
 FRAMEWORK_LABELS = {
     "next": "Next.js",

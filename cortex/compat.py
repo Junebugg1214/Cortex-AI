@@ -8,8 +8,8 @@ Roundtrip guarantees:
 
 from __future__ import annotations
 
-from cortex.extract_memory import are_similar
-from cortex.graph import (
+from cortex.extraction.extract_memory import are_similar
+from cortex.graph.graph import (
     CATEGORY_ORDER,
     CortexGraph,
     Edge,

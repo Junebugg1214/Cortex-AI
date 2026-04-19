@@ -15,11 +15,11 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from cortex.atomic_io import atomic_write_json, locked_path
-from cortex.graph import CATEGORY_ORDER, CortexGraph, Node
+from cortex.graph.graph import CATEGORY_ORDER, CortexGraph, Node
+from cortex.graph.minds import _persist_mind_core_graph, load_mind_core_graph, resolve_default_mind
 from cortex.intelligence import GapAnalyzer
 from cortex.mind_runtime import _refresh_mind_mounts
-from cortex.minds import _persist_mind_core_graph, load_mind_core_graph, resolve_default_mind
-from cortex.portable_runtime import load_canonical_graph, load_portability_state, save_canonical_graph
+from cortex.portability.portable_runtime import load_canonical_graph, load_portability_state, save_canonical_graph
 from cortex.runtime_logging import get_logger, log_operation
 
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"

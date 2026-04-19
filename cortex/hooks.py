@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.graph import CortexGraph
-from cortex.upai.disclosure import BUILTIN_POLICIES, apply_disclosure
+from cortex.graph.graph import CortexGraph
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES, apply_disclosure
 
 # ---------------------------------------------------------------------------
 # Default paths

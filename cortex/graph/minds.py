@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.namespaces import describe_resource_namespace, resource_namespace_matches
 
 MINDS_DIRNAME = "minds"
@@ -369,7 +369,7 @@ def _load_policies(store_dir: Path, mind_id: str, manifest: MindManifest) -> dic
 
 
 def _resolve_core_graph(store_dir: Path, mind_id: str) -> tuple[CortexGraph, str, str]:
-    from cortex.portable_runtime import load_canonical_graph, load_portability_state
+    from cortex.portability.portable_runtime import load_canonical_graph, load_portability_state
     from cortex.storage import get_storage_backend
 
     manifest = load_mind_manifest(store_dir, mind_id)
@@ -430,7 +430,7 @@ def _persist_mind_core_graph(
     acquire_lock: bool = True,
 ) -> dict[str, Any]:
     from cortex.storage import get_storage_backend
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     manifest = load_mind_manifest(store_dir, mind_id)
     backend = get_storage_backend(store_dir)
@@ -480,7 +480,7 @@ def adopt_graph_into_mind(
     message: str = "",
     source: str = "mind.adopt_graph",
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import merge_graphs
+    from cortex.portability.portable_runtime import merge_graphs
 
     with locked_path(_store_lock_path(store_dir)):
         manifest = load_mind_manifest(store_dir, mind_id)
@@ -524,8 +524,13 @@ def sync_mind_compatibility_targets(
     graph_ref: str = "",
     graph_source: str = "",
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import canonical_target_name, default_output_dir, load_portability_state, sync_targets
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.portability.portable_runtime import (
+        canonical_target_name,
+        default_output_dir,
+        load_portability_state,
+        sync_targets,
+    )
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     manifest = load_mind_manifest(store_dir, mind_id)
     resolved_targets = [canonical_target_name(target) for target in targets if str(target).strip()]
@@ -613,7 +618,7 @@ def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
 
 
 def _mind_store_module():
-    from cortex import mind_store
+    import cortex.graph.mind_store as mind_store
 
     return mind_store
 
@@ -625,7 +630,7 @@ def _mind_attachments_module():
 
 
 def _mind_mounts_module():
-    from cortex import mind_mounts
+    import cortex.portability.mind_mounts as mind_mounts
 
     return mind_mounts
 

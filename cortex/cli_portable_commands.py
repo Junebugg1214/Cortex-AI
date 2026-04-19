@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor, load_file
-from cortex.graph import CortexGraph
-from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.extraction.extract_memory import AggressiveExtractor, load_file
+from cortex.graph.graph import CortexGraph
+from cortex.portability.adapters import ADAPTERS
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
 
 @dataclass(frozen=True)
@@ -38,8 +38,8 @@ class PortableCliContext:
 def run_sync(args, *, ctx: PortableCliContext) -> int:
     """Disclosure-filtered export via platform adapters or smart portability sync."""
     if getattr(args, "smart", False):
-        from cortex.minds import resolve_default_mind, sync_mind_compatibility_targets
-        from cortex.portable_runtime import (
+        from cortex.graph.minds import resolve_default_mind, sync_mind_compatibility_targets
+        from cortex.portability.portable_runtime import (
             ALL_PORTABLE_TARGETS,
             default_output_dir,
             load_canonical_graph,
@@ -125,7 +125,7 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
     store_dir = Path(args.store_dir)
     id_path = store_dir / "identity.json"
     if id_path.exists():
-        from cortex.upai.identity import UPAIIdentity
+        from cortex.versioning.upai.identity import UPAIIdentity
 
         identity = UPAIIdentity.load(store_dir)
 
@@ -141,7 +141,7 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
 
 def run_verify(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 - ctx reserved for future consistency
     """Verify a signed export file."""
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -643,7 +643,7 @@ def run_context_export(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001
 
 def run_context_write(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 - ctx reserved for future consistency
     """Write identity context to AI coding tool config files."""
-    from cortex.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh, write_context
+    from cortex.portability.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh, write_context
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -699,8 +699,8 @@ def run_mount(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 - ctx re
     import signal
     import threading
 
-    from cortex.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh
-    from cortex.portable_state import default_graph_path
+    from cortex.portability.context import CONTEXT_TARGETS, resolve_context_targets, watch_and_refresh
+    from cortex.portability.portable_state import default_graph_path
 
     project_dir = Path(args.project or ".").expanduser().resolve()
     store_dir = Path(args.store_dir).expanduser()
@@ -758,15 +758,15 @@ def run_mount(args, *, ctx: PortableCliContext) -> int:  # noqa: ARG001 - ctx re
 
 def run_portable(args, *, ctx: PortableCliContext) -> int:
     """One-command portability flow: load or extract context, then install it across tools."""
-    from cortex.hooks import _load_graph as load_graph_optional
-    from cortex.minds import (
+    from cortex.graph.minds import (
         adopt_graph_into_mind,
         load_mind_core_graph,
         resolve_default_mind,
         sync_mind_compatibility_targets,
     )
-    from cortex.portability import resolve_portable_targets
-    from cortex.portable_runtime import (
+    from cortex.hooks import _load_graph as load_graph_optional
+    from cortex.portability.portability import resolve_portable_targets
+    from cortex.portability.portable_runtime import (
         merge_graphs,
         save_canonical_graph,
         sync_targets,
@@ -861,7 +861,7 @@ def run_portable(args, *, ctx: PortableCliContext) -> int:
     identity = None
     identity_path = store_dir / "identity.json"
     if identity_path.exists():
-        from cortex.upai.identity import UPAIIdentity
+        from cortex.versioning.upai.identity import UPAIIdentity
 
         identity = UPAIIdentity.load(store_dir)
 

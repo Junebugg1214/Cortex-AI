@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 
 _JSON_OBJECT_SCHEMA: dict[str, Any] = {
     "type": "object",

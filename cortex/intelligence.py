@@ -10,10 +10,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from cortex.graph import CATEGORY_ORDER, Node, _normalize_label
+from cortex.graph.graph import CATEGORY_ORDER, Node, _normalize_label
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 
 def _normalize_timestamp(timestamp: str) -> str:
@@ -230,8 +230,8 @@ class InsightGenerator:
         # Build label → node list maps (handle multiple nodes with same label)
         from collections import defaultdict as _defaultdict
 
-        from cortex.contradictions import ContradictionEngine
-        from cortex.temporal import drift_score
+        from cortex.graph.contradictions import ContradictionEngine
+        from cortex.graph.temporal import drift_score
 
         _cur_multi: dict[str, list[Node]] = _defaultdict(list)
         for node in current.nodes.values():

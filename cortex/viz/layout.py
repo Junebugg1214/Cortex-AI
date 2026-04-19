@@ -15,7 +15,7 @@ import random
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +251,7 @@ def fruchterman_reingold(
     # Select nodes if over limit
     node_ids = list(graph.nodes.keys())
     if len(node_ids) > max_nodes:
-        from cortex.centrality import compute_degree_centrality
+        from cortex.graph.centrality import compute_degree_centrality
 
         scores = compute_degree_centrality(graph)
         node_ids = sorted(scores, key=lambda nid: scores.get(nid, 0), reverse=True)[:max_nodes]

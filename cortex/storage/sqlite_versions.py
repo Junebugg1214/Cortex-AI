@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import CortexGraph, Node, _normalize_label, diff_graphs
+from cortex.graph.graph import CortexGraph, Node, _normalize_label, diff_graphs
+from cortex.graph.semantic_diff import semantic_diff_graphs
 from cortex.schemas.memory_v1 import DEFAULT_NAMESPACE, DEFAULT_TENANT_ID, BranchRecord, CommitRecord
-from cortex.semantic_diff import semantic_diff_graphs
 
 DEFAULT_SQLITE_FILENAME = "cortex.db"
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from cortex.graph import CortexGraph, Node, _normalize_label
+from cortex.graph.graph import CortexGraph, Node, _normalize_label
 
 # Tags considered "positive" (non-negation)
 _POSITIVE_TAGS = frozenset(

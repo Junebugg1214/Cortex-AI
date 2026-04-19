@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.hooks import _load_graph as load_graph_optional
 
 STATE_VERSION = "1.0"

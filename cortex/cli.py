@@ -1041,7 +1041,7 @@ def run_mcp(args):
 
 def run_openapi(args):
     """Write the OpenAPI contract to disk."""
-    from cortex.openapi import write_openapi_spec
+    from cortex.service.openapi import write_openapi_spec
 
     output_path = write_openapi_spec(args.output, server_url=args.server_url, compat_output_path=args.compat_output)
     print(f"Wrote OpenAPI spec to {output_path}")
@@ -1052,8 +1052,8 @@ def run_openapi(args):
 
 def run_release_notes(args):
     """Write Markdown release notes and a JSON release manifest."""
-    from cortex.openapi import build_openapi_spec
     from cortex.release import write_release_manifest, write_release_notes
+    from cortex.service.openapi import build_openapi_spec
 
     spec = build_openapi_spec()
     notes_path = write_release_notes(args.output, spec, tag=args.tag, commit_sha=args.commit_sha)

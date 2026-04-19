@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from cortex.atomic_io import atomic_write_json, locked_path
-from cortex.graph import CortexGraph
-from cortex.minds import load_mind_manifest, mind_path
+from cortex.graph.graph import CortexGraph
+from cortex.graph.minds import load_mind_manifest, mind_path
 
 
 def _iso_now() -> str:
@@ -280,7 +280,7 @@ class PolicyEngine:
 
     def preview(self, mind_id: str, audience_id: str) -> dict[str, Any]:
         """Preview audience policy filtering without writing output."""
-        from cortex.minds import _resolve_core_graph
+        from cortex.graph.minds import _resolve_core_graph
 
         load_mind_manifest(self.store_dir, mind_id)
         policy = self.get_policy(mind_id, audience_id)

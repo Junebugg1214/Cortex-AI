@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import cortex.minds as minds_module
+import cortex.graph.minds as minds_module
 
 
 def _load_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
@@ -39,7 +39,7 @@ def _write_openclaw_mind_mount_registry(openclaw_store_dir: Path, payload: dict[
 
 
 def _refresh_mind_mounts(store_dir: Path, mind_id: str) -> dict[str, Any]:
-    from cortex.portable_runtime import canonical_target_name
+    from cortex.portability.portable_runtime import canonical_target_name
 
     with minds_module.locked_path(minds_module._store_lock_path(store_dir)):
         persisted = [dict(item) for item in minds_module._load_mounts(store_dir, mind_id).get("mounts", [])]

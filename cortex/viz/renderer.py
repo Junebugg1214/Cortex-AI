@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from cortex.graph import CATEGORY_ORDER
+from cortex.graph.graph import CATEGORY_ORDER
 from cortex.viz.layout import LayoutResult
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 
 # ---------------------------------------------------------------------------

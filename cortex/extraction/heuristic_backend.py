@@ -9,8 +9,8 @@ from cortex.compat import upgrade_v4_to_v5
 from cortex.extraction.diagnostics import ExtractionDiagnostics, write_extraction_record
 from cortex.extraction.extract_memory_context import build_eval_compat_view as _build_eval_compat_view
 from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
-from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
-from cortex.temporal import apply_temporal_review_policy
+from cortex.graph.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
+from cortex.graph.temporal import apply_temporal_review_policy
 
 from .pipeline import (
     Document,
@@ -147,13 +147,13 @@ def graph_from_result(
     if isinstance(cached, CortexGraph):
         return CortexGraph.from_v5_json(cached.export_v5())
 
-    from cortex.portable_graphs import create_fallback_graph
+    from cortex.portability.portable_graphs import create_fallback_graph
 
     graph = CortexGraph()
     label_to_id: dict[str, str] = {}
 
     for node in result.nodes:
-        from cortex.graph import make_node_id_with_tag
+        from cortex.graph.graph import make_node_id_with_tag
 
         graph_node = Node(
             id=make_node_id_with_tag(node.label, node.category or "mentions"),
@@ -177,7 +177,7 @@ def graph_from_result(
         label_to_id.setdefault(node.label, graph_node.id)
 
     for edge in result.edges:
-        from cortex.graph import make_edge_id, make_node_id_with_tag
+        from cortex.graph.graph import make_edge_id, make_node_id_with_tag
 
         source_id = label_to_id.get(edge.source)
         if source_id is None:
@@ -258,7 +258,7 @@ def v4_from_result(
 def merged_graph_from_results(results: list[ExtractionResult]) -> CortexGraph:
     """Merge multiple extraction results into one graph."""
 
-    from cortex.portable_graphs import merge_graphs
+    from cortex.portability.portable_graphs import merge_graphs
 
     merged = CortexGraph()
     for result in results:
@@ -336,7 +336,7 @@ class HeuristicBackend(ExtractionPipeline):
         if graph.nodes:
             apply_temporal_review_policy(graph)
         else:
-            from cortex.portable_graphs import create_fallback_graph
+            from cortex.portability.portable_graphs import create_fallback_graph
 
             graph = create_fallback_graph(text, confidence=float((context or {}).get("confidence", 0.85)))
         result = result_from_graph(graph, raw_source=text, extraction_method="heuristic")

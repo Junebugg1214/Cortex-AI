@@ -16,10 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.contradictions import ContradictionEngine
-from cortex.extract_memory_context import normalize_text
-from cortex.graph import CortexGraph, Edge, Node, _dedupe_dict_items, diff_graphs
-from cortex.upai.versioning import VersionStore
+from cortex.extraction.extract_memory_context import normalize_text
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph, Edge, Node, _dedupe_dict_items, diff_graphs
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _node_payload(node: Node | None) -> dict[str, Any] | None:

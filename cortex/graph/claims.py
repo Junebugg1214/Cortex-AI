@@ -7,15 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import CortexGraph, Node, _normalize_label
-from cortex.integrity import check_graph_integrity
-from cortex.sources import (
+from cortex.extraction.sources import (
     AmbiguousSourceLabelError,
     SourceRecord,
     SourceRegistry,
     SourceResolutionError,
     graph_source_ids,
 )
+from cortex.graph.graph import CortexGraph, Node, _normalize_label
+from cortex.graph.integrity import check_graph_integrity
 
 
 def make_claim_id(

@@ -475,7 +475,7 @@ def import_pack_bundle(
 
 
 def _pack_mounts_module():
-    from cortex import pack_mounts as pack_mounts_module
+    import cortex.portability.pack_mounts as pack_mounts_module
 
     return pack_mounts_module
 

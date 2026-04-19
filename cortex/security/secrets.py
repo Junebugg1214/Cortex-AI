@@ -14,7 +14,7 @@ from .validate import InputValidator
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),

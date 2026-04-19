@@ -25,11 +25,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.graph import CortexGraph, Node, _normalize_label
-from cortex.semantic_diff import semantic_diff_graphs
+from cortex.graph.graph import CortexGraph, Node, _normalize_label
+from cortex.graph.semantic_diff import semantic_diff_graphs
 
 if TYPE_CHECKING:
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
 
 CHAIN_HASH_VERSION = 2

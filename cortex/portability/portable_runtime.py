@@ -5,24 +5,24 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from cortex import portable_state as _portable_state
-from cortex import portable_views as _portable_views
+import cortex.portability.portable_state as _portable_state
+import cortex.portability.portable_views as _portable_views
 from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.compat import upgrade_v4_to_v5
-from cortex.context import write_context
-from cortex.extract_memory import AggressiveExtractor, PIIRedactor, load_file
-from cortex.graph import CortexGraph
+from cortex.extraction.extract_memory import AggressiveExtractor, PIIRedactor, load_file
+from cortex.graph.graph import CortexGraph
 from cortex.hermes_integration import install_hermes_context
 from cortex.import_memory import NormalizedContext
-from cortex.portability import PORTABLE_DIRECT_TARGETS, export_artifact_targets
-from cortex.portable_builders import (
+from cortex.portability.context import write_context
+from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, export_artifact_targets
+from cortex.portability.portable_builders import (
     build_git_history_graph,
     build_github_graph,
     build_project_graph,
     build_resume_graph,
 )
-from cortex.portable_graphs import extract_graph_from_statement, merge_graphs
-from cortex.portable_sources import (
+from cortex.portability.portable_graphs import extract_graph_from_statement, merge_graphs
+from cortex.portability.portable_sources import (
     ALL_PORTABLE_TARGETS,
     DEFAULT_DIRECT_TARGETS,
     canonical_target_name,
@@ -30,11 +30,13 @@ from cortex.portable_sources import (
     expected_tool_paths,
     resolve_requested_targets,
 )
-from cortex.portable_sources import discover_portability_sources as _discover_portability_sources
-from cortex.portable_sources import extract_graph_from_detected_sources as _extract_graph_from_detected_sources
-from cortex.portable_sources import graph_from_hermes_paths as _graph_from_hermes_paths
-from cortex.portable_sources import search_roots as _search_roots
-from cortex.upai.disclosure import apply_disclosure
+from cortex.portability.portable_sources import discover_portability_sources as _discover_portability_sources
+from cortex.portability.portable_sources import (
+    extract_graph_from_detected_sources as _extract_graph_from_detected_sources,
+)
+from cortex.portability.portable_sources import graph_from_hermes_paths as _graph_from_hermes_paths
+from cortex.portability.portable_sources import search_roots as _search_roots
+from cortex.versioning.upai.disclosure import apply_disclosure
 
 STATE_VERSION = _portable_state.STATE_VERSION
 SMART_ROUTE_TAGS = _portable_views.SMART_ROUTE_TAGS

@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from cortex.adapters import ADAPTERS
 from cortex.compat import upgrade_v4_to_v5
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
+from cortex.portability.adapters import ADAPTERS
 
 
 @dataclass(frozen=True)
@@ -94,8 +94,8 @@ def run_pull(args, *, ctx: MiscCliContext) -> int:
 
 def run_rotate(args, *, ctx: MiscCliContext) -> int:
     """Rotate UPAI identity key."""
-    from cortex.upai.identity import UPAIIdentity
-    from cortex.upai.keychain import Keychain
+    from cortex.versioning.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.keychain import Keychain
 
     store_dir = Path(args.store_dir)
     if not (store_dir / "identity.json").exists():

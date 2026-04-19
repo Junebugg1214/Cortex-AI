@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cortex.adapters import ADAPTERS
 from cortex.import_memory import NormalizedContext, TopicDetail
-from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.portability.adapters import ADAPTERS
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.graph.graph import CortexGraph
+    from cortex.versioning.upai.identity import UPAIIdentity
 
 
 PORTABLE_TARGET_ORDER = [

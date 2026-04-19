@@ -4,10 +4,10 @@ import copy
 import json
 from typing import Any
 
-from cortex.extract_memory_context import normalize_text
 from cortex.extraction import get_hot_path_backend, graph_from_result
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
-from cortex.temporal import apply_temporal_review_policy
+from cortex.extraction.extract_memory_context import normalize_text
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.temporal import apply_temporal_review_policy
 
 
 def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

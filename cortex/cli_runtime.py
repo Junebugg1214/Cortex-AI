@@ -105,7 +105,7 @@ def _add_runtime_security_args(parser, *, include_legacy_manus_alias: bool = Fal
 
 
 def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
-    from cortex.context import _resolve_path
+    from cortex.portability.context import _resolve_path
 
     templates = {
         "claude-code": "{project}/.mcp.json",
@@ -118,7 +118,7 @@ def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
 
 
 def _connect_runtime_content_paths(target: str, *, project_dir: Path) -> list[str]:
-    from cortex.context import _resolve_path
+    from cortex.portability.context import _resolve_path
 
     templates = {
         "claude-code": ("{home}/.claude/CLAUDE.md", "{project}/CLAUDE.md"),
@@ -267,8 +267,8 @@ def _connect_runtime_upsert_target_config(target: str, *, path: Path, cortex_con
 
 
 def _connect_runtime_context_status(store_dir: Path) -> dict[str, Any]:
-    from cortex.minds import load_mind_core_graph, resolve_default_mind
-    from cortex.portable_runtime import load_canonical_graph, load_portability_state
+    from cortex.graph.minds import load_mind_core_graph, resolve_default_mind
+    from cortex.portability.portable_runtime import load_canonical_graph, load_portability_state
 
     try:
         default_mind = resolve_default_mind(store_dir)

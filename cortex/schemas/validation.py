@@ -13,7 +13,7 @@ from cortex.schemas.memory_v1 import (
     MemoryNodeRecord,
     RemoteRecord,
 )
-from cortex.upai.schemas import validate
+from cortex.versioning.upai.schemas import validate
 
 MEMORY_NODE_RECORD_SCHEMA: dict[str, Any] = {
     "type": "object",

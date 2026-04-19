@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from cortex.claims import ClaimEvent
 from cortex.governance import GovernanceRule
-from cortex.graph import CortexGraph, Node, _normalize_label, diff_graphs
+from cortex.graph.claims import ClaimEvent
+from cortex.graph.graph import CortexGraph, Node, _normalize_label, diff_graphs
+from cortex.graph.semantic_diff import semantic_diff_graphs
 from cortex.remote_trust import _normalize_store_path, prepare_remote_fields
 from cortex.schemas.memory_v1 import (
     DEFAULT_TENANT_ID,
@@ -18,7 +19,6 @@ from cortex.schemas.memory_v1 import (
     GovernanceRuleRecord,
     RemoteRecord,
 )
-from cortex.semantic_diff import semantic_diff_graphs
 from cortex.storage.sqlite_indexing import SQLiteIndexBackend, SQLiteMaintenanceBackend
 from cortex.storage.sqlite_versions import (
     DEFAULT_SQLITE_FILENAME,

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from cortex.embeddings import get_embedding_provider, hybrid_search_documents
+from cortex.extraction.embeddings import get_embedding_provider, hybrid_search_documents
+from cortex.graph.query import QueryEngine, parse_nl_query
+from cortex.graph.query_lang import ParseError, execute_query
 from cortex.memory_ops import blame_memory_nodes, list_memory_conflicts, resolve_memory_conflict
-from cortex.query import QueryEngine, parse_nl_query
-from cortex.query_lang import ParseError, execute_query
 from cortex.review import parse_failure_policies, review_graphs
-from cortex.service_common import _coerce_graph, _load_identity, _node_payload
+from cortex.service.service_common import _coerce_graph, _load_identity, _node_payload
 
 
 class MemoryGraphQueryServiceMixin:

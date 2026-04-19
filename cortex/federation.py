@@ -32,8 +32,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.graph.graph import CortexGraph
+    from cortex.versioning.upai.identity import UPAIIdentity
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ class FederationManager:
             from nacl.exceptions import BadSignatureError as InvalidSignature
             from nacl.signing import VerifyKey
 
-            from cortex.upai.identity import _did_key_to_public_key
+            from cortex.versioning.upai.identity import _did_key_to_public_key
 
             if not bundle.signature:
                 raise ValueError("missing signature")
@@ -453,7 +453,7 @@ class FederationManager:
         self._record_nonce(bundle.nonce)
 
         # 6. Merge nodes and edges
-        from cortex.graph import Edge, Node
+        from cortex.graph.graph import Edge, Node
 
         nodes_added = 0
         nodes_updated = 0

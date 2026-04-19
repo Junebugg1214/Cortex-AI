@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cortex.compat import downgrade_v5_to_v4
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.import_memory import (
     NormalizedContext,
     export_claude_memories,
@@ -25,15 +25,15 @@ from cortex.import_memory import (
     export_notion_database_json,
     export_system_prompt,
 )
-from cortex.upai.disclosure import DisclosurePolicy, apply_disclosure
+from cortex.versioning.upai.disclosure import DisclosurePolicy, apply_disclosure
 
 if TYPE_CHECKING:
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 else:
     UPAIIdentity = Any
 
 try:
-    from cortex.upai.identity import UPAIIdentity as _UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity as _UPAIIdentity
 except Exception:  # pragma: no cover - exercised when crypto extras are absent
     _HAS_IDENTITY = False
 else:

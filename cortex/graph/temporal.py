@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 
 TEMPORAL_REVIEW_QUEUE_KEY = "temporal_review_queue"
 TEMPORAL_CONFIDENCE_DEFAULT_THRESHOLD = 0.5
