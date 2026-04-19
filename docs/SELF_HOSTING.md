@@ -33,7 +33,7 @@ This is the default mode.
 Use it when:
 
 - Cortex runs on the same machine you use directly
-- REST/UI/Manus surfaces stay on loopback
+- REST/UI surfaces stay on loopback
 - local trust and user-owned storage are the primary goals
 
 ### `hosted-service`
@@ -45,7 +45,7 @@ Hosted-service mode expects:
 - configured API keys before binding beyond loopback
 - HTTPS terminated by a reverse proxy you control
 - scoped API keys instead of wildcard grants whenever possible
-- pinned namespaces for shared Manus bridges or team-specific runtimes
+- pinned namespaces for shared team-specific runtimes
 - operators who understand the warnings emitted by `cortex serve ... --check`
 
 For the public beta rollout, pair this guide with:
@@ -214,7 +214,6 @@ Use `--check` before you start a process for real:
 ```bash
 cortex serve api --config .cortex/config.toml --check
 cortex serve mcp --config .cortex/config.toml --check
-cortex serve manus --config .cortex/config.toml --check
 cortex serve ui --config .cortex/config.toml --check
 
 # direct entrypoints
@@ -233,9 +232,9 @@ deployment blockers rather than optional suggestions.
 Before you expose Cortex beyond localhost:
 
 - configure real API keys in `.cortex/config.toml`
-- verify `cortex serve api --check` and `cortex serve manus --check`
+- verify `cortex serve api --check`, `cortex serve mcp --check`, and `cortex serve ui --check`
 - terminate HTTPS at a reverse proxy you control
-- prefer one namespace per bridge or workflow
+- prefer one namespace per workflow
 - keep the UI on trusted networks only
 - export and verify a backup before first exposure
 

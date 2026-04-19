@@ -13,7 +13,6 @@ In scope:
 
 - `cortexd` REST API
 - `cortex-mcp` local MCP server
-- `cortex serve manus` hosted MCP bridge
 - `cortex serve ui` operator UI
 - local store backends
 - API keys, namespace boundaries, backups, logs, and release artifacts

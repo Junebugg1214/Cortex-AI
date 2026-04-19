@@ -989,27 +989,17 @@ def run_integrity(args):
     )
 
 
-def run_connect_manus(args):
-    return cli_runtime_commands_module.run_connect_manus(args, ctx=_runtime_cli_context())
-
-
 def run_connect_runtime_target(args, *, target: str):
     return cli_runtime_commands_module.run_connect_runtime_target(args, target=target, ctx=_runtime_cli_context())
 
 
 def run_connect(args):
-    if args.connect_subcommand == "manus":
-        return run_connect_manus(args)
     if args.connect_subcommand in CONNECT_RUNTIME_TARGETS:
         return run_connect_runtime_target(args, target=args.connect_subcommand)
     return _error(
         "Missing connect target.",
-        hint="Run `cortex connect --help` and pick manus, hermes, codex, cursor, or claude-code.",
+        hint="Run `cortex connect --help` and pick hermes, codex, cursor, or claude-code.",
     )
-
-
-def run_serve_manus(args):
-    return cli_runtime_commands_module.run_serve_manus(args, ctx=_runtime_cli_context())
 
 
 def run_serve(args):
@@ -1017,13 +1007,11 @@ def run_serve(args):
         return run_server(args)
     if args.serve_subcommand == "mcp":
         return run_mcp(args)
-    if args.serve_subcommand == "manus":
-        return run_serve_manus(args)
     if args.serve_subcommand == "ui":
         return run_ui(args)
     return _error(
         "Missing serve target.",
-        hint="Run `cortex serve --help` and choose api, mcp, manus, or ui.",
+        hint="Run `cortex serve --help` and choose api, mcp, or ui.",
     )
 
 

@@ -43,6 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - release workflow no longer treats prerelease tags like GA publishes
 - the `full` optional extra now includes crypto, fast NumPy support, ASGI serving, and the optional embedding backend dependencies
 
+### Removed
+
+- Removed an optional hosted agent bridge, its console script, serve subcommand, and config table support. OpenClaw and Hermes remain first-class.
+
 ## [v1.4.1-beta] — 2026-03-26
 
 This is the first self-hosted public beta positioned around **Git for AI Memory**.

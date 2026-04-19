@@ -221,7 +221,6 @@ Canonical subcommands:
 api
 mcp
 ui
-manus
 ```
 
 Migration notes:
@@ -297,7 +296,7 @@ Migration notes:
 | --- | --- | --- | --- | --- | --- |
 | `init` | `init` | kept | n/a | n/a | Keep as Tier 1 project/store initialization. |
 | `connect` | `remote add` | alias | 1.5.0 | 1.6.0 | Alias to `cortex remote add`; keep shim for one minor release. |
-| `serve` | `serve {api,mcp,ui,manus}` | kept | n/a | n/a | Keep as the canonical runtime namespace. |
+| `serve` | `serve {api,mcp,ui}` | kept | n/a | n/a | Keep as the canonical runtime namespace. |
 | `extract` | `extract run` | nested | 1.5.0 | 1.6.0 | Move extraction execution under `extract run`; shim kept for one minor release. |
 | `extract-eval` | `extract eval` | nested | 1.5.0 | 1.6.0 | Extraction eval corpus runs live under the extraction harness namespace. |
 | `extract-refresh-cache` | `extract refresh-cache` | nested | 1.5.0 | 1.6.0 | Replay-cache refresh moves under the extraction harness namespace. |

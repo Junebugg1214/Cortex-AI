@@ -26,7 +26,7 @@ ALL_SCOPES = ("read", "write", "branch", "merge", "index", "prune", "remote")
 VALID_SCOPES = set(ALL_SCOPES) | {"*", "admin"}
 RUNTIME_MODES = ("local-single-user", "hosted-service")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-HTTP_RUNTIME_SURFACES = {"api", "manus", "ui"}
+HTTP_RUNTIME_SURFACES = {"api", "ui"}
 
 
 def _split_csv(raw: str | None) -> list[str]:
@@ -111,7 +111,6 @@ def is_loopback_host(host: str) -> bool:
 def _runtime_surface_label(surface: str) -> str:
     return {
         "api": "Cortex REST API",
-        "manus": "Cortex Manus bridge",
         "ui": "Cortex UI",
     }.get(surface, f"Cortex {surface}")
 
@@ -152,12 +151,6 @@ def validate_runtime_security(
         raise ValueError(
             f"Refusing to bind the {label} to a non-loopback host in hosted-service mode without API keys. "
             "Configure scoped auth keys or pass --allow-unsafe-bind to override."
-        )
-
-    if normalized_surface == "manus" and not str(namespace or "").strip():
-        raise ValueError(
-            f"Refusing to bind the {label} to a non-loopback host in hosted-service mode without a pinned namespace. "
-            "Set `[mcp].namespace`, pass `--namespace`, or keep the bridge on loopback."
         )
 
 
@@ -548,12 +541,12 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
 
     warnings: list[str] = []
     bind_scope = "loopback" if is_loopback_host(config.server_host) else "network"
-    reverse_proxy_recommended = mode in {"server", "manus"} and config.runtime_mode == "hosted-service"
+    reverse_proxy_recommended = mode == "server" and config.runtime_mode == "hosted-service"
     if config.config_path is None:
         warnings.append("No config.toml loaded; using defaults and environment variables.")
     if not store_dir.exists():
         warnings.append("Store directory does not exist yet; Cortex will create it on first write.")
-    if mode in {"server", "manus"} and not config.api_keys:
+    if mode == "server" and not config.api_keys:
         if config.runtime_mode == "local-single-user":
             warnings.append("No API keys configured; local-single-user mode only permits safe loopback binds.")
         else:
@@ -562,17 +555,13 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         warnings.append(
             "The UI only provides browser session auth for loopback use; keep it on loopback unless you intentionally override it for API-key clients."
         )
-    if mode in {"server", "manus"} and config.runtime_mode == "hosted-service":
+    if mode == "server" and config.runtime_mode == "hosted-service":
         warnings.append(
             "Hosted-service deployments should run behind an HTTPS reverse proxy; Cortex does not terminate TLS itself."
         )
         if WILDCARD_NAMESPACE in {namespace for key in config.api_keys for namespace in key.namespaces}:
             warnings.append(
                 "Some API keys allow every namespace; prefer dedicated single-namespace keys for hosted-service deployments."
-            )
-        if bind_scope == "network" and mode == "manus" and not config.mcp_namespace:
-            warnings.append(
-                "Hosted-service Manus deployments should pin `mcp.namespace` so external clients cannot roam across namespaces."
             )
         if config.config_path is None:
             warnings.append(
@@ -604,7 +593,7 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         "api_keys": [item.to_safe_dict() for item in config.api_keys],
         "warnings": warnings,
     }
-    if mode in {"server", "manus", "ui"}:
+    if mode in {"server", "ui"}:
         diagnostics["request_policy"] = request_policy_for_mode(config.runtime_mode).to_dict()
     return diagnostics
 
@@ -622,7 +611,7 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
         lines.append(f"  Config:    {diagnostics['config_path']}")
     if diagnostics["context_file"]:
         lines.append(f"  Context:   {diagnostics['context_file']}")
-    if mode in {"server", "manus", "ui"}:
+    if mode in {"server", "ui"}:
         lines.append(f"  Listen:    {diagnostics['server_host']}:{diagnostics['server_port']}")
         lines.append(f"  Bind:      {diagnostics['bind_scope']}")
         if diagnostics["request_policy"]:
@@ -648,8 +637,6 @@ def format_startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> st
                 "  Auth:      "
                 + (f"{diagnostics['api_key_count']} scoped key(s)" if diagnostics["auth_enabled"] else "disabled")
             )
-        if mode == "manus":
-            lines.append(f"  Namespace: {diagnostics['mcp_namespace'] or '(unscoped)'}")
         if diagnostics["reverse_proxy_recommended"]:
             lines.append("  Deploy:    place Cortex behind an HTTPS reverse proxy")
         if mode != "ui" and diagnostics["api_keys"]:

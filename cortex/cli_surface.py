@@ -17,7 +17,7 @@ DEFAULT_HELP_START_HERE = (
     "  1. cortex init\n"
     "  2. cortex serve ui\n"
     '  3. cortex mind remember self "I prefer concise, implementation-first answers."\n'
-    "  4. cortex connect manus\n"
+    "  4. cortex connect codex --check\n"
 )
 DEFAULT_HELP_SURFACE_MAP = (
     "Surface Map:\n"
@@ -51,15 +51,14 @@ CONNECT_HELP_EPILOG = (
     "Connect is runtime wiring only.\n"
     "Use `cortex mind mount` to materialize Cortex state into a target once the connector is ready.\n\n"
     "Common connect flow:\n"
-    "  cortex connect manus --check\n"
-    "  cortex connect manus --print-config\n"
+    "  cortex connect codex --check\n"
+    "  cortex connect codex --print-config\n"
     "  cortex mind mount self --to codex\n"
 )
 SERVE_HELP_EPILOG = (
     "Runtime / admin surfaces:\n"
     "  serve api     REST API for programmatic access\n"
     "  serve mcp     stdio MCP for local agent runtimes\n"
-    "  serve manus   hosted HTTPS-friendly MCP bridge\n"
     "  serve ui      local infrastructure UI\n\n"
     "These are runtime/admin commands; day-to-day workflows usually start with `cortex init`,\n"
     "`cortex mind`, or `cortex connect`.\n"
@@ -80,8 +79,8 @@ HELP_TOPIC_TEXT = {
         "Start with the first-class path:\n"
         "  cortex init\n"
         '  cortex mind remember self "I prefer concise, implementation-first answers."\n'
-        "  cortex connect manus\n"
-        "  cortex serve manus\n"
+        "  cortex connect codex --check\n"
+        "  cortex serve mcp\n"
         "\n"
         "Topic guides:\n"
         "  cortex help init\n"
@@ -117,11 +116,10 @@ HELP_TOPIC_TEXT = {
         "Cortex runtime wiring\n"
         "\n"
         "Prepare a runtime first:\n"
-        "  cortex connect manus --check\n"
+        "  cortex connect hermes --check\n"
         "  cortex connect codex --install\n"
         "\n"
         "Then run or expose the runtime surface:\n"
-        "  cortex serve manus\n"
         "  cortex serve mcp\n"
         "  cortex serve api\n"
         "  cortex serve ui\n"
@@ -144,8 +142,8 @@ HELP_TOPIC_TEXT = {
     ),
 }
 ARGPARSE_RECOVERY_HINTS = {
-    "cortex connect": "cortex connect manus --check",
-    "cortex serve": "cortex serve manus --check",
+    "cortex connect": "cortex connect codex --check",
+    "cortex serve": "cortex serve mcp --check",
     "cortex mind status": "cortex mind list",
     "cortex mind remember": 'cortex mind remember self "..."',
     "cortex mind compose": 'cortex mind compose self --to codex --task "..."',
@@ -281,47 +279,6 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
     )
     connect_sub = connect.add_subparsers(dest="connect_subcommand")
 
-    connect_manus = connect_sub.add_parser("manus", help="Generate a Manus custom MCP connector config")
-    connect_manus.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")
-    connect_manus.add_argument("--context-file", help="Optional default context graph file")
-    connect_manus.add_argument("--namespace", help="Optional namespace to pin the bridge session to")
-    connect_manus.add_argument("--config", help="Path to shared Cortex self-host config.toml")
-    connect_manus.add_argument(
-        "--url",
-        help="Public HTTPS Manus MCP URL, with or without the trailing /mcp path",
-    )
-    connect_manus.add_argument("--name", default="Cortex-Manus", help="Connector name to include in the MCP JSON")
-    connect_manus.add_argument("--key-name", default="", help="Preferred read-scoped API key name from config.toml")
-    connect_manus.add_argument(
-        "--auth-header",
-        choices=["x-api-key", "authorization"],
-        default="x-api-key",
-        help="Header style Manus should send (default: x-api-key)",
-    )
-    connect_manus.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Suggested local bind host for `cortex serve manus` (default: 127.0.0.1)",
-    )
-    connect_manus.add_argument(
-        "--port",
-        type=int,
-        default=8790,
-        help="Suggested local bind port for `cortex serve manus` (default: 8790)",
-    )
-    connect_manus.add_argument("--check", action="store_true", help="Validate local Manus bridge readiness")
-    connect_manus.add_argument("--print-config", action="store_true", help="Include a Manus MCP JSON preview")
-    connect_manus.add_argument(
-        "--write-config",
-        help="Write the full Manus MCP JSON with live secrets to this file path instead of only printing a masked preview",
-    )
-    connect_manus.add_argument(
-        "--reveal-secret",
-        action="store_true",
-        help="Print live secrets in the generated JSON preview (unsafe; may leak to shell history or logs)",
-    )
-    connect_manus.add_argument("--format", choices=["json", "text"], default="text")
-
     def _add_connect_runtime_args(target_parser, *, target_label: str):
         target_parser.add_argument(
             "--store-dir", default=None, help="Storage directory (default from config discovery)"
@@ -393,33 +350,6 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
     serve_mcp.add_argument("--config", help="Path to shared Cortex self-host config.toml")
     serve_mcp.add_argument("--check", action="store_true", help="Print startup diagnostics and exit")
     serve_mcp.add_argument("--format", choices=["json", "text"], default="text")
-
-    serve_manus = serve_sub.add_parser("manus", help="Launch the Manus-friendly hosted Cortex MCP bridge")
-    serve_manus.add_argument("--store-dir", default=None, help="Storage directory (default from config or .cortex)")
-    serve_manus.add_argument("--context-file", help="Optional default context graph file")
-    serve_manus.add_argument("--namespace", help="Optional namespace to pin the Manus bridge session to")
-    serve_manus.add_argument("--config", help="Path to shared Cortex self-host config.toml")
-    serve_manus.add_argument("--host", default=None, help="Bind host (default from config or 127.0.0.1)")
-    serve_manus.add_argument("--port", type=int, default=None, help="Bind port (default from config or 8790)")
-    add_runtime_security_args(serve_manus, include_legacy_manus_alias=True)
-    serve_manus.add_argument(
-        "--tool",
-        action="append",
-        default=[],
-        help="Expose an additional Cortex MCP tool by name. Repeatable.",
-    )
-    serve_manus.add_argument(
-        "--allow-write-tools",
-        action="store_true",
-        help="Expose the curated Manus write-tool set in addition to the default read-oriented toolset.",
-    )
-    serve_manus.add_argument(
-        "--protocol-version",
-        default=None,
-        help="Optional negotiated MCP protocol version override for Manus compatibility",
-    )
-    serve_manus.add_argument("--check", action="store_true", help="Print bridge diagnostics and exit")
-    serve_manus.add_argument("--format", choices=["json", "text"], default="text")
 
     serve_ui = serve_sub.add_parser("ui", help="Launch the local Cortex infrastructure web UI")
     serve_ui.add_argument("--store-dir", default=None, help="Storage directory (default from config discovery)")

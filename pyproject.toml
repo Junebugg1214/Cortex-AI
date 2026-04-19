@@ -51,7 +51,6 @@ cortex = "cortex.cli:main"
 cortex-hook = "cortex._hook:main"
 cortexd = "cortex.server:main"
 cortex-mcp = "cortex.mcp:main"
-cortex-manus = "cortex.manus_bridge:main"
 cortex-bench = "cortex.benchmark:main"
 
 [tool.setuptools.packages.find]

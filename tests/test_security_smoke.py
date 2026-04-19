@@ -5,8 +5,6 @@ import threading
 from cortex.cli import main
 from cortex.config import APIKeyConfig
 from cortex.graph import CortexGraph, Node
-from cortex.manus_bridge import configure_manus_toolset, dispatch_manus_request
-from cortex.mcp import CortexMCPServer
 from cortex.minds import init_mind, load_mind_core_graph, remember_on_mind
 from cortex.server import make_api_handler
 from cortex.service import MemoryService
@@ -108,15 +106,6 @@ def _invoke_ui_handler(
     return handler._status, handler._headers, handler.wfile.getvalue().decode("utf-8")
 
 
-def _jsonrpc(method: str, *, request_id: int, params: dict | None = None) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": method,
-        "params": params or {},
-    }
-
-
 def test_security_smoke_api_auth_and_ui_write_guards(tmp_path):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
@@ -191,7 +180,7 @@ def test_security_smoke_api_auth_and_ui_write_guards(tmp_path):
     assert json.loads(ui_writer_body)["rebuilt"] == 1
 
 
-def test_security_smoke_namespace_isolation_for_api_and_manus(tmp_path):
+def test_security_smoke_namespace_isolation_for_api(tmp_path):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)
     backend.versions.commit(CortexGraph(), "main base")
@@ -224,32 +213,6 @@ def test_security_smoke_namespace_isolation_for_api_and_manus(tmp_path):
     assert json.loads(allowed_body)["results"][0]["node"]["label"] == "Team A Atlas"
     assert denied_status == 403
     assert "outside API key 'team-a-reader' namespace scope" in json.loads(denied_body)["error"]
-
-    init_mind(store_dir, "alpha", kind="person", owner="marc", namespace="team-a")
-    init_mind(store_dir, "beta", kind="person", owner="marc", namespace="team-b")
-    manus_server = CortexMCPServer(store_dir=store_dir)
-    configure_manus_toolset(manus_server)
-
-    single_namespace_status, single_namespace_payload = dispatch_manus_request(
-        manus_server,
-        payload=_jsonrpc("tools/call", request_id=1, params={"name": "mind_list", "arguments": {}}),
-        api_keys=(APIKeyConfig(name="team-a-reader", token="team-a-token", scopes=("read",), namespaces=("team-a",)),),
-        headers={"X-API-Key": "team-a-token"},
-    )
-    multi_namespace_status, multi_namespace_payload = dispatch_manus_request(
-        manus_server,
-        payload=_jsonrpc("tools/call", request_id=2, params={"name": "mind_list", "arguments": {}}),
-        api_keys=(
-            APIKeyConfig(name="multi-reader", token="multi-token", scopes=("read",), namespaces=("team-a", "team-b")),
-        ),
-        headers={"X-API-Key": "multi-token"},
-    )
-
-    assert single_namespace_status == 200
-    assert single_namespace_payload["result"]["structuredContent"]["count"] == 1
-    assert single_namespace_payload["result"]["structuredContent"]["minds"][0]["mind"] == "alpha"
-    assert multi_namespace_status == 403
-    assert "spans multiple namespaces" in multi_namespace_payload["error"]["message"]
 
 
 def test_security_smoke_concurrent_mind_remember_preserves_all_facts(tmp_path):
