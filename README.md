@@ -35,7 +35,7 @@ cortex mind mount self --to codex --project . --task "product strategy"
 
 Use `cortex mount watch` when you have a graph file you want to keep mounted after changes. An example appears in the extraction section below.
 
-## Extraction: supported files and honest defaults
+## Extraction
 
 Create a supported source file:
 
@@ -55,7 +55,11 @@ cortex extract run policy_v3.md --output policy_v3.context.json
 cortex mount watch --project . --graph policy_v3.context.json --interval 30 --to codex
 ```
 
-Default extraction is rule-based: regular expressions plus keyword lists. The LLM backend is opt-in:
+Default extraction is local and rule-based. Model and hybrid extraction are
+available when configured, and all current backends use the typed extraction
+contract described in [docs/EXTRACTION.md](docs/EXTRACTION.md).
+
+Model extraction is opt-in:
 
 ```bash
 export CORTEX_HOT_PATH_BACKEND=model
@@ -63,27 +67,10 @@ export CORTEX_ANTHROPIC_API_KEY=sk-ant-...
 cortex extract run policy_v3.md --output policy_v3.context.json
 ```
 
-PDFs require pre-conversion to a supported text or JSON format before ingest. See [docs/INGEST_FORMATS.md](docs/INGEST_FORMATS.md) for the exact loader catalog.
-
-Extraction output is not a typed `Fact` / `Claim` / `Relationship` taxonomy today. The extractor emits `ExtractedTopic` records grouped by category labels such as:
-
-| Category label | Typical meaning |
-| --- | --- |
-| `technical_expertise` | Tools, languages, frameworks, and stack mentions |
-| `domain_knowledge` | Domain areas and subject-matter context |
-| `active_priorities` | Current projects, goals, and work focus |
-| `professional_context` | Roles, titles, and professional identity |
-| `business_context` | Company, team, product, or organization context |
-| `communication_preferences` | Preferred response style and communication constraints |
-| `user_preferences` | Durable personal or workflow preferences |
-| `relationships` | Extracted relationship-like statements |
-| `constraints` | Stated limits, requirements, or policies |
-| `negations` | Explicit corrections or negated preferences |
-| `correction_history` | Correction events captured during extraction |
-| `values` | Values or principles mentioned in source text |
-| `identity` | Names, credentials, and direct identity statements |
-
-Typed `Fact`, `Claim`, and `Relationship` classes are a roadmap item, not the default extractor contract.
+PDFs require pre-conversion to a supported text or JSON format before ingest. See
+[docs/INGEST_FORMATS.md](docs/INGEST_FORMATS.md) for the exact loader catalog,
+and [docs/EXTRACTION.md](docs/EXTRACTION.md) for pipeline stages, diagnostics,
+replay, evals, and the cost-aware router.
 
 ## Versioning workflow
 

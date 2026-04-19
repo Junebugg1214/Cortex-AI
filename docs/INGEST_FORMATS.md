@@ -1,6 +1,8 @@
 # Ingest formats
 
 This page mirrors the formats handled by `cortex/extract_memory_loaders.py`.
+For the extraction pipeline contract, stages, diagnostics, replay cache, and
+evaluation harness, see [EXTRACTION.md](EXTRACTION.md).
 
 ## Supported file extensions
 
@@ -65,23 +67,23 @@ Other formats not handled by this loader include `.docx`, `.html`, `.csv`, image
 Plain markdown:
 
 ```bash
-cortex extract policy_v3.md --output policy_v3.context.json
+cortex extract run policy_v3.md --output policy_v3.context.json
 ```
 
 Plain text:
 
 ```bash
-cortex extract notes.txt --output notes.context.json
+cortex extract run notes.txt --output notes.context.json
 ```
 
 ChatGPT/OpenAI ZIP export:
 
 ```bash
-cortex extract chatgpt-export.zip --input-format openai --output chatgpt.context.json
+cortex extract run chatgpt-export.zip --format openai --output chatgpt.context.json
 ```
 
 Generic JSONL messages:
 
 ```bash
-cortex extract session.jsonl --input-format jsonl --output session.context.json
+cortex extract run session.jsonl --format jsonl --output session.context.json
 ```
