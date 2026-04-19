@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from cortex.extraction import ExtractedEdge, ExtractedNode, ExtractionResult, HybridBackend
+from cortex.extraction import BackendExtractionResult as ExtractionResult
+from cortex.extraction import ExtractedEdge, ExtractedNode, HybridBackend
 
 
 class _StaticBackend:

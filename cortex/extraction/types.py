@@ -39,3 +39,7 @@ class ExtractionResult:
     raw_source: str = ""
     warnings: list[str] = field(default_factory=list)
     rescore_pending: bool = False
+
+
+BackendExtractionResult = ExtractionResult
+LegacyExtractionResult = ExtractionResult

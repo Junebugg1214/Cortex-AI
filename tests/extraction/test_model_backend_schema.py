@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from cortex.extraction import Document, ExtractedFact, ExtractionContext, ModelBackend
+from cortex.extraction.eval.replay_cache import ReplayCache
 from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME
 
 
@@ -89,7 +90,7 @@ def _run_backend(backend: ModelBackend):
 
 def test_model_backend_accepts_valid_schema_tool_output(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
-    backend = ModelBackend(api_key="test-key")
+    backend = ModelBackend(api_key="test-key", replay_cache=ReplayCache(mode="off"))
     messages = _install_stubbed_client(monkeypatch, backend, [_valid_fact_payload()])
 
     result = _run_backend(backend)
@@ -105,7 +106,7 @@ def test_model_backend_accepts_valid_schema_tool_output(monkeypatch, tmp_path) -
 
 def test_model_backend_retries_invalid_then_accepts_valid_schema_tool_output(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
-    backend = ModelBackend(api_key="test-key")
+    backend = ModelBackend(api_key="test-key", replay_cache=ReplayCache(mode="off"))
     messages = _install_stubbed_client(monkeypatch, backend, [_invalid_fact_payload(), _valid_fact_payload()])
 
     result = _run_backend(backend)
@@ -119,7 +120,7 @@ def test_model_backend_retries_invalid_then_accepts_valid_schema_tool_output(mon
 
 def test_model_backend_returns_empty_items_after_three_schema_failures(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
-    backend = ModelBackend(api_key="test-key")
+    backend = ModelBackend(api_key="test-key", replay_cache=ReplayCache(mode="off"))
     messages = _install_stubbed_client(
         monkeypatch,
         backend,

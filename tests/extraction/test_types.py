@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from cortex.extraction import ExtractedEdge, ExtractedNode, ExtractionResult
+from cortex.extraction import BackendExtractionResult as ExtractionResult
+from cortex.extraction import ExtractedEdge, ExtractedNode
 
 
 def test_extracted_node_defaults():

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from cortex.extraction import HeuristicBackend, HybridBackend, ModelBackend
-from cortex.extraction.backend import ExtractionBackend
+import pytest
+
+import cortex.extraction as extraction
+from cortex.extraction import BackendExtractionResult, HeuristicBackend, HybridBackend, ModelBackend
 from cortex.extraction.pipeline import (
     Document,
     ExtractionBudget,
@@ -29,7 +31,22 @@ def _context() -> ExtractionContext:
 
 
 def test_extraction_backend_is_deprecated_alias_for_pipeline() -> None:
+    with pytest.warns(DeprecationWarning):
+        from cortex.extraction.backend import ExtractionBackend
+
     assert ExtractionBackend is ExtractionPipeline
+
+
+def test_public_extraction_result_exports_pipeline_contract() -> None:
+    assert extraction.ExtractionResult is ExtractionResult
+    assert hasattr(extraction.ExtractionResult(), "items")
+    assert hasattr(extraction.ExtractionResult(), "diagnostics")
+
+
+def test_legacy_backend_result_has_explicit_alias() -> None:
+    result = BackendExtractionResult()
+    assert result.nodes == []
+    assert result.edges == []
 
 
 def test_heuristic_backend_satisfies_pipeline_contract_on_empty_document() -> None:

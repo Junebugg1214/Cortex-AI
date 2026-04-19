@@ -3,11 +3,12 @@ from __future__ import annotations
 import importlib.util
 import os
 
-from .backend import ExtractionBackend, ExtractionBackendError, load_extraction_config
+from .backend import ExtractionBackendError, load_extraction_config
 from .embedding_backend import EmbeddingBackend
 from .heuristic_backend import HeuristicBackend
 from .hybrid_backend import HybridBackend
 from .model_backend import ModelBackend
+from .pipeline import ExtractionPipeline
 
 BACKENDS = {
     "heuristic": HeuristicBackend,
@@ -32,7 +33,7 @@ def _model_backend_available() -> bool:
     return importlib.util.find_spec("anthropic") is not None
 
 
-def get_backend(name: str) -> ExtractionBackend:
+def get_backend(name: str) -> ExtractionPipeline:
     """Instantiate one named extraction backend."""
 
     normalized = str(name or "").strip().lower()
@@ -43,7 +44,7 @@ def get_backend(name: str) -> ExtractionBackend:
     return backend_cls()
 
 
-def get_hot_path_backend() -> ExtractionBackend:
+def get_hot_path_backend() -> ExtractionPipeline:
     """Return the configured backend for interactive remember flows."""
 
     name = os.environ.get("CORTEX_HOT_PATH_BACKEND", "").strip().lower()
@@ -53,7 +54,7 @@ def get_hot_path_backend() -> ExtractionBackend:
     return get_backend(name)
 
 
-def get_bulk_backend() -> ExtractionBackend:
+def get_bulk_backend() -> ExtractionPipeline:
     """Return the configured backend for bulk extraction flows."""
 
     name = os.environ.get("CORTEX_BULK_BACKEND", "").strip().lower()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -28,12 +27,28 @@ class ExtractionParseError(ExtractionBackendError):
         self.raw_response = raw_response
 
 
-warnings.warn(
-    "cortex.extraction.backend.ExtractionBackend is deprecated; use cortex.extraction.pipeline.ExtractionPipeline.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-ExtractionBackend = ExtractionPipeline
+__all__ = [  # noqa: F822 - ExtractionBackend is provided dynamically with a deprecation warning.
+    "BulkTextCollector",
+    "ExtractionBackend",
+    "ExtractionBackendError",
+    "ExtractionParseError",
+    "collect_bulk_texts",
+    "load_extraction_config",
+]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ExtractionBackend":
+        import warnings
+
+        warnings.warn(
+            "cortex.extraction.backend.ExtractionBackend is deprecated; "
+            "use cortex.extraction.pipeline.ExtractionPipeline.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ExtractionPipeline
+    raise AttributeError(f"module 'cortex.extraction.backend' has no attribute {name!r}")
 
 
 def _safe_load_toml(path: Path | None) -> dict[str, Any]:

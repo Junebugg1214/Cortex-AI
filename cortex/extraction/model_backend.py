@@ -9,12 +9,14 @@ from typing import Annotated, Any, Literal, Mapping
 
 from cortex.graph import CATEGORY_ORDER
 
-from .backend import ExtractionBackend, ExtractionBackendError, ExtractionParseError, load_extraction_config
+from .backend import ExtractionBackendError, ExtractionParseError, load_extraction_config
 from .diagnostics import ExtractionDiagnostics, write_extraction_record
 from .eval.replay_cache import ReplayCache
 from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship
+from .llm_provider import AnthropicLLMProvider, StructuredLLMProvider
 from .pipeline import (
     Document,
+    ExtractionPipeline,
     empty_result,
     items_from_backend_result,
     legacy_context_from_pipeline_context,
@@ -181,20 +183,22 @@ def _typed_extraction_adapter() -> Any:
     return _TYPED_EXTRACTION_ADAPTER
 
 
-class ModelBackend(ExtractionBackend):
-    """Anthropic-backed extraction backend."""
+class ModelBackend(ExtractionPipeline):
+    """Schema-constrained model extraction backend."""
 
     def __init__(
         self,
         *,
         api_key: str | None = None,
         embedding_backend: Any | None = None,
+        llm_provider: StructuredLLMProvider | None = None,
         replay_cache: ReplayCache | None = None,
         retrieval_top_k: int = 8,
         retrieval_threshold: float = 0.72,
     ) -> None:
         self._configured_api_key = api_key
         self._embedding_backend = embedding_backend
+        self._llm_provider_override = llm_provider
         self._replay_cache = replay_cache if replay_cache is not None else ReplayCache.from_env()
         self._retrieval_top_k = retrieval_top_k
         self._retrieval_threshold = retrieval_threshold
@@ -712,16 +716,20 @@ class ModelBackend(ExtractionBackend):
                 )
                 return str(payload["raw_text"]).strip()
 
-        api_key = self._api_key()
-        client = self._anthropic_client_cls()(api_key=api_key)
-        started = perf_counter()
-        response = client.messages.create(
+        self._raise_replay_miss_if_read(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+            payload_kind="text",
+        )
+
+        provider_response = self._llm_provider().create_message(
             model=model_name,
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        latency_ms = (perf_counter() - started) * 1000.0
+        response = provider_response.response
         content = getattr(response, "content", [])
         parts: list[str] = []
         for block in content:
@@ -731,7 +739,7 @@ class ModelBackend(ExtractionBackend):
         self._last_request_diagnostics = self._diagnostics_from_response(
             response,
             fallback_model=model_name,
-            latency_ms=latency_ms,
+            latency_ms=provider_response.latency_ms,
         )
         raw_text = "".join(parts).strip()
         self._write_replay_response(
@@ -775,10 +783,14 @@ class ModelBackend(ExtractionBackend):
                     ),
                 )
 
-        api_key = self._api_key()
-        client = self._anthropic_client_cls()(api_key=api_key)
-        started = perf_counter()
-        response = client.messages.create(
+        self._raise_replay_miss_if_read(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_name,
+            payload_kind="typed_tool",
+        )
+
+        provider_response = self._llm_provider().create_tool_message(
             model=model_name,
             max_tokens=4096,
             system=system_prompt,
@@ -792,11 +804,11 @@ class ModelBackend(ExtractionBackend):
             ],
             tool_choice={"type": "tool", "name": _TYPED_EXTRACTION_TOOL_NAME},
         )
-        latency_ms = (perf_counter() - started) * 1000.0
+        response = provider_response.response
         diagnostics = self._diagnostics_from_response(
             response,
             fallback_model=model_name,
-            latency_ms=latency_ms,
+            latency_ms=provider_response.latency_ms,
         )
         self._write_replay_response(
             prompt_version=prompt_version,
@@ -812,6 +824,11 @@ class ModelBackend(ExtractionBackend):
             response,
             diagnostics,
         )
+
+    def _llm_provider(self) -> StructuredLLMProvider:
+        if self._llm_provider_override is not None:
+            return self._llm_provider_override
+        return AnthropicLLMProvider(api_key=self._api_key(), client_cls=self._anthropic_client_cls)
 
     def _tool_input_from_response(self, response: Any) -> Any:
         """Return the tool_use input emitted by Anthropic."""
@@ -877,6 +894,30 @@ class ModelBackend(ExtractionBackend):
         except OSError as exc:  # pragma: no cover - cache should never break extraction
             LOGGER.warning("Unable to read extraction replay cache: %s", exc)
             return None
+
+    def _raise_replay_miss_if_read(
+        self,
+        *,
+        prompt_version: str,
+        input_content: str,
+        model_id: str,
+        payload_kind: str,
+    ) -> None:
+        if self._replay_cache.mode != "read":
+            return
+        key = self._replay_cache.key(
+            prompt_version=prompt_version,
+            input_content=input_content,
+            model_id=model_id,
+        )
+        path = self._replay_cache.path_for_key(key)
+        raise ExtractionBackendError(
+            "Extraction replay cache miss in read mode "
+            f"for {payload_kind} request (model={model_id}, prompt_version={prompt_version or '-'}, "
+            f"key={key}, path={path}). "
+            "Refresh the replay cache with `cortex extract refresh-cache` or set "
+            "CORTEX_EXTRACTION_REPLAY=off/write to allow live model calls."
+        )
 
     def _write_replay_response(
         self,
@@ -1067,12 +1108,18 @@ class ModelBackend(ExtractionBackend):
         )
 
     def _model_name(self) -> str:
-        """Resolve the Anthropic model name from config or environment."""
+        """Resolve the model id from config or environment."""
 
+        env_model = os.environ.get("CORTEX_MODEL_ID", "").strip()
+        if env_model:
+            return env_model
         env_model = os.environ.get("CORTEX_ANTHROPIC_MODEL", "").strip()
         if env_model:
             return env_model
         config = load_extraction_config()
+        config_model = str(config.get("model_id", "")).strip()
+        if config_model:
+            return config_model
         config_model = str(config.get("anthropic_model", "")).strip()
         if config_model:
             return config_model
