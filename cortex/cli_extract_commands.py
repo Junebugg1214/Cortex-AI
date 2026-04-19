@@ -540,6 +540,42 @@ def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
     return 1 if outcome.failed else 0
 
 
+def run_extract_ab(args, *, ctx: ExtractCliContext) -> int:
+    """Run a prompt A/B comparison against the extraction eval corpus."""
+
+    from cortex.extraction.eval.ab import run_prompt_ab
+    from cortex.extraction.eval.runner import EvaluationError
+
+    corpus_root = Path(args.corpus)
+    replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else corpus_root / "replay"
+    try:
+        outcome = run_prompt_ab(
+            prompt_a=Path(args.prompt_a),
+            prompt_b=Path(args.prompt_b),
+            corpus=corpus_root,
+            output=Path(args.output),
+            backend=args.backend,
+            replay_root=replay_root,
+            significance_threshold=float(args.significance_threshold),
+        )
+    except FileNotFoundError as exc:
+        return ctx.missing_path_error(Path(exc.filename or ""), label="Prompt file")
+    except EvaluationError as exc:
+        return ctx.error(str(exc))
+    except PermissionError as exc:
+        return ctx.permission_error(Path(exc.filename or args.output), action="run prompt A/B eval")
+    except OSError as exc:
+        return ctx.error(f"Could not run prompt A/B eval: {exc}")
+
+    ctx.echo(f"Prompt A/B report: {outcome.output_path}")
+    if outcome.recommended_winner:
+        ctx.echo(f"Recommended winner: Prompt {outcome.recommended_winner}")
+    else:
+        ctx.echo("Recommended winner: none; F1 deltas are not statistically significant.")
+    ctx.echo(f"Output-different cases: {len(outcome.differing_cases)}")
+    return 0
+
+
 def run_extract_review(args, *, ctx: ExtractCliContext) -> int:
     """Review extraction eval failures and optionally patch gold labels."""
 

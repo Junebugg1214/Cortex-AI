@@ -70,6 +70,22 @@ Mark each item as `true_failure` when the extractor is wrong, or
 case's `gold.json` in place, regenerate `tests/extraction/corpus/baseline.json`,
 and write a markdown summary under `docs/extraction-reviews/`.
 
+## Prompt A/B
+
+Compare two prompt files against the same corpus with:
+
+```bash
+cortex extract ab \
+  --prompt-a cortex/extraction/prompts/candidates.v1.md \
+  --prompt-b ./candidate-experiment.md \
+  --corpus tests/extraction/corpus \
+  --output extraction-prompt-ab-diff.md
+```
+
+The report includes a per-metric delta table, output-different cases, and a
+winner recommendation only when F1 movement clears the Wilson interval
+significance threshold.
+
 ## CI Gate
 
 The `extract-eval` GitHub Actions job runs after the test matrix. It uses

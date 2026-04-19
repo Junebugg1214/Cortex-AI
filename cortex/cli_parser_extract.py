@@ -163,6 +163,36 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
     )
     ev.add_argument("--update-baseline", action="store_true", help="Write current results to CORPUS/baseline.json")
 
+    ab = sub.add_parser("extract-ab", help="Compare two extraction prompts against a corpus")
+    ab.add_argument("--prompt-a", required=True, help="First prompt Markdown file")
+    ab.add_argument("--prompt-b", required=True, help="Second prompt Markdown file")
+    ab.add_argument(
+        "--corpus",
+        default="tests/extraction/corpus",
+        help="Extraction corpus directory (default: tests/extraction/corpus)",
+    )
+    ab.add_argument(
+        "--output",
+        default="extraction-prompt-ab-diff.md",
+        help="Markdown diff output path (default: extraction-prompt-ab-diff.md)",
+    )
+    ab.add_argument(
+        "--backend",
+        choices=["heuristic", "model", "hybrid"],
+        default="heuristic",
+        help="Extraction backend to evaluate (default: heuristic)",
+    )
+    ab.add_argument(
+        "--replay-dir",
+        help="Shared replay cache directory for model/hybrid A/B runs (default: CORPUS/replay)",
+    )
+    ab.add_argument(
+        "--significance-threshold",
+        type=float,
+        default=0.01,
+        help="Minimum F1 delta before Wilson intervals can recommend a winner (default: 0.01)",
+    )
+
     rv = sub.add_parser("extract-review", help="Review extraction eval failures and patch gold labels")
     rv.add_argument("report", help="Extraction eval report JSON")
     rv.add_argument(

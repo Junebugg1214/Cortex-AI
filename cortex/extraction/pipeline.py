@@ -62,6 +62,7 @@ class ExtractionContext:
     existing_graph: CortexGraph | None = None
     budget: ExtractionBudget = field(default_factory=ExtractionBudget)
     prompt_version: str = ""
+    prompt_overrides: dict[str, str] = field(default_factory=dict)
     canonical_resolver: CanonicalResolver = field(default_factory=NoopCanonicalResolver)
 
 
@@ -272,6 +273,7 @@ def legacy_context_from_pipeline_context(context: ExtractionContext) -> dict[str
     legacy_context: dict[str, Any] = {
         "budget": context.budget,
         "prompt_version": context.prompt_version,
+        "prompt_overrides": dict(context.prompt_overrides),
         "canonical_resolver": context.canonical_resolver,
     }
     if context.existing_graph is not None:

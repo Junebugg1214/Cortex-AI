@@ -342,12 +342,14 @@ class ModelBackend(ExtractionBackend):
         started = perf_counter()
         context = dict(context or {})
         prompt_version = str(context.get("prompt_version") or "")
+        system_prompt = self._system_prompt_from_context(context)
         retrieval_hints = self._coerce_retrieval_hints(context.get("retrieval_hints"))
         if self._uses_legacy_request_json_override():
             result, diagnostics = self._extract_statement_legacy_json(
                 text,
                 started_at=started,
                 prompt_version=prompt_version,
+                system_prompt=system_prompt,
                 retrieval_hints=retrieval_hints,
             )
         else:
@@ -355,6 +357,7 @@ class ModelBackend(ExtractionBackend):
                 text,
                 started_at=started,
                 prompt_version=prompt_version,
+                system_prompt=system_prompt,
                 retrieval_hints=retrieval_hints,
             )
         diagnostics = replace(diagnostics, warnings=list(result.warnings))
@@ -378,14 +381,14 @@ class ModelBackend(ExtractionBackend):
         started = perf_counter()
         context = dict(context or {})
         prompt_version = str(context.get("prompt_version") or "")
+        system_prompt = self._system_prompt_from_context(context)
         results: list[ExtractionResult] = []
         request_diagnostics: list[ExtractionDiagnostics] = []
         for batch_start in range(0, len(texts), 10):
             batch = texts[batch_start : batch_start + 10]
             raw = self._request_json(
                 system_prompt=(
-                    EXTRACTION_SYSTEM_PROMPT
-                    + '\nWhen given multiple texts, return {"results": [schema, ...]} in the same order.'
+                    system_prompt + '\nWhen given multiple texts, return {"results": [schema, ...]} in the same order.'
                 ),
                 user_prompt=json.dumps({"texts": batch}, ensure_ascii=False),
                 prompt_version=prompt_version,
@@ -440,6 +443,7 @@ class ModelBackend(ExtractionBackend):
         *,
         started_at: float,
         prompt_version: str,
+        system_prompt: str,
         retrieval_hints: list[NodeHint],
     ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
         """Compatibility path for tests and callers that override _request_json."""
@@ -448,7 +452,7 @@ class ModelBackend(ExtractionBackend):
         request_diagnostics: list[ExtractionDiagnostics] = []
         for _attempt in range(3):
             raw = self._request_json(
-                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 prompt_version=prompt_version,
             )
@@ -488,6 +492,7 @@ class ModelBackend(ExtractionBackend):
         *,
         started_at: float,
         prompt_version: str,
+        system_prompt: str,
         retrieval_hints: list[NodeHint],
     ) -> tuple[ExtractionResult, ExtractionDiagnostics]:
         """Extract one statement through the schema-constrained Anthropic tool path."""
@@ -498,7 +503,7 @@ class ModelBackend(ExtractionBackend):
         request_diagnostics: list[ExtractionDiagnostics] = []
         for attempt in range(3):
             response, diagnostics = self._request_typed_tool_response(
-                system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 messages=messages,
                 prompt_version=prompt_version,
             )
@@ -618,6 +623,18 @@ class ModelBackend(ExtractionBackend):
             except (TypeError, ValueError):
                 continue
         return [hint for hint in hints if hint.node_id and hint.label]
+
+    @staticmethod
+    def _system_prompt_from_context(context: Mapping[str, Any]) -> str:
+        prompt = context.get("system_prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt.strip()
+        overrides = context.get("prompt_overrides")
+        if isinstance(overrides, Mapping):
+            candidate_prompt = overrides.get("candidates") or overrides.get("system")
+            if isinstance(candidate_prompt, str) and candidate_prompt.strip():
+                return candidate_prompt.strip()
+        return EXTRACTION_SYSTEM_PROMPT
 
     @staticmethod
     def _statement_user_prompt(text: str, *, retrieval_hints: list[NodeHint]) -> str:

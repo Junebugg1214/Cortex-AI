@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .ab import MetricDelta, PromptABOutcome, PromptVariant, load_prompt_variant, run_prompt_ab
 from .metrics import (
     ExtractionFailure,
     MetricReport,
@@ -28,6 +29,9 @@ __all__ = [
     "EvaluationOutcome",
     "ExtractionFailure",
     "MetricReport",
+    "MetricDelta",
+    "PromptABOutcome",
+    "PromptVariant",
     "ReplayCache",
     "ReviewOutcome",
     "canonicalization_accuracy",
@@ -36,10 +40,12 @@ __all__ = [
     "format_eval_summary",
     "graph_payload_from_items",
     "load_corpus_cases",
+    "load_prompt_variant",
     "node_prf",
     "replay_mode_from_env",
     "relation_prf",
     "run_extraction_eval",
     "run_extraction_review",
+    "run_prompt_ab",
     "write_eval_report",
 ]
