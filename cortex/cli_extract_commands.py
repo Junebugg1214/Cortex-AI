@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 
 from cortex import cli_parser as cli_parser_module
@@ -422,6 +423,289 @@ def _parse_corpus_manifest(path: Path) -> list[dict[str, str]]:
 def _read_corpus_input(case_dir: Path, input_name: str) -> str:
     input_path = case_dir / input_name
     return input_path.read_text(encoding="utf-8")
+
+
+def _make_extract_harness_backend(backend: str, *, replay_root: Path):
+    if backend == "heuristic":
+        from cortex.extraction import HeuristicBackend
+
+        return HeuristicBackend()
+    if backend == "model":
+        from cortex.extraction import ModelBackend
+        from cortex.extraction.eval.replay_cache import ReplayCache
+
+        return ModelBackend(replay_cache=ReplayCache(root=replay_root, mode="read"))
+    if backend == "hybrid":
+        from cortex.extraction import HeuristicBackend, HybridBackend, ModelBackend
+        from cortex.extraction.eval.replay_cache import ReplayCache
+
+        return HybridBackend(
+            fast_backend=HeuristicBackend(),
+            rescore_backend=ModelBackend(replay_cache=ReplayCache(root=replay_root, mode="read")),
+        )
+    raise ValueError(f"Unknown extraction backend: {backend}")
+
+
+def _estimate_trace_tokens(text: str) -> int:
+    return len((text or "").split())
+
+
+def _items_token_estimate(items: list[Any]) -> int:
+    total = 0
+    for item in items:
+        if hasattr(item, "to_dict"):
+            payload = item.to_dict()
+        else:
+            payload = item
+        total += _estimate_trace_tokens(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))
+    return total
+
+
+def run_extract_benchmark(args, *, ctx: ExtractCliContext) -> int:
+    """Run corpus extraction and print throughput plus token rate."""
+
+    from cortex.extraction import Document, ExtractionContext
+    from cortex.extraction.eval.runner import EvaluationError, load_corpus_cases
+
+    corpus_root = Path(args.corpus)
+    replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else corpus_root / "replay"
+    repeat = max(1, int(getattr(args, "repeat", 1) or 1))
+    try:
+        cases = load_corpus_cases(corpus_root)
+        backend = _make_extract_harness_backend(args.backend, replay_root=replay_root)
+    except EvaluationError as exc:
+        return ctx.error(str(exc))
+    except ValueError as exc:
+        return ctx.error(str(exc))
+
+    run_count = 0
+    item_count = 0
+    tokens_in = 0
+    tokens_out = 0
+    started = perf_counter()
+    try:
+        try:
+            for _pass_index in range(repeat):
+                for case in cases:
+                    input_path = corpus_root / case.case_id / case.input_name
+                    try:
+                        content = input_path.read_text(encoding="utf-8")
+                    except PermissionError:
+                        return ctx.permission_error(input_path, action="read corpus input")
+                    except OSError as exc:
+                        return ctx.error(f"Could not read corpus input {input_path}: {exc}")
+                    result = backend.run(
+                        Document(
+                            source_id=case.case_id,
+                            source_type=case.source_type,  # type: ignore[arg-type]
+                            content=content,
+                            metadata={"corpus": str(corpus_root), "input": case.input_name},
+                        ),
+                        ExtractionContext(prompt_version=str(args.prompt_version)),
+                    )
+                    run_count += 1
+                    item_count += len(result.items)
+                    tokens_in += int(result.diagnostics.tokens_in or _estimate_trace_tokens(content))
+                    tokens_out += int(result.diagnostics.tokens_out or _items_token_estimate(list(result.items)))
+        finally:
+            close = getattr(backend, "close", None)
+            if callable(close):
+                close()
+    except Exception as exc:
+        return ctx.error(str(exc))
+
+    elapsed_s = max(perf_counter() - started, 0.000001)
+    total_tokens = tokens_in + tokens_out
+    docs_per_second = run_count / elapsed_s
+    tokens_per_second = total_tokens / elapsed_s
+    ctx.echo(f"Extraction benchmark: backend={args.backend} cases={len(cases)} passes={repeat} runs={run_count}")
+    ctx.echo(f"elapsed_seconds={elapsed_s:.3f}")
+    ctx.echo(f"throughput_docs_per_second={docs_per_second:.3f}")
+    ctx.echo(f"tokens_per_second={tokens_per_second:.3f}")
+    ctx.echo(f"items={item_count} tokens_in={tokens_in} tokens_out={tokens_out}")
+    return 0
+
+
+def _infer_extraction_source_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    name = path.name.lower()
+    if suffix in {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".swift", ".java", ".kt", ".rb"}:
+        return "code"
+    if suffix in {".srt", ".vtt"} or "transcript" in name:
+        return "transcript"
+    if suffix == ".jsonl" or "chat" in name:
+        return "chat"
+    return "doc"
+
+
+def _trace_jsonable(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _trace_jsonable(value.to_dict())
+    if hasattr(value, "as_dict") and callable(value.as_dict):
+        return _trace_jsonable(value.as_dict())
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _trace_jsonable(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, dict):
+        return {str(key): _trace_jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_trace_jsonable(item) for item in value]
+    return str(value)
+
+
+def _trace_state_payload(stage: str, state: Any) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "chunks": _trace_jsonable(state.chunks),
+        "items": _trace_jsonable(state.items),
+        "diagnostics": state.diagnostics.as_dict(),
+        "retrieval_hints": _trace_jsonable(state.retrieval_hints),
+        "warnings": list(state.warnings),
+        "metadata": _trace_jsonable(state.metadata),
+    }
+
+
+def _trace_result_payload(stage: str, result: Any) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "items": _trace_jsonable(result.items),
+        "diagnostics": result.diagnostics.as_dict(),
+        "warnings": list(result.diagnostics.warnings),
+    }
+
+
+def _run_model_trace(document: Any, context: Any, *, replay_root: Path) -> list[dict[str, Any]]:
+    from cortex.extraction import ModelBackend
+    from cortex.extraction.diagnostics import ExtractionDiagnostics
+    from cortex.extraction.eval.replay_cache import ReplayCache
+    from cortex.extraction.stages import (
+        PipelineState,
+        calibrate_confidence,
+        generate_candidates,
+        link_relations,
+        link_to_graph,
+        refine_types,
+        split_document,
+    )
+
+    backend = ModelBackend(replay_cache=ReplayCache(root=replay_root, mode="read"))
+    state = PipelineState(
+        document=document,
+        context=context,
+        diagnostics=ExtractionDiagnostics(prompt_version=context.prompt_version),
+    )
+    snapshots: list[dict[str, Any]] = []
+
+    state = split_document(state)
+    snapshots.append(_trace_state_payload("split_document", state))
+    state = generate_candidates(
+        state,
+        extractor=lambda chunk, hints: backend._candidate_batch_from_chunk(chunk, hints, context=context),
+        hint_provider=lambda chunk: backend._retrieve_hints(chunk.text, graph=context.existing_graph),
+    )
+    snapshots.append(_trace_state_payload("generate_candidates", state))
+    state = refine_types(
+        state,
+        refiner=lambda item: backend._refine_low_confidence_item(item, context=context),
+    )
+    snapshots.append(_trace_state_payload("refine_types", state))
+    state = link_to_graph(
+        state,
+        embedding_backend=backend._embedding_backend,
+        retrieval_top_k=backend._retrieval_top_k,
+        retrieval_threshold=backend._retrieval_threshold,
+    )
+    snapshots.append(_trace_state_payload("link_to_graph", state))
+    state = link_relations(state)
+    snapshots.append(_trace_state_payload("link_relations", state))
+    state = calibrate_confidence(state)
+    snapshots.append(_trace_state_payload("calibrate_confidence", state))
+    state = backend._detect_contradictions(state)
+    snapshots.append(_trace_state_payload("contradictions.detect", state))
+    return snapshots
+
+
+def run_extract_trace(args, *, ctx: ExtractCliContext) -> int:
+    """Run one source file and dump extraction stage state as JSON."""
+
+    from cortex.extraction import Document, ExtractionContext
+
+    source_path = Path(args.source_file)
+    if not source_path.exists():
+        return ctx.missing_path_error(source_path, label="Source file")
+    try:
+        content = source_path.read_text(encoding="utf-8")
+    except PermissionError:
+        return ctx.permission_error(source_path, action="read source file")
+    except OSError as exc:
+        return ctx.error(f"Could not read source file {source_path}: {exc}")
+
+    source_type = str(getattr(args, "source_type", "") or _infer_extraction_source_type(source_path))
+    replay_root = Path(args.replay_dir) if getattr(args, "replay_dir", None) else Path("tests/extraction/corpus/replay")
+    document = Document(
+        source_id=source_path.stem,
+        source_type=source_type,  # type: ignore[arg-type]
+        content=content,
+        metadata={"path": str(source_path)},
+    )
+    context = ExtractionContext(prompt_version=str(args.prompt_version))
+    trace_payload: dict[str, Any] = {
+        "source_file": str(source_path),
+        "backend": args.backend,
+        "prompt_version": str(args.prompt_version),
+        "document": {
+            "source_id": document.source_id,
+            "source_type": document.source_type,
+            "metadata": document.metadata,
+            "content_chars": len(document.content),
+        },
+        "stages": [],
+    }
+
+    try:
+        if args.backend == "model":
+            trace_payload["stages"] = _run_model_trace(document, context, replay_root=replay_root)
+        else:
+            from cortex.extraction.diagnostics import ExtractionDiagnostics
+            from cortex.extraction.stages import PipelineState, split_document
+
+            state = split_document(
+                PipelineState(
+                    document=document,
+                    context=context,
+                    diagnostics=ExtractionDiagnostics(prompt_version=context.prompt_version),
+                )
+            )
+            backend = _make_extract_harness_backend(args.backend, replay_root=replay_root)
+            result = backend.run(document, context)
+            close = getattr(backend, "close", None)
+            if callable(close):
+                close()
+            trace_payload["stages"] = [
+                _trace_state_payload("split_document", state),
+                _trace_result_payload(f"{args.backend}.run", result),
+            ]
+            trace_payload["warnings"] = ["stage_trace_for_backend_uses_public_run_output_after_split_document"]
+    except Exception as exc:
+        return ctx.error(str(exc))
+
+    output_text = json.dumps(trace_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    output_path = Path(args.output) if getattr(args, "output", None) else None
+    if output_path is None:
+        ctx.echo(output_text.rstrip("\n"), force=True)
+        return 0
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output_text, encoding="utf-8")
+    except PermissionError:
+        return ctx.permission_error(output_path, action="write extraction trace")
+    except OSError as exc:
+        return ctx.error(f"Could not write extraction trace {output_path}: {exc}")
+    ctx.echo(f"Trace: {output_path}")
+    return 0
 
 
 def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:

@@ -48,6 +48,15 @@ REMOVED_FLAT_COMMANDS = {
     "completion",
 }
 
+EXTRACTION_HARNESS_ROUTES = {
+    ("extract", "eval"),
+    ("extract", "refresh-cache"),
+    ("extract", "review"),
+    ("extract", "ab"),
+    ("extract", "benchmark"),
+    ("extract", "trace"),
+}
+
 
 def _top_level_choices(parser):
     return parser._subparsers._group_actions[0].choices
@@ -68,6 +77,20 @@ def test_namespaced_routes_reach_an_existing_parser(route):
     routed, was_routed = _route_cli_v2_argv([*route, "--help"])
 
     assert was_routed
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(routed)
+    assert exc.value.code == 0
+
+
+@pytest.mark.parametrize("route", sorted(EXTRACTION_HARNESS_ROUTES))
+def test_extract_harness_routes_resolve(route):
+    parser = build_parser(show_all_commands=True)
+
+    assert route in CLI_V2_ROUTES
+    routed, was_routed = _route_cli_v2_argv([*route, "--help"])
+
+    assert was_routed
+    assert routed[0].startswith("__cli_v2_extract")
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(routed)
     assert exc.value.code == 0

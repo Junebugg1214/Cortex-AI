@@ -81,10 +81,12 @@ CLI_V2_ROUTES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("source", "status"): ("scan",),
     ("extract", "run"): (_internal_command("extract"),),
     ("extract", "ab"): (_internal_command("extract-ab"),),
+    ("extract", "benchmark"): (_internal_command("extract-benchmark"),),
     ("extract", "coding"): (_internal_command("extract-coding"),),
     ("extract", "eval"): (_internal_command("extract-eval"),),
     ("extract", "refresh-cache"): (_internal_command("extract-refresh-cache"),),
     ("extract", "review"): (_internal_command("extract-review"),),
+    ("extract", "trace"): (_internal_command("extract-trace"),),
     ("branch", "switch"): (_internal_command("switch"),),
     ("mount", "hook"): (_internal_command("context-hook"),),
     ("admin", "doctor"): (_internal_command("doctor"),),
@@ -562,9 +564,11 @@ def _entrypoint_cli_context() -> cli_entrypoint_module.EntryPointCliContext:
         "pack": run_pack,
         _internal_command("extract"): run_extract,
         _internal_command("extract-ab"): run_extract_ab,
+        _internal_command("extract-benchmark"): run_extract_benchmark,
         _internal_command("extract-eval"): run_extract_eval,
         _internal_command("extract-refresh-cache"): run_extract_refresh_cache,
         _internal_command("extract-review"): run_extract_review,
+        _internal_command("extract-trace"): run_extract_trace,
         _internal_command("ingest"): run_ingest,
         _internal_command("import"): run_import,
         _internal_command("memory"): run_memory,
@@ -654,6 +658,10 @@ def run_extract_ab(args):
     return cli_extract_commands_module.run_extract_ab(args, ctx=_extract_cli_context())
 
 
+def run_extract_benchmark(args):
+    return cli_extract_commands_module.run_extract_benchmark(args, ctx=_extract_cli_context())
+
+
 def run_extract_eval(args):
     return cli_extract_commands_module.run_extract_eval(args, ctx=_extract_cli_context())
 
@@ -664,6 +672,10 @@ def run_extract_refresh_cache(args):
 
 def run_extract_review(args):
     return cli_extract_commands_module.run_extract_review(args, ctx=_extract_cli_context())
+
+
+def run_extract_trace(args):
+    return cli_extract_commands_module.run_extract_trace(args, ctx=_extract_cli_context())
 
 
 def run_ingest(args):

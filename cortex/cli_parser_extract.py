@@ -193,6 +193,34 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         help="Minimum F1 delta before Wilson intervals can recommend a winner (default: 0.01)",
     )
 
+    bench = sub.add_parser("extract-benchmark", help="Benchmark extraction harness throughput on a corpus")
+    bench.add_argument(
+        "--corpus",
+        default="tests/extraction/corpus",
+        help="Extraction corpus directory (default: tests/extraction/corpus)",
+    )
+    bench.add_argument(
+        "--backend",
+        choices=["heuristic", "model", "hybrid"],
+        default="heuristic",
+        help="Extraction backend to benchmark (default: heuristic)",
+    )
+    bench.add_argument(
+        "--prompt-version",
+        default="corpus-v1",
+        help="Prompt version to include in model replay keys (default: corpus-v1)",
+    )
+    bench.add_argument(
+        "--replay-dir",
+        help="Replay cache directory for model/hybrid benchmarks (default: CORPUS/replay)",
+    )
+    bench.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of corpus passes to run (default: 1)",
+    )
+
     rv = sub.add_parser("extract-review", help="Review extraction eval failures and patch gold labels")
     rv.add_argument("report", help="Extraction eval report JSON")
     rv.add_argument(
@@ -200,6 +228,30 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         default="docs/extraction-reviews",
         help="Directory for markdown review summaries (default: docs/extraction-reviews)",
     )
+
+    trace = sub.add_parser("extract-trace", help="Trace extraction stage state for one source file")
+    trace.add_argument("source_file", help="Source file to trace")
+    trace.add_argument(
+        "--source-type",
+        choices=["chat", "doc", "code", "transcript"],
+        help="Source type override; inferred from the file extension when omitted",
+    )
+    trace.add_argument(
+        "--backend",
+        choices=["heuristic", "model", "hybrid"],
+        default="model",
+        help="Extraction backend to trace (default: model)",
+    )
+    trace.add_argument(
+        "--prompt-version",
+        default="corpus-v1",
+        help="Prompt version to include in model replay keys (default: corpus-v1)",
+    )
+    trace.add_argument(
+        "--replay-dir",
+        help="Replay cache directory for model/hybrid traces (default: tests/extraction/corpus/replay)",
+    )
+    trace.add_argument("--output", "-o", help="Write trace JSON to a file instead of stdout")
 
     ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
     ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
