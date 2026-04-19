@@ -61,6 +61,8 @@ def test_node_prf_partial_match_counts_false_positive_and_false_negative() -> No
     assert f1.value == 0.5
     assert recall.per_class_breakdown["preference"]["value"] == 0.0
     assert precision.per_class_breakdown["technical_expertise"]["value"] == 0.0
+    assert [failure.kind for failure in recall.failures] == ["missed_node"]
+    assert [failure.kind for failure in precision.failures] == ["hallucinated_node"]
 
 
 def test_relation_prf_matches_on_endpoint_labels_and_relation() -> None:
@@ -89,6 +91,8 @@ def test_relation_prf_matches_on_endpoint_labels_and_relation() -> None:
     assert f1.value == 0.5
     assert recall.per_class_breakdown["prefers"]["value"] == 0.0
     assert precision.per_class_breakdown["uses_stack"]["value"] == 0.0
+    assert [failure.kind for failure in recall.failures] == ["missed_relation"]
+    assert [failure.kind for failure in precision.failures] == ["hallucinated_relation"]
 
 
 def test_canonicalization_accuracy_scores_aliases_mapped_to_gold_ids() -> None:
@@ -132,6 +136,7 @@ def test_canonicalization_accuracy_scores_aliases_mapped_to_gold_ids() -> None:
     assert report.numerator == 2
     assert report.denominator == 3
     assert report.per_class_breakdown["atlas project"]["value"] == 0.0
+    assert [failure.kind for failure in report.failures] == ["bad_canonicalization"]
 
 
 def test_contradiction_recall_matches_detected_contradictions_independent_of_direction() -> None:
@@ -162,6 +167,7 @@ def test_contradiction_recall_matches_detected_contradictions_independent_of_dir
     assert report.numerator == 1
     assert report.denominator == 2
     assert report.per_class_breakdown["contradicts"]["value"] == 0.5
+    assert [failure.kind for failure in report.failures] == ["missed_contradiction"]
 
 
 def test_completeness_score_ignores_type_when_gold_label_is_present() -> None:

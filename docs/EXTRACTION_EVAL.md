@@ -53,6 +53,23 @@ cortex extract eval \
 Review the changed `baseline.json`, replay files, and report before opening the
 PR. Rebaselines should explain why the score movement is expected.
 
+## Review Failures
+
+Eval reports include a per-case failure taxonomy for active learning:
+`missed_node`, `wrong_type`, `bad_canonicalization`, `hallucinated_node`,
+`missed_relation`, `hallucinated_relation`, and `missed_contradiction`.
+
+Walk those failures with:
+
+```bash
+cortex extract review extraction-eval-report.json
+```
+
+Mark each item as `true_failure` when the extractor is wrong, or
+`gold_is_wrong` when the corpus label should change. Gold corrections patch the
+case's `gold.json` in place, regenerate `tests/extraction/corpus/baseline.json`,
+and write a markdown summary under `docs/extraction-reviews/`.
+
 ## CI Gate
 
 The `extract-eval` GitHub Actions job runs after the test matrix. It uses

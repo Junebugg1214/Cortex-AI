@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .metrics import (
+    ExtractionFailure,
     MetricReport,
     canonicalization_accuracy,
     completeness_score,
@@ -11,6 +12,7 @@ from .metrics import (
     relation_prf,
 )
 from .replay_cache import ReplayCache, replay_mode_from_env
+from .review import ReviewOutcome, run_extraction_review
 from .runner import (
     EvaluationError,
     EvaluationOutcome,
@@ -24,8 +26,10 @@ from .runner import (
 __all__ = [
     "EvaluationError",
     "EvaluationOutcome",
+    "ExtractionFailure",
     "MetricReport",
     "ReplayCache",
+    "ReviewOutcome",
     "canonicalization_accuracy",
     "completeness_score",
     "contradiction_recall",
@@ -36,5 +40,6 @@ __all__ = [
     "replay_mode_from_env",
     "relation_prf",
     "run_extraction_eval",
+    "run_extraction_review",
     "write_eval_report",
 ]

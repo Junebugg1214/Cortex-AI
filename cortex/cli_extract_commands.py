@@ -540,6 +540,32 @@ def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
     return 1 if outcome.failed else 0
 
 
+def run_extract_review(args, *, ctx: ExtractCliContext) -> int:
+    """Review extraction eval failures and optionally patch gold labels."""
+
+    from cortex.extraction.eval.review import run_extraction_review
+    from cortex.extraction.eval.runner import EvaluationError
+
+    try:
+        outcome = run_extraction_review(
+            Path(args.report),
+            output_func=ctx.echo,
+            docs_dir=Path(args.docs_dir),
+        )
+    except EvaluationError as exc:
+        return ctx.error(str(exc))
+    except PermissionError as exc:
+        return ctx.permission_error(Path(exc.filename or args.report), action="review extraction report")
+    except OSError as exc:
+        return ctx.error(f"Could not review extraction report: {exc}")
+
+    ctx.echo(
+        f"Reviewed {outcome.reviewed} failure(s); "
+        f"true failures={outcome.true_failures}; gold patches={outcome.gold_patches}."
+    )
+    return 0
+
+
 def run_ingest(args, *, ctx: ExtractCliContext) -> int:
     """Normalize connector input and extract it into Cortex memory."""
     from cortex.connectors import connector_to_text
