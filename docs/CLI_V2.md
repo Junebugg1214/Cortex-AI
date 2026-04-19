@@ -199,11 +199,18 @@ Canonical subcommands:
 run
 status
 coding
+eval
+refresh-cache
+review
+ab
+benchmark
+trace
 ```
 
 Migration notes:
 
 - `extract`, `ingest`, and `extract-coding` become `extract run` variants.
+- Harness commands live under `extract`: `eval`, `refresh-cache`, `review`, `ab`, `benchmark`, and `trace`.
 - `extract status` is reserved for extraction backend/config diagnostics.
 
 ### `cortex serve ...`
@@ -292,6 +299,10 @@ Migration notes:
 | `connect` | `remote add` | alias | 1.5.0 | 1.6.0 | Alias to `cortex remote add`; keep shim for one minor release. |
 | `serve` | `serve {api,mcp,ui,manus}` | kept | n/a | n/a | Keep as the canonical runtime namespace. |
 | `extract` | `extract run` | nested | 1.5.0 | 1.6.0 | Move extraction execution under `extract run`; shim kept for one minor release. |
+| `extract-eval` | `extract eval` | nested | 1.5.0 | 1.6.0 | Extraction eval corpus runs live under the extraction harness namespace. |
+| `extract-refresh-cache` | `extract refresh-cache` | nested | 1.5.0 | 1.6.0 | Replay-cache refresh moves under the extraction harness namespace. |
+| `extract-review` | `extract review` | nested | 1.5.0 | 1.6.0 | Eval failure review moves under the extraction harness namespace. |
+| `extract-ab` | `extract ab` | nested | 1.5.0 | 1.6.0 | Prompt A/B runs move under the extraction harness namespace. |
 | `ingest` | `extract run --source ...` | nested | 1.5.0 | 1.6.0 | Normalize source ingestion through the extraction namespace; shim kept for one minor release. |
 | `import` | `sync --to <target>` | retired | 1.5.0 | 1.6.0 | Replace platform-format import/export wording with explicit `sync`; shim kept for one minor release. |
 | `memory` | `remember`, `source retract`, or `debug query` | retired | 1.5.0 | 1.6.0 | Split broad memory editing into task-specific commands; shim should route subcommands for one minor release. |
@@ -342,7 +353,7 @@ Migration notes:
 | `audience` | `audience {list,add,apply-template,show,preview,compile,log}` | kept | n/a | n/a | Keep as the audience-policy namespace. |
 | `ui` | `serve ui` | nested | 1.5.0 | 1.6.0 | Move UI serving under serve. |
 | `pack` | `pack {init,ingest,compile,mount,publish,query,...}` | kept | n/a | n/a | Keep as the Brainpack namespace and rename nested verbs. |
-| `benchmark` | `admin benchmark` | nested | 1.5.0 | 1.6.0 | Move benchmarks under admin. |
+| `benchmark` | `admin benchmark` | nested | 1.5.0 | 1.6.0 | Move self-host benchmarks under admin; extraction corpus throughput is `extract benchmark`. |
 | `server` | `serve api` | nested | 1.5.0 | 1.6.0 | Replace server with explicit serve api. |
 | `mcp` | `serve mcp` | nested | 1.5.0 | 1.6.0 | Replace top-level mcp with serve mcp. |
 | `backup` | `admin backup` | nested | 1.5.0 | 1.6.0 | Move backup/export/restore under admin. |
