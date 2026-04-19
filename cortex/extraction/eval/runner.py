@@ -114,6 +114,7 @@ def run_extraction_eval(
     backend: BackendName,
     tolerance: float = 0.01,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
+    prompt_overrides: dict[str, str] | None = None,
     update_baseline: bool = False,
     replay_root: str | Path | None = None,
 ) -> EvaluationOutcome:
@@ -132,6 +133,7 @@ def run_extraction_eval(
                 case=case,
                 backend=backend_instance,
                 prompt_version=prompt_version,
+                prompt_overrides=prompt_overrides,
             )
             public_cases.append(public_case)
             case_metric_reports.append(reports)
@@ -217,6 +219,7 @@ def _evaluate_case(
     case: CorpusCase,
     backend: ExtractionPipeline,
     prompt_version: str,
+    prompt_overrides: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, MetricReport]]:
     case_dir = corpus_root / case.case_id
     input_path = case_dir / case.input_name
@@ -238,7 +241,7 @@ def _evaluate_case(
             content=content,
             metadata={"corpus": str(corpus_root), "input": case.input_name},
         ),
-        ExtractionContext(prompt_version=prompt_version),
+        ExtractionContext(prompt_version=prompt_version, prompt_overrides=dict(prompt_overrides or {})),
     )
     predicted = graph_payload_from_items(result.items)
     reports = _metric_reports(predicted, gold)
