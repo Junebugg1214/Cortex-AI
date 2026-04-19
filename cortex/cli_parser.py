@@ -46,6 +46,7 @@ PLATFORM_FORMATS = {
 
 CLI_V2_INTERNAL_COMMANDS: dict[str, tuple[str, str]] = {
     "extract": ("__cli_v2_extract", "extract run"),
+    "extract-eval": ("__cli_v2_extract_eval", "extract eval"),
     "extract-refresh-cache": ("__cli_v2_extract_refresh_cache", "extract refresh-cache"),
     "ingest": ("__cli_v2_ingest", "source ingest"),
     "import": ("__cli_v2_import", "sync --to <target>"),
@@ -168,6 +169,7 @@ def _register_cli_v2_namespaces(sub) -> None:
             "run": _no_args,
             "status": _no_args,
             "coding": _no_args,
+            "eval": _no_args,
             "refresh-cache": _no_args,
         },
     )

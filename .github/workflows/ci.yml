@@ -35,6 +35,32 @@ jobs:
       - run: pip install -e ".[dev,full]"
       - run: python -m pytest tests -q --tb=short
 
+  extract-eval:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,full]"
+      - name: Run extraction eval gate
+        env:
+          CORTEX_EXTRACTION_REPLAY: read
+          CORTEX_EXTRACTION_REPLAY_DIR: tests/extraction/corpus/replay
+          CORTEX_EXTRACTION_LOG_PATH: /tmp/cortex-extractions.jsonl
+        run: >
+          python -m cortex.cli extract eval
+          --corpus tests/extraction/corpus
+          --backend heuristic
+          --output extraction-eval-report.json
+          --tolerance 0.01
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extraction-eval-report
+          path: extraction-eval-report.json
+
   coverage:
     runs-on: ubuntu-latest
     steps:

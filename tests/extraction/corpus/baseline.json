@@ -1,0 +1,837 @@
+{
+  "backend": "heuristic",
+  "case_count": 5,
+  "cases": {
+    "chat_name_role_preference": {
+      "item_count": 4,
+      "metrics": {
+        "canonicalization_accuracy": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "completeness_score": {
+          "denominator": 3,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "communication_preferences": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "identity": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "professional_context": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.666667
+        },
+        "contradiction_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "node_f1": {
+          "denominator": 7,
+          "numerator": 4,
+          "per_class_breakdown": {
+            "communication_preferences": {
+              "denominator": 2,
+              "numerator": 2,
+              "value": 1.0
+            },
+            "identity": {
+              "denominator": 3,
+              "numerator": 2,
+              "value": 0.6666666666666666
+            },
+            "professional_context": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "user_preferences": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.571429
+        },
+        "node_precision": {
+          "denominator": 4,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "communication_preferences": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "identity": {
+              "denominator": 2,
+              "numerator": 1,
+              "value": 0.5
+            },
+            "professional_context": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "user_preferences": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.5
+        },
+        "node_recall": {
+          "denominator": 3,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "communication_preferences": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "identity": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "professional_context": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "user_preferences": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.666667
+        },
+        "relation_f1": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "has_role": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "prefers": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_precision": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "has_role": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "prefers": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_recall": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "has_role": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "prefers": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        }
+      },
+      "predicted": {
+        "alias_resolution_count": 0,
+        "edge_count": 0,
+        "node_count": 4
+      }
+    },
+    "code_readme_stack_mentions": {
+      "item_count": 4,
+      "metrics": {
+        "canonicalization_accuracy": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "completeness_score": {
+          "denominator": 3,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "code_project": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "technical_expertise": {
+              "denominator": 2,
+              "numerator": 2,
+              "value": 1.0
+            }
+          },
+          "value": 0.666667
+        },
+        "contradiction_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "node_f1": {
+          "denominator": 7,
+          "numerator": 4,
+          "per_class_breakdown": {
+            "code_project": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "technical_expertise": {
+              "denominator": 4,
+              "numerator": 4,
+              "value": 1.0
+            }
+          },
+          "value": 0.571429
+        },
+        "node_precision": {
+          "denominator": 4,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "code_project": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "technical_expertise": {
+              "denominator": 2,
+              "numerator": 2,
+              "value": 1.0
+            }
+          },
+          "value": 0.5
+        },
+        "node_recall": {
+          "denominator": 3,
+          "numerator": 2,
+          "per_class_breakdown": {
+            "code_project": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "technical_expertise": {
+              "denominator": 2,
+              "numerator": 2,
+              "value": 1.0
+            }
+          },
+          "value": 0.666667
+        },
+        "relation_f1": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "uses_stack": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_precision": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "uses_stack": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_recall": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "uses_stack": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        }
+      },
+      "predicted": {
+        "alias_resolution_count": 0,
+        "edge_count": 0,
+        "node_count": 4
+      }
+    },
+    "pathological_empty_garbled_profanity": {
+      "item_count": 1,
+      "metrics": {
+        "canonicalization_accuracy": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "completeness_score": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "contradiction_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "node_f1": {
+          "denominator": 1,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "identity": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_precision": {
+          "denominator": 1,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "identity": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "identity": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_f1": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "relation_precision": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "relation_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        }
+      },
+      "predicted": {
+        "alias_resolution_count": 0,
+        "edge_count": 0,
+        "node_count": 1
+      }
+    },
+    "policy_two_rules": {
+      "item_count": 4,
+      "metrics": {
+        "canonicalization_accuracy": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "completeness_score": {
+          "denominator": 3,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "policy": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy_rule": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "contradiction_recall": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "node_f1": {
+          "denominator": 7,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "constraints": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 3,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy_rule": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_precision": {
+          "denominator": 4,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "constraints": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 3,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy_rule": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_recall": {
+          "denominator": 3,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "constraints": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "policy_rule": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_f1": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "contains_rule": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_precision": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "contains_rule": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_recall": {
+          "denominator": 2,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "contains_rule": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        }
+      },
+      "predicted": {
+        "alias_resolution_count": 0,
+        "edge_count": 0,
+        "node_count": 4
+      }
+    },
+    "transcript_contradiction": {
+      "item_count": 5,
+      "metrics": {
+        "canonicalization_accuracy": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {},
+          "value": 0.0
+        },
+        "completeness_score": {
+          "denominator": 5,
+          "numerator": 1,
+          "per_class_breakdown": {
+            "business_context": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "claim": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "identity": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.2
+        },
+        "contradiction_recall": {
+          "denominator": 1,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "contradicts": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_f1": {
+          "denominator": 10,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "active_priorities": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "business_context": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "claim": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "constraints": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "identity": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 3,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_precision": {
+          "denominator": 5,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "active_priorities": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "business_context": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "claim": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "constraints": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "identity": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 3,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "node_recall": {
+          "denominator": 5,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "active_priorities": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "business_context": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "claim": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "constraints": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "identity": {
+              "denominator": 2,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "mentions": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_f1": {
+          "denominator": 3,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "asserts": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "contradicts": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "corrects": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_precision": {
+          "denominator": 0,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "asserts": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "contradicts": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "corrects": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        },
+        "relation_recall": {
+          "denominator": 3,
+          "numerator": 0,
+          "per_class_breakdown": {
+            "asserts": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "contradicts": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            },
+            "corrects": {
+              "denominator": 1,
+              "numerator": 0,
+              "value": 0.0
+            }
+          },
+          "value": 0.0
+        }
+      },
+      "predicted": {
+        "alias_resolution_count": 0,
+        "edge_count": 0,
+        "node_count": 5
+      }
+    }
+  },
+  "metrics": {
+    "canonicalization_accuracy": {
+      "denominator": 0,
+      "numerator": 0,
+      "value": 0.0
+    },
+    "completeness_score": {
+      "denominator": 14,
+      "numerator": 5,
+      "value": 0.357143
+    },
+    "contradiction_recall": {
+      "denominator": 1,
+      "numerator": 0,
+      "value": 0.0
+    },
+    "node_f1": {
+      "denominator": 32,
+      "numerator": 8,
+      "value": 0.25
+    },
+    "node_precision": {
+      "denominator": 18,
+      "numerator": 4,
+      "value": 0.222222
+    },
+    "node_recall": {
+      "denominator": 14,
+      "numerator": 4,
+      "value": 0.285714
+    },
+    "relation_f1": {
+      "denominator": 9,
+      "numerator": 0,
+      "value": 0.0
+    },
+    "relation_precision": {
+      "denominator": 0,
+      "numerator": 0,
+      "value": 0.0
+    },
+    "relation_recall": {
+      "denominator": 9,
+      "numerator": 0,
+      "value": 0.0
+    }
+  },
+  "prompt_version": "corpus-v1",
+  "schema_version": "extraction-eval-baseline-v1"
+}
