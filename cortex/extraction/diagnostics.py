@@ -24,6 +24,7 @@ class ExtractionDiagnostics:
     prompt_version: str = ""
     warnings: list[str] = field(default_factory=list)
     cache_hit: bool = False
+    router_decision: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -130,12 +131,19 @@ def format_extraction_records(records: list[dict[str, Any]]) -> str:
             stage_text = " stages=" + ", ".join(
                 f"{name}:{float(duration):.1f}ms" for name, duration in sorted(stage_timings.items())
             )
+        router_decision = record.get("router_decision")
+        router_text = ""
+        if isinstance(router_decision, dict) and router_decision:
+            kept = int(router_decision.get("heuristic_kept") or 0)
+            escalated = int(router_decision.get("escalated") or 0)
+            cost_saved = float(router_decision.get("cost_saved_usd") or 0.0)
+            router_text = f" router=kept:{kept},escalated:{escalated},saved:${cost_saved:.6f}"
         warnings = record.get("warnings")
         warning_count = len(warnings) if isinstance(warnings, list) else 0
         lines.append(
             f"{timestamp} {backend}.{operation} model={model} prompt={prompt_version} "
             f"items={item_count} tokens={tokens_in}/{tokens_out} cost=${cost_usd:.6f} "
-            f"latency={latency_ms:.1f}ms cache_hit={cache_hit} warnings={warning_count}{stage_text}"
+            f"latency={latency_ms:.1f}ms cache_hit={cache_hit} warnings={warning_count}{router_text}{stage_text}"
         )
     return "\n".join(lines)
 
