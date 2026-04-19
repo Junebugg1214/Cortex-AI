@@ -11,6 +11,7 @@ from cortex.extraction.pipeline import (
     ExtractionDiagnostics,
     ExtractionPipeline,
     ExtractionResult,
+    NoopCanonicalResolver,
 )
 
 
@@ -47,6 +48,24 @@ def test_legacy_backend_result_has_explicit_alias() -> None:
     result = BackendExtractionResult()
     assert result.nodes == []
     assert result.edges == []
+
+
+def test_extraction_context_defaults_none_canonical_resolver_to_noop() -> None:
+    context = ExtractionContext(canonical_resolver=None)
+
+    assert isinstance(context.canonical_resolver, NoopCanonicalResolver)
+
+    result = HeuristicBackend().run(
+        Document(
+            source_id="resolver-none-chat",
+            source_type="chat",
+            content="My name is Alice and I use Python.",
+        ),
+        context,
+    )
+
+    assert isinstance(result, ExtractionResult)
+    assert result.items
 
 
 def test_heuristic_backend_satisfies_pipeline_contract_on_empty_document() -> None:
