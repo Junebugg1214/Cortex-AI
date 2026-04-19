@@ -163,6 +163,14 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
     )
     ev.add_argument("--update-baseline", action="store_true", help="Write current results to CORPUS/baseline.json")
 
+    rv = sub.add_parser("extract-review", help="Review extraction eval failures and patch gold labels")
+    rv.add_argument("report", help="Extraction eval report JSON")
+    rv.add_argument(
+        "--docs-dir",
+        default="docs/extraction-reviews",
+        help="Directory for markdown review summaries (default: docs/extraction-reviews)",
+    )
+
     ing = sub.add_parser("ingest", help="Normalize GitHub/Slack/docs sources and extract memory")
     ing.add_argument("kind", choices=["github", "slack", "docs"], help="Connector kind")
     ing.add_argument("input_file", help="Path to connector export file or directory")

@@ -3,10 +3,32 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Literal
 
 Breakdown = dict[str, int | float | str]
+FailureKind = Literal[
+    "missed_node",
+    "wrong_type",
+    "bad_canonicalization",
+    "hallucinated_node",
+    "missed_relation",
+    "hallucinated_relation",
+    "missed_contradiction",
+]
+
+
+@dataclass(frozen=True)
+class ExtractionFailure:
+    """One actionable extraction eval failure."""
+
+    kind: FailureKind
+    pair: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable failure payload."""
+
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -17,6 +39,7 @@ class MetricReport:
     numerator: int | float
     denominator: int | float
     per_class_breakdown: dict[str, Breakdown] = field(default_factory=dict)
+    failures: list[ExtractionFailure] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -50,7 +73,13 @@ def node_prf(predicted: Any, gold: Any) -> tuple[MetricReport, MetricReport, Met
     gold_graph = _coerce_graph(gold)
     predicted_keys = Counter(_node_key(node) for node in predicted_graph.nodes)
     gold_keys = Counter(_node_key(node) for node in gold_graph.nodes)
-    return _prf(predicted_keys, gold_keys, class_index=0)
+    precision, recall, f1 = _prf(predicted_keys, gold_keys, class_index=0)
+    missed, hallucinated = _node_failures(predicted_graph.nodes, gold_graph.nodes)
+    return (
+        replace(precision, failures=hallucinated),
+        replace(recall, failures=missed),
+        replace(f1, failures=_dedupe_failures([*missed, *hallucinated])),
+    )
 
 
 def relation_prf(predicted: Any, gold: Any) -> tuple[MetricReport, MetricReport, MetricReport]:
@@ -60,7 +89,13 @@ def relation_prf(predicted: Any, gold: Any) -> tuple[MetricReport, MetricReport,
     gold_graph = _coerce_graph(gold)
     predicted_keys = Counter(_edge_key(edge) for edge in predicted_graph.edges)
     gold_keys = Counter(_edge_key(edge) for edge in gold_graph.edges)
-    return _prf(predicted_keys, gold_keys, class_index=1)
+    precision, recall, f1 = _prf(predicted_keys, gold_keys, class_index=1)
+    missed, hallucinated = _relation_failures(predicted_graph.edges, gold_graph.edges)
+    return (
+        replace(precision, failures=hallucinated),
+        replace(recall, failures=missed),
+        replace(f1, failures=_dedupe_failures([*missed, *hallucinated])),
+    )
 
 
 def canonicalization_accuracy(predicted: Any, gold: Any) -> MetricReport:
@@ -77,13 +112,26 @@ def canonicalization_accuracy(predicted: Any, gold: Any) -> MetricReport:
     }
     breakdown: dict[str, Breakdown] = {}
     for alias, canonical_id in sorted(expected.items()):
+        matched = alias in matched_aliases
         breakdown[alias] = _breakdown(
-            1 if alias in matched_aliases else 0,
+            1 if matched else 0,
             1,
             expected_canonical_id=canonical_id,
             predicted_canonical_id=actual.get(alias, ""),
         )
-    return _metric(len(matched_aliases), len(expected), breakdown)
+    failures = [
+        ExtractionFailure(
+            kind="bad_canonicalization",
+            pair={
+                "alias": alias,
+                "gold": {"canonical_id": canonical_id},
+                "predicted": {"canonical_id": actual.get(alias, "")},
+            },
+        )
+        for alias, canonical_id in sorted(expected.items())
+        if alias not in matched_aliases
+    ]
+    return _metric(len(matched_aliases), len(expected), breakdown, failures=failures)
 
 
 def contradiction_recall(predicted: Any, gold: Any) -> MetricReport:
@@ -103,7 +151,8 @@ def contradiction_recall(predicted: Any, gold: Any) -> MetricReport:
         current["numerator"] += matched
         current["denominator"] += gold_keys[key]
         current["value"] = _safe_divide(current["numerator"], current["denominator"])
-    return _metric(true_positives, sum(gold_keys.values()), breakdown)
+    failures = _missed_contradiction_failures(predicted_graph.contradictions, gold_graph.contradictions)
+    return _metric(true_positives, sum(gold_keys.values()), breakdown, failures=failures)
 
 
 def completeness_score(predicted: Any, gold: Any) -> MetricReport:
@@ -379,12 +428,15 @@ def _metric(
     numerator: int | float,
     denominator: int | float,
     per_class_breakdown: dict[str, Breakdown] | None = None,
+    *,
+    failures: list[ExtractionFailure] | None = None,
 ) -> MetricReport:
     return MetricReport(
         value=_safe_divide(numerator, denominator),
         numerator=numerator,
         denominator=denominator,
         per_class_breakdown=per_class_breakdown or {},
+        failures=list(failures or []),
     )
 
 
@@ -400,6 +452,151 @@ def _breakdown(numerator: int | float, denominator: int | float, **extra: int | 
 
 def _intersection_count(left: Counter[Any], right: Counter[Any]) -> int:
     return sum(min(left.get(key, 0), right.get(key, 0)) for key in set(left) | set(right))
+
+
+def _node_failures(
+    predicted_nodes: tuple[_NodeRecord, ...],
+    gold_nodes: tuple[_NodeRecord, ...],
+) -> tuple[list[ExtractionFailure], list[ExtractionFailure]]:
+    missed: list[ExtractionFailure] = []
+    hallucinated: list[ExtractionFailure] = []
+    remaining_gold = set(range(len(gold_nodes)))
+    remaining_predicted = set(range(len(predicted_nodes)))
+
+    for gold_index, gold_node in enumerate(gold_nodes):
+        for predicted_index in sorted(remaining_predicted):
+            if _node_key(predicted_nodes[predicted_index]) == _node_key(gold_node):
+                remaining_gold.discard(gold_index)
+                remaining_predicted.discard(predicted_index)
+                break
+
+    for gold_index in sorted(tuple(remaining_gold)):
+        gold_node = gold_nodes[gold_index]
+        wrong_type_index = next(
+            (
+                predicted_index
+                for predicted_index in sorted(remaining_predicted)
+                if _normalize_label(predicted_nodes[predicted_index].canonical_label)
+                == _normalize_label(gold_node.canonical_label)
+            ),
+            None,
+        )
+        if wrong_type_index is None:
+            missed.append(
+                ExtractionFailure(
+                    kind="missed_node",
+                    pair={"gold": _node_payload(gold_node), "predicted": None},
+                )
+            )
+            continue
+        predicted_node = predicted_nodes[wrong_type_index]
+        missed.append(
+            ExtractionFailure(
+                kind="wrong_type",
+                pair={"gold": _node_payload(gold_node), "predicted": _node_payload(predicted_node)},
+            )
+        )
+        remaining_gold.discard(gold_index)
+        remaining_predicted.discard(wrong_type_index)
+
+    for predicted_index in sorted(remaining_predicted):
+        hallucinated.append(
+            ExtractionFailure(
+                kind="hallucinated_node",
+                pair={"gold": None, "predicted": _node_payload(predicted_nodes[predicted_index])},
+            )
+        )
+    return _dedupe_failures(missed), _dedupe_failures(hallucinated)
+
+
+def _relation_failures(
+    predicted_edges: tuple[_EdgeRecord, ...],
+    gold_edges: tuple[_EdgeRecord, ...],
+) -> tuple[list[ExtractionFailure], list[ExtractionFailure]]:
+    missed: list[ExtractionFailure] = []
+    hallucinated: list[ExtractionFailure] = []
+    remaining_gold = set(range(len(gold_edges)))
+    remaining_predicted = set(range(len(predicted_edges)))
+
+    for gold_index, gold_edge in enumerate(gold_edges):
+        for predicted_index in sorted(remaining_predicted):
+            if _edge_key(predicted_edges[predicted_index]) == _edge_key(gold_edge):
+                remaining_gold.discard(gold_index)
+                remaining_predicted.discard(predicted_index)
+                break
+
+    for gold_index in sorted(remaining_gold):
+        missed.append(
+            ExtractionFailure(
+                kind="missed_relation",
+                pair={"gold": _edge_payload(gold_edges[gold_index]), "predicted": None},
+            )
+        )
+    for predicted_index in sorted(remaining_predicted):
+        hallucinated.append(
+            ExtractionFailure(
+                kind="hallucinated_relation",
+                pair={"gold": None, "predicted": _edge_payload(predicted_edges[predicted_index])},
+            )
+        )
+    return _dedupe_failures(missed), _dedupe_failures(hallucinated)
+
+
+def _missed_contradiction_failures(
+    predicted_edges: tuple[_EdgeRecord, ...],
+    gold_edges: tuple[_EdgeRecord, ...],
+) -> list[ExtractionFailure]:
+    failures: list[ExtractionFailure] = []
+    remaining_predicted = set(range(len(predicted_edges)))
+    for gold_edge in gold_edges:
+        matched_index = next(
+            (
+                predicted_index
+                for predicted_index in sorted(remaining_predicted)
+                if _contradiction_key(predicted_edges[predicted_index]) == _contradiction_key(gold_edge)
+            ),
+            None,
+        )
+        if matched_index is None:
+            failures.append(
+                ExtractionFailure(
+                    kind="missed_contradiction",
+                    pair={"gold": _edge_payload(gold_edge), "predicted": None},
+                )
+            )
+        else:
+            remaining_predicted.discard(matched_index)
+    return _dedupe_failures(failures)
+
+
+def _dedupe_failures(failures: list[ExtractionFailure]) -> list[ExtractionFailure]:
+    seen: set[str] = set()
+    result: list[ExtractionFailure] = []
+    for failure in failures:
+        key = f"{failure.kind}:{failure.pair}"
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(failure)
+    return result
+
+
+def _node_payload(node: _NodeRecord) -> dict[str, Any]:
+    return {
+        "id": node.id,
+        "canonical_id": node.canonical_id,
+        "label": node.canonical_label,
+        "type": node.type,
+        "aliases": list(node.aliases),
+    }
+
+
+def _edge_payload(edge: _EdgeRecord) -> dict[str, str]:
+    return {
+        "source": edge.source,
+        "target": edge.target,
+        "type": edge.relation,
+    }
 
 
 def _node_key(node: _NodeRecord) -> tuple[str, str]:

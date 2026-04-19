@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from cortex.extraction.eval.metrics import (
+    ExtractionFailure,
     MetricReport,
     canonicalization_accuracy,
     completeness_score,
@@ -241,6 +242,7 @@ def _evaluate_case(
     )
     predicted = graph_payload_from_items(result.items)
     reports = _metric_reports(predicted, gold)
+    failures = _failure_dicts_from_reports(reports)
     public_case = {
         "case_id": case.case_id,
         "source_type": case.source_type,
@@ -248,12 +250,14 @@ def _evaluate_case(
         "gold": case.gold_name,
         "description": case.description,
         "item_count": len(result.items),
+        "predicted_graph": predicted,
         "predicted": {
             "node_count": len(predicted["nodes"]),
             "edge_count": len(predicted["edges"]),
             "alias_resolution_count": len(predicted["alias_resolutions"]),
         },
         "metrics": {name: _metric_to_dict(report) for name, report in reports.items()},
+        "failures": failures,
     }
     return public_case, reports
 
@@ -398,6 +402,7 @@ def _baseline_from_report(report: dict[str, Any]) -> dict[str, Any]:
                 "item_count": case["item_count"],
                 "predicted": case["predicted"],
                 "metrics": case["metrics"],
+                "failures": case.get("failures", []),
             }
             for case in report["cases"]
         },
@@ -462,7 +467,30 @@ def _metric_to_dict(report: MetricReport) -> dict[str, Any]:
         "numerator": _integer_if_whole(float(report.numerator)),
         "denominator": _integer_if_whole(float(report.denominator)),
         "per_class_breakdown": report.per_class_breakdown,
+        "failures": [_failure_to_dict(failure) for failure in report.failures],
     }
+
+
+def _failure_dicts_from_reports(reports: dict[str, MetricReport]) -> list[dict[str, Any]]:
+    failures: list[ExtractionFailure] = []
+    for report in reports.values():
+        failures.extend(report.failures)
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for failure in failures:
+        payload = _failure_to_dict(failure)
+        key = json.dumps(payload, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
+
+
+def _failure_to_dict(failure: ExtractionFailure | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(failure, ExtractionFailure):
+        return failure.as_dict()
+    return dict(failure)
 
 
 def _metric_value(payload: Any) -> float:
