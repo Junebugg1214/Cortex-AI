@@ -33,10 +33,12 @@ _LAZY_ATTRS = {
     "HeuristicRuleExtractor": "cortex.extraction.heuristic_rules",
     "HybridBackend": "cortex.extraction.hybrid_backend",
     "LegacyExtractionResult": "cortex.extraction.types",
+    "LLMProviderError": "cortex.extraction.llm_provider",
     "LLMProviderResponse": "cortex.extraction.llm_provider",
     "ModelBackend": "cortex.extraction.model_backend",
     "NodeHint": "cortex.extraction.retrieval",
     "collect_bulk_texts": "cortex.extraction.backend",
+    "create_registered_llm_provider": "cortex.extraction.llm_provider",
     "get_backend": "cortex.extraction.registry",
     "get_bulk_backend": "cortex.extraction.registry",
     "get_hot_path_backend": "cortex.extraction.registry",
@@ -47,6 +49,7 @@ _LAZY_ATTRS = {
     "retrieve_similar_nodes": "cortex.extraction.retrieval",
     "result_from_graph": "cortex.extraction.heuristic_backend",
     "StructuredLLMProvider": "cortex.extraction.llm_provider",
+    "register_llm_provider": "cortex.extraction.llm_provider",
     "v4_from_result": "cortex.extraction.heuristic_backend",
 }
 

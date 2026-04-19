@@ -127,7 +127,8 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         "--replay-dir",
         help="Replay cache directory (default: CORPUS/replay)",
     )
-    rc.add_argument("--model", help="Anthropic model id to use while refreshing the cache")
+    rc.add_argument("--provider", help="LLM provider name or module:function reference for refresh-cache")
+    rc.add_argument("--model", help="Model id to use while refreshing the cache")
 
     ev = sub.add_parser("extract-eval", help="Run extraction eval corpus and compare with baseline")
     ev.add_argument(
@@ -161,6 +162,8 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         "--replay-dir",
         help="Replay cache directory for model/hybrid evals (default: CORPUS/replay)",
     )
+    ev.add_argument("--provider", help="LLM provider name or module:function reference for model/hybrid evals")
+    ev.add_argument("--model", help="Model id for model/hybrid eval replay keys")
     ev.add_argument("--update-baseline", action="store_true", help="Write current results to CORPUS/baseline.json")
 
     ab = sub.add_parser("extract-ab", help="Compare two extraction prompts against a corpus")

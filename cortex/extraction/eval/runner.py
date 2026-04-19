@@ -117,13 +117,20 @@ def run_extraction_eval(
     prompt_overrides: dict[str, str] | None = None,
     update_baseline: bool = False,
     replay_root: str | Path | None = None,
+    provider_name: str | None = None,
+    model_id: str | None = None,
 ) -> EvaluationOutcome:
     """Run the extraction eval corpus and compare against the committed baseline."""
 
     corpus_root = Path(corpus)
     baseline_path = corpus_root / "baseline.json"
     cases = load_corpus_cases(corpus_root)
-    backend_instance = _make_backend(backend, replay_root=Path(replay_root) if replay_root else corpus_root / "replay")
+    backend_instance = _make_backend(
+        backend,
+        replay_root=Path(replay_root) if replay_root else corpus_root / "replay",
+        provider_name=provider_name,
+        model_id=model_id,
+    )
     public_cases: list[dict[str, Any]] = []
     case_metric_reports: list[dict[str, MetricReport]] = []
     try:
@@ -412,7 +419,13 @@ def _baseline_from_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _make_backend(backend: BackendName, *, replay_root: Path) -> ExtractionPipeline:
+def _make_backend(
+    backend: BackendName,
+    *,
+    replay_root: Path,
+    provider_name: str | None = None,
+    model_id: str | None = None,
+) -> ExtractionPipeline:
     if backend == "heuristic":
         from cortex.extraction.heuristic_backend import HeuristicBackend
 
@@ -420,12 +433,22 @@ def _make_backend(backend: BackendName, *, replay_root: Path) -> ExtractionPipel
     if backend == "model":
         from cortex.extraction.model_backend import ModelBackend
 
-        return ModelBackend(replay_cache=ReplayCache(root=replay_root, mode="read"))
+        return ModelBackend(
+            provider_name=provider_name,
+            model_id=model_id,
+            replay_cache=ReplayCache(root=replay_root, mode="read"),
+        )
     if backend == "hybrid":
         from cortex.extraction.hybrid_backend import HybridBackend
         from cortex.extraction.model_backend import ModelBackend
 
-        return HybridBackend(rescore_backend=ModelBackend(replay_cache=ReplayCache(root=replay_root, mode="read")))
+        return HybridBackend(
+            rescore_backend=ModelBackend(
+                provider_name=provider_name,
+                model_id=model_id,
+                replay_cache=ReplayCache(root=replay_root, mode="read"),
+            )
+        )
     raise EvaluationError(f"Unknown extraction backend: {backend}")
 
 

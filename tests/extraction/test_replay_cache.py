@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cortex.extraction import Document, ExtractionBackendError, ExtractionContext, ModelBackend
+from cortex.extraction import Document, ExtractionBackendError, ExtractionContext, ModelBackend, register_llm_provider
 from cortex.extraction.eval.replay_cache import ReplayCache, replay_mode_from_env
 from cortex.extraction.llm_provider import LLMProviderResponse
 from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME
@@ -23,9 +23,9 @@ class _ToolBlock:
 
 class _Response:
     usage = _Usage()
-    model = "claude-3-5-sonnet-20241022"
 
-    def __init__(self, payload: dict) -> None:
+    def __init__(self, payload: dict, *, model: str = "claude-3-5-sonnet-20241022") -> None:
+        self.model = model
         self.content = [_ToolBlock(payload)]
 
 
@@ -124,16 +124,21 @@ def test_model_backend_can_use_injected_llm_provider(monkeypatch, tmp_path) -> N
 
     class _Provider:
         provider_name = "stub"
+        default_model_id = "stub-model"
 
         def __init__(self) -> None:
             self.calls = 0
+            self.last_model = ""
 
         def create_message(self, **_kwargs):
             raise AssertionError("plain message path should not be used")
 
-        def create_tool_message(self, **_kwargs):
+        def create_tool_message(self, **kwargs):
             self.calls += 1
-            return LLMProviderResponse(response=_Response(_valid_fact_payload()), latency_ms=1.25)
+            self.last_model = kwargs["model"]
+            return LLMProviderResponse(
+                response=_Response(_valid_fact_payload(), model=kwargs["model"]), latency_ms=1.25
+            )
 
     provider = _Provider()
     backend = ModelBackend(llm_provider=provider, replay_cache=ReplayCache(mode="off"))
@@ -141,8 +146,88 @@ def test_model_backend_can_use_injected_llm_provider(monkeypatch, tmp_path) -> N
     result = _run_backend(backend)
 
     assert provider.calls == 1
+    assert provider.last_model == "stub-model"
     assert len(result.items) == 1
     assert result.items[0].topic == "Python"
+    assert result.diagnostics.model == "stub-model"
+
+
+def test_model_backend_model_id_overrides_provider_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
+
+    class _Provider:
+        provider_name = "stub"
+        default_model_id = "provider-default"
+
+        def __init__(self) -> None:
+            self.last_model = ""
+
+        def create_message(self, **_kwargs):
+            raise AssertionError("plain message path should not be used")
+
+        def create_tool_message(self, **kwargs):
+            self.last_model = kwargs["model"]
+            return LLMProviderResponse(
+                response=_Response(_valid_fact_payload(), model=kwargs["model"]), latency_ms=1.25
+            )
+
+    provider = _Provider()
+    backend = ModelBackend(llm_provider=provider, model_id="explicit-model", replay_cache=ReplayCache(mode="off"))
+
+    result = _run_backend(backend)
+
+    assert provider.last_model == "explicit-model"
+    assert result.diagnostics.model == "explicit-model"
+
+
+def test_model_backend_requires_model_id_for_provider_without_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
+
+    class _Provider:
+        provider_name = "stub"
+        default_model_id = ""
+
+        def create_message(self, **_kwargs):
+            raise AssertionError("plain message path should not be used")
+
+        def create_tool_message(self, **_kwargs):
+            raise AssertionError("provider should not be called without a model id")
+
+    backend = ModelBackend(llm_provider=_Provider(), replay_cache=ReplayCache(mode="off"))
+
+    with pytest.raises(ExtractionBackendError) as excinfo:
+        _run_backend(backend)
+
+    assert "requires a model_id" in str(excinfo.value)
+
+
+def test_model_backend_can_load_registered_provider(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CORTEX_EXTRACTION_LOG_PATH", str(tmp_path / "extractions.jsonl"))
+
+    class _Provider:
+        provider_name = "registered-stub"
+        default_model_id = "registered-model"
+
+        def __init__(self) -> None:
+            self.last_model = ""
+
+        def create_message(self, **_kwargs):
+            raise AssertionError("plain message path should not be used")
+
+        def create_tool_message(self, **kwargs):
+            self.last_model = kwargs["model"]
+            return LLMProviderResponse(
+                response=_Response(_valid_fact_payload(), model=kwargs["model"]), latency_ms=1.25
+            )
+
+    provider = _Provider()
+    register_llm_provider("registered-stub", lambda: provider)
+    backend = ModelBackend(provider_name="registered-stub", replay_cache=ReplayCache(mode="off"))
+
+    result = _run_backend(backend)
+
+    assert provider.last_model == "registered-model"
+    assert result.diagnostics.model == "registered-model"
 
 
 def test_replay_mode_defaults_to_read_in_ci_and_off_in_dev() -> None:

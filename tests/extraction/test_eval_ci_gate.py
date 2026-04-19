@@ -111,3 +111,49 @@ def test_extract_eval_wraps_unexpected_backend_exception(monkeypatch, tmp_path) 
 
     assert rc == 7
     assert messages == ["Could not run extraction eval: provider exploded"]
+
+
+def test_extract_eval_passes_provider_and_model(monkeypatch, tmp_path) -> None:
+    from cortex.extraction.eval import runner
+
+    captured: dict[str, object] = {}
+
+    class _Ctx:
+        def error(self, message: str) -> int:
+            raise AssertionError(f"unexpected error: {message}")
+
+        def permission_error(self, *_args, **_kwargs) -> int:
+            raise AssertionError("permission path should not be used")
+
+        def echo(self, *_args, **_kwargs) -> None:
+            return None
+
+    def _run_extraction_eval(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(report={"ok": True}, summary="summary", failed=False)
+
+    def _write_eval_report(report, output):
+        assert report == {"ok": True}
+        return Path(output)
+
+    monkeypatch.setattr(runner, "run_extraction_eval", _run_extraction_eval)
+    monkeypatch.setattr(runner, "write_eval_report", _write_eval_report)
+
+    rc = run_extract_eval(
+        SimpleNamespace(
+            corpus=str(CORPUS_ROOT),
+            replay_dir=str(tmp_path / "replay"),
+            backend="model",
+            tolerance=0.01,
+            prompt_version="corpus-v1",
+            update_baseline=False,
+            provider="custom_provider:create",
+            model="custom-model",
+            output=str(tmp_path / "report.json"),
+        ),
+        ctx=_Ctx(),
+    )
+
+    assert rc == 0
+    assert captured["provider_name"] == "custom_provider:create"
+    assert captured["model_id"] == "custom-model"
