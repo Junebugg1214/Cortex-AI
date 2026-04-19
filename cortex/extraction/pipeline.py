@@ -63,7 +63,11 @@ class ExtractionContext:
     budget: ExtractionBudget = field(default_factory=ExtractionBudget)
     prompt_version: str = ""
     prompt_overrides: dict[str, str] = field(default_factory=dict)
-    canonical_resolver: CanonicalResolver = field(default_factory=NoopCanonicalResolver)
+    canonical_resolver: CanonicalResolver | None = field(default_factory=NoopCanonicalResolver)
+
+    def __post_init__(self) -> None:
+        if self.canonical_resolver is None:
+            self.canonical_resolver = NoopCanonicalResolver()
 
 
 @dataclass
