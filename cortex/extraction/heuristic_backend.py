@@ -12,9 +12,9 @@ from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
 from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.temporal import apply_temporal_review_policy
 
-from .backend import ExtractionBackend
 from .pipeline import (
     Document,
+    ExtractionPipeline,
 )
 from .pipeline import (
     ExtractionContext as PipelineExtractionContext,
@@ -277,7 +277,7 @@ def merged_v4_from_results(results: list[ExtractionResult]) -> dict[str, Any]:
     return payload
 
 
-class HeuristicBackend(ExtractionBackend):
+class HeuristicBackend(ExtractionPipeline):
     """Extraction backend that preserves the current heuristic pipeline."""
 
     def run(self, document: Document, context: PipelineExtractionContext) -> PipelineExtractionResult:

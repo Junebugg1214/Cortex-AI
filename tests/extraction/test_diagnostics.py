@@ -6,6 +6,7 @@ import pytest
 
 from cortex.cli import main
 from cortex.extraction.diagnostics import ExtractionDiagnostics, write_extraction_record
+from cortex.extraction.eval.replay_cache import ReplayCache
 from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME, DEFAULT_MODEL, ModelBackend
 from cortex.extraction.pipeline import Document, ExtractionContext
 
@@ -52,7 +53,7 @@ def test_model_backend_records_cost_and_tokens(monkeypatch, tmp_path) -> None:
             self.api_key = api_key
             self.messages = _Messages()
 
-    backend = ModelBackend(api_key="test-key")
+    backend = ModelBackend(api_key="test-key", replay_cache=ReplayCache(mode="off"))
     monkeypatch.setattr(backend, "_anthropic_client_cls", lambda: _Client)
 
     result = backend.run(

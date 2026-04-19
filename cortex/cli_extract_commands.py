@@ -798,6 +798,7 @@ def run_extract_refresh_cache(args, *, ctx: ExtractCliContext) -> int:
 def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
     """Run the extraction eval corpus and compare against its baseline."""
 
+    from cortex.extraction import ExtractionBackendError
     from cortex.extraction.eval.runner import EvaluationError, run_extraction_eval, write_eval_report
 
     corpus_root = Path(args.corpus)
@@ -814,9 +815,13 @@ def run_extract_eval(args, *, ctx: ExtractCliContext) -> int:
         output_path = write_eval_report(outcome.report, Path(args.output))
     except EvaluationError as exc:
         return ctx.error(str(exc))
+    except ExtractionBackendError as exc:
+        return ctx.error(f"Could not run extraction eval: {exc}")
     except PermissionError as exc:
         return ctx.permission_error(Path(exc.filename or args.output), action="run extraction eval")
     except OSError as exc:
+        return ctx.error(f"Could not run extraction eval: {exc}")
+    except Exception as exc:
         return ctx.error(f"Could not run extraction eval: {exc}")
 
     ctx.echo(outcome.summary)

@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from cortex.extraction import ExtractedNode, ExtractionResult
+from cortex.extraction import BackendExtractionResult as ExtractionResult
+from cortex.extraction import ExtractedNode
 from cortex.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.session import MemorySession
 from cortex.webapp_backend import MemoryUIBackend

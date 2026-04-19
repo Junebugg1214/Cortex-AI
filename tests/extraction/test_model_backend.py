@@ -11,6 +11,7 @@ from cortex.extraction import (
     ModelBackend,
     merged_v4_from_results,
 )
+from cortex.extraction.eval.replay_cache import ReplayCache
 
 
 def test_extract_statement_parses_json_payload(monkeypatch):
@@ -118,7 +119,7 @@ def test_extract_statement_json_parse_failure_returns_schema_warning(monkeypatch
 
 
 def test_missing_api_key_raises_actionable_error(monkeypatch):
-    backend = ModelBackend()
+    backend = ModelBackend(replay_cache=ReplayCache(mode="off"))
     monkeypatch.delenv("CORTEX_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr("cortex.extraction.model_backend.load_extraction_config", lambda: {})

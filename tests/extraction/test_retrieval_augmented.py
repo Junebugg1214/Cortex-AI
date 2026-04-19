@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cortex.extraction import Document, ExtractionContext, ModelBackend, NodeHint, retrieve_similar_nodes
+from cortex.extraction.eval.replay_cache import ReplayCache
 from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME
 from cortex.graph import CortexGraph, Node
 
@@ -98,7 +99,11 @@ def test_model_backend_uses_retrieval_hint_as_existing_node_alias(monkeypatch, t
         "warnings": [],
     }
     messages = _Messages(response_payload)
-    backend = ModelBackend(api_key="test-key", embedding_backend=_EmbeddingStub())
+    backend = ModelBackend(
+        api_key="test-key",
+        embedding_backend=_EmbeddingStub(),
+        replay_cache=ReplayCache(mode="off"),
+    )
     _install_stubbed_client(backend, messages, monkeypatch)
 
     result = backend.run(

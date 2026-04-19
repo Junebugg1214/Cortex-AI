@@ -7,6 +7,7 @@ from typing import Any
 
 _LAZY_ATTRS = {
     "BACKENDS": "cortex.extraction.registry",
+    "BackendExtractionResult": "cortex.extraction.types",
     "BulkTextCollector": "cortex.extraction.backend",
     "EMBEDDING_BACKEND_DISABLED_MESSAGE": "cortex.extraction.embedding_backend",
     "EmbeddingBackend": "cortex.extraction.embedding_backend",
@@ -27,10 +28,12 @@ _LAZY_ATTRS = {
     "ExtractionDiagnostics": "cortex.extraction.diagnostics",
     "ExtractionParseError": "cortex.extraction.backend",
     "ExtractionPipeline": "cortex.extraction.pipeline",
-    "ExtractionResult": "cortex.extraction.types",
+    "ExtractionResult": "cortex.extraction.pipeline",
     "HeuristicBackend": "cortex.extraction.heuristic_backend",
     "HeuristicRuleExtractor": "cortex.extraction.heuristic_rules",
     "HybridBackend": "cortex.extraction.hybrid_backend",
+    "LegacyExtractionResult": "cortex.extraction.types",
+    "LLMProviderResponse": "cortex.extraction.llm_provider",
     "ModelBackend": "cortex.extraction.model_backend",
     "NodeHint": "cortex.extraction.retrieval",
     "collect_bulk_texts": "cortex.extraction.backend",
@@ -43,6 +46,7 @@ _LAZY_ATTRS = {
     "merged_v4_from_results": "cortex.extraction.heuristic_backend",
     "retrieve_similar_nodes": "cortex.extraction.retrieval",
     "result_from_graph": "cortex.extraction.heuristic_backend",
+    "StructuredLLMProvider": "cortex.extraction.llm_provider",
     "v4_from_result": "cortex.extraction.heuristic_backend",
 }
 

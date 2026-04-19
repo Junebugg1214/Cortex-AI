@@ -4,9 +4,9 @@ import os
 from time import perf_counter
 from typing import Any
 
-from .backend import ExtractionBackend
 from .pipeline import (
     Document,
+    ExtractionPipeline,
     empty_result,
     legacy_context_from_pipeline_context,
     result_from_backend_result,
@@ -26,7 +26,7 @@ EMBEDDING_BACKEND_DISABLED_MESSAGE = (
 )
 
 
-class EmbeddingBackend(ExtractionBackend):
+class EmbeddingBackend(ExtractionPipeline):
     """SentenceTransformer-backed embedding backend with a flat NumPy index."""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
