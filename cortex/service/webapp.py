@@ -19,10 +19,11 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from cortex.auth import authorize_api_key
 from cortex.config import APIKeyConfig, is_loopback_host, validate_runtime_security
 from cortex.error_envelopes import error_envelope
-from cortex.http_hardening import (
+from cortex.runtime_logging import get_logger, log_operation
+from cortex.service.auth import authorize_api_key
+from cortex.service.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
     InMemoryRateLimiter,
@@ -31,9 +32,8 @@ from cortex.http_hardening import (
     read_json_request,
     request_policy_for_mode,
 )
-from cortex.runtime_logging import get_logger, log_operation
-from cortex.webapp_backend import MemoryUIBackend
-from cortex.webapp_shell import UI_HTML, UI_SESSION_HEADER, UI_SESSION_PLACEHOLDER
+from cortex.service.webapp_backend import MemoryUIBackend
+from cortex.service.webapp_shell import UI_HTML, UI_SESSION_HEADER, UI_SESSION_PLACEHOLDER
 
 LOGGER = get_logger(__name__)
 

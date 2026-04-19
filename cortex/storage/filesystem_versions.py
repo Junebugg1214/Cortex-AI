@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.schemas.memory_v1 import (
     DEFAULT_TENANT_ID,
     BranchRecord,
     CommitRecord,
 )
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.versioning import VersionStore
 
 
 @dataclass(slots=True)

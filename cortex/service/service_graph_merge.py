@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from cortex.merge import (
+from cortex.service.service_common import _load_identity, _merge_payload
+from cortex.versioning.merge import (
     clear_merge_state,
     load_merge_state,
     load_merge_worktree,
@@ -10,7 +11,6 @@ from cortex.merge import (
     resolve_merge_conflict,
     save_merge_state,
 )
-from cortex.service_common import _load_identity, _merge_payload
 
 
 class MemoryGraphMergeServiceMixin:

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from cortex.auth import authorize_api_key
 from cortex.config import (
     RUNTIME_MODES,
     APIKeyConfig,
@@ -18,7 +17,11 @@ from cortex.config import (
     load_selfhost_config,
     validate_runtime_security,
 )
-from cortex.http_hardening import (
+from cortex.mcp.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
+from cortex.service.auth import authorize_api_key
+from cortex.service.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
     InMemoryRateLimiter,
@@ -27,9 +30,6 @@ from cortex.http_hardening import (
     read_json_request,
     request_policy_for_mode,
 )
-from cortex.mcp import SUPPORTED_PROTOCOL_VERSIONS, CortexMCPServer, JsonRpcError, ToolDefinition
-from cortex.runtime_control import ShutdownController, install_shutdown_handlers
-from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
 
 LOGGER = get_logger("cortex.manus_bridge")
 

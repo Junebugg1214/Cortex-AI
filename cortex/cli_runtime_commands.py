@@ -250,7 +250,7 @@ def run_connect_manus(args, *, ctx: RuntimeCliContext) -> int:
 
 def run_connect_runtime_target(args, *, target: str, ctx: RuntimeCliContext) -> int:
     from cortex.hermes_integration import ensure_cortex_mcp_config
-    from cortex.portable_runtime import display_name, scan_portability
+    from cortex.portability.portable_runtime import display_name, scan_portability
 
     project_dir = Path(args.project) if getattr(args, "project", None) else Path.cwd()
     warnings: list[str] = []
@@ -516,7 +516,7 @@ def run_serve_manus(args, *, ctx: RuntimeCliContext) -> int:
 def run_ui(args, *, ctx: RuntimeCliContext) -> int:
     """Launch the local Cortex infrastructure UI."""
     from cortex.config import format_startup_diagnostics, validate_runtime_security
-    from cortex.webapp import start_ui_server
+    from cortex.service.webapp import start_ui_server
 
     configure_structured_logging()
     if getattr(args, "subcommand", "") == "ui":
@@ -608,7 +608,7 @@ def run_ui(args, *, ctx: RuntimeCliContext) -> int:
 def run_server(args, *, ctx: RuntimeCliContext) -> int:
     """Launch the local Cortex REST API server."""
     from cortex.config import validate_runtime_security
-    from cortex.server import main as server_main
+    from cortex.service.server import main as server_main
 
     if getattr(args, "subcommand", "") == "server":
         ctx.emit_compatibility_note("server", "cortex serve api", format_name=getattr(args, "format", None))
@@ -697,7 +697,7 @@ def run_server(args, *, ctx: RuntimeCliContext) -> int:
 
 def run_mcp(args, *, ctx: RuntimeCliContext) -> int:
     """Launch the local Cortex MCP server over stdio."""
-    from cortex.mcp import main as mcp_main
+    from cortex.mcp.mcp import main as mcp_main
 
     if getattr(args, "subcommand", "") == "mcp":
         ctx.emit_compatibility_note("mcp", "cortex serve mcp", format_name=getattr(args, "format", None))

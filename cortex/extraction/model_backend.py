@@ -7,7 +7,7 @@ from dataclasses import replace
 from time import perf_counter
 from typing import Annotated, Any, Literal, Mapping
 
-from cortex.graph import CATEGORY_ORDER
+from cortex.graph.graph import CATEGORY_ORDER
 
 from .backend import ExtractionBackendError, ExtractionParseError, load_extraction_config
 from .diagnostics import ExtractionDiagnostics, write_extraction_record

@@ -323,7 +323,7 @@ class ExtractionContext:
 
     def set_active_source_context(self, text: str, timestamp: datetime | None = None) -> None:
         """Set the active source span for downstream extraction heuristics."""
-        from cortex.temporal import analyze_temporal_context
+        from cortex.graph.temporal import analyze_temporal_context
 
         self.active_source_context = {
             "text": text,

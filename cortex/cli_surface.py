@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from cortex.upai.disclosure import BUILTIN_POLICIES
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
 FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "mount", "sync", "serve", "admin")
 GUIDED_HELP_NOTE = "Guided help:\n  cortex help init\n  cortex help runtime\n  cortex help legacy\n"

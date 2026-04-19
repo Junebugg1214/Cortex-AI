@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from time import monotonic
 
-from cortex.embeddings import get_embedding_provider
-from cortex.integrity import check_store_integrity
-from cortex.openapi import build_openapi_spec
+from cortex.extraction.embeddings import get_embedding_provider
+from cortex.graph.integrity import check_store_integrity
 from cortex.release import build_release_metadata
+from cortex.service.openapi import build_openapi_spec
 from cortex.service.service_runtime_common import _backend_name, _safe_head_ref, _safe_index_status
 
 

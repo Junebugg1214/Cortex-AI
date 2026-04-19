@@ -12,16 +12,16 @@ from typing import Any, Callable
 
 from cortex import cli_parser as cli_parser_module
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import (
+from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
+from cortex.extraction.extract_memory import (
     AggressiveExtractor,
     PIIRedactor,
     build_eval_compat_view,
     load_file,
     merge_contexts,
 )
-from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
-from cortex.graph import CortexGraph
-from cortex.sources import SourceRegistry
+from cortex.extraction.sources import SourceRegistry
+from cortex.graph.graph import CortexGraph
 
 
 @dataclass(frozen=True)
@@ -111,9 +111,9 @@ def finalize_extraction_output(
     record_claims: bool = True,
     extra_metadata: dict[str, Any] | None = None,
 ) -> tuple[dict, int]:
-    from cortex.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
+    from cortex.graph.claims import extraction_source_label, record_graph_claims, stamp_graph_provenance
+    from cortex.graph.temporal import apply_temporal_review_policy
     from cortex.storage import get_storage_backend
-    from cortex.temporal import apply_temporal_review_policy
 
     graph = upgrade_v4_to_v5(v4_output)
     apply_temporal_review_policy(graph)
@@ -185,7 +185,7 @@ def load_detected_sources_or_error(
     if not detected_selection:
         return None
 
-    from cortex.portable_runtime import extract_graph_from_detected_sources
+    from cortex.portability.portable_runtime import extract_graph_from_detected_sources
 
     if announce:
         ctx.echo("Loading detected local sources")
@@ -329,7 +329,7 @@ def run_extract(args, *, ctx: ExtractCliContext) -> int:
             if merge_path.exists():
                 existing = ctx.load_graph(merge_path)
                 if existing is not None:
-                    from cortex.portable_runtime import merge_graphs
+                    from cortex.portability.portable_runtime import merge_graphs
 
                     result = merge_graphs(existing, upgrade_v4_to_v5(result)).export_v4()
             else:
@@ -1067,10 +1067,10 @@ def run_migrate(args, *, ctx: ExtractCliContext) -> int:
         graph = upgrade_v4_to_v5(v4_data)
 
         if getattr(args, "discover_edges", False):
-            from cortex.centrality import apply_centrality_boost, compute_centrality
-            from cortex.cooccurrence import discover_edges as discover_cooccurrence
-            from cortex.dedup import deduplicate
-            from cortex.edge_extraction import discover_all_edges
+            from cortex.graph.centrality import apply_centrality_boost, compute_centrality
+            from cortex.graph.cooccurrence import discover_edges as discover_cooccurrence
+            from cortex.graph.dedup import deduplicate
+            from cortex.graph.edge_extraction import discover_all_edges
 
             messages = getattr(extractor, "all_user_text", None)
 

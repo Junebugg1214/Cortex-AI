@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from cortex.minds import (
+from cortex.graph.minds import (
     compose_mind,
     ingest_detected_sources_into_mind,
     list_mind_mounts,
@@ -39,7 +39,7 @@ class MemoryRuntimeMindMixin:
         message: str = "",
         namespace: str | None = None,
     ) -> dict[str, Any]:
-        from cortex.extract_memory import PIIRedactor
+        from cortex.extraction.extract_memory import PIIRedactor
 
         redactor = PIIRedactor(redact_patterns) if redact_detected else None
         payload = ingest_detected_sources_into_mind(

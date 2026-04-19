@@ -1,5 +1,6 @@
 """Cortex — local AI identity and memory toolkit."""
 
+import warnings as _warnings
 from importlib import import_module as _import_module
 
 from cortex.channel_runtime import (
@@ -83,6 +84,9 @@ _LAZY_COMPAT_SUBMODULES = {
 def __getattr__(name: str):
     if name in _LAZY_COMPAT_SUBMODULES:
         module = _import_module(f"cortex.{name}")
+        message = getattr(module, "_MESSAGE", None)
+        if isinstance(message, str):
+            _warnings.warn(message, DeprecationWarning, stacklevel=2)
         globals()[name] = module
         return module
     raise AttributeError(f"module 'cortex' has no attribute {name!r}")

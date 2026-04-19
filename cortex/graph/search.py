@@ -7,7 +7,7 @@ Stdlib-only — no external dependencies.
 
 Usage::
 
-    from cortex.search import TFIDFIndex
+    from cortex.graph.search import TFIDFIndex
 
     index = TFIDFIndex()
     index.build(graph.nodes.values())

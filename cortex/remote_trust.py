@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 
 from cortex.atomic_io import atomic_write_json
 from cortex.namespaces import acl_allows_namespace, normalize_acl_namespaces
-from cortex.upai.identity import UPAIIdentity
+from cortex.versioning.upai.identity import UPAIIdentity
 
 NETWORK_REMOTE_SCHEMES = {"http", "https"}
 

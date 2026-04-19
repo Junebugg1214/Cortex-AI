@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cortex.contradictions import ContradictionEngine
-from cortex.graph import CortexGraph, diff_graphs
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph, diff_graphs
+from cortex.graph.semantic_diff import semantic_diff_graphs
 from cortex.intelligence import GapAnalyzer
-from cortex.semantic_diff import semantic_diff_graphs
 
 FAILURE_POLICIES = frozenset(
     {
@@ -261,7 +261,7 @@ def pending_candidate_branches(
     show_conflicts: bool = False,
 ) -> dict[str, Any]:
     """Return pending candidate-branch proposals for one Mind."""
-    from cortex.minds import list_mind_proposals
+    from cortex.graph.minds import list_mind_proposals
 
     try:
         payload = list_mind_proposals(store_dir, mind_id)

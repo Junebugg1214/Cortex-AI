@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from cortex.atomic_io import atomic_write_text, locked_path
 from cortex.remote_trust import NETWORK_REMOTE_SCHEMES, _normalize_store_path, prepare_remote_fields
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.versioning import VersionStore
 
 
 @dataclass

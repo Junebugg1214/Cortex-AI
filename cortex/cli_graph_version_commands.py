@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from cortex import cli_parser as cli_parser_module
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
     from cortex.schemas.memory_v1 import GovernanceRuleRecord
 
 
@@ -125,10 +125,10 @@ def run_diff(args, *, ctx: GraphVersionCliContext):
 
 def run_integrity(args, *, ctx: GraphVersionCliContext):
     """Check store lineage, version history, and graph consistency."""
-    from cortex.integrity import check_store_integrity
+    from cortex.graph.integrity import check_store_integrity
 
     if args.integrity_subcommand == "rehash":
-        from cortex.upai.versioning import VersionStore
+        from cortex.versioning.upai.versioning import VersionStore
 
         if not args.confirm:
             print("Refusing to rehash version history without --confirm.")
@@ -279,7 +279,7 @@ def run_rollback(args, *, ctx: GraphVersionCliContext):
 
 def run_identity(args, *, ctx: GraphVersionCliContext):
     """Init or show UPAI identity."""
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     store_dir = Path(args.store_dir)
 
@@ -316,7 +316,7 @@ def run_identity(args, *, ctx: GraphVersionCliContext):
         return 0
 
     if getattr(args, "keychain", False):
-        from cortex.upai.keychain import Keychain
+        from cortex.versioning.upai.keychain import Keychain
 
         id_path = store_dir / "identity.json"
         if not id_path.exists():
@@ -351,7 +351,7 @@ def run_identity(args, *, ctx: GraphVersionCliContext):
 def run_commit(args, *, ctx: GraphVersionCliContext):
     """Version a graph snapshot."""
     from cortex.storage import get_storage_backend
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -455,7 +455,7 @@ def run_branch(args, *, ctx: GraphVersionCliContext):
 def run_switch(args, *, ctx: GraphVersionCliContext):
     """Switch the active memory branch or run a platform portability migration."""
     if getattr(args, "to_platform", None):
-        from cortex.portable_runtime import default_output_dir, switch_portability
+        from cortex.portability.portable_runtime import default_output_dir, switch_portability
 
         input_path = Path(args.from_ref)
         if not input_path.exists():
@@ -504,7 +504,9 @@ def run_switch(args, *, ctx: GraphVersionCliContext):
 
 def run_merge(args, *, ctx: GraphVersionCliContext):
     """Merge another branch/ref into the current branch."""
-    from cortex.merge import (
+    from cortex.review import merge_preview as review_merge_preview
+    from cortex.storage import get_storage_backend
+    from cortex.versioning.merge import (
         clear_merge_state,
         load_merge_state,
         load_merge_worktree,
@@ -512,9 +514,7 @@ def run_merge(args, *, ctx: GraphVersionCliContext):
         resolve_merge_conflict,
         save_merge_state,
     )
-    from cortex.review import merge_preview as review_merge_preview
-    from cortex.storage import get_storage_backend
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     store_dir = Path(args.store_dir)
     store = get_storage_backend(store_dir).versions

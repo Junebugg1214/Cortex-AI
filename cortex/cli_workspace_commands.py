@@ -117,7 +117,7 @@ def _write_default_config(config_path: Path, *, namespace: str) -> tuple[str, st
 
 def run_init(args, *, ctx: WorkspaceCliContext) -> int:
     from cortex.config import load_selfhost_config
-    from cortex.minds import default_mind_status, init_mind, list_minds, set_default_mind
+    from cortex.graph.minds import default_mind_status, init_mind, list_minds, set_default_mind
 
     try:
         selection = ctx.resolve_first_class_store_selection(args.store_dir, command="init")
@@ -227,7 +227,7 @@ def run_help_topic(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_scan(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.portable_runtime import bar, scan_portability
+    from cortex.portability.portable_runtime import bar, scan_portability
 
     store_dir = ctx.resolved_store_dir(args.store_dir)
     payload = scan_portability(
@@ -266,8 +266,8 @@ def run_scan(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
-    from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
+    from cortex.graph.minds import remember_and_sync_default_mind, resolve_default_mind
+    from cortex.portability.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
     ctx.emit_compatibility_note(
         "remember",
@@ -318,7 +318,7 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_status(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.portable_runtime import status_portability
+    from cortex.portability.portable_runtime import status_portability
 
     store_dir = ctx.resolved_store_dir(args.store_dir)
     payload = status_portability(
@@ -346,7 +346,7 @@ def run_status(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_build(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.portable_runtime import build_digital_footprint
+    from cortex.portability.portable_runtime import build_digital_footprint
 
     ctx.emit_compatibility_note(
         "build",
@@ -380,7 +380,7 @@ def run_build(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_audit(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.portable_runtime import audit_portability
+    from cortex.portability.portable_runtime import audit_portability
 
     ctx.emit_compatibility_note(
         "audit",
@@ -792,8 +792,13 @@ def _doctor_apply_store_repairs(
 
 def run_doctor(args, *, ctx: WorkspaceCliContext) -> int:
     from cortex.config import CortexSelfHostConfig, load_selfhost_config, startup_diagnostics
-    from cortex.context import _resolve_path
-    from cortex.portable_runtime import SMART_ROUTE_TAGS, load_canonical_graph, load_portability_state, scan_portability
+    from cortex.portability.context import _resolve_path
+    from cortex.portability.portable_runtime import (
+        SMART_ROUTE_TAGS,
+        load_canonical_graph,
+        load_portability_state,
+        scan_portability,
+    )
     from cortex.release import PROJECT_VERSION
 
     selection = ctx.resolve_store_selection(args.store_dir)

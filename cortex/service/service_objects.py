@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from cortex.claims import ClaimEvent
-from cortex.graph import CortexGraph, Edge, Node, _normalize_label, make_edge_id, make_node_id
+from cortex.graph.claims import ClaimEvent
+from cortex.graph.graph import CortexGraph, Edge, Node, _normalize_label, make_edge_id, make_node_id
 from cortex.schemas.memory_v1 import ClaimRecord, MemoryEdgeRecord, MemoryNodeRecord
-from cortex.service_common import _load_identity, _now_iso
+from cortex.service.service_common import _load_identity, _now_iso
 
 
 def _copy_graph(graph: CortexGraph) -> CortexGraph:

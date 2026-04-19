@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from cortex.http_hardening import RATE_LIMIT_BACKENDS, request_policy_for_mode
 from cortex.namespaces import (
     WILDCARD_NAMESPACE,
     acl_allows_namespace,
@@ -16,6 +15,7 @@ from cortex.namespaces import (
     normalize_resource_namespace,
 )
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
+from cortex.service.http_hardening import RATE_LIMIT_BACKENDS, request_policy_for_mode
 
 try:  # pragma: no cover - exercised implicitly on Python 3.10
     import tomllib

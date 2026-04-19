@@ -559,10 +559,10 @@ class CortexGraph:
     def create_snapshot(self, source: str, timestamp: str | None = None) -> None:
         """Append a snapshot dict to every node in the graph.
 
-        Uses cortex.temporal.create_snapshot_dict for the actual snapshot
+        Uses cortex.graph.temporal.create_snapshot_dict for the actual snapshot
         creation, keeping graph.py lightweight.
         """
-        from cortex.temporal import create_snapshot_dict
+        from cortex.graph.temporal import create_snapshot_dict
 
         for node in self.nodes.values():
             snap = create_snapshot_dict(node, source, timestamp)
@@ -763,7 +763,7 @@ class CortexGraph:
         descending relevance.  The index is built lazily on first call and
         cached until a mutation invalidates it.
         """
-        from cortex.search import TFIDFIndex, semantic_search_documents
+        from cortex.graph.search import TFIDFIndex, semantic_search_documents
 
         if not hasattr(self, "_search_index") or not self._search_index.is_built:
             self._search_index = TFIDFIndex()
@@ -915,13 +915,13 @@ class CortexGraph:
 
     def compute_centrality(self) -> dict[str, float]:
         """Compute centrality scores for all nodes."""
-        from cortex.centrality import compute_centrality
+        from cortex.graph.centrality import compute_centrality
 
         return compute_centrality(self)
 
     def apply_centrality_boost(self) -> dict[str, float]:
         """Compute centrality and boost top-decile node confidence."""
-        from cortex.centrality import apply_centrality_boost, compute_centrality
+        from cortex.graph.centrality import apply_centrality_boost, compute_centrality
 
         scores = compute_centrality(self)
         apply_centrality_boost(self, scores)

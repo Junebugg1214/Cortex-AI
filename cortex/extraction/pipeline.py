@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from time import perf_counter
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 
 from .diagnostics import ExtractionDiagnostics
 from .extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedMemoryItem, ExtractedRelationship

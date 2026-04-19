@@ -5,9 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from cortex.contradictions import ContradictionEngine
-from cortex.dedup import find_duplicates, text_similarity
-from cortex.graph import CortexGraph, make_node_id
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.dedup import find_duplicates, text_similarity
+from cortex.graph.graph import CortexGraph, make_node_id
 from cortex.hermes_integration import build_hermes_documents
 from cortex.hooks import HookConfig, generate_compact_context
 from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
@@ -27,9 +27,9 @@ from cortex.packs import (
     source_index_path,
     unknowns_path,
 )
-from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
-from cortex.portable_runtime import _policy_for_target, canonical_target_name, display_name
-from cortex.upai.disclosure import apply_disclosure
+from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
+from cortex.portability.portable_runtime import _policy_for_target, canonical_target_name, display_name
+from cortex.versioning.upai.disclosure import apply_disclosure
 
 
 class PackProvenanceUnavailableError(RuntimeError):

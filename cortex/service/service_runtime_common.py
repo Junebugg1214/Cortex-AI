@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cortex.embeddings import get_embedding_provider
+from cortex.extraction.embeddings import get_embedding_provider
 from cortex.storage.base import StorageBackend
 
 

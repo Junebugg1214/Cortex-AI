@@ -8,7 +8,7 @@ from cortex.extraction.extract_memory_context import ExtractedFact, ExtractedMem
 from cortex.extraction.pipeline import _apply_existing_graph_resolutions
 from cortex.extraction.prompts import load_prompt
 from cortex.extraction.retrieval import retrieve_similar_nodes
-from cortex.graph import Node
+from cortex.graph.graph import Node
 from cortex.versioning.merge import CanonicalEntityRegistry
 
 from .state import PipelineState

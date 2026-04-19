@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.embeddings import build_document_embeddings, get_embedding_provider, hybrid_search_documents
-from cortex.graph import CortexGraph
-from cortex.search import TFIDFIndex
+from cortex.extraction.embeddings import build_document_embeddings, get_embedding_provider, hybrid_search_documents
+from cortex.graph.graph import CortexGraph
+from cortex.graph.search import TFIDFIndex
 from cortex.storage.sqlite_versions import SQLiteVersionBackend
 
 

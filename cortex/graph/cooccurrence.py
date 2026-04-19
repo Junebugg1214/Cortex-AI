@@ -13,10 +13,10 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from cortex.graph import Edge, make_edge_id
+from cortex.graph.graph import Edge, make_edge_id
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 
 # ---------------------------------------------------------------------------

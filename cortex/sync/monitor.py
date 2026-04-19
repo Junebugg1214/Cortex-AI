@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 from cortex.runtime_logging import get_logger, log_operation
 
 LOGGER = get_logger(__name__)
@@ -205,7 +205,7 @@ class ExportMonitor:
     def _extract_from_file(self, path: Path) -> dict | None:
         """Attempt to extract v4 data from a file. Returns None on failure."""
         try:
-            from cortex.extract_memory import AggressiveExtractor, load_file
+            from cortex.extraction.extract_memory import AggressiveExtractor, load_file
         except ImportError:
             return None
 

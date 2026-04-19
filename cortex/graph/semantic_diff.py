@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from cortex.contradictions import ContradictionEngine
-from cortex.graph import CortexGraph
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph
 
 
 def _source_set(node) -> list[str]:

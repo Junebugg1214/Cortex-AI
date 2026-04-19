@@ -23,12 +23,12 @@ from cortex.agent.events import (
     normalize_output_format,
 )
 from cortex.atomic_io import atomic_write_json, atomic_write_text, locked_path
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import resolve_default_mind
 from cortex.mind_runtime import _compose_graph_for_target
-from cortex.minds import resolve_default_mind
 from cortex.runtime_control import ShutdownController
 from cortex.runtime_logging import get_logger, log_operation
-from cortex.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
+from cortex.versioning.upai.disclosure import BUILTIN_POLICIES, DisclosurePolicy, apply_disclosure
 
 DEFAULT_OUTPUT_DIRNAME = "output"
 LOGGER = get_logger(__name__)

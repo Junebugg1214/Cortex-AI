@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import cortex.minds as minds_module
+import cortex.graph.minds as minds_module
 from cortex.namespaces import resource_namespace_matches
 
 
@@ -35,7 +35,7 @@ def attach_pack_to_mind(
     namespace: str | None = None,
 ) -> dict[str, Any]:
     from cortex.packs import load_manifest as load_pack_manifest
-    from cortex.portable_runtime import canonical_target_name
+    from cortex.portability.portable_runtime import canonical_target_name
 
     normalized_mind_id = minds_module._validate_mind_id(mind_id)
     manifest = minds_module.load_mind_manifest(store_dir, normalized_mind_id)

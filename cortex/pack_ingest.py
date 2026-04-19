@@ -5,7 +5,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import make_node_id
+from cortex.extraction.sources import DuplicateSourceError, SourceRegistry
+from cortex.graph.graph import make_node_id
 from cortex.packs import (
     _iso_now,
     _read_json,
@@ -20,7 +21,6 @@ from cortex.packs import (
 )
 from cortex.security.secrets import CortexIgnore
 from cortex.security.validate import InputValidator
-from cortex.sources import DuplicateSourceError, SourceRegistry
 
 _INPUT_VALIDATOR = InputValidator()
 

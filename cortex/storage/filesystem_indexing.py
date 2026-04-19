@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.embeddings import get_embedding_provider, hybrid_search_documents
+from cortex.extraction.embeddings import get_embedding_provider, hybrid_search_documents
 from cortex.storage.filesystem_versions import FilesystemVersionBackend
 
 

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from cortex.atomic_io import atomic_write_json, locked_path
-from cortex.graph import CortexGraph
-from cortex.minds import (
+from cortex.graph.graph import CortexGraph
+from cortex.graph.minds import (
     DEFAULT_CATEGORIES,
     MIND_LAYOUT_DIRECTORIES,
     MIND_LAYOUT_FILES,
@@ -63,7 +63,7 @@ def ingest_detected_sources_into_mind(
     message: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import extract_graph_from_detected_sources
+    from cortex.portability.portable_runtime import extract_graph_from_detected_sources
 
     detected_payload = extract_graph_from_detected_sources(
         targets=targets,
@@ -147,7 +147,7 @@ def remember_on_mind(
     message: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import extract_graph_from_statement
+    from cortex.portability.portable_runtime import extract_graph_from_statement
 
     cleaned = " ".join(str(statement).split()).strip()
     if not cleaned:
@@ -223,7 +223,7 @@ def _select_brainpacks_for_compose(
     task: str,
     namespace: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from cortex.portable_runtime import canonical_target_name
+    from cortex.portability.portable_runtime import canonical_target_name
 
     attachments = _load_attachments(store_dir, mind_id)
     attachment_details, _ = _attachment_details(
@@ -269,7 +269,7 @@ def _compose_graph_for_target(
 ) -> dict[str, Any]:
     from cortex.packs import compile_meta_path as pack_compile_meta_path
     from cortex.packs import graph_path as pack_graph_path
-    from cortex.portable_runtime import canonical_target_name, merge_graphs
+    from cortex.portability.portable_runtime import canonical_target_name, merge_graphs
 
     manifest = load_mind_manifest(store_dir, mind_id)
     _require_mind_namespace(manifest, namespace)
@@ -343,9 +343,9 @@ def _render_graph_for_target(
     from cortex.hermes_integration import build_hermes_documents
     from cortex.hooks import HookConfig, generate_compact_context
     from cortex.import_memory import NormalizedContext, export_claude_memories, export_claude_preferences
-    from cortex.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
-    from cortex.portable_runtime import _policy_for_target, canonical_target_name, display_name
-    from cortex.upai.disclosure import apply_disclosure
+    from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, build_instruction_pack
+    from cortex.portability.portable_runtime import _policy_for_target, canonical_target_name, display_name
+    from cortex.versioning.upai.disclosure import apply_disclosure
 
     canonical_target = canonical_target_name(target)
     policy, route_tags = _policy_for_target(canonical_target, smart=smart, policy_name=policy_name)
@@ -486,7 +486,7 @@ def mount_mind(
     openclaw_store_dir: str = "",
     namespace: str | None = None,
 ) -> dict[str, Any]:
-    from cortex.portable_runtime import canonical_target_name, default_output_dir, sync_targets
+    from cortex.portability.portable_runtime import canonical_target_name, default_output_dir, sync_targets
 
     manifest = load_mind_manifest(store_dir, mind_id)
     _require_mind_namespace(manifest, namespace)

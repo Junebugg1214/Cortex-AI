@@ -12,7 +12,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph, Node
+    from cortex.graph.graph import CortexGraph, Node
 
 
 # ---------------------------------------------------------------------------

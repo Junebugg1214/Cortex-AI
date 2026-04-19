@@ -86,7 +86,7 @@ class SyncConfig:
 def _load_graph_from_path(path: Path):
     """Load a v4 or v5 JSON file and return a CortexGraph."""
     from cortex.compat import upgrade_v4_to_v5
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -176,9 +176,9 @@ class SyncScheduler:
 
     def _execute_sync(self, schedule: SyncSchedule) -> list[Path]:
         """Execute a sync for one schedule. Returns output file paths."""
-        from cortex.adapters import ADAPTERS
-        from cortex.upai.disclosure import BUILTIN_POLICIES
-        from cortex.upai.identity import UPAIIdentity
+        from cortex.portability.adapters import ADAPTERS
+        from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
+        from cortex.versioning.upai.identity import UPAIIdentity
 
         graph_path = Path(self.config.graph_path)
         if not graph_path.exists():

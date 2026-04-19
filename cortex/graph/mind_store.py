@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import cortex.minds as minds_module
+import cortex.graph.minds as minds_module
 from cortex.namespaces import normalize_resource_namespace
 
 

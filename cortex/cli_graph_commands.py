@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Any, Callable
 from cortex import cli_graph_version_commands as cli_graph_version_commands_module
 from cortex import cli_parser as cli_parser_module
 from cortex.compat import upgrade_v4_to_v5
-from cortex.contradictions import ContradictionEngine
-from cortex.graph import CortexGraph, Node
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph, Node
 
 if TYPE_CHECKING:
-    from cortex.claims import ClaimEvent
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.graph.claims import ClaimEvent
+    from cortex.versioning.upai.identity import UPAIIdentity
 
 
 @dataclass(frozen=True)
@@ -117,13 +117,13 @@ def run_query(args, *, ctx: GraphCliContext):
         return 0
 
     # --- Phase 5 queries (QueryEngine) ---
-    from cortex.intelligence import GapAnalyzer
-    from cortex.query import (
+    from cortex.graph.query import (
         QueryEngine,
         connected_components,
         parse_nl_query,
     )
-    from cortex.query_lang import execute_query
+    from cortex.graph.query_lang import execute_query
+    from cortex.intelligence import GapAnalyzer
 
     engine = QueryEngine(graph)
 
@@ -338,7 +338,7 @@ def _parse_properties(items: list[str] | None) -> dict[str, str]:
 
 
 def _load_identity(store_dir: Path) -> "UPAIIdentity | None":
-    from cortex.upai.identity import UPAIIdentity
+    from cortex.versioning.upai.identity import UPAIIdentity
 
     id_path = store_dir / "identity.json"
     if id_path.exists():
@@ -398,7 +398,7 @@ def _maybe_commit_graph(graph: CortexGraph, store_dir: Path, message: str | None
 
 
 def _claim_event_from_record(record: object | None) -> "ClaimEvent | None":
-    from cortex.claims import ClaimEvent
+    from cortex.graph.claims import ClaimEvent
 
     if record is None:
         return None
@@ -411,8 +411,8 @@ def _claim_event_from_record(record: object | None) -> "ClaimEvent | None":
 def run_timeline(args, *, ctx: GraphCliContext):
     """Generate a timeline from a context/graph file."""
     if args.input_file == "review":
-        from cortex.minds import load_mind_core_graph
-        from cortex.temporal import TEMPORAL_REVIEW_QUEUE_KEY
+        from cortex.graph.minds import load_mind_core_graph
+        from cortex.graph.temporal import TEMPORAL_REVIEW_QUEUE_KEY
 
         if not args.mind:
             return ctx.error("`cortex timeline review` requires --mind <id>.")
@@ -531,7 +531,7 @@ def run_memory_forget(args, *, ctx: GraphCliContext):
 
 
 def run_memory_set(args, *, ctx: GraphCliContext):
-    from cortex.claims import ClaimEvent
+    from cortex.graph.claims import ClaimEvent
     from cortex.memory_ops import set_memory_node
     from cortex.storage import get_storage_backend
 
@@ -580,7 +580,7 @@ def run_memory_set(args, *, ctx: GraphCliContext):
 
 
 def run_memory_retract(args, *, ctx: GraphCliContext):
-    from cortex.claims import ClaimEvent
+    from cortex.graph.claims import ClaimEvent
     from cortex.memory_ops import retract_source
     from cortex.storage import get_storage_backend
 
@@ -862,7 +862,7 @@ def _load_claim_or_error(store_dir: Path, claim_id: str) -> tuple[object, "Claim
 
 
 def run_claim_accept(args, *, ctx: GraphCliContext):
-    from cortex.claims import ClaimEvent, claim_event_to_node
+    from cortex.graph.claims import ClaimEvent, claim_event_to_node
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -924,7 +924,7 @@ def run_claim_accept(args, *, ctx: GraphCliContext):
 
 
 def run_claim_reject(args, *, ctx: GraphCliContext):
-    from cortex.claims import ClaimEvent
+    from cortex.graph.claims import ClaimEvent
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -982,7 +982,7 @@ def run_claim_reject(args, *, ctx: GraphCliContext):
 
 
 def run_claim_supersede(args, *, ctx: GraphCliContext):
-    from cortex.claims import ClaimEvent, claim_event_to_node
+    from cortex.graph.claims import ClaimEvent, claim_event_to_node
 
     input_path = Path(args.input_file)
     if not input_path.exists():
@@ -1168,7 +1168,7 @@ def run_contradictions(args, *, ctx: GraphCliContext):
 
 def run_drift(args, *, ctx: GraphCliContext):
     """Compute identity drift between two graph files."""
-    from cortex.temporal import drift_score
+    from cortex.graph.temporal import drift_score
 
     input_path = Path(args.input_file)
     compare_path = Path(args.compare)

@@ -13,10 +13,10 @@ import re
 from collections import deque
 from typing import TYPE_CHECKING
 
-from cortex.graph import Node
+from cortex.graph.graph import Node
 
 if TYPE_CHECKING:
-    from cortex.graph import CortexGraph
+    from cortex.graph.graph import CortexGraph
 
 # ---------------------------------------------------------------------------
 # Constants

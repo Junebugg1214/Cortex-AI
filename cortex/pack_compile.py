@@ -5,11 +5,13 @@ import re
 from itertools import combinations
 from pathlib import Path
 
-from cortex.claims import stamp_graph_provenance
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor
-from cortex.extract_memory_context import normalize_text
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.extraction.extract_memory import AggressiveExtractor
+from cortex.extraction.extract_memory_context import normalize_text
+from cortex.extraction.sources import SourceRegistry
+from cortex.graph.claims import stamp_graph_provenance
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.graph.temporal import apply_temporal_review_policy
 from cortex.packs import (
     BrainpackManifest,
     _artifacts_root,
@@ -32,10 +34,8 @@ from cortex.packs import (
     source_index_path,
     unknowns_path,
 )
-from cortex.portable_graphs import merge_graphs
+from cortex.portability.portable_graphs import merge_graphs
 from cortex.security.secrets import SecretsScanner
-from cortex.sources import SourceRegistry
-from cortex.temporal import apply_temporal_review_policy
 
 PACK_COMPILE_MODES = ("distribution", "full")
 

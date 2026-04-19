@@ -7,9 +7,9 @@ from statistics import mean
 from time import perf_counter
 from typing import Any, Callable
 
-from cortex.graph import CortexGraph, Edge, Node
+from cortex.graph.graph import CortexGraph, Edge, Node
 from cortex.release import build_release_metadata
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

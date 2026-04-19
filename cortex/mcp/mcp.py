@@ -9,11 +9,11 @@ from typing import Any, TextIO
 
 from cortex.config import format_startup_diagnostics, load_selfhost_config
 from cortex.error_envelopes import error_envelope, jsonrpc_error_data
-from cortex.mcp_tools import MCPToolRegistry, ToolDefinition
+from cortex.mcp.mcp_tools import MCPToolRegistry, ToolDefinition
 from cortex.release import API_VERSION, MCP_SERVER_NAME, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.runtime_control import GracefulShutdown, ShutdownController, install_shutdown_handlers
 from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 
 JSONRPC_VERSION = "2.0"
 SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05", "2025-11-05", "2025-11-25")

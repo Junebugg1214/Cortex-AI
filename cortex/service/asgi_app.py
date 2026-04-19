@@ -20,7 +20,6 @@ from cortex.config import APIKeyConfig, validate_runtime_security
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
 from cortex.runtime_control import ShutdownController, install_shutdown_handlers
 from cortex.runtime_logging import get_logger, log_operation
-from cortex.service import MemoryService
 from cortex.service.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
@@ -31,8 +30,9 @@ from cortex.service.http_hardening import (
 )
 from cortex.service.server import _error_envelope as _server_error_envelope
 from cortex.service.server import _json_bytes, dispatch_api_request
+from cortex.service.service import MemoryService
 
-LOGGER = get_logger("cortex.server.asgi")
+LOGGER = get_logger("cortex.service.server.asgi")
 
 
 @dataclass(frozen=True)

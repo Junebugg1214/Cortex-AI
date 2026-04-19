@@ -12,7 +12,6 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from cortex.auth import authorize_api_key
 from cortex.config import (
     ALL_SCOPES,
     RUNTIME_MODES,
@@ -23,7 +22,11 @@ from cortex.config import (
 )
 from cortex.error_envelopes import error_envelope
 from cortex.federation import FederationSignatureError
-from cortex.http_hardening import (
+from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
+from cortex.runtime_control import ShutdownController, install_shutdown_handlers
+from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
+from cortex.service.auth import authorize_api_key
+from cortex.service.http_hardening import (
     HTTPRequestPolicy,
     HTTPRequestValidationError,
     apply_read_timeout,
@@ -32,13 +35,10 @@ from cortex.http_hardening import (
     read_json_request,
     request_policy_for_mode,
 )
-from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
-from cortex.runtime_control import ShutdownController, install_shutdown_handlers
-from cortex.runtime_logging import configure_structured_logging, get_logger, log_operation
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage.remote_sync import export_signed_remote_bundle, import_signed_remote_bundle
 
-LOGGER = get_logger("cortex.server")
+LOGGER = get_logger("cortex.service.server")
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:

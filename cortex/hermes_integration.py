@@ -4,9 +4,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cortex.context import _format_plain, _resolve_path, _write_non_destructive
 from cortex.import_memory import NormalizedContext, TopicDetail
-from cortex.portability import build_instruction_pack
+from cortex.portability.context import _format_plain, _resolve_path, _write_non_destructive
+from cortex.portability.portability import build_instruction_pack
 
 HERMES_CONFIG_START = "# CORTEX:HERMES:START"
 HERMES_CONFIG_END = "# CORTEX:HERMES:END"

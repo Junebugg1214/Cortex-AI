@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from cortex.atomic_io import atomic_write_json, locked_path
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 
 
 def _iso_now() -> str:

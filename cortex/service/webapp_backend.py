@@ -1,7 +1,7 @@
 """
 Backend operations for the local Cortex web UI.
 
-Separated from ``cortex.webapp`` so the UI server shell and the backend
+Separated from ``cortex.service.webapp`` so the UI server shell and the backend
 service surface can evolve independently.
 """
 
@@ -14,10 +14,10 @@ from urllib.request import urlopen
 from cortex.audience.policy import PolicyEngine
 from cortex.audience.templates import BUILTIN_AUDIENCE_TEMPLATES
 from cortex.cli import _load_graph
-from cortex.embeddings import get_embedding_provider
+from cortex.extraction.embeddings import get_embedding_provider
 from cortex.governance import GOVERNANCE_ACTIONS
+from cortex.graph.minds import init_mind, remember_on_mind
 from cortex.memory_ops import blame_memory_nodes
-from cortex.minds import init_mind, remember_on_mind
 from cortex.onboarding.wizard import (
     load_wizard_state,
     record_compile,
@@ -29,7 +29,7 @@ from cortex.onboarding.wizard import (
 )
 from cortex.review import parse_failure_policies, review_graphs
 from cortex.schemas.memory_v1 import GovernanceRuleRecord, RemoteRecord
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage import get_storage_backend
 from cortex.storage.base import StorageBackend
 
@@ -408,8 +408,8 @@ class MemoryUIBackend:
         policy_name: str = "full",
         max_chars: int = 1500,
     ) -> dict[str, Any]:
-        from cortex.minds import resolve_default_mind, sync_mind_compatibility_targets
-        from cortex.portable_runtime import (
+        from cortex.graph.minds import resolve_default_mind, sync_mind_compatibility_targets
+        from cortex.portability.portable_runtime import (
             ALL_PORTABLE_TARGETS,
             canonical_target_name,
             default_output_dir,
@@ -471,8 +471,8 @@ class MemoryUIBackend:
         policy_name: str = "full",
         max_chars: int = 1500,
     ) -> dict[str, Any]:
-        from cortex.minds import remember_and_sync_default_mind, resolve_default_mind
-        from cortex.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
+        from cortex.graph.minds import remember_and_sync_default_mind, resolve_default_mind
+        from cortex.portability.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
 
         if not statement.strip():
             raise ValueError("statement is required")

@@ -269,7 +269,7 @@ class CodingSessionWatcher:
             src = id_map.get(edge.source_id)
             tgt = id_map.get(edge.target_id)
             if src and tgt and src in self._graph.nodes and tgt in self._graph.nodes:
-                from cortex.graph import Edge, make_edge_id
+                from cortex.graph.graph import Edge, make_edge_id
 
                 new_eid = make_edge_id(src, tgt, edge.relation)
                 if new_eid not in self._graph.edges:
@@ -289,7 +289,7 @@ class CodingSessionWatcher:
     def _load_or_create_graph(self):
         """Load existing graph from graph_path, or create empty."""
         from cortex.compat import upgrade_v4_to_v5
-        from cortex.graph import CortexGraph
+        from cortex.graph.graph import CortexGraph
 
         if self.graph_path.exists():
             try:
@@ -360,7 +360,7 @@ def watch_coding_sessions(
         if verbose:
             print(f"  Graph updated: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
         if context_platforms:
-            from cortex.context import write_context
+            from cortex.portability.context import write_context
 
             results = write_context(
                 graph_path=str(gpath),

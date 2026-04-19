@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.graph import CortexGraph, diff_graphs
-from cortex.semantic_diff import semantic_diff_graphs
+from cortex.graph.graph import CortexGraph, diff_graphs
+from cortex.graph.semantic_diff import semantic_diff_graphs
 
 GOVERNANCE_ACTIONS = frozenset({"read", "write", "branch", "merge", "rollback", "push", "pull"})
 

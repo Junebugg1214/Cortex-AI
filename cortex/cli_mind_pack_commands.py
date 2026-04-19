@@ -402,7 +402,7 @@ def run_pack(args, *, ctx: MindPackCliContext):
 
 
 def run_mind(args, *, ctx: MindPackCliContext):
-    from cortex.minds import (
+    from cortex.graph.minds import (
         attach_pack_to_mind,
         clear_default_mind,
         compose_mind,
@@ -722,9 +722,9 @@ def run_mind(args, *, ctx: MindPackCliContext):
 
 
 def run_sources(args, *, ctx: MindPackCliContext):
-    from cortex.claims import RetractionPlanningError, retract_graph_source
-    from cortex.minds import _persist_mind_core_graph, load_mind_core_graph
-    from cortex.sources import SourceRegistry, graph_source_ids
+    from cortex.extraction.sources import SourceRegistry, graph_source_ids
+    from cortex.graph.claims import RetractionPlanningError, retract_graph_source
+    from cortex.graph.minds import _persist_mind_core_graph, load_mind_core_graph
 
     store_dir = ctx.resolved_store_dir(args.store_dir)
 

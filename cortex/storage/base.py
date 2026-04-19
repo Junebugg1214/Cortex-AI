@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.schemas.memory_v1 import (
     DEFAULT_NAMESPACE,
     DEFAULT_TENANT_ID,

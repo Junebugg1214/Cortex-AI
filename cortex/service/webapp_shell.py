@@ -1,8 +1,8 @@
 """Static Cortex UI shell and session constants."""
 
-from cortex.webapp_shell_body import UI_BODY
-from cortex.webapp_shell_css import UI_CSS
-from cortex.webapp_shell_js import UI_JS
+from cortex.service.webapp_shell_body import UI_BODY
+from cortex.service.webapp_shell_css import UI_CSS
+from cortex.service.webapp_shell_js import UI_JS
 
 UI_SESSION_HEADER = "X-Cortex-UI-Session"
 UI_SESSION_PLACEHOLDER = "__CORTEX_UI_SESSION_TOKEN__"

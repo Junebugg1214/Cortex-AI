@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.graph import CortexGraph
-from cortex.upai.identity import UPAIIdentity
+from cortex.graph.graph import CortexGraph
+from cortex.versioning.upai.identity import UPAIIdentity
 
 
 def _coerce_graph(payload: dict[str, Any]) -> CortexGraph:

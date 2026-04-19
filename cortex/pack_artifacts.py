@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.graph import make_node_id
+from cortex.graph.graph import make_node_id
 from cortex.packs import (
     _artifacts_root,
     _compact_summary,

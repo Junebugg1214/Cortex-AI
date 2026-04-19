@@ -59,14 +59,14 @@ def completion_candidates(kind: str, *, store_dir: str | Path, mind: str = "") -
     store_path = Path(store_dir)
 
     if kind == "mind":
-        from cortex.minds import list_minds
+        from cortex.graph.minds import list_minds
 
         payload = list_minds(store_path)
         return _dedupe([item.get("mind", "") for item in payload.get("minds", [])])
 
     if kind == "audience":
         from cortex.audience.policy import PolicyEngine
-        from cortex.minds import list_minds
+        from cortex.graph.minds import list_minds
 
         engine = PolicyEngine(store_path)
         mind_ids = [mind] if mind else [item.get("mind", "") for item in list_minds(store_path).get("minds", [])]
@@ -82,8 +82,8 @@ def completion_candidates(kind: str, *, store_dir: str | Path, mind: str = "") -
         return _dedupe(values)
 
     if kind == "source":
-        from cortex.minds import list_minds, load_mind_core_graph
-        from cortex.sources import SourceRegistry, graph_source_ids
+        from cortex.extraction.sources import SourceRegistry, graph_source_ids
+        from cortex.graph.minds import list_minds, load_mind_core_graph
 
         registry = SourceRegistry.for_store(store_path)
         mind_ids = [mind] if mind else [item.get("mind", "") for item in list_minds(store_path).get("minds", [])]

@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from cortex.search import semantic_search_documents
+from cortex.graph.search import semantic_search_documents
 
 DEFAULT_EMBEDDING_PROVIDER = "disabled"
 

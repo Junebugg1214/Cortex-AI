@@ -13,7 +13,7 @@ from cortex.agent.conflict_monitor import (
 )
 from cortex.agent.context_dispatcher import ContextDispatcher, dispatcher_status
 from cortex.agent.events import AgentEvent, EventType, OutputFormat, normalize_delivery_target, normalize_output_format
-from cortex.minds import list_minds, mind_status
+from cortex.graph.minds import list_minds, mind_status
 
 
 def _resolved_log_dir(value: str = "") -> Path:

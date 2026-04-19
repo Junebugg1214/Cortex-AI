@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from cortex.graph import CortexGraph
+from cortex.graph.graph import CortexGraph
 
 
 @dataclass(frozen=True)

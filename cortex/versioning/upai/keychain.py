@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cortex.upai.identity import UPAIIdentity
+from cortex.versioning.upai.identity import UPAIIdentity
 
 if TYPE_CHECKING:
     pass

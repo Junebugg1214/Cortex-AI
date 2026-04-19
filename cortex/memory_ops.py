@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from cortex.claims import ClaimLedger
-from cortex.contradictions import ContradictionEngine
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.upai.versioning import VersionStore
+from cortex.graph.claims import ClaimLedger
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.versioning.upai.versioning import VersionStore
 
 
 @dataclass
