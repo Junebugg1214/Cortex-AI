@@ -15,7 +15,7 @@ from cortex.extraction.eval.metrics import (
     node_prf,
     relation_prf,
 )
-from cortex.extraction.eval.replay_cache import ReplayCache
+from cortex.extraction.eval.replay_cache import ReplayCache, ReplayMode
 from cortex.extraction.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedRelationship
 from cortex.extraction.pipeline import Document, ExtractionContext, ExtractionPipeline
 
@@ -73,6 +73,15 @@ class EvaluationOutcome:
     @property
     def failed(self) -> bool:
         return bool(self.regressions)
+
+
+@dataclass(frozen=True)
+class RefreshOutcome:
+    """Completed replay-cache refresh run."""
+
+    refreshed: int
+    cache_hits: int
+    replay_root: Path
 
 
 def load_corpus_cases(corpus_root: str | Path) -> list[CorpusCase]:
@@ -184,6 +193,63 @@ def write_eval_report(report: dict[str, Any], output_path: str | Path) -> Path:
     path = Path(output_path)
     _write_json(path, report)
     return path
+
+
+def refresh_extraction_replay_cache(
+    *,
+    corpus: str | Path,
+    backend_name: BackendName = "model",
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+    replay_root: str | Path | None = None,
+    provider_name: str | None = None,
+    model_id: str | None = None,
+    output_func: Any | None = None,
+) -> RefreshOutcome:
+    """Refresh replay responses for a model-backed extraction eval corpus run."""
+
+    corpus_root = Path(corpus)
+    resolved_replay_root = Path(replay_root) if replay_root else corpus_root / "replay"
+    if backend_name == "heuristic":
+        return RefreshOutcome(refreshed=0, cache_hits=0, replay_root=resolved_replay_root)
+
+    cases = load_corpus_cases(corpus_root)
+    backend = _make_backend(
+        backend_name,
+        replay_root=resolved_replay_root,
+        provider_name=provider_name,
+        model_id=model_id,
+        replay_mode="write",
+    )
+    refreshed = 0
+    cache_hits = 0
+    try:
+        for case in cases:
+            case_dir = corpus_root / case.case_id
+            input_path = case_dir / case.input_name
+            if not input_path.exists():
+                raise EvaluationError(f"Corpus input not found for {case.case_id}: {input_path}")
+            content = input_path.read_text(encoding="utf-8")
+            result = backend.run(
+                Document(
+                    source_id=case.case_id,
+                    source_type=case.source_type,  # type: ignore[arg-type]
+                    content=content,
+                    metadata={"corpus": str(corpus_root), "input": case.input_name},
+                ),
+                ExtractionContext(prompt_version=prompt_version),
+            )
+            refreshed += 1
+            if result.diagnostics.cache_hit:
+                cache_hits += 1
+            if callable(output_func):
+                output_func(
+                    f"refreshed {case.case_id}: items={len(result.items)} cache_hit={result.diagnostics.cache_hit}"
+                )
+    finally:
+        close = getattr(backend, "close", None)
+        if callable(close):
+            close()
+    return RefreshOutcome(refreshed=refreshed, cache_hits=cache_hits, replay_root=resolved_replay_root)
 
 
 def format_eval_summary(report: dict[str, Any]) -> str:
@@ -425,6 +491,7 @@ def _make_backend(
     replay_root: Path,
     provider_name: str | None = None,
     model_id: str | None = None,
+    replay_mode: ReplayMode = "read",
 ) -> ExtractionPipeline:
     if backend == "heuristic":
         from cortex.extraction.heuristic_backend import HeuristicBackend
@@ -436,7 +503,7 @@ def _make_backend(
         return ModelBackend(
             provider_name=provider_name,
             model_id=model_id,
-            replay_cache=ReplayCache(root=replay_root, mode="read"),
+            replay_cache=ReplayCache(root=replay_root, mode=replay_mode),
         )
     if backend == "hybrid":
         from cortex.extraction.hybrid_backend import HybridBackend
@@ -446,7 +513,7 @@ def _make_backend(
             rescore_backend=ModelBackend(
                 provider_name=provider_name,
                 model_id=model_id,
-                replay_cache=ReplayCache(root=replay_root, mode="read"),
+                replay_cache=ReplayCache(root=replay_root, mode=replay_mode),
             )
         )
     raise EvaluationError(f"Unknown extraction backend: {backend}")

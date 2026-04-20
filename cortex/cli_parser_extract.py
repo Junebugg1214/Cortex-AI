@@ -119,13 +119,22 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
         help="Extraction corpus directory (default: tests/extraction/corpus)",
     )
     rc.add_argument(
+        "--backend",
+        default="model",
+        choices=("heuristic", "model", "hybrid"),
+        help=(
+            "Extraction backend whose replay cache to refresh (default: model). "
+            "Heuristic is deterministic and never reads the cache; refreshing it is a no-op."
+        ),
+    )
+    rc.add_argument(
         "--prompt-version",
         default="corpus-v1",
         help="Prompt version to include in replay cache keys (default: corpus-v1)",
     )
     rc.add_argument(
         "--replay-dir",
-        help="Replay cache directory (default: CORPUS/replay)",
+        help="Replay cache directory (default: CORPUS/replay/BACKEND/PROVIDER/MODEL)",
     )
     rc.add_argument("--provider", help="LLM provider name or module:function reference for refresh-cache")
     rc.add_argument("--model", help="Model id to use while refreshing the cache")
@@ -160,7 +169,7 @@ def add_extract_pipeline_parsers(sub, *, platform_formats, builtin_policies):
     )
     ev.add_argument(
         "--replay-dir",
-        help="Replay cache directory for model/hybrid evals (default: CORPUS/replay)",
+        help="Replay cache directory for model/hybrid evals (default: CORPUS/replay/BACKEND/PROVIDER/MODEL)",
     )
     ev.add_argument("--provider", help="LLM provider name or module:function reference for model/hybrid evals")
     ev.add_argument("--model", help="Model id for model/hybrid eval replay keys")
