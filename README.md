@@ -2,6 +2,8 @@
 
 Cortex is a local-first memory/versioning toolkit for AI context. It gives you a user-owned graph on disk, Git-like commits and branches, merge/review tools, non-destructive mounts into local AI tool files, and a JSON-RPC MCP server.
 
+Local-first. No Cortex cloud, no Cortex key. Integrate over MCP, local REST, or SDK. Model extraction is opt-in and uses your own provider key.
+
 This README is intentionally implementation-aligned. Examples use supported commands and supported input formats on a fresh install.
 
 ## Install
