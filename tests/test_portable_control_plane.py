@@ -193,6 +193,7 @@ def test_build_and_smart_sync_cover_github_manifest_and_git_history(tmp_path, ca
         [
             "sync",
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -208,6 +209,101 @@ def test_build_and_smart_sync_cover_github_manifest_and_git_history(tmp_path, ca
     assert "chatgpt" in sync_targets
     assert "copilot" in sync_targets
     assert "grok" in sync_targets
+
+
+def _seed_sync_scope_project(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, Path]:
+    fake_home = tmp_path / "home"
+    project = tmp_path / "proj"
+    store_dir = project / ".cortex"
+    fake_home.mkdir()
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(project)
+    graph_path = project / "g.json"
+    _write_graph(graph_path, [("TypeScript", "technical_expertise", "We use TypeScript.")])
+    rc = main(["init", "--store-dir", str(store_dir), "--format", "json"])
+    assert rc == 0
+    return fake_home, project, store_dir, graph_path
+
+
+def test_sync_to_all_without_global_refuses_home_writes(tmp_path, capsys, monkeypatch) -> None:
+    fake_home, project, store_dir, graph_path = _seed_sync_scope_project(tmp_path, monkeypatch)
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "sync",
+            str(graph_path),
+            "--to",
+            "all",
+            "--project",
+            str(project),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    streams = capsys.readouterr()
+
+    assert rc != 0
+    assert "outside --project" in streams.err
+    assert "Re-run with --global" in streams.err
+    assert not (fake_home / ".hermes").exists()
+    assert not (fake_home / ".claude" / "CLAUDE.md").exists()
+
+
+def test_sync_to_all_with_global_writes_home(tmp_path, capsys, monkeypatch) -> None:
+    fake_home, project, store_dir, graph_path = _seed_sync_scope_project(tmp_path, monkeypatch)
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "sync",
+            str(graph_path),
+            "--to",
+            "all",
+            "--project",
+            str(project),
+            "--store-dir",
+            str(store_dir),
+            "--global",
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert (fake_home / ".hermes" / "config.yaml").exists()
+    assert (fake_home / ".hermes" / "memories" / "USER.md").exists()
+    assert (fake_home / ".hermes" / "memories" / "MEMORY.md").exists()
+
+
+def test_sync_to_project_only_target_needs_no_global(tmp_path, capsys, monkeypatch) -> None:
+    fake_home, project, store_dir, graph_path = _seed_sync_scope_project(tmp_path, monkeypatch)
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "sync",
+            str(graph_path),
+            "--to",
+            "codex",
+            "--project",
+            str(project),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert (project / "AGENTS.md").exists()
+    assert not (fake_home / ".hermes").exists()
 
 
 def test_default_mind_remember_routes_through_mind_and_updates_targets(tmp_path, capsys, monkeypatch):
@@ -292,6 +388,7 @@ def test_default_mind_smart_sync_uses_mind_graph(tmp_path, capsys, monkeypatch):
         [
             "sync",
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -408,7 +505,19 @@ def test_scan_sync_scan_core_loop(tmp_path, capsys, monkeypatch):
     before = json.loads(capsys.readouterr().out)
     assert rc == 0
 
-    rc = main(["sync", "--smart", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
+    rc = main(
+        [
+            "sync",
+            "--smart",
+            "--global",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
     sync_payload = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert {item["target"] for item in sync_payload["targets"]}.issuperset(
@@ -448,6 +557,7 @@ def test_sync_to_all_alias_fans_out_from_input_graph(tmp_path, capsys, monkeypat
             str(graph_path),
             "--to",
             "all",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -489,6 +599,7 @@ def test_sync_smart_accepts_input_graph(tmp_path, capsys, monkeypatch):
             "sync",
             str(graph_path),
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -988,6 +1099,7 @@ def test_portable_to_hermes_preserves_unmanaged_text_and_config_indent(tmp_path,
             "--to",
             "hermes",
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

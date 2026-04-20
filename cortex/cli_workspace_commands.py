@@ -266,6 +266,7 @@ def run_scan(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
+    from cortex.cli_scope_guard import global_scope_error, outside_project_paths
     from cortex.graph.minds import load_mind_core_graph, remember_and_sync_default_mind, resolve_default_mind
     from cortex.portability.portable_graphs import extract_graph_from_statement, merge_graphs
     from cortex.portability.portable_runtime import (
@@ -276,28 +277,6 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
         remember_and_sync,
         sync_targets,
     )
-
-    def _is_within(path: Path, root: Path) -> bool:
-        try:
-            path.resolve().relative_to(root.resolve())
-            return True
-        except ValueError:
-            return False
-
-    def _outside_project_paths(payload: dict[str, Any]) -> list[Path]:
-        outside: list[Path] = []
-        seen: set[Path] = set()
-        for target in payload.get("targets", []):
-            for raw_path in target.get("paths", []):
-                if not raw_path:
-                    continue
-                path = Path(str(raw_path)).expanduser().resolve()
-                if _is_within(path, project_dir):
-                    continue
-                if path not in seen:
-                    outside.append(path)
-                    seen.add(path)
-        return outside
 
     def _preview_payload(default_mind: str | None) -> dict[str, Any]:
         targets = list(args.to or ALL_PORTABLE_TARGETS)
@@ -333,14 +312,6 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
             dry_run=True,
         )
 
-    def _global_scope_error(paths: list[Path]) -> int:
-        rendered_paths = "\n".join(f"  - {path}" for path in paths)
-        return ctx.error(
-            "The following paths are outside --project and will be written:\n"
-            f"{rendered_paths}\n"
-            "Re-run with --global to confirm, or use --to PROJECT_TARGET to narrow."
-        )
-
     ctx.emit_compatibility_note(
         "remember",
         'cortex mind remember <mind> "..."',
@@ -356,9 +327,9 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
         return ctx.error(str(exc))
 
     preview_payload = _preview_payload(default_mind)
-    outside_paths = _outside_project_paths(preview_payload)
+    outside_paths = outside_project_paths(preview_payload, project_dir)
     if outside_paths and not args.dry_run and not getattr(args, "allow_global", False):
-        return _global_scope_error(outside_paths)
+        return global_scope_error(outside_paths, error=ctx.error)
 
     if default_mind and not args.dry_run:
         payload = remember_and_sync_default_mind(

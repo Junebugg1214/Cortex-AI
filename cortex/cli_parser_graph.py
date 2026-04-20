@@ -461,6 +461,12 @@ def add_graph_history_parsers(sub, *, governance_action_choices, builtin_policie
     sy.add_argument("--store-dir", default=".cortex", help="Identity store directory (default: .cortex)")
     sy.add_argument("--smart", action="store_true", help="Route the right context slice to each supported AI tool")
     sy.add_argument("--project", "-d", help="Project directory for project-scoped targets (default: cwd)")
+    sy.add_argument(
+        "--global",
+        dest="allow_global",
+        action="store_true",
+        help="Permit writes outside --project (e.g. ~/.hermes, ~/.claude).",
+    )
     sy.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
     sy.add_argument("--format", choices=["json", "text"], default="text")
 

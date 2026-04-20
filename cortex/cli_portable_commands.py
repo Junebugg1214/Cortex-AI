@@ -37,6 +37,13 @@ class PortableCliContext:
 
 def run_sync(args, *, ctx: PortableCliContext) -> int:
     """Disclosure-filtered export via platform adapters or smart portability sync."""
+    from cortex.cli_scope_guard import global_scope_error, outside_project_paths
+
+    def _guard_portability_writes(payload: dict[str, Any], project_dir: Path) -> int | None:
+        outside = outside_project_paths(payload, project_dir)
+        if outside and not bool(getattr(args, "dry_run", False)) and not getattr(args, "allow_global", False):
+            return global_scope_error(outside, error=ctx.error)
+        return None
 
     def _sync_portability_targets(graph: CortexGraph, graph_path: Path, targets: list[str]) -> int:
         from cortex.portability.portability import resolve_portable_targets
@@ -53,10 +60,11 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
         )
         output_dir = Path(args.output)
         resolved_targets = resolve_portable_targets(targets)
+        target_selection = ALL_PORTABLE_TARGETS if resolved_targets == list(ALL_PORTABLE_TARGETS) else resolved_targets
         try:
-            payload = sync_targets(
+            preview_payload = sync_targets(
                 graph,
-                targets=ALL_PORTABLE_TARGETS if resolved_targets == list(ALL_PORTABLE_TARGETS) else resolved_targets,
+                targets=target_selection,
                 store_dir=store_dir,
                 project_dir=str(project_dir),
                 output_dir=output_dir,
@@ -64,6 +72,28 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
                 policy_name=args.policy,
                 smart=bool(getattr(args, "smart", False)),
                 max_chars=args.max_chars,
+                dry_run=True,
+                state=state,
+                persist_state=False,
+            )
+        except PermissionError:
+            return ctx.permission_error(output_dir, action="write synced portability files")
+        except OSError as exc:
+            return ctx.error(f"Could not sync portability files into {output_dir}: {exc}")
+        if guard_result := _guard_portability_writes(preview_payload, project_dir):
+            return guard_result
+        try:
+            payload = sync_targets(
+                graph,
+                targets=target_selection,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=graph_path,
+                policy_name=args.policy,
+                smart=bool(getattr(args, "smart", False)),
+                max_chars=args.max_chars,
+                dry_run=bool(getattr(args, "dry_run", False)),
                 state=state,
             )
         except PermissionError:
@@ -81,7 +111,7 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
         return 0
 
     if getattr(args, "smart", False):
-        from cortex.graph.minds import resolve_default_mind, sync_mind_compatibility_targets
+        from cortex.graph.minds import load_mind_core_graph, resolve_default_mind, sync_mind_compatibility_targets
         from cortex.portability.portable_runtime import (
             ALL_PORTABLE_TARGETS,
             default_output_dir,
@@ -104,6 +134,32 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
             return ctx.error(str(exc))
         if default_mind:
             project_dir = Path(args.project) if args.project else Path.cwd()
+            state = load_portability_state(store_dir)
+            output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+            try:
+                base_payload = load_mind_core_graph(store_dir, default_mind)
+                preview_payload = sync_targets(
+                    base_payload["graph"],
+                    targets=ALL_PORTABLE_TARGETS,
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=output_dir / "context.json",
+                    policy_name=args.policy,
+                    smart=True,
+                    max_chars=args.max_chars,
+                    dry_run=True,
+                    state=state,
+                    persist_state=False,
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                return ctx.error(str(exc))
+            except PermissionError:
+                return ctx.permission_error(output_dir, action="write synced portability files")
+            except OSError as exc:
+                return ctx.error(f"Could not sync portability files into {output_dir}: {exc}")
+            if guard_result := _guard_portability_writes(preview_payload, project_dir):
+                return guard_result
             try:
                 payload = sync_mind_compatibility_targets(
                     store_dir,
@@ -132,6 +188,27 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
             Path(args.project) if args.project else Path(state.project_dir) if state.project_dir else Path.cwd()
         )
         output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+        try:
+            preview_payload = sync_targets(
+                graph,
+                targets=ALL_PORTABLE_TARGETS,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=graph_path,
+                policy_name=args.policy,
+                smart=True,
+                max_chars=args.max_chars,
+                dry_run=True,
+                state=state,
+                persist_state=False,
+            )
+        except PermissionError:
+            return ctx.permission_error(output_dir, action="write synced portability files")
+        except OSError as exc:
+            return ctx.error(f"Could not sync portability files into {output_dir}: {exc}")
+        if guard_result := _guard_portability_writes(preview_payload, project_dir):
+            return guard_result
         try:
             payload = sync_targets(
                 graph,

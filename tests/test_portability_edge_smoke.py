@@ -188,6 +188,7 @@ def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, ca
         [
             "sync",
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
