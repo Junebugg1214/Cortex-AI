@@ -14,7 +14,7 @@ import base64
 import tempfile
 from pathlib import Path
 
-from cortex.upai.identity import (
+from cortex.versioning.upai.identity import (
     _ED25519_MULTICODEC_PREFIX,
     UPAIIdentity,
     _base58btc_decode,
@@ -156,7 +156,7 @@ class TestDidKey:
         assert identity._key_type == "ed25519"
 
     def test_key_type_hmac(self):
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
@@ -303,7 +303,7 @@ class TestMigrateDid:
     def test_migrate_hmac_raises(self):
         import pytest
 
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False

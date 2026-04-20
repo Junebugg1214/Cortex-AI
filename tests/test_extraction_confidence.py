@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from cortex.cli import main
-from cortex.extract_memory import AggressiveExtractor
-from cortex.extract_memory_context import ExtractionContext
-from cortex.minds import ingest_detected_sources_into_mind, init_mind
+from cortex.extraction.extract_memory import AggressiveExtractor
+from cortex.extraction.extract_memory_context import ExtractionContext
+from cortex.graph.minds import ingest_detected_sources_into_mind, init_mind
 
 
 def _topic_payload(ctx: ExtractionContext, category: str, topic: str) -> dict:

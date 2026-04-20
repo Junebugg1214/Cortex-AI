@@ -8,10 +8,10 @@ import pytest
 
 from cortex.audience.policy import AudiencePolicy, PolicyEngine, UnknownAudiencePolicyError
 from cortex.audience.templates import BUILTIN_AUDIENCE_TEMPLATES
-from cortex.claims import stamp_graph_provenance
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.minds import adopt_graph_into_mind, init_mind
+from cortex.graph.claims import stamp_graph_provenance
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.graph.minds import adopt_graph_into_mind, init_mind
 
 
 def _seed_mind(store_dir: Path, mind_id: str = "ops") -> None:

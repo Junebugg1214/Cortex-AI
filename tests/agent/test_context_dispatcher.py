@@ -10,8 +10,8 @@ from pathlib import Path
 from cortex.agent.context_dispatcher import ContextDispatcher, dispatcher_status, load_schedules, next_cron_run
 from cortex.agent.events import AgentEvent, DeliveryTarget, EventType, OutputFormat
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
-from cortex.minds import _persist_mind_core_graph, init_mind
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import _persist_mind_core_graph, init_mind
 from cortex.runtime_control import ShutdownController
 
 

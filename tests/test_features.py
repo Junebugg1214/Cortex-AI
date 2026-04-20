@@ -18,7 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cortex.extract_memory import (
+from cortex.extraction.extract_memory import (
     RELATIONSHIP_TYPE_PATTERNS,
     AggressiveExtractor,
     ExtractedTopic,

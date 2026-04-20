@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph.graph import CortexGraph, Node, make_node_id
 from cortex.hooks import (
     HookConfig,
     _focus_terms,

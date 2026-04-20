@@ -1,15 +1,15 @@
 import io
 import json
 
-from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.config import APIKeyConfig
-from cortex.graph import CortexGraph, Node
-from cortex.http_hardening import HTTPRequestPolicy
-from cortex.minds import attach_pack_to_mind, init_mind, mount_mind, remember_on_mind, set_default_mind
+from cortex.graph.claims import ClaimEvent, ClaimLedger
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import attach_pack_to_mind, init_mind, mount_mind, remember_on_mind, set_default_mind
 from cortex.packs import ask_pack, compile_pack, ingest_pack, init_pack, lint_pack
+from cortex.service.http_hardening import HTTPRequestPolicy
+from cortex.service.webapp import UI_HTML, MemoryUIBackend, make_handler
 from cortex.storage import build_sqlite_backend
-from cortex.upai.versioning import VersionStore
-from cortex.webapp import UI_HTML, MemoryUIBackend, make_handler
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _write_graph(path, graph: CortexGraph) -> None:

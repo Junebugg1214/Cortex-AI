@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 
 from cortex.config import APIKeyConfig, load_selfhost_config
-from cortex.graph import CortexGraph, Node
-from cortex.http_hardening import request_policy_for_mode
-from cortex.server import dispatch_api_request, make_api_handler
-from cortex.service import MemoryService
+from cortex.graph.graph import CortexGraph, Node
+from cortex.service.http_hardening import request_policy_for_mode
+from cortex.service.server import dispatch_api_request, make_api_handler
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

@@ -14,7 +14,7 @@ Covers:
 
 from datetime import datetime, timedelta, timezone
 
-from cortex.upai.identity import (
+from cortex.versioning.upai.identity import (
     SignedEnvelope,
     UPAIIdentity,
     has_crypto,
@@ -222,7 +222,7 @@ class TestClockSkew:
 
 class TestSignedEnvelopeHMAC:
     def test_hmac_header(self):
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
@@ -234,7 +234,7 @@ class TestSignedEnvelopeHMAC:
             id_mod._HAS_CRYPTO = orig
 
     def test_hmac_serialize_deserialize(self):
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False

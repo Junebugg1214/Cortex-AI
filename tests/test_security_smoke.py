@@ -4,12 +4,12 @@ import threading
 
 from cortex.cli import main
 from cortex.config import APIKeyConfig
-from cortex.graph import CortexGraph, Node
-from cortex.minds import init_mind, load_mind_core_graph, remember_on_mind
-from cortex.server import make_api_handler
-from cortex.service import MemoryService
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import init_mind, load_mind_core_graph, remember_on_mind
+from cortex.service.server import make_api_handler
+from cortex.service.service import MemoryService
+from cortex.service.webapp import MemoryUIBackend, make_handler
 from cortex.storage import build_sqlite_backend
-from cortex.webapp import MemoryUIBackend, make_handler
 
 
 def _invoke_api_handler(

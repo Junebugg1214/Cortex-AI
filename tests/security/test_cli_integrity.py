@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from cortex.cli import _route_cli_v2_argv, build_parser, main
-from cortex.graph import CortexGraph, Edge, Node
+from cortex.graph.graph import CortexGraph, Edge, Node
 from cortex.storage import build_sqlite_backend
 
 

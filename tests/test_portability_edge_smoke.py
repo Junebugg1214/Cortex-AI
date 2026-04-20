@@ -6,8 +6,8 @@ import zipfile
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.mcp import CortexMCPServer
-from cortex.service import MemoryService
+from cortex.mcp.mcp import CortexMCPServer
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

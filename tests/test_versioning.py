@@ -21,10 +21,10 @@ import json
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.integrity import check_store_integrity
-from cortex.upai.identity import UPAIIdentity
-from cortex.upai.versioning import ContextVersion, VersionStore
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.graph.integrity import check_store_integrity
+from cortex.versioning.upai.identity import UPAIIdentity
+from cortex.versioning.upai.versioning import ContextVersion, VersionStore
 
 
 def _sample_graph(label_suffix: str = "") -> CortexGraph:

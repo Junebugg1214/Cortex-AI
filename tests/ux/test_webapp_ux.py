@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 
-from cortex.webapp import UI_HTML, MemoryUIBackend, make_handler
+from cortex.service.webapp import UI_HTML, MemoryUIBackend, make_handler
 
 
 def _invoke_handler(handler_cls, *, path: str, method: str = "GET", payload: dict | None = None):

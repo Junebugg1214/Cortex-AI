@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.merge import CanonicalEntityRegistry, merge_graphs
-from cortex.upai.versioning import VersionStore
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.versioning.merge import CanonicalEntityRegistry, merge_graphs
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _graph_with_nodes(*nodes: Node) -> CortexGraph:

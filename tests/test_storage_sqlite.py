@@ -1,12 +1,12 @@
 import json
 import sqlite3
 
-from cortex.claims import ClaimEvent
-from cortex.graph import CortexGraph, Node
+from cortex.graph.claims import ClaimEvent
+from cortex.graph.graph import CortexGraph, Node
 from cortex.schemas.memory_v1 import RemoteRecord
+from cortex.service.webapp import MemoryUIBackend
 from cortex.storage import build_sqlite_backend, get_storage_backend
 from cortex.storage.sqlite import SQLiteStorageBackend, sqlite_db_path
-from cortex.webapp import MemoryUIBackend
 
 
 def _write_graph(path, graph: CortexGraph) -> None:

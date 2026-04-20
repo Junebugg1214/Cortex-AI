@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cortex.claims import retract_graph_source, stamp_graph_provenance
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.integrity import check_graph_integrity, check_store_integrity, graph_checksum
-from cortex.sources import SourceRegistry
+from cortex.extraction.sources import SourceRegistry
+from cortex.graph.claims import retract_graph_source, stamp_graph_provenance
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.graph.integrity import check_graph_integrity, check_store_integrity, graph_checksum
 from cortex.storage import build_sqlite_backend
 
 

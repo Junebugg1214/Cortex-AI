@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import sys
 
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
-from cortex.temporal import (
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.graph.temporal import (
     _hash_dict,
     _hash_str,
     _weighted_jaccard,

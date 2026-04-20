@@ -8,10 +8,10 @@ from pathlib import Path
 
 from cortex.cli import main
 from cortex.config import load_selfhost_config
-from cortex.context import CORTEX_END, CORTEX_START
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.minds import compose_mind, init_mind, set_default_mind
 from cortex.hermes_integration import HERMES_CONFIG_END, HERMES_CONFIG_START
-from cortex.minds import compose_mind, init_mind, set_default_mind
+from cortex.portability.context import CORTEX_END, CORTEX_START
 
 
 def _write_graph(path: Path, rows: list[tuple[str, str, str]]) -> None:

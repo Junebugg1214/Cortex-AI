@@ -3,7 +3,7 @@ from __future__ import annotations
 from cortex.extraction import Document, ExtractionContext, ModelBackend, NodeHint, retrieve_similar_nodes
 from cortex.extraction.eval.replay_cache import ReplayCache
 from cortex.extraction.model_backend import _TYPED_EXTRACTION_TOOL_NAME
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 
 
 class _Usage:

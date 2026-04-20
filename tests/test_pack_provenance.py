@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.mind_mounts import query_mounted_pack_provenance
-from cortex.minds import attach_pack_to_mind, init_mind
+from cortex.graph.minds import attach_pack_to_mind, init_mind
 from cortex.packs import (
     compile_pack,
     ingest_pack,
@@ -14,6 +13,7 @@ from cortex.packs import (
     pack_fact_provenance,
     pack_status,
 )
+from cortex.portability.mind_mounts import query_mounted_pack_provenance
 
 
 def _seed_source(path: Path) -> None:

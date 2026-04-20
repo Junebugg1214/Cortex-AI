@@ -6,10 +6,10 @@ import json
 import shutil
 import urllib.parse
 
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.server import make_api_handler
-from cortex.service import MemoryService
+from cortex.graph.graph import CortexGraph, Edge, Node
 from cortex.service.asgi_app import build_asgi_app
+from cortex.service.server import make_api_handler
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

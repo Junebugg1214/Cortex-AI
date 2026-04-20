@@ -14,8 +14,8 @@ from cortex.federation import (
     _compute_content_hash,
     _compute_signing_input,
 )
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
-from cortex.upai.identity import UPAIIdentity
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.versioning.upai.identity import UPAIIdentity
 
 # ---------------------------------------------------------------------------
 # Fixtures

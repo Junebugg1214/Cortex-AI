@@ -8,7 +8,7 @@
 import json
 import zipfile
 
-from cortex.extract_memory import AggressiveExtractor, keyword_search
+from cortex.extraction.extract_memory import AggressiveExtractor, keyword_search
 
 
 def _extract_categories(text: str) -> dict:
@@ -89,7 +89,7 @@ def test_claude_code_jsonl_extracts_user_messages(tmp_path):
         encoding="utf-8",
     )
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(session_path)
     extractor = AggressiveExtractor()
@@ -118,7 +118,7 @@ def test_load_file_detects_gemini_zip_and_preserves_parser_path(tmp_path):
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("exports/gemini.json", json.dumps(payload))
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(zip_path)
     extractor = AggressiveExtractor()
@@ -156,7 +156,7 @@ def test_load_file_detects_claude_code_jsonl_inside_zip(tmp_path):
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("sessions/claude.jsonl", session_lines)
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(zip_path)
     extractor = AggressiveExtractor()
@@ -188,7 +188,7 @@ def test_load_file_detects_grok_export_and_uses_dedicated_parser(tmp_path):
         encoding="utf-8",
     )
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(export_path)
     extractor = AggressiveExtractor()
@@ -219,7 +219,7 @@ def test_load_file_detects_cursor_jsonl_and_uses_dedicated_parser(tmp_path):
         encoding="utf-8",
     )
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(export_path)
     extractor = AggressiveExtractor()
@@ -250,7 +250,7 @@ def test_load_file_detects_windsurf_export_and_uses_dedicated_parser(tmp_path):
         encoding="utf-8",
     )
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(export_path)
     extractor = AggressiveExtractor()
@@ -278,7 +278,7 @@ def test_load_file_detects_copilot_export_and_uses_dedicated_parser(tmp_path):
         encoding="utf-8",
     )
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     data, fmt = load_file(export_path)
     extractor = AggressiveExtractor()
@@ -341,7 +341,7 @@ def test_load_file_detects_vendor_specific_json_without_filename_hints(tmp_path)
         ),
     ]
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     for expected_format, payload in cases:
         export_path = tmp_path / f"generic-{expected_format}.json"
@@ -385,7 +385,7 @@ def test_load_file_detects_vendor_specific_jsonl_without_filename_hints(tmp_path
         ),
     ]
 
-    from cortex.extract_memory import load_file
+    from cortex.extraction.extract_memory import load_file
 
     for expected_format, record in cases:
         export_path = tmp_path / f"generic-{expected_format}.jsonl"

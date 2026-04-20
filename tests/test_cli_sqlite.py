@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.storage.sqlite import sqlite_db_path
 
 

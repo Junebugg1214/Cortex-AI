@@ -10,7 +10,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 from cortex.continuous import (  # noqa: E402
     CodingSessionWatcher,
 )
-from cortex.graph import CortexGraph, Node, make_node_id  # noqa: E402
+from cortex.graph.graph import CortexGraph, Node, make_node_id  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic Claude Code JSONL
@@ -527,7 +527,7 @@ class TestGraphMerge:
 
     def test_edges_transferred(self):
         """Edges are added when both endpoints exist."""
-        from cortex.graph import Edge, make_edge_id
+        from cortex.graph.graph import Edge, make_edge_id
 
         watcher = CodingSessionWatcher(graph_path=Path("/tmp/x.json"))
         watcher._graph = CortexGraph()
@@ -570,7 +570,7 @@ class TestGraphMerge:
 
     def test_edge_skipped_if_endpoint_missing(self):
         """Edges are not added if endpoints don't exist in graph."""
-        from cortex.graph import Edge, make_edge_id
+        from cortex.graph.graph import Edge, make_edge_id
 
         watcher = CodingSessionWatcher(graph_path=Path("/tmp/x.json"))
         watcher._graph = CortexGraph()

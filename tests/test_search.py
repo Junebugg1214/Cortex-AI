@@ -2,8 +2,8 @@
 
 import pytest
 
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.search import STOP_WORDS, TFIDFIndex, tokenize
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.graph.search import STOP_WORDS, TFIDFIndex, tokenize
 
 # ---------------------------------------------------------------------------
 # Tokenizer tests

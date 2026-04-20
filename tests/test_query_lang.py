@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
-from cortex.query_lang import (
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.graph.query_lang import (
     FindQuery,
     NeighborsQuery,
     ParseError,

@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import sys
 
-from cortex.contradictions import ContradictionEngine
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph.contradictions import ContradictionEngine
+from cortex.graph.graph import CortexGraph, Node, make_node_id
 
 # ============================================================================
 # Helpers

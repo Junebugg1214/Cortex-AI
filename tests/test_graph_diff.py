@@ -1,6 +1,6 @@
 """Tests for diff_graphs() — Feature 2."""
 
-from cortex.graph import CortexGraph, Edge, Node, diff_graphs, make_edge_id, make_node_id
+from cortex.graph.graph import CortexGraph, Edge, Node, diff_graphs, make_edge_id, make_node_id
 
 
 def _graph_with_nodes(*labels, tag="test"):

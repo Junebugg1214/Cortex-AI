@@ -1,7 +1,7 @@
 import json
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph.graph import CortexGraph, Node, make_node_id
 
 
 def _write_graph(path, graph: CortexGraph) -> None:

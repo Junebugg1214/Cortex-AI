@@ -11,15 +11,15 @@ import pytest
 from cortex.cli import main
 from cortex.client import CortexClient
 from cortex.config import load_selfhost_config
-from cortex.graph import CortexGraph, Node
-from cortex.mcp import CortexMCPServer
-from cortex.mcp import main as mcp_main
-from cortex.server import dispatch_api_request
-from cortex.server import main as server_main
-from cortex.service import MemoryService
+from cortex.graph.graph import CortexGraph, Node
+from cortex.mcp.mcp import CortexMCPServer
+from cortex.mcp.mcp import main as mcp_main
+from cortex.service.server import dispatch_api_request
+from cortex.service.server import main as server_main
+from cortex.service.service import MemoryService
+from cortex.service.webapp import MemoryUIBackend
 from cortex.storage import build_sqlite_backend, get_storage_backend
 from cortex.storage.sqlite import sqlite_db_path
-from cortex.webapp import MemoryUIBackend
 
 
 class _FakeResponse:

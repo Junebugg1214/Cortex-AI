@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 from cortex.extraction import BackendExtractionResult as ExtractionResult
 from cortex.extraction import ExtractedNode
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.service.webapp_backend import MemoryUIBackend
 from cortex.session import MemorySession
-from cortex.webapp_backend import MemoryUIBackend
 
 
 class _BackendStub:
@@ -57,7 +57,7 @@ def _graph_result() -> ExtractionResult:
 
 
 def test_extract_graph_from_statement_uses_hot_path_backend(monkeypatch):
-    from cortex import portable_graphs
+    import cortex.portability.portable_graphs as portable_graphs
 
     backend = _BackendStub(_graph_result())
     monkeypatch.setattr(portable_graphs, "get_hot_path_backend", lambda: backend)
@@ -67,7 +67,7 @@ def test_extract_graph_from_statement_uses_hot_path_backend(monkeypatch):
 
 
 def test_extract_graph_from_statement_uses_backend_result_graph(monkeypatch):
-    from cortex import portable_graphs
+    import cortex.portability.portable_graphs as portable_graphs
 
     backend = _BackendStub(_graph_result())
     monkeypatch.setattr(portable_graphs, "get_hot_path_backend", lambda: backend)
@@ -90,7 +90,7 @@ def test_cli_run_extraction_uses_bulk_backend(monkeypatch):
 
 
 def test_portable_sources_run_extraction_data_uses_bulk_backend(monkeypatch):
-    from cortex import portable_sources
+    import cortex.portability.portable_sources as portable_sources
 
     backend = _BackendStub(
         ExtractionResult(
@@ -119,7 +119,8 @@ def test_memory_session_remember_bypass_is_unaffected(monkeypatch):
 
 def test_memory_session_remember_does_not_touch_hot_path_backend(monkeypatch):
     monkeypatch.setattr(
-        "cortex.portable_graphs.get_hot_path_backend", lambda: (_ for _ in ()).throw(AssertionError("should not run"))
+        "cortex.portability.portable_graphs.get_hot_path_backend",
+        lambda: (_ for _ in ()).throw(AssertionError("should not run")),
     )
 
     class _Client:
@@ -132,9 +133,9 @@ def test_memory_session_remember_does_not_touch_hot_path_backend(monkeypatch):
 
 def test_webapp_remember_endpoint_default_mind_path_unaffected(monkeypatch, tmp_path):
     backend = MemoryUIBackend(store_dir=tmp_path)
-    monkeypatch.setattr("cortex.minds.resolve_default_mind", lambda store_dir: "self")
+    monkeypatch.setattr("cortex.graph.minds.resolve_default_mind", lambda store_dir: "self")
     monkeypatch.setattr(
-        "cortex.minds.remember_and_sync_default_mind",
+        "cortex.graph.minds.remember_and_sync_default_mind",
         lambda *args, **kwargs: {"statement": kwargs["statement"], "targets": [], "fact_count": 1},
     )
     payload = backend.portability_remember(statement="I use Python.")
@@ -144,9 +145,9 @@ def test_webapp_remember_endpoint_default_mind_path_unaffected(monkeypatch, tmp_
 
 def test_webapp_remember_endpoint_standalone_path_unaffected(monkeypatch, tmp_path):
     backend = MemoryUIBackend(store_dir=tmp_path)
-    monkeypatch.setattr("cortex.minds.resolve_default_mind", lambda store_dir: "")
+    monkeypatch.setattr("cortex.graph.minds.resolve_default_mind", lambda store_dir: "")
     monkeypatch.setattr(
-        "cortex.portable_runtime.remember_and_sync",
+        "cortex.portability.portable_runtime.remember_and_sync",
         lambda *args, **kwargs: {"statement": args[0], "targets": [], "fact_count": 1},
     )
     payload = backend.portability_remember(statement="I use Python.")

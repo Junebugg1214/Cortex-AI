@@ -1,4 +1,4 @@
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.review import parse_failure_policies, review_graphs
 
 

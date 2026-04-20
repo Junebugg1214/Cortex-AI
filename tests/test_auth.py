@@ -1,6 +1,6 @@
-import cortex.auth as auth_module
-from cortex.auth import authorize_api_key
+import cortex.service.auth as auth_module
 from cortex.config import APIKeyConfig
+from cortex.service.auth import authorize_api_key
 
 
 def test_authorize_api_key_uses_constant_time_compare(monkeypatch):

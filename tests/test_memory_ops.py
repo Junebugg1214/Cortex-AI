@@ -1,4 +1,4 @@
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 from cortex.memory_ops import (
     forget_nodes,
     list_memory_conflicts,

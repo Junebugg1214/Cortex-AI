@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 from cortex.audience.policy import AudiencePolicy, PolicyEngine
-from cortex.claims import stamp_graph_provenance
 from cortex.cli import main
 from cortex.completion import completion_candidates
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.minds import adopt_graph_into_mind, init_mind
+from cortex.extraction.sources import SourceRegistry
+from cortex.graph.claims import stamp_graph_provenance
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.graph.minds import adopt_graph_into_mind, init_mind
 from cortex.packs import compile_pack, ingest_pack, init_pack
-from cortex.sources import SourceRegistry
 
 
 def _seed_source_graph(*, stable_source_id: str, source_label: str) -> CortexGraph:

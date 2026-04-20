@@ -22,8 +22,8 @@ import tempfile
 from pathlib import Path
 
 from cortex.compat import downgrade_v5_to_v4, roundtrip_v4, upgrade_v4_to_v5
-from cortex.extract_memory import AggressiveExtractor, ExtractionContext
-from cortex.graph import (
+from cortex.extraction.extract_memory import AggressiveExtractor, ExtractionContext
+from cortex.graph.graph import (
     CortexGraph,
     Edge,
     Node,

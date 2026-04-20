@@ -7,11 +7,11 @@ import pytest
 pytest.importorskip("nacl.signing")
 
 from cortex.config import APIKeyConfig
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.remote_trust import ensure_store_identity
 from cortex.schemas.memory_v1 import RemoteRecord
-from cortex.service import MemoryService
 from cortex.service.server import dispatch_api_request, make_api_handler
+from cortex.service.service import MemoryService
 from cortex.storage import get_storage_backend
 
 

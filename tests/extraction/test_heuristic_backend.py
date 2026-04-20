@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedRelationship
 from cortex.extraction import (
     HeuristicBackend,
     graph_from_result,
@@ -13,9 +12,10 @@ from cortex.extraction import (
     result_from_graph,
     v4_from_result,
 )
+from cortex.extraction.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedRelationship
 from cortex.extraction.heuristic_rules import HeuristicRuleExtractor
 from cortex.extraction.pipeline import Document, ExtractionContext
-from cortex.temporal import apply_temporal_review_policy
+from cortex.graph.temporal import apply_temporal_review_policy
 
 
 def _rule_statement_graph(text: str):

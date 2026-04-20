@@ -1,9 +1,9 @@
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.merge import merge_refs
-from cortex.upai.versioning import VersionStore
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.versioning.merge import merge_refs
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _graph_with_nodes(*nodes: Node) -> CortexGraph:

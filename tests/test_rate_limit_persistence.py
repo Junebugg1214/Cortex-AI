@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cortex.config import load_selfhost_config
-from cortex.http_hardening import HTTPRequestPolicy, SQLiteRateLimiter, build_rate_limiter
+from cortex.service.http_hardening import HTTPRequestPolicy, SQLiteRateLimiter, build_rate_limiter
 
 
 class _FakeClock:

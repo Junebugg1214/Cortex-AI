@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph.graph import CortexGraph, Node, make_node_id
 from cortex.packs import (
     ask_pack,
     compile_pack,
