@@ -6,8 +6,8 @@ import zipfile
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.mcp import CortexMCPServer
-from cortex.service import MemoryService
+from cortex.mcp.mcp import CortexMCPServer
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 
@@ -170,6 +170,7 @@ def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, ca
         [
             "remember",
             "We migrated from PostgreSQL to CockroachDB in January.",
+            "--global",
             "--smart",
             "--project",
             str(project_dir),
@@ -187,6 +188,7 @@ def test_portability_edge_smoke_uses_live_files_and_expected_routes(tmp_path, ca
         [
             "sync",
             "--smart",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -385,6 +387,7 @@ def test_portability_edge_smoke_handles_all_targets_and_clamps_scan_coverage(tmp
         [
             "remember",
             "We use CockroachDB for production and Redis for queues.",
+            "--global",
             "--to",
             "all",
             "--smart",

@@ -12,8 +12,8 @@ import sys
 
 import pytest
 
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.query import (
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.graph.query import (
     QueryEngine,
     betweenness_centrality,
     connected_components,

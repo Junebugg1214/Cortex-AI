@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
+from cortex.graph.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.viz.layout import (
     _build_adjacency,
     _layout_cache_key,

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from cortex.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
+from cortex.graph.graph import CortexGraph, Edge, Node, make_edge_id, make_node_id
 
 
 def _make_graph(**kwargs):

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-import cortex.minds as minds_module
+import cortex.graph.minds as minds_module
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
-from cortex.minds import (
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import (
     attach_pack_to_mind,
     clear_default_mind,
     compose_mind,
@@ -35,7 +35,7 @@ from cortex.minds import (
     set_default_mind,
 )
 from cortex.packs import compile_pack, graph_path, ingest_pack, init_pack, mount_pack, pack_path
-from cortex.portable_runtime import load_portability_state, save_canonical_graph
+from cortex.portability.portable_runtime import load_portability_state, save_canonical_graph
 from cortex.storage import get_storage_backend
 
 

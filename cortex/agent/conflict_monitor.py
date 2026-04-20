@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -22,7 +22,18 @@ from cortex.mind_runtime import _refresh_mind_mounts
 from cortex.portability.portable_runtime import load_canonical_graph, load_portability_state, save_canonical_graph
 from cortex.runtime_logging import get_logger, log_operation
 
-DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
+
+def _default_log_dir(store_dir: Path | None = None) -> Path:
+    if override := os.environ.get("CORTEX_AGENT_LOG_DIR"):
+        return Path(override)
+    if configured_store := os.environ.get("CORTEX_STORE_DIR"):
+        return Path(configured_store) / "logs"
+    if store_dir is not None:
+        return Path(store_dir) / "logs"
+    return Path(".cortex") / "logs"
+
+
+DEFAULT_LOG_DIR = _default_log_dir()
 LOGGER = get_logger(__name__)
 SCOPE_SCALAR_TAGS = frozenset(
     {
@@ -318,7 +329,7 @@ class ConflictMonitorConfig:
     interval_seconds: int = 300
     auto_resolve_threshold: float = 0.85
     interactive: bool = True
-    log_dir: Path = field(default_factory=lambda: DEFAULT_LOG_DIR)
+    log_dir: Path | None = None
     input_func: Callable[[str], str] = input
 
 
@@ -728,9 +739,10 @@ def review_pending_conflicts(
     *,
     input_func: Callable[[str], str] = input,
     echo: Callable[..., None] = print,
-    log_dir: Path = DEFAULT_LOG_DIR,
+    log_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Prompt the user to review queued conflicts and apply chosen resolutions."""
+    resolved_log_dir = _default_log_dir(store_dir) if log_dir is None else Path(log_dir)
     pending = load_pending_conflicts(store_dir)
     if not pending:
         return {"status": "ok", "reviewed": 0, "resolved": 0, "remaining": 0}
@@ -767,7 +779,7 @@ def review_pending_conflicts(
             resolved_count += 1
             resolved_ids.add(proposal.conflict_id)
             _write_log(
-                log_dir,
+                resolved_log_dir,
                 kind="resolution",
                 conflict_id=proposal.conflict_id,
                 outcome="user_resolved",
@@ -793,10 +805,11 @@ def review_pending_conflicts_with_decisions(
     store_dir: Path,
     decisions: list[dict[str, Any]],
     *,
-    log_dir: Path = DEFAULT_LOG_DIR,
+    log_dir: Path | None = None,
     allowed_conflict_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Apply explicit review decisions to queued conflicts without prompting."""
+    resolved_log_dir = _default_log_dir(store_dir) if log_dir is None else Path(log_dir)
     pending = load_pending_conflicts(store_dir)
     if not pending:
         return {"status": "ok", "reviewed": 0, "resolved": 0, "remaining": 0}
@@ -846,7 +859,7 @@ def review_pending_conflicts_with_decisions(
             resolved_count += 1
             resolved_ids.add(proposal.conflict_id)
             _write_log(
-                log_dir,
+                resolved_log_dir,
                 kind="resolution",
                 conflict_id=proposal.conflict_id,
                 outcome="user_resolved",
@@ -876,7 +889,7 @@ class ConflictMonitor:
     def __init__(self, config: ConflictMonitorConfig) -> None:
         self.config = config
         self.store_dir = Path(config.store_dir)
-        self.log_dir = Path(config.log_dir)
+        self.log_dir = _default_log_dir(self.store_dir) if config.log_dir is None else Path(config.log_dir)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._session_id = uuid4().hex[:16]

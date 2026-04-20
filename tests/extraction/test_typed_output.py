@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cortex.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedRelationship
 from cortex.extraction import HeuristicBackend
+from cortex.extraction.extract_memory_context import ExtractedClaim, ExtractedFact, ExtractedRelationship
 from cortex.extraction.pipeline import Document, ExtractionContext
 
 

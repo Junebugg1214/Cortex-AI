@@ -11,14 +11,14 @@ Covers:
 
 import sys
 
-from cortex.dedup import (
+from cortex.graph.dedup import (
     combined_similarity,
     deduplicate,
     find_duplicates,
     neighbor_overlap,
     text_similarity,
 )
-from cortex.graph import CortexGraph, Edge, Node
+from cortex.graph.graph import CortexGraph, Edge, Node
 
 # ============================================================================
 # Text Similarity
@@ -247,7 +247,7 @@ class TestDeduplicate:
         def fake_similarity(_graph, node_a, node_b, _text_weight=0.7, _neighbor_weight=0.3):
             return pairwise_similarity[frozenset((node_a.id, node_b.id))]
 
-        monkeypatch.setattr("cortex.dedup.combined_similarity", fake_similarity)
+        monkeypatch.setattr("cortex.graph.dedup.combined_similarity", fake_similarity)
 
         results = deduplicate(g, threshold=0.80)
 

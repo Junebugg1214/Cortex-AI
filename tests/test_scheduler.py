@@ -107,7 +107,7 @@ class TestSyncConfig:
 class TestSyncScheduler:
     def _config(self, tmp_path):
         # Create a minimal valid graph file
-        from cortex.graph import CortexGraph, Node
+        from cortex.graph.graph import CortexGraph, Node
 
         g = CortexGraph()
         g.add_node(Node(id="n1", label="Test", tags=["t"], confidence=0.5))

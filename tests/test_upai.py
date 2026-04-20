@@ -16,13 +16,13 @@ Covers:
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.upai.disclosure import (
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.versioning.upai.disclosure import (
     BUILTIN_POLICIES,
     DisclosurePolicy,
     apply_disclosure,
 )
-from cortex.upai.identity import UPAIIdentity, has_crypto
+from cortex.versioning.upai.identity import UPAIIdentity, has_crypto
 
 # ============================================================================
 # Identity
@@ -48,7 +48,7 @@ class TestIdentityGeneration:
 
     def test_did_format_hmac_fallback(self):
         # Force HMAC mode by temporarily disabling crypto
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False
@@ -91,7 +91,7 @@ class TestIdentityGeneration:
         assert UPAIIdentity.verify(b"tampered", sig, identity.public_key_b64) is False
 
     def test_sign_and_verify_hmac_fallback(self):
-        import cortex.upai.identity as id_mod
+        import cortex.versioning.upai.identity as id_mod
 
         orig = id_mod._HAS_CRYPTO
         id_mod._HAS_CRYPTO = False

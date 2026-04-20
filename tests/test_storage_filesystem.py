@@ -1,12 +1,12 @@
 import json
 
 from cortex.governance import GovernanceRule, GovernanceStore
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.remotes import RemoteRegistry
 from cortex.schemas.memory_v1 import RemoteRecord
+from cortex.service.webapp import MemoryUIBackend
 from cortex.storage import build_filesystem_backend
-from cortex.upai.versioning import VersionStore
-from cortex.webapp import MemoryUIBackend
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _write_graph(path, graph: CortexGraph) -> None:

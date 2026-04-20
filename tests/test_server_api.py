@@ -8,14 +8,14 @@ import urllib.request
 
 import pytest
 
-from cortex.claims import ClaimEvent
 from cortex.client import CortexClient
 from cortex.config import APIKeyConfig
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.http_hardening import HTTPRequestPolicy
-from cortex.minds import _persist_mind_core_graph, init_mind, load_mind_core_graph
-from cortex.server import dispatch_api_request, make_api_handler
-from cortex.service import MemoryService
+from cortex.graph.claims import ClaimEvent
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.graph.minds import _persist_mind_core_graph, init_mind, load_mind_core_graph
+from cortex.service.http_hardening import HTTPRequestPolicy
+from cortex.service.server import dispatch_api_request, make_api_handler
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 from cortex.storage.sqlite import sqlite_db_path
 

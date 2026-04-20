@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
 
 
 def _write_graph(path: Path, rows: list[tuple[str, str, str]]) -> None:
@@ -358,6 +358,7 @@ def test_legacy_cli_compatibility_flows_still_work_with_json_contracts(tmp_path,
         [
             "remember",
             "I prefer concise technical answers.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

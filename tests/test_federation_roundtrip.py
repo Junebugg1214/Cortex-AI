@@ -5,8 +5,8 @@ import pytest
 pytest.importorskip("nacl.signing")
 
 from cortex.federation import FederationBundle, FederationManager, FederationSignatureError
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.upai.identity import UPAIIdentity
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.versioning.upai.identity import UPAIIdentity
 
 
 def _roundtrip_graph() -> CortexGraph:

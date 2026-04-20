@@ -1,6 +1,6 @@
-from cortex.claims import ClaimEvent
 from cortex.governance import GovernanceDecision, GovernanceRule
-from cortex.graph import CortexGraph, Node
+from cortex.graph.claims import ClaimEvent
+from cortex.graph.graph import CortexGraph, Node
 from cortex.remotes import MemoryRemote
 from cortex.schemas.memory_v1 import (
     BranchRecord,
@@ -12,7 +12,7 @@ from cortex.schemas.memory_v1 import (
     RemoteRecord,
 )
 from cortex.schemas.validation import validate_model
-from cortex.upai.versioning import ContextVersion
+from cortex.versioning.upai.versioning import ContextVersion
 
 
 def test_commit_record_from_context_version_roundtrip():

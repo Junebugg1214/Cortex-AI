@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from cortex.openapi import build_openapi_spec
+from cortex.service.openapi import build_openapi_spec
 
 OPENAPI_SORT_KEYS_SHA256 = "3e3ca38cf6be8693fb0078193b57b537dab2929389d3a636f9a79a0d050dd01e"
 OPENAPI_SORT_KEYS_LENGTH = 34438

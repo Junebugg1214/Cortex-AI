@@ -2,10 +2,10 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.openapi import build_openapi_spec
 from cortex.release import OPENAPI_VERSION, PROJECT_VERSION, build_contract_compatibility_snapshot
-from cortex.server import dispatch_api_request
-from cortex.service import MemoryService
+from cortex.service.openapi import build_openapi_spec
+from cortex.service.server import dispatch_api_request
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.portable_runtime import load_portability_state, save_portability_state
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.portability.portable_runtime import load_portability_state, save_portability_state
 from cortex.storage import build_sqlite_backend
 
 
@@ -438,6 +438,7 @@ def test_cortex_mcp_process_serves_live_portability_after_cli_changes(tmp_path, 
             [
                 "remember",
                 "We use CockroachDB now.",
+                "--global",
                 "--project",
                 str(project_dir),
                 "--store-dir",

@@ -293,7 +293,7 @@ def _resolve_store_selection(store_dir: str | Path | None):
         if selection.store_dir.resolve() != canonical_store:
             warnings.append(
                 f"{selection.config_path} resolves store_dir to {selection.store_dir.resolve()}, not the canonical {canonical_store}. "
-                "Run `cortex doctor --fix` to normalize it."
+                "Run `cortex admin doctor --fix` to normalize it."
             )
     if warnings == list(selection.warnings):
         return selection
@@ -334,7 +334,7 @@ def _resolve_first_class_store_selection(store_dir: str | Path | None, *, comman
         raise ValueError(
             f"Refusing to use {resolved} as the active store for `cortex {command}`. "
             "First-class Cortex CLI flows expect the canonical `.cortex/` layout. "
-            f"Run `cortex doctor --store-dir {resolved} --fix-store` or pass {resolved / '.cortex'} explicitly."
+            f"Run `cortex admin doctor --store-dir {resolved} --fix-store` or pass {resolved / '.cortex'} explicitly."
         )
 
     canonical_store = (resolved / ".cortex").resolve()

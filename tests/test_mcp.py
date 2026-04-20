@@ -3,13 +3,18 @@ import json
 from pathlib import Path
 
 from cortex.cli import build_parser, main
-from cortex.graph import CortexGraph, Node
-from cortex.mcp import CortexMCPServer
-from cortex.minds import _persist_mind_core_graph, attach_pack_to_mind, init_mind, load_mind_core_graph
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import _persist_mind_core_graph, attach_pack_to_mind, init_mind, load_mind_core_graph
+from cortex.mcp.mcp import CortexMCPServer
 from cortex.packs import compile_pack, ingest_pack, init_pack
-from cortex.portable_runtime import load_portability_state, save_canonical_graph, save_portability_state, sync_targets
+from cortex.portability.portable_runtime import (
+    load_portability_state,
+    save_canonical_graph,
+    save_portability_state,
+    sync_targets,
+)
 from cortex.release import API_VERSION, PROJECT_VERSION
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 
@@ -630,6 +635,7 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
         [
             "remember",
             "We use CockroachDB now.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -874,6 +880,7 @@ def test_mcp_portability_context_uses_canonical_updated_at_after_cli_changes(tmp
         [
             "remember",
             "We use CockroachDB now.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

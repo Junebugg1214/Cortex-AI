@@ -16,9 +16,9 @@ from cortex.agent.conflict_monitor import (
     review_pending_conflicts,
 )
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
-from cortex.minds import _persist_mind_core_graph, init_mind, load_mind_core_graph, set_default_mind
-from cortex.portable_runtime import load_canonical_graph, save_canonical_graph
+from cortex.graph.graph import CortexGraph, Node
+from cortex.graph.minds import _persist_mind_core_graph, init_mind, load_mind_core_graph, set_default_mind
+from cortex.portability.portable_runtime import load_canonical_graph, save_canonical_graph
 
 
 def _graph_with(*nodes: Node) -> CortexGraph:

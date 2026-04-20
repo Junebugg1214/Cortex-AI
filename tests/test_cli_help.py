@@ -6,7 +6,7 @@ import re
 import pytest
 
 from cortex.cli import ADVANCED_HELP_NOTE, FIRST_CLASS_COMMANDS, _route_cli_v2_argv, build_parser, main
-from cortex.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
 
 
 def _listed_commands(help_text: str) -> set[str]:
@@ -270,4 +270,4 @@ def test_portable_remember_build_and_audit_print_compatibility_hints(tmp_path, c
     assert build_rc == 0
     assert "cortex pack" in build_streams.err
     assert audit_rc == 0
-    assert "cortex doctor" in audit_streams.err
+    assert "cortex admin doctor" in audit_streams.err

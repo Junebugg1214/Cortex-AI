@@ -8,7 +8,7 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-from cortex.context import (  # noqa: E402
+from cortex.portability.context import (  # noqa: E402
     CONTEXT_TARGET_ALIASES,
     CONTEXT_TARGETS,
     CORTEX_END,

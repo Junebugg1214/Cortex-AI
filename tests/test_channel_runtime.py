@@ -9,7 +9,7 @@ from cortex.channel_runtime import (
     TelegramAdapter,
     WhatsAppAdapter,
 )
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage import get_storage_backend
 
 

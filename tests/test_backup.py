@@ -8,7 +8,7 @@ import pytest
 import cortex.backup as backup_mod
 from cortex.backup import export_store_backup, restore_store_backup, verify_store_backup
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.storage import get_storage_backend
 from cortex.storage.sqlite import build_sqlite_backend
 

@@ -7,10 +7,10 @@ import pytest
 from cortex.cli import main
 from cortex.cli_extract_commands import finalize_extraction_output
 from cortex.compat import upgrade_v4_to_v5
-from cortex.extract_memory_context import ExtractionContext
-from cortex.graph import CortexGraph, Node, make_node_id
-from cortex.minds import _persist_mind_core_graph, init_mind
-from cortex.temporal import (
+from cortex.extraction.extract_memory_context import ExtractionContext
+from cortex.graph.graph import CortexGraph, Node, make_node_id
+from cortex.graph.minds import _persist_mind_core_graph, init_mind
+from cortex.graph.temporal import (
     TEMPORAL_REVIEW_QUEUE_KEY,
     analyze_temporal_context,
     apply_temporal_review_policy,

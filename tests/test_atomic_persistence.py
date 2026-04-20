@@ -1,15 +1,15 @@
 from pathlib import Path
 
 import cortex.governance as governance_mod
-import cortex.portable_runtime as portable_runtime_mod
+import cortex.portability.portable_runtime as portable_runtime_mod
 import cortex.remotes as remotes_mod
-import cortex.upai.versioning as versioning_mod
+import cortex.versioning.upai.versioning as versioning_mod
 from cortex.atomic_io import atomic_write_text as real_atomic_write_text
 from cortex.governance import GovernanceRule, GovernanceStore
-from cortex.graph import CortexGraph, Node
-from cortex.portable_runtime import PortabilityState, save_portability_state
+from cortex.graph.graph import CortexGraph, Node
+from cortex.portability.portable_runtime import PortabilityState, save_portability_state
 from cortex.remotes import MemoryRemote, RemoteRegistry
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _record_atomic_writes(monkeypatch, module):

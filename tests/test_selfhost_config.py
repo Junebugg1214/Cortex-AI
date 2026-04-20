@@ -3,8 +3,8 @@ from cortex.config import (
     load_selfhost_config,
     resolve_cli_store_dir,
 )
-from cortex.mcp import main as mcp_main
-from cortex.server import main as server_main
+from cortex.mcp.mcp import main as mcp_main
+from cortex.service.server import main as server_main
 
 
 def test_load_selfhost_config_resolves_relative_paths_and_env_overrides(tmp_path):

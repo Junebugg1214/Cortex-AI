@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.openapi import build_openapi_spec
 from cortex.release import (
     DOCKER_IMAGE_NAME,
     OPENAPI_ARTIFACT_PATH,
@@ -15,6 +14,7 @@ from cortex.release import (
     build_release_notes,
     classify_release_tag,
 )
+from cortex.service.openapi import build_openapi_spec
 
 try:  # pragma: no cover - Python 3.11+ hits stdlib path in practice
     import tomllib

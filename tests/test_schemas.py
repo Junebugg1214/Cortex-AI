@@ -12,9 +12,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Edge, Node
-from cortex.upai.identity import UPAIIdentity
-from cortex.upai.schemas import (
+from cortex.graph.graph import CortexGraph, Edge, Node
+from cortex.versioning.upai.identity import UPAIIdentity
+from cortex.versioning.upai.schemas import (
     DID_DOCUMENT_SCHEMA,
     DISCLOSURE_POLICY_SCHEMA,
     EDGE_SCHEMA,
@@ -27,7 +27,7 @@ from cortex.upai.schemas import (
     is_valid,
     validate,
 )
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.versioning import VersionStore
 
 # ============================================================================
 # Helpers
@@ -287,7 +287,7 @@ class TestSchemaCompliance:
             assert is_valid(version.to_dict(), VERSION_SCHEMA)
 
     def test_disclosure_policy_dict_passes(self):
-        from cortex.upai.disclosure import BUILTIN_POLICIES
+        from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
         for name, policy in BUILTIN_POLICIES.items():
             d = {

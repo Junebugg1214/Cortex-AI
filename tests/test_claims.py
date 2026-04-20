@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from cortex.claims import ClaimEvent, ClaimLedger
-from cortex.graph import Node
+from cortex.graph.claims import ClaimEvent, ClaimLedger
+from cortex.graph.graph import Node
 
 
 def test_claim_ledger_append_and_filter(tmp_path: Path):

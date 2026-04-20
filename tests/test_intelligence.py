@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cortex.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
+from cortex.graph.graph import CATEGORY_ORDER, CortexGraph, Edge, Node
 from cortex.intelligence import GapAnalyzer, InsightGenerator
 
 # ============================================================================

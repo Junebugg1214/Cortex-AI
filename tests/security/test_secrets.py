@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.packs import compile_pack, ingest_pack, init_pack, pack_status
 from cortex.security.secrets import CortexIgnore, SecretsScanner
-from cortex.service import MemoryService
+from cortex.service.service import MemoryService
 from cortex.storage import build_sqlite_backend
 
 

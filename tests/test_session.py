@@ -5,9 +5,9 @@ import urllib.parse
 import urllib.request
 
 from cortex.client import CortexClient
-from cortex.graph import CortexGraph, Node
-from cortex.server import dispatch_api_request
-from cortex.service import MemoryService
+from cortex.graph.graph import CortexGraph, Node
+from cortex.service.server import dispatch_api_request
+from cortex.service.service import MemoryService
 from cortex.session import MemorySession, branch_name_for_task, render_search_context
 from cortex.storage import build_sqlite_backend
 

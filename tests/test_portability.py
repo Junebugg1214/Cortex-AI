@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 from cortex.cli import main
-from cortex.graph import CortexGraph, Node
+from cortex.graph.graph import CortexGraph, Node
 from cortex.import_memory import NormalizedContext
-from cortex.portability import (
+from cortex.portability.portability import (
     build_instruction_pack,
     export_chatgpt_artifacts,
     resolve_portable_targets,

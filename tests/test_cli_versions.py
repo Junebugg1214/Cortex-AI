@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from cortex.claims import ClaimEvent, ClaimLedger
 from cortex.cli import main
 from cortex.compat import upgrade_v4_to_v5
-from cortex.graph import CortexGraph, Node, make_node_id
+from cortex.graph.claims import ClaimEvent, ClaimLedger
+from cortex.graph.graph import CortexGraph, Node, make_node_id
 from cortex.remote_trust import _normalize_store_path
-from cortex.upai.identity import UPAIIdentity
-from cortex.upai.versioning import VersionStore
+from cortex.versioning.upai.identity import UPAIIdentity
+from cortex.versioning.upai.versioning import VersionStore
 
 
 def _write_graph(path, graph: CortexGraph) -> None:

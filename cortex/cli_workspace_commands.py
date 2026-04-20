@@ -181,7 +181,7 @@ def run_init(args, *, ctx: WorkspaceCliContext) -> int:
     if default_mind:
         next_steps.append(f'cortex mind remember {default_mind} "I prefer concise technical answers."')
         next_steps.append(f"cortex mind status {default_mind}")
-    next_steps.append("cortex doctor")
+    next_steps.append("cortex admin doctor")
 
     payload = {
         "status": "ok",
@@ -266,8 +266,51 @@ def run_scan(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.graph.minds import remember_and_sync_default_mind, resolve_default_mind
-    from cortex.portability.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
+    from cortex.cli_scope_guard import global_scope_error, outside_project_paths
+    from cortex.graph.minds import load_mind_core_graph, remember_and_sync_default_mind, resolve_default_mind
+    from cortex.portability.portable_graphs import extract_graph_from_statement, merge_graphs
+    from cortex.portability.portable_runtime import (
+        ALL_PORTABLE_TARGETS,
+        canonical_target_name,
+        default_output_dir,
+        load_portability_state,
+        remember_and_sync,
+        sync_targets,
+    )
+
+    def _preview_payload(default_mind: str | None) -> dict[str, Any]:
+        targets = list(args.to or ALL_PORTABLE_TARGETS)
+        if default_mind:
+            state = load_portability_state(store_dir)
+            base_payload = load_mind_core_graph(store_dir, default_mind)
+            merged = merge_graphs(base_payload["graph"], extract_graph_from_statement(args.statement))
+            output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+            return {
+                "targets": sync_targets(
+                    merged,
+                    targets=[canonical_target_name(target) for target in targets],
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=output_dir / "context.json",
+                    policy_name=args.policy,
+                    smart=args.smart,
+                    max_chars=args.max_chars,
+                    dry_run=True,
+                    state=state,
+                    persist_state=False,
+                )["targets"]
+            }
+        return remember_and_sync(
+            args.statement,
+            store_dir=store_dir,
+            project_dir=project_dir,
+            targets=targets,
+            smart=args.smart,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+            dry_run=True,
+        )
 
     ctx.emit_compatibility_note(
         "remember",
@@ -282,6 +325,11 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
         default_mind = resolve_default_mind(store_dir)
     except (FileNotFoundError, ValueError) as exc:
         return ctx.error(str(exc))
+
+    preview_payload = _preview_payload(default_mind)
+    outside_paths = outside_project_paths(preview_payload, project_dir)
+    if outside_paths and not args.dry_run and not getattr(args, "allow_global", False):
+        return global_scope_error(outside_paths, error=ctx.error)
 
     if default_mind and not args.dry_run:
         payload = remember_and_sync_default_mind(
@@ -384,7 +432,7 @@ def run_audit(args, *, ctx: WorkspaceCliContext) -> int:
 
     ctx.emit_compatibility_note(
         "audit",
-        "cortex doctor",
+        "cortex admin doctor",
         note="Use `cortex status` for runtime drift checks once your workspace is healthy.",
         format_name=getattr(args, "format", None),
     )
@@ -859,26 +907,26 @@ def run_doctor(args, *, ctx: WorkspaceCliContext) -> int:
     advice: list[str]
     if args.dry_run and fix_requested:
         advice = [
-            "Review the planned repair actions, then rerun `cortex doctor --fix` or `--fix-store` without `--dry-run`.",
+            "Review the planned repair actions, then rerun `cortex admin doctor --fix` or `--fix-store` without `--dry-run`.",
         ]
     elif repair_conflicts and repair_actions:
         advice = [
-            "Resolve the reported repair conflicts, then rerun `cortex doctor --fix`.",
-            "Run `cortex doctor` again after cleanup to confirm the store is stable.",
+            "Resolve the reported repair conflicts, then rerun `cortex admin doctor --fix`.",
+            "Run `cortex admin doctor` again after cleanup to confirm the store is stable.",
         ]
     elif repair_conflicts or repair_errors:
         advice = [
-            "Resolve the reported repair conflicts or errors, then rerun `cortex doctor --fix`.",
+            "Resolve the reported repair conflicts or errors, then rerun `cortex admin doctor --fix`.",
         ]
     elif repair_actions:
         advice = [
-            "Run `cortex doctor` again to confirm the store is stable.",
+            "Run `cortex admin doctor` again to confirm the store is stable.",
             "Run `cortex init` if you still need config or auth bootstrap help.",
         ]
     elif fix_requested and not repair_actions and not repair_errors:
         advice = ["No safe store repairs were needed."]
     elif fix_available:
-        advice = ["Run `cortex doctor --fix-store` to normalize the active store back into `.cortex/`."]
+        advice = ["Run `cortex admin doctor --fix-store` to normalize the active store back into `.cortex/`."]
     elif not graph.nodes:
         advice = [
             "Run `cortex init` if this workspace still needs a default Mind and config bootstrap.",
@@ -887,7 +935,7 @@ def run_doctor(args, *, ctx: WorkspaceCliContext) -> int:
     else:
         advice = [
             "Run `cortex connect <runtime> --check` to verify runtime wiring before you mount or serve Cortex state.",
-            "Run `cortex doctor --portability` when you need tool coverage and smart-routing detail.",
+            "Run `cortex admin doctor --portability` when you need tool coverage and smart-routing detail.",
         ]
 
     status = "ok"
