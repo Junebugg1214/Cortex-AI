@@ -7,7 +7,39 @@ from types import ModuleType as _ModuleType
 _TARGET = "cortex.mcp.mcp"
 _MESSAGE = "cortex.mcp is deprecated; use cortex.mcp.mcp instead."
 _module: _ModuleType | None = None
-_public_names: list[str] | None = None
+_public_names: list[str] | None = [
+    "API_VERSION",
+    "Any",
+    "CortexMCPServer",
+    "GracefulShutdown",
+    "JSONRPC_VERSION",
+    "LOGGER",
+    "MCPToolRegistry",
+    "MCP_SERVER_NAME",
+    "MemoryService",
+    "OPENAPI_VERSION",
+    "PROJECT_VERSION",
+    "Path",
+    "SUPPORTED_PROTOCOL_VERSIONS",
+    "ShutdownController",
+    "TextIO",
+    "ToolDefinition",
+    "annotations",
+    "argparse",
+    "build_parser",
+    "configure_structured_logging",
+    "error_envelope",
+    "format_startup_diagnostics",
+    "get_logger",
+    "install_shutdown_handlers",
+    "json",
+    "jsonrpc_error_data",
+    "load_selfhost_config",
+    "log_operation",
+    "logging",
+    "main",
+    "sys",
+]
 
 
 def _target_module() -> _ModuleType:
@@ -18,11 +50,7 @@ def _target_module() -> _ModuleType:
 
 
 def _public_exports() -> list[str]:
-    global _public_names
-    if _public_names is None:
-        module = _target_module()
-        _public_names = list(getattr(module, "__all__", [name for name in vars(module) if not name.startswith("_")]))
-    return _public_names
+    return list(_public_names or [])
 
 
 def __getattr__(name: str) -> object:

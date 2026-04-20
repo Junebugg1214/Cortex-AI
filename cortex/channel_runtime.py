@@ -4,10 +4,10 @@ import hashlib
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from cortex.portability.portable_runtime import remember_and_sync
-from cortex.service.service import MemoryService
+if TYPE_CHECKING:
+    from cortex.service.service import MemoryService
 
 
 def _slug_fragment(value: str, *, fallback: str) -> str:
@@ -297,6 +297,12 @@ CHANNEL_ADAPTERS: dict[str, ChannelAdapter] = {
     "telegram": TelegramAdapter(),
     "whatsapp": WhatsAppAdapter(),
 }
+
+
+def remember_and_sync(*args, **kwargs):
+    from cortex.portability.portable_runtime import remember_and_sync as impl
+
+    return impl(*args, **kwargs)
 
 
 def adapter_for_platform(platform: str) -> ChannelAdapter:

@@ -13,20 +13,13 @@ import json
 import os
 import shlex
 import sys
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from cortex import agent as agent_module
 from cortex import cli_entrypoint as cli_entrypoint_module
-from cortex import cli_extract_commands as cli_extract_commands_module
-from cortex import cli_graph_commands as cli_graph_commands_module
-from cortex import cli_mind_pack_commands as cli_mind_pack_commands_module
-from cortex import cli_misc_commands as cli_misc_commands_module
 from cortex import cli_parser as cli_parser_module
-from cortex import cli_portable_commands as cli_portable_commands_module
-from cortex import cli_runtime_commands as cli_runtime_commands_module
 from cortex import cli_surface as cli_surface_module
-from cortex import cli_workspace_commands as cli_workspace_commands_module
 
 ADVANCED_HELP_NOTE = cli_surface_module.ADVANCED_HELP_NOTE
 CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS
@@ -34,12 +27,41 @@ FIRST_CLASS_COMMANDS = cli_surface_module.FIRST_CLASS_COMMANDS
 GOVERNANCE_ACTION_CHOICES = cli_parser_module.GOVERNANCE_ACTION_CHOICES
 PLATFORM_FORMATS = cli_parser_module.PLATFORM_FORMATS
 format_cli_error = cli_surface_module.format_cli_error
-_doctor_has_store_signature = cli_workspace_commands_module._doctor_has_store_signature
-_doctor_is_cortex_config = cli_workspace_commands_module._doctor_is_cortex_config
-_doctor_raw_config_payload = cli_workspace_commands_module._doctor_raw_config_payload
-_doctor_store_entries = cli_workspace_commands_module._doctor_store_entries
 
 _CLI_QUIET = False
+
+
+def _agent_module():
+    return import_module("cortex.agent")
+
+
+def _extract_commands_module():
+    return import_module("cortex.cli_extract_commands")
+
+
+def _graph_commands_module():
+    return import_module("cortex.cli_graph_commands")
+
+
+def _mind_pack_commands_module():
+    return import_module("cortex.cli_mind_pack_commands")
+
+
+def _misc_commands_module():
+    return import_module("cortex.cli_misc_commands")
+
+
+def _portable_commands_module():
+    return import_module("cortex.cli_portable_commands")
+
+
+def _runtime_commands_module():
+    return import_module("cortex.cli_runtime_commands")
+
+
+def _workspace_commands_module():
+    return import_module("cortex.cli_workspace_commands")
+
 
 CLI_V2_TIER2_NAMESPACES = (
     "mind",
@@ -300,10 +322,15 @@ def _resolve_first_class_store_selection(store_dir: str | Path | None, *, comman
     if resolved.name == ".cortex":
         return selection
 
-    root_entries = _doctor_store_entries(resolved)
+    workspace_commands = _workspace_commands_module()
+    root_entries = workspace_commands._doctor_store_entries(resolved)
     root_config_path = resolved / "config.toml"
-    root_config_payload, root_config_error = _doctor_raw_config_payload(root_config_path)
-    if _doctor_has_store_signature(root_entries) or root_config_error or _doctor_is_cortex_config(root_config_payload):
+    root_config_payload, root_config_error = workspace_commands._doctor_raw_config_payload(root_config_path)
+    if (
+        workspace_commands._doctor_has_store_signature(root_entries)
+        or root_config_error
+        or workspace_commands._doctor_is_cortex_config(root_config_payload)
+    ):
         raise ValueError(
             f"Refusing to use {resolved} as the active store for `cortex {command}`. "
             "First-class Cortex CLI flows expect the canonical `.cortex/` layout. "
@@ -440,8 +467,9 @@ def _emit_compatibility_note(command: str, modern_path: str, *, note: str = "", 
     _echo(message, stderr=True)
 
 
-def _runtime_cli_context() -> cli_runtime_commands_module.RuntimeCliContext:
-    return cli_runtime_commands_module.RuntimeCliContext(
+def _runtime_cli_context():
+    runtime_commands = _runtime_commands_module()
+    return runtime_commands.RuntimeCliContext(
         emit_result=_emit_result,
         echo=_echo,
         error=_error,
@@ -452,8 +480,9 @@ def _runtime_cli_context() -> cli_runtime_commands_module.RuntimeCliContext:
     )
 
 
-def _workspace_cli_context() -> cli_workspace_commands_module.WorkspaceCliContext:
-    return cli_workspace_commands_module.WorkspaceCliContext(
+def _workspace_cli_context():
+    workspace_commands = _workspace_commands_module()
+    return workspace_commands.WorkspaceCliContext(
         emit_result=_emit_result,
         echo=_echo,
         error=_error,
@@ -464,8 +493,9 @@ def _workspace_cli_context() -> cli_workspace_commands_module.WorkspaceCliContex
     )
 
 
-def _portable_cli_context() -> cli_portable_commands_module.PortableCliContext:
-    return cli_portable_commands_module.PortableCliContext(
+def _portable_cli_context():
+    portable_commands = _portable_commands_module()
+    return portable_commands.PortableCliContext(
         cli_quiet=_CLI_QUIET,
         emit_result=_emit_result,
         echo=_echo,
@@ -482,8 +512,9 @@ def _portable_cli_context() -> cli_portable_commands_module.PortableCliContext:
     )
 
 
-def _extract_cli_context() -> cli_extract_commands_module.ExtractCliContext:
-    return cli_extract_commands_module.ExtractCliContext(
+def _extract_cli_context():
+    extract_commands = _extract_commands_module()
+    return extract_commands.ExtractCliContext(
         echo=_echo,
         error=_error,
         is_quiet=lambda: _CLI_QUIET,
@@ -493,8 +524,9 @@ def _extract_cli_context() -> cli_extract_commands_module.ExtractCliContext:
     )
 
 
-def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
-    return cli_misc_commands_module.MiscCliContext(
+def _misc_cli_context():
+    misc_commands = _misc_commands_module()
+    return misc_commands.MiscCliContext(
         build_parser=build_parser,
         echo=_echo,
         error=_error,
@@ -502,8 +534,9 @@ def _misc_cli_context() -> cli_misc_commands_module.MiscCliContext:
     )
 
 
-def _agent_cli_context() -> agent_module.AgentCliContext:
-    return agent_module.AgentCliContext(
+def _agent_cli_context():
+    agent = _agent_module()
+    return agent.AgentCliContext(
         emit_result=_emit_result,
         echo=_echo,
         error=_error,
@@ -512,7 +545,7 @@ def _agent_cli_context() -> agent_module.AgentCliContext:
 
 
 def _run_extraction(extractor, data, fmt):
-    return cli_extract_commands_module.run_extraction(extractor, data, fmt)
+    return _extract_commands_module().run_extraction(extractor, data, fmt)
 
 
 def _emit_result(result, output_format: str) -> int:
@@ -633,7 +666,7 @@ def _load_detected_sources_or_error(
     announce: bool = True,
     redactor=None,
 ) -> dict[str, Any] | None:
-    return cli_extract_commands_module.load_detected_sources_or_error(
+    return _extract_commands_module().load_detected_sources_or_error(
         args,
         project_dir=project_dir,
         announce=announce,
@@ -643,55 +676,56 @@ def _load_detected_sources_or_error(
 
 
 def _graph_category_stats(graph) -> dict[str, Any]:
-    return cli_extract_commands_module.graph_category_stats(graph)
+    return _extract_commands_module().graph_category_stats(graph)
 
 
 def _build_pii_redactor(args, *, default_enabled: bool = False):
-    return cli_extract_commands_module.build_pii_redactor(args, default_enabled=default_enabled)
+    return _extract_commands_module().build_pii_redactor(args, default_enabled=default_enabled)
 
 
 def run_extract(args):
-    return cli_extract_commands_module.run_extract(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract(args, ctx=_extract_cli_context())
 
 
 def run_extract_ab(args):
-    return cli_extract_commands_module.run_extract_ab(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_ab(args, ctx=_extract_cli_context())
 
 
 def run_extract_benchmark(args):
-    return cli_extract_commands_module.run_extract_benchmark(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_benchmark(args, ctx=_extract_cli_context())
 
 
 def run_extract_eval(args):
-    return cli_extract_commands_module.run_extract_eval(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_eval(args, ctx=_extract_cli_context())
 
 
 def run_extract_refresh_cache(args):
-    return cli_extract_commands_module.run_extract_refresh_cache(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_refresh_cache(args, ctx=_extract_cli_context())
 
 
 def run_extract_review(args):
-    return cli_extract_commands_module.run_extract_review(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_review(args, ctx=_extract_cli_context())
 
 
 def run_extract_trace(args):
-    return cli_extract_commands_module.run_extract_trace(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_extract_trace(args, ctx=_extract_cli_context())
 
 
 def run_ingest(args):
-    return cli_extract_commands_module.run_ingest(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_ingest(args, ctx=_extract_cli_context())
 
 
 def run_import(args):
-    return cli_extract_commands_module.run_import(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_import(args, ctx=_extract_cli_context())
 
 
 def run_migrate(args):
-    return cli_extract_commands_module.run_migrate(args, ctx=_extract_cli_context())
+    return _extract_commands_module().run_migrate(args, ctx=_extract_cli_context())
 
 
-def _graph_cli_context() -> cli_graph_commands_module.GraphCliContext:
-    return cli_graph_commands_module.GraphCliContext(
+def _graph_cli_context():
+    graph_commands = _graph_commands_module()
+    return graph_commands.GraphCliContext(
         emit_result=_emit_result,
         echo=_echo,
         error=_error,
@@ -699,187 +733,224 @@ def _graph_cli_context() -> cli_graph_commands_module.GraphCliContext:
     )
 
 
-_load_graph = cli_graph_commands_module._load_graph
-_save_graph = cli_graph_commands_module._save_graph
-_parse_properties = cli_graph_commands_module._parse_properties
-_load_identity = cli_graph_commands_module._load_identity
-_current_branch_or_ref = cli_graph_commands_module._current_branch_or_ref
-_governance_decision_or_error = cli_graph_commands_module._governance_decision_or_error
-_maybe_commit_graph = cli_graph_commands_module._maybe_commit_graph
-_claim_event_from_record = cli_graph_commands_module._claim_event_from_record
-_find_claim_target_node = cli_graph_commands_module._find_claim_target_node
-_load_claim_or_error = cli_graph_commands_module._load_claim_or_error
-_resolve_version_or_exit = cli_graph_commands_module._resolve_version_or_exit
-_resolve_version_at_or_exit = cli_graph_commands_module._resolve_version_at_or_exit
-_rule_from_args = cli_graph_commands_module._rule_from_args
+def _load_graph(*args, **kwargs):
+    return _graph_commands_module()._load_graph(*args, **kwargs)
+
+
+def _save_graph(*args, **kwargs):
+    return _graph_commands_module()._save_graph(*args, **kwargs)
+
+
+def _parse_properties(*args, **kwargs):
+    return _graph_commands_module()._parse_properties(*args, **kwargs)
+
+
+def _load_identity(*args, **kwargs):
+    return _graph_commands_module()._load_identity(*args, **kwargs)
+
+
+def _current_branch_or_ref(*args, **kwargs):
+    return _graph_commands_module()._current_branch_or_ref(*args, **kwargs)
+
+
+def _governance_decision_or_error(*args, **kwargs):
+    return _graph_commands_module()._governance_decision_or_error(*args, **kwargs)
+
+
+def _maybe_commit_graph(*args, **kwargs):
+    return _graph_commands_module()._maybe_commit_graph(*args, **kwargs)
+
+
+def _claim_event_from_record(*args, **kwargs):
+    return _graph_commands_module()._claim_event_from_record(*args, **kwargs)
+
+
+def _find_claim_target_node(*args, **kwargs):
+    return _graph_commands_module()._find_claim_target_node(*args, **kwargs)
+
+
+def _load_claim_or_error(*args, **kwargs):
+    return _graph_commands_module()._load_claim_or_error(*args, **kwargs)
+
+
+def _resolve_version_or_exit(*args, **kwargs):
+    return _graph_commands_module()._resolve_version_or_exit(*args, **kwargs)
+
+
+def _resolve_version_at_or_exit(*args, **kwargs):
+    return _graph_commands_module()._resolve_version_at_or_exit(*args, **kwargs)
+
+
+def _rule_from_args(*args, **kwargs):
+    return _graph_commands_module()._rule_from_args(*args, **kwargs)
 
 
 def run_query(args):
-    return cli_graph_commands_module.run_query(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_query(args, ctx=_graph_cli_context())
 
 
 def run_timeline(args):
-    return cli_graph_commands_module.run_timeline(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_timeline(args, ctx=_graph_cli_context())
 
 
 def run_memory_conflicts(args):
-    return cli_graph_commands_module.run_memory_conflicts(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_conflicts(args, ctx=_graph_cli_context())
 
 
 def run_memory_show(args):
-    return cli_graph_commands_module.run_memory_show(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_show(args, ctx=_graph_cli_context())
 
 
 def run_memory_forget(args):
-    return cli_graph_commands_module.run_memory_forget(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_forget(args, ctx=_graph_cli_context())
 
 
 def run_memory_set(args):
-    return cli_graph_commands_module.run_memory_set(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_set(args, ctx=_graph_cli_context())
 
 
 def run_memory_retract(args):
-    return cli_graph_commands_module.run_memory_retract(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_retract(args, ctx=_graph_cli_context())
 
 
 def run_blame(args):
-    return cli_graph_commands_module.run_blame(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_blame(args, ctx=_graph_cli_context())
 
 
 def run_history(args):
-    return cli_graph_commands_module.run_history(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_history(args, ctx=_graph_cli_context())
 
 
 def run_claim_accept(args):
-    return cli_graph_commands_module.run_claim_accept(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_claim_accept(args, ctx=_graph_cli_context())
 
 
 def run_claim_reject(args):
-    return cli_graph_commands_module.run_claim_reject(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_claim_reject(args, ctx=_graph_cli_context())
 
 
 def run_claim_supersede(args):
-    return cli_graph_commands_module.run_claim_supersede(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_claim_supersede(args, ctx=_graph_cli_context())
 
 
 def run_claim_log(args):
-    return cli_graph_commands_module.run_claim_log(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_claim_log(args, ctx=_graph_cli_context())
 
 
 def run_claim_show(args):
-    return cli_graph_commands_module.run_claim_show(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_claim_show(args, ctx=_graph_cli_context())
 
 
 def run_memory_resolve(args):
-    return cli_graph_commands_module.run_memory_resolve(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_memory_resolve(args, ctx=_graph_cli_context())
 
 
 def run_contradictions(args):
-    return cli_graph_commands_module.run_contradictions(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_contradictions(args, ctx=_graph_cli_context())
 
 
 def run_drift(args):
-    return cli_graph_commands_module.run_drift(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_drift(args, ctx=_graph_cli_context())
 
 
 def run_diff(args):
-    return cli_graph_commands_module.run_diff(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_diff(args, ctx=_graph_cli_context())
 
 
 def run_checkout(args):
-    return cli_graph_commands_module.run_checkout(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_checkout(args, ctx=_graph_cli_context())
 
 
 def run_rollback(args):
-    return cli_graph_commands_module.run_rollback(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_rollback(args, ctx=_graph_cli_context())
 
 
 def run_identity(args):
-    return cli_graph_commands_module.run_identity(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_identity(args, ctx=_graph_cli_context())
 
 
 def run_commit(args):
-    return cli_graph_commands_module.run_commit(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_commit(args, ctx=_graph_cli_context())
 
 
 def run_branch(args):
-    return cli_graph_commands_module.run_branch(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_branch(args, ctx=_graph_cli_context())
 
 
 def run_switch(args):
-    return cli_graph_commands_module.run_switch(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_switch(args, ctx=_graph_cli_context())
 
 
 def run_merge(args):
-    return cli_graph_commands_module.run_merge(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_merge(args, ctx=_graph_cli_context())
 
 
 def run_review(args):
-    return cli_graph_commands_module.run_review(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_review(args, ctx=_graph_cli_context())
 
 
 def run_log(args):
-    return cli_graph_commands_module.run_log(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_log(args, ctx=_graph_cli_context())
 
 
 def run_governance(args):
-    return cli_graph_commands_module.run_governance(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_governance(args, ctx=_graph_cli_context())
 
 
 def run_remote(args):
-    return cli_graph_commands_module.run_remote(args, ctx=_graph_cli_context())
+    return _graph_commands_module().run_remote(args, ctx=_graph_cli_context())
 
 
 def run_sync(args):
-    return cli_portable_commands_module.run_sync(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_sync(args, ctx=_portable_cli_context())
 
 
 def run_verify(args):
-    return cli_portable_commands_module.run_verify(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_verify(args, ctx=_portable_cli_context())
 
 
 def run_gaps(args):
-    return cli_portable_commands_module.run_gaps(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_gaps(args, ctx=_portable_cli_context())
 
 
 def run_digest(args):
-    return cli_portable_commands_module.run_digest(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_digest(args, ctx=_portable_cli_context())
 
 
 def run_viz(args):
-    return cli_portable_commands_module.run_viz(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_viz(args, ctx=_portable_cli_context())
 
 
 def run_watch(args):
-    return cli_portable_commands_module.run_watch(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_watch(args, ctx=_portable_cli_context())
 
 
 def run_sync_schedule(args):
-    return cli_portable_commands_module.run_sync_schedule(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_sync_schedule(args, ctx=_portable_cli_context())
 
 
 def run_extract_coding(args):
-    return cli_portable_commands_module.run_extract_coding(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_extract_coding(args, ctx=_portable_cli_context())
 
 
 def run_context_hook(args):
-    return cli_portable_commands_module.run_context_hook(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_context_hook(args, ctx=_portable_cli_context())
 
 
 def run_context_export(args):
-    return cli_portable_commands_module.run_context_export(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_context_export(args, ctx=_portable_cli_context())
 
 
 def run_context_write(args):
-    return cli_portable_commands_module.run_context_write(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_context_write(args, ctx=_portable_cli_context())
 
 
 def run_mount(args):
-    return cli_portable_commands_module.run_mount(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_mount(args, ctx=_portable_cli_context())
 
 
 def run_portable(args):
-    return cli_portable_commands_module.run_portable(args, ctx=_portable_cli_context())
+    return _portable_commands_module().run_portable(args, ctx=_portable_cli_context())
 
 
 def run_memory(args):
@@ -918,8 +989,9 @@ def run_claim(args):
     )
 
 
-def _mind_pack_cli_context() -> cli_mind_pack_commands_module.MindPackCliContext:
-    return cli_mind_pack_commands_module.MindPackCliContext(
+def _mind_pack_cli_context():
+    mind_pack_commands = _mind_pack_commands_module()
+    return mind_pack_commands.MindPackCliContext(
         emit_result=_emit_result,
         echo=_echo,
         error=_error,
@@ -930,59 +1002,59 @@ def _mind_pack_cli_context() -> cli_mind_pack_commands_module.MindPackCliContext
 
 
 def run_pack(args):
-    return cli_mind_pack_commands_module.run_pack(args, ctx=_mind_pack_cli_context())
+    return _mind_pack_commands_module().run_pack(args, ctx=_mind_pack_cli_context())
 
 
 def run_mind(args):
-    return cli_mind_pack_commands_module.run_mind(args, ctx=_mind_pack_cli_context())
+    return _mind_pack_commands_module().run_mind(args, ctx=_mind_pack_cli_context())
 
 
 def run_sources(args):
-    return cli_mind_pack_commands_module.run_sources(args, ctx=_mind_pack_cli_context())
+    return _mind_pack_commands_module().run_sources(args, ctx=_mind_pack_cli_context())
 
 
 def run_audience(args):
-    return cli_mind_pack_commands_module.run_audience(args, ctx=_mind_pack_cli_context())
+    return _mind_pack_commands_module().run_audience(args, ctx=_mind_pack_cli_context())
 
 
 def run_init(args):
-    return cli_workspace_commands_module.run_init(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_init(args, ctx=_workspace_cli_context())
 
 
 def run_help_topic(args):
     if getattr(args, "topic", None) is None:
         _echo(_format_help_tree(), force=True)
         return 0
-    return cli_workspace_commands_module.run_help_topic(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_help_topic(args, ctx=_workspace_cli_context())
 
 
 def run_scan(args):
-    return cli_workspace_commands_module.run_scan(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_scan(args, ctx=_workspace_cli_context())
 
 
 def run_remember(args):
-    return cli_workspace_commands_module.run_remember(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_remember(args, ctx=_workspace_cli_context())
 
 
 def run_status(args):
-    return cli_workspace_commands_module.run_status(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_status(args, ctx=_workspace_cli_context())
 
 
 def run_build(args):
-    return cli_workspace_commands_module.run_build(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_build(args, ctx=_workspace_cli_context())
 
 
 def run_audit(args):
-    return cli_workspace_commands_module.run_audit(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_audit(args, ctx=_workspace_cli_context())
 
 
 def run_doctor(args):
-    return cli_workspace_commands_module.run_doctor(args, ctx=_workspace_cli_context())
+    return _workspace_commands_module().run_doctor(args, ctx=_workspace_cli_context())
 
 
 def run_integrity(args):
     if args.integrity_subcommand in {"check", "rehash"}:
-        return cli_graph_commands_module.run_integrity(args, ctx=_graph_cli_context())
+        return _graph_commands_module().run_integrity(args, ctx=_graph_cli_context())
     return _error(
         "Missing integrity subcommand.",
         hint="Run `cortex integrity --help` and choose `check` or `rehash`.",
@@ -990,7 +1062,7 @@ def run_integrity(args):
 
 
 def run_connect_runtime_target(args, *, target: str):
-    return cli_runtime_commands_module.run_connect_runtime_target(args, target=target, ctx=_runtime_cli_context())
+    return _runtime_commands_module().run_connect_runtime_target(args, target=target, ctx=_runtime_cli_context())
 
 
 def run_connect(args):
@@ -1016,15 +1088,15 @@ def run_serve(args):
 
 
 def run_ui(args):
-    return cli_runtime_commands_module.run_ui(args, ctx=_runtime_cli_context())
+    return _runtime_commands_module().run_ui(args, ctx=_runtime_cli_context())
 
 
 def run_server(args):
-    return cli_runtime_commands_module.run_server(args, ctx=_runtime_cli_context())
+    return _runtime_commands_module().run_server(args, ctx=_runtime_cli_context())
 
 
 def run_mcp(args):
-    return cli_runtime_commands_module.run_mcp(args, ctx=_runtime_cli_context())
+    return _runtime_commands_module().run_mcp(args, ctx=_runtime_cli_context())
 
 
 def run_openapi(args):
@@ -1122,19 +1194,19 @@ def run_backup(args):
 
 
 def run_stats(args):
-    return cli_misc_commands_module.run_stats(args, ctx=_misc_cli_context())
+    return _misc_commands_module().run_stats(args, ctx=_misc_cli_context())
 
 
 def run_extractions_tail(args):
-    return cli_misc_commands_module.run_extractions_tail(args, ctx=_misc_cli_context())
+    return _misc_commands_module().run_extractions_tail(args, ctx=_misc_cli_context())
 
 
 def run_pull(args):
-    return cli_misc_commands_module.run_pull(args, ctx=_misc_cli_context())
+    return _misc_commands_module().run_pull(args, ctx=_misc_cli_context())
 
 
 def run_rotate(args):
-    return cli_misc_commands_module.run_rotate(args, ctx=_misc_cli_context())
+    return _misc_commands_module().run_rotate(args, ctx=_misc_cli_context())
 
 
 def run_completion(args):
@@ -1149,11 +1221,11 @@ def run_completion(args):
         for value in values:
             _echo(value, force=True)
         return 0
-    return cli_misc_commands_module.run_completion(args, ctx=_misc_cli_context())
+    return _misc_commands_module().run_completion(args, ctx=_misc_cli_context())
 
 
 def run_agent(args):
-    return agent_module.run_agent(args, ctx=_agent_cli_context())
+    return _agent_module().run_agent(args, ctx=_agent_cli_context())
 
 
 # ---------------------------------------------------------------------------
