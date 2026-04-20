@@ -1547,7 +1547,7 @@ def test_doctor_text_mode_is_health_first_by_default(tmp_path, capsys, monkeypat
     assert "Runtime" in streams.out
     assert "Graph" in streams.out
     assert "Portability" not in streams.out
-    assert "cortex doctor --portability" in streams.out
+    assert "cortex admin doctor --portability" in streams.out
     assert "cortex portable" not in streams.out
     assert "cortex scan" not in streams.out
 

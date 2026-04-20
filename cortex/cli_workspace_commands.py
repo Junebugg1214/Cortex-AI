@@ -181,7 +181,7 @@ def run_init(args, *, ctx: WorkspaceCliContext) -> int:
     if default_mind:
         next_steps.append(f'cortex mind remember {default_mind} "I prefer concise technical answers."')
         next_steps.append(f"cortex mind status {default_mind}")
-    next_steps.append("cortex doctor")
+    next_steps.append("cortex admin doctor")
 
     payload = {
         "status": "ok",
@@ -461,7 +461,7 @@ def run_audit(args, *, ctx: WorkspaceCliContext) -> int:
 
     ctx.emit_compatibility_note(
         "audit",
-        "cortex doctor",
+        "cortex admin doctor",
         note="Use `cortex status` for runtime drift checks once your workspace is healthy.",
         format_name=getattr(args, "format", None),
     )
@@ -936,26 +936,26 @@ def run_doctor(args, *, ctx: WorkspaceCliContext) -> int:
     advice: list[str]
     if args.dry_run and fix_requested:
         advice = [
-            "Review the planned repair actions, then rerun `cortex doctor --fix` or `--fix-store` without `--dry-run`.",
+            "Review the planned repair actions, then rerun `cortex admin doctor --fix` or `--fix-store` without `--dry-run`.",
         ]
     elif repair_conflicts and repair_actions:
         advice = [
-            "Resolve the reported repair conflicts, then rerun `cortex doctor --fix`.",
-            "Run `cortex doctor` again after cleanup to confirm the store is stable.",
+            "Resolve the reported repair conflicts, then rerun `cortex admin doctor --fix`.",
+            "Run `cortex admin doctor` again after cleanup to confirm the store is stable.",
         ]
     elif repair_conflicts or repair_errors:
         advice = [
-            "Resolve the reported repair conflicts or errors, then rerun `cortex doctor --fix`.",
+            "Resolve the reported repair conflicts or errors, then rerun `cortex admin doctor --fix`.",
         ]
     elif repair_actions:
         advice = [
-            "Run `cortex doctor` again to confirm the store is stable.",
+            "Run `cortex admin doctor` again to confirm the store is stable.",
             "Run `cortex init` if you still need config or auth bootstrap help.",
         ]
     elif fix_requested and not repair_actions and not repair_errors:
         advice = ["No safe store repairs were needed."]
     elif fix_available:
-        advice = ["Run `cortex doctor --fix-store` to normalize the active store back into `.cortex/`."]
+        advice = ["Run `cortex admin doctor --fix-store` to normalize the active store back into `.cortex/`."]
     elif not graph.nodes:
         advice = [
             "Run `cortex init` if this workspace still needs a default Mind and config bootstrap.",
@@ -964,7 +964,7 @@ def run_doctor(args, *, ctx: WorkspaceCliContext) -> int:
     else:
         advice = [
             "Run `cortex connect <runtime> --check` to verify runtime wiring before you mount or serve Cortex state.",
-            "Run `cortex doctor --portability` when you need tool coverage and smart-routing detail.",
+            "Run `cortex admin doctor --portability` when you need tool coverage and smart-routing detail.",
         ]
 
     status = "ok"

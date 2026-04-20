@@ -366,7 +366,7 @@ UI_JS = r"""
             <div class="command-block">cortex mind remember ${escapeHtml(mindName)} "New fact"</div>
             <div class="command-block">${escapeHtml(ingestCommand)}</div>
             <div class="command-block">cortex mind mount ${escapeHtml(mindName)} --to ${escapeHtml(mountedTargets[0] || "codex")}</div>
-            <div class="command-block">cortex doctor</div>
+            <div class="command-block">cortex admin doctor</div>
           </div>
           <div class="item">
             <h4>Permission boundary</h4>

@@ -270,4 +270,4 @@ def test_portable_remember_build_and_audit_print_compatibility_hints(tmp_path, c
     assert build_rc == 0
     assert "cortex pack" in build_streams.err
     assert audit_rc == 0
-    assert "cortex doctor" in audit_streams.err
+    assert "cortex admin doctor" in audit_streams.err
