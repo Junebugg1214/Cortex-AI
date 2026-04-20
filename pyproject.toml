@@ -49,8 +49,8 @@ dev = ["pytest>=7.0", "pynacl>=1.5.0", "ruff>=0.6.0", "starlette>=0.37.0", "uvic
 [project.scripts]
 cortex = "cortex.cli:main"
 cortex-hook = "cortex._hook:main"
-cortexd = "cortex.server:main"
-cortex-mcp = "cortex.mcp:main"
+cortexd = "cortex.service.server:main"
+cortex-mcp = "cortex.mcp.mcp:main"
 cortex-bench = "cortex.benchmark:main"
 
 [tool.setuptools.packages.find]
