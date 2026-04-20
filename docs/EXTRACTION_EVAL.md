@@ -45,6 +45,7 @@ For a fully explicit refresh:
 ```bash
 cortex extract refresh-cache \
   --corpus tests/extraction/corpus \
+  --backend model \
   --replay-dir tests/extraction/corpus/replay \
   --model claude-3-5-sonnet-20241022
 
