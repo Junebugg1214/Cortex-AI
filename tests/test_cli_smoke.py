@@ -98,50 +98,6 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert status_payload["manifest"]["current_branch"] == "main"
     assert status_payload["is_default"] is True
 
-    connect_rc = main(
-        [
-            "connect",
-            "manus",
-            "--store-dir",
-            str(store_dir),
-            "--url",
-            "https://example.ngrok-free.app",
-            "--print-config",
-            "--format",
-            "json",
-        ]
-    )
-    connect_streams = capsys.readouterr()
-    connect_payload = json.loads(connect_streams.out)
-
-    assert connect_rc == 0
-    assert connect_streams.err == ""
-    assert set(connect_payload) == {
-        "status",
-        "target",
-        "store_dir",
-        "store_source",
-        "config_path",
-        "namespace",
-        "connector_name",
-        "mcp_url",
-        "auth_ready",
-        "key_name",
-        "auth_header",
-        "secrets_revealed",
-        "serve_command",
-        "warnings",
-        "errors",
-        "next_steps",
-        "connector_config",
-    }
-    assert connect_payload["status"] == "ok"
-    assert connect_payload["target"] == "manus"
-    assert connect_payload["secrets_revealed"] is False
-    assert connect_payload["mcp_url"] == "https://example.ngrok-free.app/mcp"
-    assert connect_payload["serve_command"].startswith("cortex serve manus ")
-    assert connect_payload["connector_config"]["mcpServers"]["Cortex-Manus"]["url"] == connect_payload["mcp_url"]
-
     api_rc = main(["serve", "api", "--store-dir", str(store_dir), "--check", "--format", "json"])
     api_streams = capsys.readouterr()
     api_payload = json.loads(api_streams.out)
@@ -256,57 +212,6 @@ def test_first_class_cli_smoke_flow_and_json_contracts(tmp_path, capsys, monkeyp
     assert ui_payload["mode"] == "ui"
     assert ui_payload["runtime_mode"] == "local-single-user"
     assert ui_payload["request_policy"]["read_timeout_seconds"] == 15.0
-
-    manus_rc = main(["serve", "manus", "--store-dir", str(store_dir), "--check", "--format", "json"])
-    manus_streams = capsys.readouterr()
-    manus_payload = json.loads(manus_streams.out)
-
-    assert manus_rc == 0
-    assert manus_streams.err == ""
-    assert set(manus_payload) == {
-        "status",
-        "target",
-        "store_source",
-        "allow_unsafe_bind",
-        "mode",
-        "project_version",
-        "api_version",
-        "openapi_version",
-        "config_path",
-        "store_dir",
-        "store_exists",
-        "backend",
-        "context_file",
-        "server_host",
-        "server_port",
-        "bind_scope",
-        "runtime_mode",
-        "mcp_namespace",
-        "reverse_proxy_recommended",
-        "auth_enabled",
-        "api_key_count",
-        "api_keys",
-        "request_policy",
-        "warnings",
-        "bridge",
-        "bridge_transport",
-        "bridge_https_required",
-        "mcp_path",
-        "protocol_version",
-        "tool_count",
-        "tools",
-        "allow_write_tools",
-        "allow_insecure_no_auth",
-    }
-    assert manus_payload["status"] == "ok"
-    assert manus_payload["target"] == "manus"
-    assert manus_payload["mode"] == "manus"
-    assert manus_payload["bridge"] == "manus_http"
-    assert manus_payload["runtime_mode"] == "local-single-user"
-    assert manus_payload["protocol_version"] == "2024-11-05"
-    assert manus_payload["request_policy"]["rate_limit_per_minute"] == 0
-    assert manus_payload["tool_count"] == len(manus_payload["tools"])
-    assert "mind_list" in manus_payload["tools"]
 
     doctor_rc = main(["doctor", "--project", str(project_dir), "--store-dir", str(store_dir), "--format", "json"])
     doctor_streams = capsys.readouterr()

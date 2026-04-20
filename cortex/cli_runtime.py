@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -17,73 +16,7 @@ from cortex.atomic_io import atomic_write_text
 from cortex.config import RUNTIME_MODES
 
 
-def _select_scoped_api_key(
-    config,
-    *,
-    scope: str,
-    preferred_name: str = "",
-    namespace: str | None = None,
-):
-    keys = list(config.api_keys)
-    if preferred_name:
-        for key in keys:
-            if key.name == preferred_name:
-                if not key.allows_scope(scope):
-                    raise ValueError(f"API key '{preferred_name}' does not allow scope '{scope}'.")
-                if namespace and not key.allows_namespace(namespace):
-                    raise ValueError(f"API key '{preferred_name}' does not allow namespace '{namespace}'.")
-                return key
-        raise ValueError(f"API key '{preferred_name}' was not found in {config.config_path or 'the active config'}.")
-
-    def eligible():
-        for key in keys:
-            if not key.allows_scope(scope):
-                continue
-            if namespace and not key.allows_namespace(namespace):
-                continue
-            yield key
-
-    eligible_keys = list(eligible())
-    preferred_order = ("reader", "read", "writer", "server-default", "env-default", "cli-default")
-    for name in preferred_order:
-        for key in eligible_keys:
-            if key.name == name:
-                return key
-    return eligible_keys[0] if eligible_keys else None
-
-
-def _normalize_manus_url(url: str) -> str:
-    normalized = url.strip()
-    if not normalized:
-        return "https://your-https-endpoint.example/mcp"
-    if normalized.endswith("/"):
-        normalized = normalized.rstrip("/")
-    if normalized.endswith("/mcp"):
-        return normalized
-    return f"{normalized}/mcp"
-
-
-def _build_connect_manus_serve_command(
-    *,
-    shell_join,
-    config_path: Path | None,
-    store_dir: Path,
-    namespace: str | None,
-    host: str,
-    port: int,
-) -> str:
-    parts = ["cortex", "serve", "manus"]
-    if config_path is not None:
-        parts.extend(["--config", str(config_path)])
-    else:
-        parts.extend(["--store-dir", str(store_dir)])
-    if namespace:
-        parts.extend(["--namespace", namespace])
-    parts.extend(["--host", host, "--port", str(port)])
-    return shell_join(parts)
-
-
-def _add_runtime_security_args(parser, *, include_legacy_manus_alias: bool = False) -> None:
+def _add_runtime_security_args(parser) -> None:
     parser.add_argument(
         "--runtime-mode",
         choices=RUNTIME_MODES,
@@ -95,13 +28,6 @@ def _add_runtime_security_args(parser, *, include_legacy_manus_alias: bool = Fal
         action="store_true",
         help="Allow a non-loopback bind even when the runtime security contract would normally refuse it.",
     )
-    if include_legacy_manus_alias:
-        parser.add_argument(
-            "--allow-insecure-no-auth",
-            dest="allow_unsafe_bind",
-            action="store_true",
-            help=argparse.SUPPRESS,
-        )
 
 
 def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
@@ -334,7 +260,6 @@ def _serve_check_payload(
 
 __all__ = [
     "_add_runtime_security_args",
-    "_build_connect_manus_serve_command",
     "_connect_runtime_config_snippet",
     "_connect_runtime_content_paths",
     "_connect_runtime_context_status",
@@ -346,7 +271,5 @@ __all__ = [
     "_connect_runtime_upsert_codex_config",
     "_connect_runtime_upsert_json_config",
     "_connect_runtime_upsert_target_config",
-    "_normalize_manus_url",
-    "_select_scoped_api_key",
     "_serve_check_payload",
 ]

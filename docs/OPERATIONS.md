@@ -37,7 +37,7 @@ For beta, prefer:
 ```bash
 cortex serve api --config .cortex/config.toml --check
 cortex serve mcp --config .cortex/config.toml --check
-cortex serve manus --config .cortex/config.toml --check
+cortex serve ui --config .cortex/config.toml --check
 ```
 
 Verify:

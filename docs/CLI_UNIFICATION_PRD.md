@@ -47,7 +47,7 @@ A new user should be able to answer:
 
 - How do I start?
 - How do I create my Mind?
-- How do I connect Cortex to Manus or Codex?
+- How do I connect Cortex to Codex, Hermes, or another runtime?
 - How do I know if my setup is healthy?
 
 Right now those answers are spread across several command families and docs.
@@ -105,7 +105,7 @@ Commands should match user goals, not internal modules.
 Users think in terms of:
 
 - set up Cortex
-- connect Manus
+- connect an AI runtime
 - remember something
 - attach a Brainpack
 - compose a context slice
@@ -232,7 +232,6 @@ This is a new first-class runtime connection surface.
 
 Supported subcommands:
 
-- `manus`
 - `hermes`
 - `codex`
 - `cursor`
@@ -264,10 +263,9 @@ Supported subcommands:
 
 - `api`
 - `mcp`
-- `manus`
 - `ui`
 
-This is clearer than mixing `server`, `mcp`, `ui`, and a separate `cortex-manus` entrypoint in the primary mental model.
+This is clearer than mixing `server`, `mcp`, and `ui` in the primary mental model.
 
 Standalone entrypoints can still exist for convenience.
 
@@ -379,7 +377,7 @@ Default Mind: marc
 
 Next:
   cortex mind remember marc "I prefer concise technical answers."
-  cortex connect manus --print-config
+  cortex connect codex --print-config
   cortex status
 ```
 
@@ -409,16 +407,15 @@ Try:
 For example:
 
 ```bash
-cortex connect manus --print-config
+cortex connect codex --print-config
 ```
 
 should print:
 
-- the exact HTTPS endpoint shape
-- required headers
 - the current resolved store
-- which tools will be exposed
-- the next test command
+- the target config path
+- the generated MCP config snippet
+- the next install or mount command
 
 ## Production Readiness Requirements
 
@@ -483,20 +480,20 @@ Must verify:
 - attachment state appears in status
 - compose includes pack-derived content
 
-### 4. Manus connection flow
+### 4. Runtime connection flow
 
 Flow:
 
-- `cortex connect manus --print-config`
-- `cortex serve manus`
-- external initialize + `mind_list`
+- `cortex connect codex --print-config`
+- `cortex connect codex --install`
+- `cortex mind mount self --to codex`
 
 Must verify:
 
 - correct store resolution
-- correct auth guidance
-- correct pinned MCP protocol
-- stateless Manus tool access still works
+- correct config guidance
+- idempotent install behavior
+- mounted context appears in the target path
 
 ### 5. Store mismatch detection
 
@@ -533,13 +530,12 @@ The CLI unification effort succeeds if:
 
 ### PR 2: `cortex connect`
 
-- add `connect manus`
 - add target-specific config printing and validation
 - start connecting Hermes/Codex/Cursor/Claude Code under the same model
 
 ### PR 3: `cortex serve`
 
-- unify `server`, `mcp`, `ui`, and Manus bridge runtime guidance
+- unify `server`, `mcp`, and `ui` runtime guidance
 - add health-check-oriented UX
 
 ### PR 4: `doctor --fix`

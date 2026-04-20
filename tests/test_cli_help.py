@@ -198,8 +198,8 @@ def test_topic_help_surfaces_beginner_and_legacy_guidance(capsys):
     assert "--owner" in init_help
     assert "--namespace" in init_help
     assert runtime_rc == 0
-    assert "cortex connect manus --check" in runtime_help
-    assert "cortex serve manus" in runtime_help
+    assert "cortex connect codex --install" in runtime_help
+    assert "cortex serve mcp" in runtime_help
     assert legacy_rc == 0
     assert "Most CLI v1 flat verbs were retired" in legacy_help
     assert "connect  -> cortex remote add" in legacy_help

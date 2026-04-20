@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import stat
 from pathlib import Path
 
 import pytest
@@ -11,205 +9,40 @@ from cortex.cli import build_parser, main
 
 
 def test_cli_parser_supports_connect_and_serve_subcommands():
-    connect_args = build_parser().parse_args(["connect", "manus", "--url", "https://example.ngrok-free.app/mcp"])
     codex_args = build_parser().parse_args(["connect", "codex", "--check"])
-    serve_args = build_parser().parse_args(["serve", "manus", "--check"])
+    hermes_args = build_parser().parse_args(["connect", "hermes", "--check"])
+    api_args = build_parser().parse_args(["serve", "api", "--check"])
+    mcp_args = build_parser().parse_args(["serve", "mcp", "--check"])
+    ui_args = build_parser().parse_args(["serve", "ui", "--check"])
 
-    assert connect_args.subcommand == "connect"
-    assert connect_args.connect_subcommand == "manus"
     assert codex_args.subcommand == "connect"
     assert codex_args.connect_subcommand == "codex"
-    assert serve_args.subcommand == "serve"
-    assert serve_args.serve_subcommand == "manus"
+    assert hermes_args.subcommand == "connect"
+    assert hermes_args.connect_subcommand == "hermes"
+    assert api_args.subcommand == "serve"
+    assert api_args.serve_subcommand == "api"
+    assert mcp_args.subcommand == "serve"
+    assert mcp_args.serve_subcommand == "mcp"
+    assert ui_args.subcommand == "serve"
+    assert ui_args.serve_subcommand == "ui"
 
 
-def test_connect_manus_masks_secret_in_printed_config_json(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-
-    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    connect_rc = main(
-        [
-            "connect",
-            "manus",
-            "--store-dir",
-            str(store_dir),
-            "--url",
-            "https://example.ngrok-free.app",
-            "--print-config",
-            "--format",
-            "json",
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)
-
-    assert init_rc == 0
-    assert connect_rc == 0
-    assert payload["status"] == "ok"
-    assert payload["target"] == "manus"
-    assert payload["auth_ready"] is True
-    assert payload["key_name"] == "reader"
-    assert payload["mcp_url"] == "https://example.ngrok-free.app/mcp"
-    assert payload["serve_command"].startswith("cortex serve manus ")
-    assert payload["secrets_revealed"] is False
-    connector = payload["connector_config"]["mcpServers"]["Cortex-Manus"]
-    assert connector["type"] == "streamableHttp"
-    assert connector["url"] == "https://example.ngrok-free.app/mcp"
-    assert connector["headers"]["X-API-Key"].startswith("cortex-reader-")
-    assert "..." in connector["headers"]["X-API-Key"]
-
-
-def test_connect_manus_can_write_full_config_to_file(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-    output_path = tmp_path / "manus-mcp.json"
-
-    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    connect_rc = main(
-        [
-            "connect",
-            "manus",
-            "--store-dir",
-            str(store_dir),
-            "--url",
-            "https://example.ngrok-free.app",
-            "--write-config",
-            str(output_path),
-            "--format",
-            "json",
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)
-    written = json.loads(output_path.read_text(encoding="utf-8"))
-
-    assert init_rc == 0
-    assert connect_rc == 0
-    assert payload["connector_config_path"] == str(output_path.resolve())
-    assert written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"].startswith("cortex-reader-")
-    assert "..." not in written["mcpServers"]["Cortex-Manus"]["headers"]["X-API-Key"]
-    if os.name != "nt":
-        assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
-
-
-def test_connect_manus_can_reveal_secret_explicitly(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-
-    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    connect_rc = main(
-        [
-            "connect",
-            "manus",
-            "--store-dir",
-            str(store_dir),
-            "--url",
-            "https://example.ngrok-free.app",
-            "--print-config",
-            "--reveal-secret",
-            "--format",
-            "json",
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)
-    connector = payload["connector_config"]["mcpServers"]["Cortex-Manus"]
-
-    assert init_rc == 0
-    assert connect_rc == 0
-    assert payload["secrets_revealed"] is True
-    assert connector["headers"]["X-API-Key"].startswith("cortex-reader-")
-    assert "..." not in connector["headers"]["X-API-Key"]
-
-
-def test_connect_manus_check_warns_until_public_url_is_known(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-
-    main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    rc = main(["connect", "manus", "--store-dir", str(store_dir), "--check", "--format", "json"])
-    payload = json.loads(capsys.readouterr().out)
-
-    assert rc == 0
-    assert payload["status"] == "warn"
-    assert payload["auth_ready"] is True
-    assert payload["mcp_url"] == "https://your-https-endpoint.example/mcp"
-    assert any("No public HTTPS URL was provided yet" in warning for warning in payload["warnings"])
-
-
-def test_connect_manus_print_config_requires_real_public_https_url(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-
-    main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    rc = main(["connect", "manus", "--store-dir", str(store_dir), "--print-config", "--format", "json"])
-    payload = json.loads(capsys.readouterr().out)
-
-    assert rc == 1
-    assert payload["status"] == "error"
-    assert "connector_config" not in payload
-    assert any("A real public HTTPS URL is required" in error for error in payload["errors"])
-
-
-def test_connect_manus_print_config_requires_read_key(tmp_path, capsys):
-    store_dir = tmp_path / ".cortex"
-    store_dir.mkdir()
-
-    rc = main(
-        [
-            "connect",
-            "manus",
-            "--store-dir",
-            str(store_dir),
-            "--url",
-            "https://example.ngrok-free.app",
-            "--print-config",
-            "--format",
-            "json",
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)
-
-    assert rc == 1
-    assert payload["status"] == "error"
-    assert payload["auth_ready"] is False
-    assert "connector_config" not in payload
-    assert any("A read-scoped API key is required" in error for error in payload["errors"])
-
-
-def test_connect_manus_uses_discovered_store_from_nested_workspace(tmp_path, capsys, monkeypatch):
-    workspace = tmp_path / "workspace"
-    nested = workspace / "apps" / "cortex"
-    store_dir = workspace / ".cortex"
-    nested.mkdir(parents=True)
-
-    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
-    capsys.readouterr()
-    monkeypatch.chdir(nested)
-    rc = main(["connect", "manus", "--url", "https://example.ngrok-free.app", "--check", "--format", "json"])
-    payload = json.loads(capsys.readouterr().out)
-
-    assert init_rc == 0
-    assert rc == 0
-    assert payload["store_dir"] == str(store_dir.resolve())
-    assert payload["store_source"] == "discovered_config"
-
-
-def test_serve_api_mcp_and_manus_checks_round_trip(tmp_path, capsys):
+def test_serve_api_mcp_and_ui_checks_round_trip(tmp_path, capsys):
     store_dir = tmp_path / ".cortex"
 
     api_rc = main(["serve", "api", "--store-dir", str(store_dir), "--check"])
     api_output = capsys.readouterr().out
     mcp_rc = main(["serve", "mcp", "--store-dir", str(store_dir), "--check"])
     mcp_output = capsys.readouterr().out
-    manus_rc = main(["serve", "manus", "--store-dir", str(store_dir), "--check"])
-    manus_output = capsys.readouterr().out
+    ui_rc = main(["serve", "ui", "--store-dir", str(store_dir), "--check"])
+    ui_output = capsys.readouterr().out
 
     assert api_rc == 0
     assert "Cortex server diagnostics:" in api_output
     assert mcp_rc == 0
     assert "Cortex mcp diagnostics:" in mcp_output
-    assert manus_rc == 0
-    assert "Cortex manus diagnostics:" in manus_output
-    assert "Bridge:    Manus custom MCP over HTTP" in manus_output
+    assert ui_rc == 0
+    assert "Cortex ui diagnostics:" in ui_output
 
 
 def test_serve_api_refuses_root_store_paths_for_first_class_flow(tmp_path, capsys):

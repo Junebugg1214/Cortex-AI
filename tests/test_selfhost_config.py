@@ -189,10 +189,9 @@ namespaces = ["team"]
     )
 
     config = load_selfhost_config(config_path=config_path, env={})
-    diagnostics = format_startup_diagnostics(config, mode="manus")
+    diagnostics = format_startup_diagnostics(config, mode="server")
 
     assert "Bind:      network" in diagnostics
-    assert "Namespace: team" in diagnostics
     assert "HTTPS reverse proxy" in diagnostics
 
 

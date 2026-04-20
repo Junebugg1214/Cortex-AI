@@ -3,16 +3,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from cortex.atomic_io import atomic_write_text
 from cortex.cli_runtime import (
-    _build_connect_manus_serve_command,
     _connect_runtime_config_snippet,
     _connect_runtime_content_paths,
     _connect_runtime_context_status,
@@ -20,8 +17,6 @@ from cortex.cli_runtime import (
     _connect_runtime_mcp_config_path,
     _connect_runtime_next_steps,
     _connect_runtime_upsert_target_config,
-    _normalize_manus_url,
-    _select_scoped_api_key,
     _serve_check_payload,
 )
 from cortex.runtime_control import ShutdownController, install_shutdown_handlers
@@ -67,185 +62,6 @@ def _load_runtime_check_config(
         namespace=namespace,
         api_key=api_key,
     )
-
-
-def run_connect_manus(args, *, ctx: RuntimeCliContext) -> int:
-    try:
-        config, selection = ctx.load_first_class_runtime_config(
-            command="connect manus",
-            store_dir=args.store_dir,
-            context_file=args.context_file,
-            config_path=args.config,
-            host=args.host,
-            port=args.port,
-            namespace=args.namespace,
-        )
-        read_key = _select_scoped_api_key(
-            config,
-            scope="read",
-            preferred_name=args.key_name.strip(),
-            namespace=config.mcp_namespace,
-        )
-    except ValueError as exc:
-        return ctx.error(str(exc))
-
-    connector_name = args.name.strip() or "Cortex-Manus"
-    mcp_url = _normalize_manus_url(args.url or "")
-    serve_command = _build_connect_manus_serve_command(
-        shell_join=ctx.shell_join,
-        config_path=config.config_path,
-        store_dir=config.store_dir,
-        namespace=config.mcp_namespace,
-        host=args.host,
-        port=args.port,
-    )
-
-    warnings: list[str] = list(selection.warnings)
-    errors: list[str] = []
-    config_output_requested = bool(args.print_config or args.write_config)
-    if not args.url:
-        if config_output_requested:
-            errors.append("A real public HTTPS URL is required before Cortex can generate a Manus connector config.")
-        else:
-            warnings.append("No public HTTPS URL was provided yet; the check output uses a placeholder bridge URL.")
-    elif not mcp_url.startswith("https://"):
-        errors.append("Manus custom MCP servers must use an HTTPS URL.")
-
-    if read_key is None:
-        if config_output_requested:
-            errors.append("A read-scoped API key is required before Cortex can generate a Manus connector config.")
-        else:
-            warnings.append(
-                "No read-scoped API key was found yet; add one before generating a final Manus connector config."
-            )
-
-    def _mask_token(token: str) -> str:
-        if token.startswith("<") and token.endswith(">"):
-            return token
-        if len(token) <= 16:
-            return "***"
-        return f"{token[:14]}...{token[-4:]}"
-
-    def _header_value_for(secret_token: str, *, reveal: bool) -> str:
-        if header_name == "Authorization":
-            if secret_token.startswith("<") and secret_token.endswith(">"):
-                return f"Bearer {secret_token}"
-            return f"Bearer {secret_token if reveal else _mask_token(secret_token)}"
-        return (
-            secret_token
-            if reveal or (secret_token.startswith("<") and secret_token.endswith(">"))
-            else _mask_token(secret_token)
-        )
-
-    header_name = "Authorization" if args.auth_header == "authorization" else "X-API-Key"
-    secret_token = read_key.token if read_key else "<reader-token>"
-    revealed_header_value = _header_value_for(secret_token, reveal=True)
-    display_header_value = _header_value_for(secret_token, reveal=args.reveal_secret)
-
-    connector_config = {
-        "mcpServers": {
-            connector_name: {
-                "type": "streamableHttp",
-                "url": mcp_url,
-                "headers": {header_name: display_header_value},
-            }
-        }
-    }
-    connector_config_full = {
-        "mcpServers": {
-            connector_name: {
-                "type": "streamableHttp",
-                "url": mcp_url,
-                "headers": {header_name: revealed_header_value},
-            }
-        }
-    }
-    connector_config_path = ""
-    config_ready = bool(args.url and mcp_url.startswith("https://") and read_key is not None)
-    if args.write_config and config_ready:
-        target_path = Path(args.write_config).expanduser().resolve()
-        atomic_write_text(
-            target_path,
-            json.dumps(connector_config_full, indent=2) + "\n",
-            encoding="utf-8",
-            file_mode=0o600,
-        )
-        connector_config_path = str(target_path)
-    next_steps = [f"Run `{serve_command}`."]
-    if not args.url:
-        next_steps.append(
-            "Expose the local Manus bridge over HTTPS, then rerun `cortex connect manus --url https://... --print-config`."
-        )
-    if read_key is None:
-        next_steps.append(
-            "Add a read-scoped API key in `.cortex/config.toml`, then rerun `cortex connect manus --url https://... --print-config`."
-        )
-    if connector_config_path:
-        next_steps.append(f"Use `{connector_config_path}` as the paste-ready Manus MCP JSON source.")
-    elif args.print_config:
-        if args.reveal_secret:
-            next_steps.append("Paste the printed JSON into Manus -> Settings -> Integrations -> Custom MCP Server.")
-        else:
-            next_steps.append(
-                "Use `--write-config <path>` for a paste-ready file, or `--reveal-secret` if you intentionally want to print the live secret."
-            )
-    else:
-        next_steps.append(
-            "Run `cortex connect manus --url https://... --print-config` to generate the final Manus MCP JSON."
-        )
-
-    status = "error" if errors else ("ok" if read_key and args.url else "warn")
-    payload = {
-        "status": status,
-        "target": "manus",
-        "store_dir": str(config.store_dir.resolve()),
-        "store_source": selection.source,
-        "config_path": str(config.config_path) if config.config_path else None,
-        "namespace": config.mcp_namespace,
-        "connector_name": connector_name,
-        "mcp_url": mcp_url,
-        "auth_ready": read_key is not None,
-        "key_name": read_key.name if read_key else "",
-        "auth_header": header_name,
-        "secrets_revealed": bool(args.reveal_secret),
-        "serve_command": serve_command,
-        "warnings": warnings,
-        "errors": errors,
-        "next_steps": next_steps,
-    }
-    if args.print_config and config_ready:
-        payload["connector_config"] = connector_config
-    if connector_config_path:
-        payload["connector_config_path"] = connector_config_path
-
-    if ctx.emit_result(payload, args.format) == 0:
-        return 1 if errors or (args.check and read_key is None) else 0
-
-    ctx.echo("Cortex ↔ Manus")
-    ctx.echo(f"  Status:   {status}")
-    ctx.echo(f"  Store:    {payload['store_dir']}")
-    ctx.echo(f"  Source:   {payload['store_source']}")
-    if payload["config_path"]:
-        ctx.echo(f"  Config:   {payload['config_path']}")
-    ctx.echo(f"  URL:      {mcp_url}")
-    auth_mode = "live secret printed" if args.reveal_secret else "secret masked"
-    ctx.echo(f"  Auth:     {read_key.name if read_key else 'missing read key'} via {header_name} ({auth_mode})")
-    ctx.echo(f"  Serve:    {serve_command}")
-    for message in warnings:
-        ctx.echo(f"  Warning:  {message}")
-    for message in errors:
-        ctx.echo(f"  Error:    {message}")
-    if args.print_config and config_ready:
-        ctx.echo("")
-        ctx.echo("Manus MCP JSON preview:")
-        ctx.echo(json.dumps(connector_config, indent=2))
-    if connector_config_path:
-        ctx.echo(f"  Wrote:    {connector_config_path}")
-    ctx.echo("")
-    ctx.echo("Next:")
-    for step in next_steps:
-        ctx.echo(f"  {step}")
-    return 1 if errors or (args.check and read_key is None) else 0
 
 
 def run_connect_runtime_target(args, *, target: str, ctx: RuntimeCliContext) -> int:
@@ -408,109 +224,6 @@ def run_connect_runtime_target(args, *, target: str, ctx: RuntimeCliContext) -> 
     for step in payload["next_steps"]:
         ctx.echo(f"  {step}")
     return 1 if errors or (args.check and not tool["cortex_mcp_configured"]) else 0
-
-
-def _serve_manus_check_payload(args, *, ctx: RuntimeCliContext) -> dict[str, Any]:
-    from cortex.manus_bridge import (
-        DEFAULT_MANUS_HOST,
-        DEFAULT_MANUS_PORT,
-        DEFAULT_MANUS_PROTOCOL_VERSION,
-        CortexMCPServer,
-        _validate_bridge_security,
-        select_manus_tools,
-    )
-
-    config, selection = _load_runtime_check_config(
-        ctx,
-        command="serve manus",
-        store_dir=args.store_dir,
-        context_file=args.context_file,
-        config_path=args.config,
-        host=args.host or DEFAULT_MANUS_HOST,
-        port=args.port if args.port is not None else DEFAULT_MANUS_PORT,
-        runtime_mode=args.runtime_mode,
-        namespace=args.namespace,
-    )
-    preview_server = CortexMCPServer(
-        store_dir=config.store_dir,
-        context_file=config.context_file,
-        namespace=config.mcp_namespace,
-    )
-    _validate_bridge_security(
-        host=config.server_host,
-        api_keys=config.api_keys,
-        namespace=config.mcp_namespace,
-        runtime_mode=config.runtime_mode,
-        allow_unsafe_bind=args.allow_unsafe_bind,
-    )
-    exposed_tools = select_manus_tools(
-        preview_server,
-        include_write_tools=args.allow_write_tools,
-        extra_tools=args.tool,
-    )
-    return {
-        **_serve_check_payload(
-            target="manus",
-            mode="manus",
-            config=config,
-            selection=selection,
-            allow_unsafe_bind=args.allow_unsafe_bind,
-        ),
-        "bridge": "manus_http",
-        "bridge_transport": "http",
-        "bridge_https_required": True,
-        "mcp_path": "/mcp",
-        "protocol_version": args.protocol_version or DEFAULT_MANUS_PROTOCOL_VERSION,
-        "tool_count": len(exposed_tools),
-        "tools": list(exposed_tools),
-        "allow_write_tools": bool(args.allow_write_tools),
-        "allow_unsafe_bind": bool(args.allow_unsafe_bind),
-        "allow_insecure_no_auth": bool(args.allow_unsafe_bind),
-    }
-
-
-def run_serve_manus(args, *, ctx: RuntimeCliContext) -> int:
-    from cortex.manus_bridge import main as manus_main
-
-    if args.check and args.format == "json":
-        try:
-            payload = _serve_manus_check_payload(args, ctx=ctx)
-        except ValueError as exc:
-            return ctx.error(str(exc))
-        ctx.emit_result(payload, "json")
-        return 0
-
-    try:
-        _config, selection = _load_runtime_check_config(
-            ctx,
-            command="serve manus",
-            store_dir=args.store_dir,
-            context_file=args.context_file,
-            config_path=args.config,
-            host=args.host,
-            port=args.port,
-            runtime_mode=args.runtime_mode,
-            namespace=args.namespace,
-        )
-    except ValueError as exc:
-        return ctx.error(str(exc))
-    for warning in selection.warnings:
-        ctx.echo(f"Warning: {warning}", stderr=True)
-    argv = ctx.runtime_forward_argv(
-        selection=selection,
-        explicit_config_path=args.config,
-        context_file=args.context_file,
-        namespace=args.namespace,
-        host=args.host,
-        port=args.port,
-        runtime_mode=args.runtime_mode,
-        allow_unsafe_bind=args.allow_unsafe_bind,
-        allow_write_tools=args.allow_write_tools,
-        tools=args.tool,
-        protocol_version=args.protocol_version,
-        check=args.check,
-    )
-    return manus_main(argv)
 
 
 def run_ui(args, *, ctx: RuntimeCliContext) -> int:
@@ -748,10 +461,8 @@ def run_mcp(args, *, ctx: RuntimeCliContext) -> int:
 
 __all__ = [
     "RuntimeCliContext",
-    "run_connect_manus",
     "run_connect_runtime_target",
     "run_mcp",
     "run_server",
-    "run_serve_manus",
     "run_ui",
 ]
