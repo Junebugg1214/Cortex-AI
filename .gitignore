@@ -43,6 +43,3 @@ corpus/
 !tests/extraction/corpus/
 !tests/extraction/corpus/**
 portable/
-
-# Test-produced runtime logs (agent conflict monitor writes here)
-cortex/agent/logs/
