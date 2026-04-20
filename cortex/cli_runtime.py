@@ -3,23 +3,16 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
-    import tomli as tomllib
-
-from cortex.atomic_io import atomic_write_text
-from cortex.config import RUNTIME_MODES
+RUNTIME_MODE_CHOICES = ("local-single-user", "hosted-service")
 
 
 def _add_runtime_security_args(parser) -> None:
     parser.add_argument(
         "--runtime-mode",
-        choices=RUNTIME_MODES,
+        choices=RUNTIME_MODE_CHOICES,
         default=None,
         help="Security posture for HTTP serving (default from config or local-single-user)",
     )
@@ -81,6 +74,8 @@ def _connect_runtime_server_payload(cortex_config_path: Path) -> dict[str, Any]:
 
 
 def _connect_runtime_config_snippet(target: str, *, cortex_config_path: Path) -> str:
+    import json
+
     from cortex.hermes_integration import _render_cortex_mcp_block
 
     server_payload = _connect_runtime_server_payload(cortex_config_path)
@@ -95,6 +90,10 @@ def _connect_runtime_config_snippet(target: str, *, cortex_config_path: Path) ->
 
 
 def _connect_runtime_upsert_json_config(path: Path, *, schema: str, cortex_config_path: Path) -> dict[str, str]:
+    import json
+
+    from cortex.atomic_io import atomic_write_text
+
     server_payload = _connect_runtime_server_payload(cortex_config_path)
     status = "created"
     payload: dict[str, Any] = {}
@@ -128,6 +127,13 @@ def _connect_runtime_upsert_json_config(path: Path, *, schema: str, cortex_confi
 
 
 def _connect_runtime_upsert_codex_config(path: Path, *, cortex_config_path: Path) -> dict[str, str]:
+    from cortex.atomic_io import atomic_write_text
+
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+        import tomli as tomllib
+
     escaped = str(cortex_config_path).replace("\\", "\\\\").replace('"', '\\"')
     block = [
         "[mcp_servers.cortex]",

@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
-
+DISCLOSURE_POLICY_CHOICES = ("full", "professional", "technical", "minimal")
 FIRST_CLASS_COMMANDS = ("init", "mind", "pack", "mount", "sync", "serve", "admin")
 GUIDED_HELP_NOTE = "Guided help:\n  cortex help init\n  cortex help runtime\n  cortex help legacy\n"
 ADVANCED_HELP_NOTE = (
@@ -263,7 +262,7 @@ def add_setup_and_runtime_parsers(sub, *, add_runtime_security_args) -> None:
     init.add_argument(
         "--default-policy",
         default="professional",
-        choices=list(BUILTIN_POLICIES.keys()),
+        choices=list(DISCLOSURE_POLICY_CHOICES),
         help="Default disclosure policy for the default Mind",
     )
     init.add_argument("--namespace", default="team", help="Default MCP/API namespace (default: team)")
