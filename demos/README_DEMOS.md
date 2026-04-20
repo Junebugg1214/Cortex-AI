@@ -12,6 +12,14 @@ Use `--fast` to reduce all delays by 80% for CI, quick previews, or capture rehe
 - `python3.11 demos/demo_portability.py --fast`
 - `python3.11 demos/demo_audience.py --fast`
 
+## Pre-recorded demos
+
+| Demo | Cast | SVG |
+| --- | --- | --- |
+| Retraction | [retraction.cast](retraction.cast) | ![retraction](retraction.svg) |
+| Portability | [portability.cast](portability.cast) | ![portability](portability.svg) |
+| Audience | [audience.cast](audience.cast) | ![audience](audience.svg) |
+
 Recommended recording workflows:
 
 - `asciinema`: `asciinema rec demos/retraction.cast --command "python3.11 demos/demo_retraction.py"`
