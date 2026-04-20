@@ -2,12 +2,30 @@ from __future__ import annotations
 
 import copy
 import json
+import re
+import unicodedata
 from typing import Any
 
-from cortex.extraction import get_hot_path_backend, graph_from_result
-from cortex.extraction.extract_memory_context import normalize_text
 from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
-from cortex.graph.temporal import apply_temporal_review_policy
+
+
+def get_hot_path_backend():
+    from cortex.extraction import get_hot_path_backend as impl
+
+    return impl()
+
+
+def graph_from_result(*args, **kwargs):
+    from cortex.extraction import graph_from_result as impl
+
+    return impl(*args, **kwargs)
+
+
+def _normalize_text(text: str) -> str:
+    text = text.lower()
+    text = unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode("ASCII")
+    text = re.sub(r"[^\w\s-]", "", text)
+    return " ".join(text.split())
 
 
 def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -27,10 +45,10 @@ def _clone_graph(graph: CortexGraph) -> CortexGraph:
 
 
 def _node_terms(node: Node) -> set[str]:
-    terms = {normalize_text(node.label)}
-    terms.update(normalize_text(alias) for alias in node.aliases if str(alias).strip())
+    terms = {_normalize_text(node.label)}
+    terms.update(_normalize_text(alias) for alias in node.aliases if str(alias).strip())
     if node.canonical_id:
-        terms.add(normalize_text(node.canonical_id))
+        terms.add(_normalize_text(node.canonical_id))
     return {term for term in terms if term}
 
 
@@ -65,7 +83,7 @@ def merge_graphs(base: CortexGraph, incoming: CortexGraph) -> CortexGraph:
         existing.source_quotes = list(dict.fromkeys(existing.source_quotes + new_node.source_quotes))
         existing.provenance = _dedupe_dicts(existing.provenance + new_node.provenance)
         existing.properties = {**existing.properties, **new_node.properties}
-        if normalize_text(existing.label) != normalize_text(new_node.label):
+        if _normalize_text(existing.label) != _normalize_text(new_node.label):
             existing.aliases = list(dict.fromkeys(existing.aliases + [new_node.label]))
         if len(new_node.brief) > len(existing.brief):
             existing.brief = new_node.brief
@@ -117,6 +135,8 @@ def create_fallback_graph(statement: str, *, tags: list[str] | None = None, conf
 
 
 def extract_graph_from_statement(statement: str, *, confidence: float = 0.85) -> CortexGraph:
+    from cortex.graph.temporal import apply_temporal_review_policy
+
     backend = get_hot_path_backend()
     result = backend.extract_statement(statement, context={"confidence": confidence})
     graph = graph_from_result(result, fallback_statement=statement, fallback_confidence=confidence)

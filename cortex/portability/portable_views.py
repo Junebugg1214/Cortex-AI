@@ -5,8 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from cortex.compat import upgrade_v4_to_v5
-from cortex.extraction.extract_memory import AggressiveExtractor, load_file
 from cortex.graph.graph import CortexGraph
 from cortex.hermes_integration import build_hermes_documents
 from cortex.hooks import HookConfig, generate_compact_context
@@ -197,6 +195,9 @@ def tool_labels(state: PortabilityState, target: str, paths: list[Path], export_
     if not existing_paths and export_path is not None:
         if export_path.suffix.lower() == ".zip":
             try:
+                from cortex.compat import upgrade_v4_to_v5
+                from cortex.extraction.extract_memory import AggressiveExtractor, load_file
+
                 data, fmt = load_file(export_path)
                 extractor = AggressiveExtractor()
                 extracted = upgrade_v4_to_v5(run_extraction_data(extractor, data, fmt))

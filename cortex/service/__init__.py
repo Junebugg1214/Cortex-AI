@@ -7,7 +7,7 @@ from types import ModuleType as _ModuleType
 _TARGET = "cortex.service.service"
 _MESSAGE = "cortex.service is deprecated; use cortex.service.service instead."
 _module: _ModuleType | None = None
-_public_names: list[str] | None = None
+_public_names: list[str] | None = ["MemoryService"]
 
 
 def _target_module() -> _ModuleType:
@@ -18,11 +18,7 @@ def _target_module() -> _ModuleType:
 
 
 def _public_exports() -> list[str]:
-    global _public_names
-    if _public_names is None:
-        module = _target_module()
-        _public_names = list(getattr(module, "__all__", [name for name in vars(module) if not name.startswith("_")]))
-    return _public_names
+    return list(_public_names or [])
 
 
 def __getattr__(name: str) -> object:

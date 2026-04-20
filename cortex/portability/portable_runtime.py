@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cortex.portability.portable_state as _portable_state
 import cortex.portability.portable_views as _portable_views
 from cortex.atomic_io import atomic_write_text, locked_path
-from cortex.compat import upgrade_v4_to_v5
-from cortex.extraction.extract_memory import AggressiveExtractor, PIIRedactor, load_file
 from cortex.graph.graph import CortexGraph
 from cortex.hermes_integration import install_hermes_context
 from cortex.import_memory import NormalizedContext
@@ -37,6 +35,9 @@ from cortex.portability.portable_sources import (
 from cortex.portability.portable_sources import graph_from_hermes_paths as _graph_from_hermes_paths
 from cortex.portability.portable_sources import search_roots as _search_roots
 from cortex.versioning.upai.disclosure import apply_disclosure
+
+if TYPE_CHECKING:
+    from cortex.extraction.extract_memory import PIIRedactor
 
 STATE_VERSION = _portable_state.STATE_VERSION
 SMART_ROUTE_TAGS = _portable_views.SMART_ROUTE_TAGS
@@ -452,6 +453,9 @@ def switch_portability(
     graph = _load_graph(input_path)
     detected_kind = "graph"
     if graph is None:
+        from cortex.compat import upgrade_v4_to_v5
+        from cortex.extraction.extract_memory import AggressiveExtractor, load_file
+
         data, detected_format = load_file(input_path)
         extractor = AggressiveExtractor()
         fmt = input_format if input_format != "auto" else detected_format

@@ -7,7 +7,28 @@ from types import ModuleType as _ModuleType
 _TARGET = "cortex.portability.portability"
 _MESSAGE = "cortex.portability is deprecated; use cortex.portability.portability instead."
 _module: _ModuleType | None = None
-_public_names: list[str] | None = None
+_public_names: list[str] | None = [
+    "ADAPTERS",
+    "ArtifactResult",
+    "BUILTIN_POLICIES",
+    "InstructionPack",
+    "NormalizedContext",
+    "PORTABLE_DIRECT_TARGETS",
+    "PORTABLE_TARGET_ALIASES",
+    "PORTABLE_TARGET_ORDER",
+    "Path",
+    "TYPE_CHECKING",
+    "TopicDetail",
+    "annotations",
+    "build_instruction_pack",
+    "dataclass",
+    "export_artifact_targets",
+    "export_chatgpt_artifacts",
+    "export_claude_artifacts",
+    "export_grok_artifacts",
+    "json",
+    "resolve_portable_targets",
+]
 
 
 def _target_module() -> _ModuleType:
@@ -18,11 +39,7 @@ def _target_module() -> _ModuleType:
 
 
 def _public_exports() -> list[str]:
-    global _public_names
-    if _public_names is None:
-        module = _target_module()
-        _public_names = list(getattr(module, "__all__", [name for name in vars(module) if not name.startswith("_")]))
-    return _public_names
+    return list(_public_names or [])
 
 
 def __getattr__(name: str) -> object:

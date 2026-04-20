@@ -1,21 +1,28 @@
 """Cortex — local AI identity and memory toolkit."""
 
+from __future__ import annotations
+
 import warnings as _warnings
 from importlib import import_module as _import_module
 
-from cortex.channel_runtime import (
-    HERMES_PROFILE,
-    OPENCLAW_PROFILE,
-    ChannelContextBridge,
-    ChannelMessage,
-    ChannelWriteBatch,
-    GenericChannelAdapter,
-    channel_write_plan,
-)
-from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
-from cortex.session import MemorySession, branch_name_for_task, render_search_context
+from cortex.release import PROJECT_VERSION
 
 __version__ = PROJECT_VERSION
+
+_EXPORTS = {
+    "API_VERSION": "cortex.release",
+    "OPENAPI_VERSION": "cortex.release",
+    "ChannelContextBridge": "cortex.channel_runtime",
+    "ChannelMessage": "cortex.channel_runtime",
+    "ChannelWriteBatch": "cortex.channel_runtime",
+    "GenericChannelAdapter": "cortex.channel_runtime",
+    "HERMES_PROFILE": "cortex.channel_runtime",
+    "OPENCLAW_PROFILE": "cortex.channel_runtime",
+    "MemorySession": "cortex.session",
+    "branch_name_for_task": "cortex.session",
+    "channel_write_plan": "cortex.channel_runtime",
+    "render_search_context": "cortex.session",
+}
 
 _LAZY_COMPAT_SUBMODULES = {
     "adapters",
@@ -82,6 +89,11 @@ _LAZY_COMPAT_SUBMODULES = {
 
 
 def __getattr__(name: str):
+    export_module = _EXPORTS.get(name)
+    if export_module is not None:
+        value = getattr(_import_module(export_module), name)
+        globals()[name] = value
+        return value
     if name in _LAZY_COMPAT_SUBMODULES:
         module = _import_module(f"cortex.{name}")
         message = getattr(module, "_MESSAGE", None)

@@ -8,7 +8,6 @@ Roundtrip guarantees:
 
 from __future__ import annotations
 
-from cortex.extraction.extract_memory import are_similar
 from cortex.graph.graph import (
     CATEGORY_ORDER,
     CortexGraph,
@@ -165,6 +164,7 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
                 label_to_id[norm] = nid
 
     # ----- Pass 2: Resolve relationship strings → edges ---------------------
+    are_similar_func = None
     for node in list(graph.nodes.values()):
         rel_strings = []
         # Gather relationship strings from ALL matching v4 categories
@@ -186,8 +186,10 @@ def upgrade_v4_to_v5(v4_data: dict) -> CortexGraph:
 
             if not target_id:
                 # Try fuzzy match
+                if are_similar_func is None:
+                    from cortex.extraction.extract_memory import are_similar as are_similar_func
                 for existing_norm, eid in label_to_id.items():
-                    if are_similar(rel_norm, existing_norm, threshold=0.8):
+                    if are_similar_func(rel_norm, existing_norm, threshold=0.8):
                         target_id = eid
                         break
 

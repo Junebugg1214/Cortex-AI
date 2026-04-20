@@ -7,24 +7,40 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 try:  # pragma: no cover - Python 3.11+
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
-from cortex.compat import upgrade_v4_to_v5
-from cortex.extraction import collect_bulk_texts, get_bulk_backend, merged_v4_from_results
-from cortex.extraction.extract_memory import AggressiveExtractor, PIIRedactor, load_file
-from cortex.extraction.sources import SourceRegistry
-from cortex.graph.claims import stamp_graph_provenance
 from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
-from cortex.graph.temporal import TEMPORAL_REVIEW_QUEUE_KEY, apply_temporal_review_policy
 from cortex.import_memory import NormalizedContext
 from cortex.portability.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
 from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, PORTABLE_TARGET_ALIASES, PORTABLE_TARGET_ORDER
 from cortex.portability.portable_graphs import merge_graphs
+
+if TYPE_CHECKING:
+    from cortex.extraction.extract_memory import AggressiveExtractor, PIIRedactor
+
+
+def collect_bulk_texts(*args, **kwargs):
+    from cortex.extraction import collect_bulk_texts as impl
+
+    return impl(*args, **kwargs)
+
+
+def get_bulk_backend():
+    from cortex.extraction import get_bulk_backend as impl
+
+    return impl()
+
+
+def merged_v4_from_results(*args, **kwargs):
+    from cortex.extraction import merged_v4_from_results as impl
+
+    return impl(*args, **kwargs)
+
 
 DEFAULT_DIRECT_TARGETS = ["claude-code", "codex", "cursor", "copilot", "windsurf", "gemini"]
 ALL_PORTABLE_TARGETS = list(PORTABLE_TARGET_ORDER)
@@ -970,6 +986,9 @@ def render_detected_source_text(target: str, path: Path, *, include_unmanaged_te
 
 
 def _extract_graph_from_text(text: str) -> CortexGraph:
+    from cortex.compat import upgrade_v4_to_v5
+    from cortex.extraction.extract_memory import AggressiveExtractor
+
     extractor = AggressiveExtractor()
     payload = extractor.process_plain_text(text)
     graph = upgrade_v4_to_v5(payload)
@@ -1036,6 +1055,12 @@ def extract_graph_from_detected_sources(
     include_unmanaged_text: bool = False,
     redactor: PIIRedactor | None = None,
 ) -> dict[str, Any]:
+    from cortex.compat import upgrade_v4_to_v5
+    from cortex.extraction.extract_memory import AggressiveExtractor, load_file
+    from cortex.extraction.sources import SourceRegistry
+    from cortex.graph.claims import stamp_graph_provenance
+    from cortex.graph.temporal import TEMPORAL_REVIEW_QUEUE_KEY, apply_temporal_review_policy
+
     requested = resolve_requested_targets(targets)
     selected_targets = set(requested)
     selected_sources: list[dict[str, Any]] = []
