@@ -12,11 +12,11 @@ from cortex.cli_parser_extract import add_extract_pipeline_parsers
 from cortex.cli_parser_graph import add_graph_history_parsers
 from cortex.cli_parser_portable import add_portable_mind_pack_parsers
 from cortex.cli_parser_runtime_misc import add_runtime_misc_parsers
-from cortex.versioning.upai.disclosure import BUILTIN_POLICIES
 
 ADVANCED_HELP_NOTE = cli_surface_module.ADVANCED_HELP_NOTE
 CONNECT_RUNTIME_TARGETS = cli_surface_module.CONNECT_RUNTIME_TARGETS
 CortexArgumentParser = cli_surface_module.CortexArgumentParser
+DISCLOSURE_POLICY_CHOICES = cli_surface_module.DISCLOSURE_POLICY_CHOICES
 FIRST_CLASS_COMMANDS = cli_surface_module.FIRST_CLASS_COMMANDS
 MIND_HELP_EPILOG = cli_surface_module.MIND_HELP_EPILOG
 PACK_HELP_EPILOG = cli_surface_module.PACK_HELP_EPILOG
@@ -24,6 +24,7 @@ add_setup_and_runtime_parsers = cli_surface_module.add_setup_and_runtime_parsers
 _add_runtime_security_args = cli_runtime_module._add_runtime_security_args
 
 GOVERNANCE_ACTION_CHOICES = ("branch", "merge", "pull", "push", "read", "rollback", "write")
+BUILTIN_POLICY_CHOICES = dict.fromkeys(DISCLOSURE_POLICY_CHOICES)
 
 PLATFORM_FORMATS = {
     "claude": ["claude-preferences", "claude-memories"],
@@ -246,15 +247,19 @@ def build_parser(*, show_all_commands: bool = False):
 
     cli_v2_sub = _CliV2SubparserAdapter(sub)
     add_setup_and_runtime_parsers(cli_v2_sub, add_runtime_security_args=_add_runtime_security_args)
-    add_extract_pipeline_parsers(cli_v2_sub, platform_formats=PLATFORM_FORMATS, builtin_policies=BUILTIN_POLICIES)
+    add_extract_pipeline_parsers(
+        cli_v2_sub,
+        platform_formats=PLATFORM_FORMATS,
+        builtin_policies=BUILTIN_POLICY_CHOICES,
+    )
     add_graph_history_parsers(
         cli_v2_sub,
         governance_action_choices=GOVERNANCE_ACTION_CHOICES,
-        builtin_policies=BUILTIN_POLICIES,
+        builtin_policies=BUILTIN_POLICY_CHOICES,
     )
     add_portable_mind_pack_parsers(
         cli_v2_sub,
-        builtin_policies=BUILTIN_POLICIES,
+        builtin_policies=BUILTIN_POLICY_CHOICES,
         mind_help_epilog=MIND_HELP_EPILOG,
         pack_help_epilog=PACK_HELP_EPILOG,
     )

@@ -7,9 +7,9 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-IMPORT_BUDGET_MS = 150
+IMPORT_BUDGET_MS = 120
 HELP_BUDGET_MS = 200
-STATUS_BUDGET_MS = 250
+STATUS_BUDGET_MS = 220
 
 
 def _budget_ms(base_ms: int) -> float:
@@ -62,24 +62,51 @@ def test_cortex_status_cold_is_under_budget(tmp_path: Path) -> None:
     _time_cmd(["-m", "cortex", "status", "--store-dir", str(store_dir)], STATUS_BUDGET_MS, cwd=tmp_path)
 
 
-def test_no_extraction_imports_on_cortex_help() -> None:
-    """Proof that extraction is not pulled in for a trivial CLI call."""
+def _importtime_log(args: list[str], *, cwd: Path = REPO_ROOT) -> str:
     result = subprocess.run(
-        [sys.executable, "-X", "importtime", "-m", "cortex", "--help"],
-        cwd=REPO_ROOT,
+        [sys.executable, "-X", "importtime", *args],
+        cwd=cwd,
         capture_output=True,
         check=False,
         env=_env(),
     )
-    assert result.returncode == 0
-    log = result.stderr.decode()
+    assert result.returncode == 0, result.stderr.decode()[:500]
+    return result.stderr.decode()
+
+
+def test_no_extraction_imports_on_cortex_help(tmp_path: Path) -> None:
+    """Proof that trivial CLI calls do not pull in heavyweight runtimes."""
+    store_dir = tmp_path / ".cortex"
+    init_result = subprocess.run(
+        [sys.executable, "-m", "cortex", "init", "--store-dir", str(store_dir)],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        env=_env(),
+    )
+    assert init_result.returncode == 0, init_result.stderr.decode()[:500]
+
     forbidden = [
         "cortex.extraction.model_backend",
         "cortex.extraction.hybrid_backend",
         "cortex.extraction.embedding_backend",
         "cortex.extraction.llm_provider",
+        "cortex.mcp.mcp_tools",
+        "cortex.service.openapi",
+        "cortex.service.asgi_app",
         "anthropic",
         "sentence_transformers",
     ]
-    offenders = [mod for mod in forbidden if mod in log]
-    assert not offenders, f"cortex --help pulled in: {offenders}"
+    traces = {
+        "cortex --help": _importtime_log(["-m", "cortex", "--help"]),
+        "cortex status": _importtime_log(
+            ["-m", "cortex", "status", "--store-dir", str(store_dir)],
+            cwd=tmp_path,
+        ),
+    }
+    offenders = {
+        name: [mod for mod in forbidden if mod in log]
+        for name, log in traces.items()
+        if any(mod in log for mod in forbidden)
+    }
+    assert not offenders, f"trivial CLI calls pulled in: {offenders}"

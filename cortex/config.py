@@ -15,7 +15,6 @@ from cortex.namespaces import (
     normalize_resource_namespace,
 )
 from cortex.release import API_VERSION, OPENAPI_VERSION, PROJECT_VERSION
-from cortex.service.http_hardening import RATE_LIMIT_BACKENDS, request_policy_for_mode
 
 try:  # pragma: no cover - exercised implicitly on Python 3.10
     import tomllib
@@ -25,6 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python <3.11
 ALL_SCOPES = ("read", "write", "branch", "merge", "index", "prune", "remote")
 VALID_SCOPES = set(ALL_SCOPES) | {"*", "admin"}
 RUNTIME_MODES = ("local-single-user", "hosted-service")
+RATE_LIMIT_BACKENDS = ("memory", "sqlite")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 HTTP_RUNTIME_SURFACES = {"api", "ui"}
 
@@ -594,6 +594,8 @@ def startup_diagnostics(config: CortexSelfHostConfig, *, mode: str) -> dict[str,
         "warnings": warnings,
     }
     if mode in {"server", "ui"}:
+        from cortex.service.http_hardening import request_policy_for_mode
+
         diagnostics["request_policy"] = request_policy_for_mode(config.runtime_mode).to_dict()
     return diagnostics
 
