@@ -37,6 +37,49 @@ class PortableCliContext:
 
 def run_sync(args, *, ctx: PortableCliContext) -> int:
     """Disclosure-filtered export via platform adapters or smart portability sync."""
+
+    def _sync_portability_targets(graph: CortexGraph, graph_path: Path, targets: list[str]) -> int:
+        from cortex.portability.portability import resolve_portable_targets
+        from cortex.portability.portable_runtime import (
+            ALL_PORTABLE_TARGETS,
+            load_portability_state,
+            sync_targets,
+        )
+
+        store_dir = Path(args.store_dir)
+        state = load_portability_state(store_dir)
+        project_dir = (
+            Path(args.project) if args.project else Path(state.project_dir) if state.project_dir else Path.cwd()
+        )
+        output_dir = Path(args.output)
+        resolved_targets = resolve_portable_targets(targets)
+        try:
+            payload = sync_targets(
+                graph,
+                targets=ALL_PORTABLE_TARGETS if resolved_targets == list(ALL_PORTABLE_TARGETS) else resolved_targets,
+                store_dir=store_dir,
+                project_dir=str(project_dir),
+                output_dir=output_dir,
+                graph_path=graph_path,
+                policy_name=args.policy,
+                smart=bool(getattr(args, "smart", False)),
+                max_chars=args.max_chars,
+                state=state,
+            )
+        except PermissionError:
+            return ctx.permission_error(output_dir, action="write synced portability files")
+        except OSError as exc:
+            return ctx.error(f"Could not sync portability files into {output_dir}: {exc}")
+        if ctx.emit_result(payload, args.format) == 0:
+            return 0
+        target_label = "all supported portability targets" if targets == ["all"] else ", ".join(resolved_targets)
+        ctx.echo(f"Synced to {target_label}:")
+        for target in payload["targets"]:
+            label = target["target"]
+            route = ", ".join(target.get("route_tags") or []) or "default route"
+            ctx.echo(f"  {label:<12} → {route}")
+        return 0
+
     if getattr(args, "smart", False):
         from cortex.graph.minds import resolve_default_mind, sync_mind_compatibility_targets
         from cortex.portability.portable_runtime import (
@@ -48,6 +91,13 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
         )
 
         store_dir = Path(args.store_dir)
+        if args.input_file:
+            input_path = Path(args.input_file)
+            if not input_path.exists():
+                return ctx.missing_path_error(input_path, label="Context file")
+            graph = ctx.load_graph(input_path)
+            return _sync_portability_targets(graph, input_path, ["all"])
+
         try:
             default_mind = resolve_default_mind(store_dir)
         except (FileNotFoundError, ValueError) as exc:
@@ -113,10 +163,14 @@ def run_sync(args, *, ctx: PortableCliContext) -> int:
 
     if not args.to:
         return ctx.error("Specify --to for adapter export mode, or use --smart.")
-    if args.to not in ADAPTERS:
-        return ctx.error(f"Unknown adapter target: {args.to}")
 
     graph = ctx.load_graph(input_path)
+    if args.to == "all" or args.to not in ADAPTERS:
+        try:
+            return _sync_portability_targets(graph, input_path, [args.to])
+        except ValueError as exc:
+            return ctx.error(str(exc))
+
     adapter = ADAPTERS[args.to]
     policy = BUILTIN_POLICIES[args.policy]
     output_dir = Path(args.output)

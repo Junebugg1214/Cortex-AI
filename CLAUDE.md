@@ -19,7 +19,9 @@ It extracts context from exports and local project signals, writes tool-specific
 ## Portability Commands
 
 ```bash
-cortex sync <export-or-graph> --to all --project .
+cortex sync <export-or-graph> --smart --project .
+# or, for a single target:
+cortex sync <export-or-graph> --to codex --project .
 cortex source status
 cortex extract run <export-file> -o context.json
 cortex sync --smart
