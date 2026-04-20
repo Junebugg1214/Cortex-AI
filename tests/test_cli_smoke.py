@@ -358,6 +358,7 @@ def test_legacy_cli_compatibility_flows_still_work_with_json_contracts(tmp_path,
         [
             "remember",
             "I prefer concise technical answers.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

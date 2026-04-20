@@ -266,8 +266,80 @@ def run_scan(args, *, ctx: WorkspaceCliContext) -> int:
 
 
 def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
-    from cortex.graph.minds import remember_and_sync_default_mind, resolve_default_mind
-    from cortex.portability.portable_runtime import ALL_PORTABLE_TARGETS, remember_and_sync
+    from cortex.graph.minds import load_mind_core_graph, remember_and_sync_default_mind, resolve_default_mind
+    from cortex.portability.portable_graphs import extract_graph_from_statement, merge_graphs
+    from cortex.portability.portable_runtime import (
+        ALL_PORTABLE_TARGETS,
+        canonical_target_name,
+        default_output_dir,
+        load_portability_state,
+        remember_and_sync,
+        sync_targets,
+    )
+
+    def _is_within(path: Path, root: Path) -> bool:
+        try:
+            path.resolve().relative_to(root.resolve())
+            return True
+        except ValueError:
+            return False
+
+    def _outside_project_paths(payload: dict[str, Any]) -> list[Path]:
+        outside: list[Path] = []
+        seen: set[Path] = set()
+        for target in payload.get("targets", []):
+            for raw_path in target.get("paths", []):
+                if not raw_path:
+                    continue
+                path = Path(str(raw_path)).expanduser().resolve()
+                if _is_within(path, project_dir):
+                    continue
+                if path not in seen:
+                    outside.append(path)
+                    seen.add(path)
+        return outside
+
+    def _preview_payload(default_mind: str | None) -> dict[str, Any]:
+        targets = list(args.to or ALL_PORTABLE_TARGETS)
+        if default_mind:
+            state = load_portability_state(store_dir)
+            base_payload = load_mind_core_graph(store_dir, default_mind)
+            merged = merge_graphs(base_payload["graph"], extract_graph_from_statement(args.statement))
+            output_dir = Path(state.output_dir) if state.output_dir else default_output_dir(store_dir)
+            return {
+                "targets": sync_targets(
+                    merged,
+                    targets=[canonical_target_name(target) for target in targets],
+                    store_dir=store_dir,
+                    project_dir=str(project_dir),
+                    output_dir=output_dir,
+                    graph_path=output_dir / "context.json",
+                    policy_name=args.policy,
+                    smart=args.smart,
+                    max_chars=args.max_chars,
+                    dry_run=True,
+                    state=state,
+                    persist_state=False,
+                )["targets"]
+            }
+        return remember_and_sync(
+            args.statement,
+            store_dir=store_dir,
+            project_dir=project_dir,
+            targets=targets,
+            smart=args.smart,
+            policy_name=args.policy,
+            max_chars=args.max_chars,
+            dry_run=True,
+        )
+
+    def _global_scope_error(paths: list[Path]) -> int:
+        rendered_paths = "\n".join(f"  - {path}" for path in paths)
+        return ctx.error(
+            "The following paths are outside --project and will be written:\n"
+            f"{rendered_paths}\n"
+            "Re-run with --global to confirm, or use --to PROJECT_TARGET to narrow."
+        )
 
     ctx.emit_compatibility_note(
         "remember",
@@ -282,6 +354,11 @@ def run_remember(args, *, ctx: WorkspaceCliContext) -> int:
         default_mind = resolve_default_mind(store_dir)
     except (FileNotFoundError, ValueError) as exc:
         return ctx.error(str(exc))
+
+    preview_payload = _preview_payload(default_mind)
+    outside_paths = _outside_project_paths(preview_payload)
+    if outside_paths and not args.dry_run and not getattr(args, "allow_global", False):
+        return _global_scope_error(outside_paths)
 
     if default_mind and not args.dry_run:
         payload = remember_and_sync_default_mind(

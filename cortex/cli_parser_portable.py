@@ -120,6 +120,18 @@ def add_portable_mind_pack_parsers(sub, *, builtin_policies, mind_help_epilog, p
     )
     rem.add_argument("--max-chars", type=int, default=1500, help="Max characters per written context file")
     rem.add_argument("--dry-run", action="store_true", help="Preview without writing files")
+    rem.add_argument(
+        "--global",
+        dest="allow_global",
+        action="store_true",
+        help="Allow remember to update target files outside --project, such as home-scoped runtime files",
+    )
+    rem.add_argument(
+        "--yes-global",
+        dest="allow_global",
+        action="store_true",
+        help="Alias for --global",
+    )
     rem.add_argument("--format", choices=["json", "text"], default="text")
 
     sts = sub.add_parser(

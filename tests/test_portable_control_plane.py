@@ -65,6 +65,7 @@ def test_remember_propagates_and_scan_audits(tmp_path, capsys, monkeypatch):
         [
             "remember",
             "We migrated from PostgreSQL to CockroachDB in January.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -224,6 +225,7 @@ def test_default_mind_remember_routes_through_mind_and_updates_targets(tmp_path,
         [
             "remember",
             "I prefer concise, implementation-first responses.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -1485,6 +1487,7 @@ def test_doctor_reports_portability_state_and_smart_routing(tmp_path, capsys, mo
         [
             "remember",
             "We use Vitest and prefer direct technical answers.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -1524,6 +1527,7 @@ def test_doctor_text_mode_is_health_first_by_default(tmp_path, capsys, monkeypat
         [
             "remember",
             "We use Vitest and prefer direct technical answers.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

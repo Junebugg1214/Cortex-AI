@@ -630,6 +630,7 @@ def test_mcp_portability_context_returns_live_target_slice(tmp_path, monkeypatch
         [
             "remember",
             "We use CockroachDB now.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",
@@ -874,6 +875,7 @@ def test_mcp_portability_context_uses_canonical_updated_at_after_cli_changes(tmp
         [
             "remember",
             "We use CockroachDB now.",
+            "--global",
             "--project",
             str(project_dir),
             "--store-dir",

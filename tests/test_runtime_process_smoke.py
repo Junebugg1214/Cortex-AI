@@ -438,6 +438,7 @@ def test_cortex_mcp_process_serves_live_portability_after_cli_changes(tmp_path, 
             [
                 "remember",
                 "We use CockroachDB now.",
+                "--global",
                 "--project",
                 str(project_dir),
                 "--store-dir",
