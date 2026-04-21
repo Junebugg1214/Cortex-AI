@@ -1,6 +1,25 @@
-# Cortex-AI
+# Cortex
 
-Cortex is a local-first memory/versioning toolkit for AI context. It gives you a user-owned graph on disk, Git-like commits and branches, merge/review tools, non-destructive mounts into local AI tool files, and a JSON-RPC MCP server.
+**Git for AI memory. Local-first, MCP-native.**
+
+Cortex is a local memory layer for AI agents. It gives you a user-owned graph on disk with Git-like commits, branches, merge, blame, and source-backed retraction — and an MCP server any agent can read from.
+
+No Cortex cloud. No Cortex API key. Your agent keeps using its own LLM; Cortex is just where the memory lives. Optional model-based extraction uses your own provider key.
+
+**Works with:** Claude Code · Cursor · Codex · Windsurf · Copilot · Gemini CLI · ChatGPT · Grok · **[OpenClaw](docs/OPENCLAW_QUICKSTART.md)** · **[Hermes](docs/HERMES_QUICKSTART.md)**
+
+```bash
+pip install cortex-identity
+cortex init
+cortex remember "We use TypeScript and Supabase"
+cortex sync --smart --project .   # fans out to every tool you use
+```
+
+Demos: [retraction](demos/retraction.mp4) · [portability](demos/portability.mp4) · [audience](demos/audience.mp4) (also available as [asciinema casts](demos/README_DEMOS.md))
+
+![portability](demos/portability.svg)
+
+---
 
 Local-first. No Cortex cloud, no Cortex key. Integrate over MCP, local REST, or SDK. Model extraction is opt-in and uses your own provider key.
 
