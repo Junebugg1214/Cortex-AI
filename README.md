@@ -9,9 +9,9 @@ No Cortex cloud. No Cortex API key. Your agent keeps using its own LLM; Cortex i
 **Works with:** Claude Code · Cursor · Codex · Windsurf · Copilot · Gemini CLI · ChatGPT · Grok · **[OpenClaw](docs/OPENCLAW_QUICKSTART.md)** · **[Hermes](docs/HERMES_QUICKSTART.md)**
 
 ```bash
-pip install cortex-identity
+python3.11 -m pip install --upgrade "cortex-identity @ git+https://github.com/Junebugg1214/Cortex-AI.git@main"
 cortex init
-cortex remember "We use TypeScript and Supabase"
+cortex mind remember self "We use TypeScript and Supabase"
 cortex sync --smart --project .   # fans out to every tool you use
 ```
 
@@ -27,8 +27,21 @@ This README is intentionally implementation-aligned. Examples use supported comm
 
 ## Install
 
+The current Mind CLI (`cortex init`, `cortex mind ...`) is available from the
+GitHub build. A plain `pip install cortex-identity` may install an older PyPI
+wheel whose help output does not include `init` or `mind`.
+
 ```bash
-python3.11 -m pip install cortex-identity
+python3.11 -m pip install --upgrade "cortex-identity @ git+https://github.com/Junebugg1214/Cortex-AI.git@main"
+cortex --help   # should list init and mind
+```
+
+On Windows, if pip says the user Scripts directory is not on `PATH`, add it for
+the current terminal before running `cortex`:
+
+```bat
+py -3.11 -m pip install --user --upgrade "cortex-identity @ git+https://github.com/Junebugg1214/Cortex-AI.git@main"
+set "PATH=%APPDATA%\Python\Python311\Scripts;%PATH%"
 cortex --help
 ```
 
