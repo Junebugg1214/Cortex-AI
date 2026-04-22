@@ -14,11 +14,11 @@ Use `--fast` to reduce all delays by 80% for CI, quick previews, or capture rehe
 
 ## Pre-recorded demos
 
-| Demo | Cast | SVG |
-| --- | --- | --- |
-| Retraction | [retraction.cast](retraction.cast) | ![retraction](retraction.svg) |
-| Portability | [portability.cast](portability.cast) | ![portability](portability.svg) |
-| Audience | [audience.cast](audience.cast) | ![audience](audience.svg) |
+| Demo | ▶ Watch | Cast | SVG | MP4 |
+| --- | --- | --- | --- | --- |
+| Retraction | [asciinema.org](https://asciinema.org/a/76q9LiYNNainYazH) | [retraction.cast](retraction.cast) | ![retraction](retraction.svg) | [retraction.mp4](retraction.mp4) |
+| Portability | [asciinema.org](https://asciinema.org/a/pL0mBuYKYNyfQmcZ) | [portability.cast](portability.cast) | ![portability](portability.svg) | [portability.mp4](portability.mp4) |
+| Audience | [asciinema.org](https://asciinema.org/a/QX0SDI953AYCYp9S) | [audience.cast](audience.cast) | ![audience](audience.svg) | [audience.mp4](audience.mp4) |
 
 Recommended recording workflows:
 
