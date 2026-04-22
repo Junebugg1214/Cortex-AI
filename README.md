@@ -12,7 +12,7 @@ No Cortex cloud. No Cortex API key. Your agent keeps using its own LLM; Cortex i
 python3.11 -m pip install --upgrade "cortex-identity @ git+https://github.com/Junebugg1214/Cortex-AI.git@main"
 cortex init
 cortex mind remember self "We use TypeScript and Supabase"
-cortex sync --smart --project .   # fans out to every tool you use
+cortex mind mount self --to codex --project . --task "product strategy"
 ```
 
 Demos: [retraction](demos/retraction.mp4) · [portability](demos/portability.mp4) · [audience](demos/audience.mp4) (also available as [asciinema casts](demos/README_DEMOS.md))
@@ -211,7 +211,8 @@ The HTTP server is intended for local or operator-managed deployments. Put it be
 | `cortex pack` | Manage Brainpacks |
 | `cortex audience` | Manage audience disclosure policies |
 | `cortex remote` | Push/pull local-filesystem remotes |
-| `cortex verify` | Verify signed exports or store integrity |
+| `cortex verify` | Verify signed exports |
+| `cortex admin integrity check` | Verify store lineage, version chains, and checksums |
 | `cortex admin doctor` | Inspect and repair local store/config issues |
 
 Run `cortex COMMAND --help` for the exact flags supported by your installed version.
