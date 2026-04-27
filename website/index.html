@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -46,13 +46,19 @@
               reviewable, and mounted into the tools you actually use.
             </p>
             <div class="hero-actions">
-              <a class="button button-primary" href="./learn.html">Start Learning</a>
-              <a class="button button-secondary" href="./how-it-works.html">See the Model</a>
+              <a class="button button-primary" href="./learn.html">
+                <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span>
+                Start Learning
+              </a>
+              <a class="button button-secondary" href="./how-it-works.html">
+                <span class="material-symbols-outlined" aria-hidden="true">account_tree</span>
+                See the Model
+              </a>
             </div>
             <ul class="hero-points">
               <li>Local-first storage you control</li>
               <li>Git-style history for memory changes</li>
-              <li>Target-aware mounts for Codex, Claude Code, Cursor, and more</li>
+              <li>Target-aware mounts for Codex, Cursor, Claude Code, MCP, Hermes, and OpenClaw</li>
             </ul>
           </div>
 
@@ -135,25 +141,29 @@
           </div>
 
           <div class="feature-grid">
-            <article class="feature-card mint">
+            <article class="feature-card">
+              <span class="feature-icon material-symbols-outlined" aria-hidden="true">memory</span>
               <div class="card-kicker">Layer 01</div>
               <h3>Core state</h3>
               <p>Identity, preferences, project facts, relationships, constraints, and durable context.</p>
             </article>
-            <article class="feature-card coral">
+            <article class="feature-card">
+              <span class="feature-icon material-symbols-outlined" aria-hidden="true">extension</span>
               <div class="card-kicker">Layer 02</div>
               <h3>Brainpacks</h3>
               <p>Specialist cognition packs that Cortex compiles, attaches, routes, and mounts by task.</p>
             </article>
-            <article class="feature-card sky">
+            <article class="feature-card">
+              <span class="feature-icon material-symbols-outlined" aria-hidden="true">history</span>
               <div class="card-kicker">Layer 03</div>
               <h3>Version history</h3>
               <p>Commit, branch, diff, review, merge, rollback, and blame over the underlying graph.</p>
             </article>
-            <article class="feature-card sand">
+            <article class="feature-card">
+              <span class="feature-icon material-symbols-outlined" aria-hidden="true">hub</span>
               <div class="card-kicker">Layer 04</div>
               <h3>Runtime mounts</h3>
-              <p>Materialized slices for Codex, Claude Code, Cursor, MCP clients, and self-hosted flows.</p>
+              <p>Materialized slices for Codex, Cursor, Claude Code, MCP, Hermes, and OpenClaw.</p>
             </article>
           </div>
         </section>
@@ -235,8 +245,8 @@ $ cortex mind mount self --to codex cursor claude-code --task "launch prep"</cod
                 <h3>For people building with multiple AI coding tools</h3>
                 <p>
                   Keep your stack, conventions, and active project state portable as you move
-                  between coding agents. Mount the same Mind into Codex, Cursor, Claude Code, or an
-                  MCP client without rewriting your background every time.
+                  between coding agents. Mount the same Mind into Codex, Cursor, Claude Code, MCP,
+                  Hermes, or OpenClaw without rewriting your background every time.
                 </p>
               </article>
               <article class="tab-panel" data-panel="operators">
@@ -275,10 +285,12 @@ $ cortex mind mount self --to codex cursor claude-code --task "launch prep"</cod
           </div>
           <div class="learn-links">
             <a class="learn-card" href="./how-it-works.html">
+              <span class="learn-card-icon material-symbols-outlined" aria-hidden="true">schema</span>
               <strong>How Cortex Works</strong>
               <span>Minds, Brainpacks, branches, mounts, and composition</span>
             </a>
             <a class="learn-card" href="./learn.html">
+              <span class="learn-card-icon material-symbols-outlined" aria-hidden="true">terminal</span>
               <strong>Quickstart & Docs</strong>
               <span>Install, first commands, agent loops, and self-hosting paths</span>
             </a>

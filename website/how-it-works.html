@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -43,6 +43,14 @@
             Portable AI context, Brainpacks, and Git-for-memory history all converge around one
             top-level object: the Mind. That is the key to understanding what Cortex is actually for.
           </p>
+          <div class="target-ribbon" aria-label="Supported Cortex runtime surfaces">
+            <span>Codex</span>
+            <span>Cursor</span>
+            <span>Claude Code</span>
+            <span>MCP</span>
+            <span>Hermes</span>
+            <span>OpenClaw</span>
+          </div>
         </section>
 
         <section class="section">
@@ -67,7 +75,107 @@
               </article>
               <article>
                 <span>Mounts</span>
-                <p>Rendered slices for tools, agent runtimes, and self-hosted services.</p>
+                <p>Rendered slices for Codex, Cursor, Claude Code, MCP, Hermes, and OpenClaw.</p>
+              </article>
+            </div>
+            <div class="mind-graph" aria-label="Cortex Mind graph">
+              <div class="graph-column">
+                <span class="graph-label">Sources</span>
+                <div class="graph-node">Local context</div>
+                <div class="graph-node">Brainpacks</div>
+                <div class="graph-node">Review proposals</div>
+              </div>
+              <div class="graph-column graph-column-center">
+                <span class="graph-label">Mind graph</span>
+                <div class="graph-hub">
+                  <span>Versioned core</span>
+                  <strong>branch + policy + provenance</strong>
+                </div>
+              </div>
+              <div class="graph-column">
+                <span class="graph-label">Runtime slices</span>
+                <div class="graph-node accent">Compose</div>
+                <div class="graph-node accent">Mount</div>
+                <div class="graph-node accent">Sync</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section runtime-section">
+          <div class="section-heading centered">
+            <div class="eyebrow">Runtime constellation</div>
+            <h2>One Mind can compose precise slices for every supported surface.</h2>
+            <p>
+              Cortex keeps the durable graph local, then renders target-aware context for coding
+              agents, MCP-capable runtimes, and operator-managed environments.
+            </p>
+          </div>
+
+          <div class="runtime-constellation">
+            <div class="constellation-canvas" aria-label="Mind connected to runtime targets">
+              <svg class="constellation-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M50 50 L16 22" />
+                <path d="M50 50 L50 14" />
+                <path d="M50 50 L84 22" />
+                <path d="M50 50 L16 78" />
+                <path d="M50 50 L50 86" />
+                <path d="M50 50 L84 78" />
+              </svg>
+              <div class="constellation-node constellation-hub">
+                <span class="material-symbols-outlined" aria-hidden="true">hub</span>
+                <strong>Mind</strong>
+              </div>
+              <div class="constellation-node node-codex">
+                <span>Codex</span>
+              </div>
+              <div class="constellation-node node-cursor">
+                <span>Cursor</span>
+              </div>
+              <div class="constellation-node node-claude">
+                <span>Claude Code</span>
+              </div>
+              <div class="constellation-node node-mcp">
+                <span>MCP</span>
+              </div>
+              <div class="constellation-node node-hermes">
+                <span>Hermes</span>
+              </div>
+              <div class="constellation-node node-openclaw">
+                <span>OpenClaw</span>
+              </div>
+            </div>
+
+            <div class="runtime-targets">
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">terminal</span>
+                <h3>Codex</h3>
+                <p>Mount project-aware instructions into Codex workspaces.</p>
+              </article>
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">stylus_note</span>
+                <h3>Cursor</h3>
+                <p>Keep editor context aligned with the same durable Mind.</p>
+              </article>
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">code_blocks</span>
+                <h3>Claude Code</h3>
+                <p>Render coding-agent memory without rebuilding setup by hand.</p>
+              </article>
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">schema</span>
+                <h3>MCP</h3>
+                <p>Expose structured local memory through agent-readable tools.</p>
+              </article>
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">deployed_code</span>
+                <h3>Hermes</h3>
+                <p>Wire Cortex-managed memory into the Hermes runtime path.</p>
+              </article>
+              <article class="runtime-card">
+                <span class="material-symbols-outlined" aria-hidden="true">extension</span>
+                <h3>OpenClaw</h3>
+                <p>Inject mounted Brainpack and Mind context through plugin-aware flows.</p>
               </article>
             </div>
           </div>
@@ -106,7 +214,8 @@
               <h3>Mounts and composition</h3>
               <p>
                 Cortex does not send one giant instruction blob everywhere. It composes the right
-                memory slice for a target, task, policy, and attached Brainpacks, then mounts it.
+                memory slice for Codex, Cursor, Claude Code, MCP, Hermes, OpenClaw, task, policy,
+                and attached Brainpacks, then mounts it.
               </p>
             </article>
           </div>
@@ -162,8 +271,8 @@
               <div>
                 <h3>Compose and mount</h3>
                 <p>
-                  Render the exact memory slice for Codex, Cursor, Claude Code, MCP, or a self-hosted
-                  runtime and materialize it into the environment.
+                  Render the exact memory slice for Codex, Cursor, Claude Code, MCP, Hermes, or
+                  OpenClaw and materialize it into the environment.
                 </p>
               </div>
             </article>
@@ -186,9 +295,9 @@
 $ cortex mind remember marc "I prefer concise, implementation-first responses."
 $ cortex pack init ai-memory --description "Portable AI memory research" --owner marc
 $ cortex pack compile ai-memory --suggest-questions
-$ cortex mind attach-pack marc ai-memory --always-on --target codex --task-term memory
+$ cortex mind attach-pack marc ai-memory --always-on --target codex --target hermes --task-term memory
 $ cortex mind compose marc --to codex --task "memory routing"
-$ cortex mind mount marc --to codex cursor claude-code --task "launch prep"</code></pre>
+$ cortex mind mount marc --to hermes openclaw codex cursor claude-code --task "launch prep"</code></pre>
           </div>
         </section>
 
