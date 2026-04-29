@@ -1,6 +1,7 @@
 {
-  "name": "@cortex/openclaw",
+  "name": "cortexai-openclaw",
   "version": "1.6.0",
+  "displayName": "CortexAI OpenClaw",
   "type": "module",
   "description": "Native OpenClaw plugin for Cortex portable context, cross-channel identity resolution, and durable per-user/per-thread memory.",
   "license": "MIT",

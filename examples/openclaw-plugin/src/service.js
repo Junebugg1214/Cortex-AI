@@ -413,7 +413,7 @@ export class CortexMcpService {
       "initialize",
       {
         protocolVersion: "2025-11-25",
-        clientInfo: { name: "@cortex/openclaw", version: PACKAGE_VERSION },
+        clientInfo: { name: "cortexai-openclaw", version: PACKAGE_VERSION },
       },
       timeoutMs,
     );

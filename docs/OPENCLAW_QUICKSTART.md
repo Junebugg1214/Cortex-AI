@@ -78,13 +78,13 @@ cortex scan
 
 ## 3. Install the OpenClaw Plugin
 
-Until `@cortex/openclaw` is published to npm, install from the local packed plugin tarball:
+Until `cortexai-openclaw` is published to npm, install from the local packed plugin tarball:
 
 ```bash
 cd examples/openclaw-plugin
 TARBALL="$(npm pack --silent)"
 openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
-openclaw plugins enable cortex-openclaw
+openclaw plugins enable cortexai-openclaw
 ```
 
 OpenClaw's installer flags this plugin because it starts the managed `cortex-mcp` sidecar with Node process APIs. Use `--dangerously-force-unsafe-install` only when you are installing from this trusted repo checkout or a pinned artifact you have reviewed.
@@ -92,8 +92,8 @@ OpenClaw's installer flags this plugin because it starts the managed `cortex-mcp
 Once the package is published to npm, the install command becomes:
 
 ```bash
-openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install
-openclaw plugins enable cortex-openclaw
+openclaw plugins install cortexai-openclaw --dangerously-force-unsafe-install
+openclaw plugins enable cortexai-openclaw
 ```
 
 Restart the gateway after the config in the next step is in place.
@@ -106,7 +106,7 @@ Recommended OpenClaw config:
 {
   plugins: {
     entries: {
-      "cortex-openclaw": {
+      "cortexai-openclaw": {
         enabled: true,
         hooks: {
           allowPromptInjection: true,
@@ -143,7 +143,7 @@ Apply the config, then restart and verify:
 
 ```bash
 openclaw gateway restart
-openclaw plugins inspect cortex-openclaw --json
+openclaw plugins inspect cortexai-openclaw --json
 # Optional broad diagnostics across all plugins:
 openclaw plugins doctor
 ```

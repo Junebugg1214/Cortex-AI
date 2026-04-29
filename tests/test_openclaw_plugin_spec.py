@@ -12,7 +12,9 @@ def test_openclaw_plugin_manifest_matches_schema_example():
     schema = json.loads((example_dir / "config.schema.json").read_text(encoding="utf-8"))
     package_json = json.loads((example_dir / "package.json").read_text(encoding="utf-8"))
 
-    assert manifest["id"] == "cortex-openclaw"
+    assert manifest["id"] == "cortexai-openclaw"
+    assert package_json["name"] == "cortexai-openclaw"
+    assert package_json["displayName"] == "CortexAI OpenClaw"
     assert manifest["configSchema"] == schema
     assert schema["type"] == "object"
     assert schema["additionalProperties"] is False
@@ -36,7 +38,7 @@ def test_openclaw_docs_match_install_contract():
 
     docs = "\n".join([quickstart, native, readme])
     assert "/Users/marcsaint-jour" not in docs
-    assert "cortex-openclaw-1.4.1.tgz" not in docs
+    assert "cortexai-openclaw-1.4.1.tgz" not in docs
     assert 'TARBALL="$(npm pack --silent)"' in docs
     assert "--dangerously-force-unsafe-install" in docs
     assert "allowPromptInjection: true" in docs

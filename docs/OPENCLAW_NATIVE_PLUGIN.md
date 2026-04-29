@@ -7,8 +7,8 @@ If you want the shortest copy-paste install and onboarding flow first, start wit
 Goal:
 
 - install from a local packed tarball today
-- install with `openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install` once the package is published
-- enable with `openclaw plugins enable cortex-openclaw`
+- install with `openclaw plugins install cortexai-openclaw --dangerously-force-unsafe-install` once the package is published
+- enable with `openclaw plugins enable cortexai-openclaw`
 - restart the gateway
 - get live Cortex context plus cross-channel durable memory automatically
 
@@ -37,7 +37,7 @@ The current local test/install flow is:
 cd examples/openclaw-plugin
 TARBALL="$(npm pack --silent)"
 openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
-openclaw plugins enable cortex-openclaw
+openclaw plugins enable cortexai-openclaw
 openclaw gateway restart
 ```
 
@@ -99,7 +99,7 @@ Recommended OpenClaw config:
 {
   plugins: {
     entries: {
-      "cortex-openclaw": {
+      "cortexai-openclaw": {
         enabled: true,
         hooks: {
           allowPromptInjection: true,
@@ -148,7 +148,7 @@ If routed context exists, the plugin injects it through `prependContext`.
 
 The plugin calls `channel_seed_turn_memory` over MCP and materializes the prepared per-user and per-thread memory branches.
 
-OpenClaw blocks this hook for non-bundled plugins unless `plugins.entries["cortex-openclaw"].hooks.allowConversationAccess` is `true`. Without that setting, context injection can still work, but durable post-turn memory seeding will not run.
+OpenClaw blocks this hook for non-bundled plugins unless `plugins.entries["cortexai-openclaw"].hooks.allowConversationAccess` is `true`. Without that setting, context injection can still work, but durable post-turn memory seeding will not run.
 
 ### `gateway_stop`
 
@@ -190,7 +190,7 @@ This repo now includes the real package scaffold and runtime logic.
 
 What still remains operational rather than code-level:
 
-- publishing `@cortex/openclaw` to npm
-- exercising `openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install` against the published package in release automation
+- publishing `cortexai-openclaw` to npm
+- exercising `openclaw plugins install cortexai-openclaw --dangerously-force-unsafe-install` against the published package in release automation
 
 Those are release steps, not missing runtime architecture.
