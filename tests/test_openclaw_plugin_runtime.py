@@ -29,8 +29,20 @@ def _seed_portability(base: Path) -> tuple[Path, Path]:
         ),
         encoding="utf-8",
     )
-    previous_home = os.environ.get("HOME")
+    previous_env = {
+        "HOME": os.environ.get("HOME"),
+        "CORTEX_BULK_BACKEND": os.environ.get("CORTEX_BULK_BACKEND"),
+        "CORTEX_ANTHROPIC_API_KEY": os.environ.get("CORTEX_ANTHROPIC_API_KEY"),
+        "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+        "CORTEX_MODEL_ID": os.environ.get("CORTEX_MODEL_ID"),
+        "CORTEX_ANTHROPIC_MODEL": os.environ.get("CORTEX_ANTHROPIC_MODEL"),
+    }
     os.environ["HOME"] = str(home_dir)
+    os.environ["CORTEX_BULK_BACKEND"] = "heuristic"
+    os.environ.pop("CORTEX_ANTHROPIC_API_KEY", None)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ.pop("CORTEX_MODEL_ID", None)
+    os.environ.pop("CORTEX_ANTHROPIC_MODEL", None)
     try:
         rc = main(
             [
@@ -47,10 +59,11 @@ def _seed_portability(base: Path) -> tuple[Path, Path]:
             ]
         )
     finally:
-        if previous_home is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = previous_home
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
     assert rc == 0
     return project_dir, store_dir
 

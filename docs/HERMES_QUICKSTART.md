@@ -138,6 +138,6 @@ It is:
 
 ## Related Docs
 
-- [PLATFORM_ONBOARDING.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/PLATFORM_ONBOARDING.md)
-- [PORTABILITY.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/PORTABILITY.md)
-- [CHANNEL_INTEGRATIONS.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/CHANNEL_INTEGRATIONS.md)
+- [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md)
+- [PORTABILITY.md](PORTABILITY.md)
+- [CHANNEL_INTEGRATIONS.md](CHANNEL_INTEGRATIONS.md)

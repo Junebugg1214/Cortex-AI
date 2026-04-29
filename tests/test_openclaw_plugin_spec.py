@@ -25,3 +25,19 @@ def test_openclaw_plugin_manifest_matches_schema_example():
     assert package_json["openclaw"]["extensions"] == ["./src/index.js"]
     assert package_json["publishConfig"]["access"] == "public"
     assert package_json["main"] == "./src/index.js"
+    assert not list((example_dir / "src").glob("*.ts"))
+
+
+def test_openclaw_docs_match_install_contract():
+    root = Path(__file__).resolve().parents[1]
+    quickstart = (root / "docs" / "OPENCLAW_QUICKSTART.md").read_text(encoding="utf-8")
+    native = (root / "docs" / "OPENCLAW_NATIVE_PLUGIN.md").read_text(encoding="utf-8")
+    readme = (root / "examples" / "openclaw-plugin" / "README.md").read_text(encoding="utf-8")
+
+    docs = "\n".join([quickstart, native, readme])
+    assert "/Users/marcsaint-jour" not in docs
+    assert "cortex-openclaw-1.4.1.tgz" not in docs
+    assert 'TARBALL="$(npm pack --silent)"' in docs
+    assert "--dangerously-force-unsafe-install" in docs
+    assert "allowPromptInjection: true" in docs
+    assert "allowConversationAccess: true" in docs

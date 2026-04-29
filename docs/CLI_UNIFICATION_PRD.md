@@ -372,7 +372,7 @@ Then Cortex should tell the user exactly what to do next.
 Example:
 
 ```text
-Initialized Cortex at /Users/marcsaint-jour/Desktop/Cortex-AI/.cortex
+Initialized Cortex at <project>/.cortex
 Default Mind: marc
 
 Next:

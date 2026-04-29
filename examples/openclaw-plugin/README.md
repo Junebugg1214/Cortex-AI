@@ -1,14 +1,14 @@
 # Cortex Native Plugin For OpenClaw
 
-This directory now contains the real OpenClaw-native Cortex plugin package scaffold:
+This directory contains the real OpenClaw-native Cortex plugin package scaffold:
 
-- [package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
-- [openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
-- [config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
-- [src/index.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.js)
-- [src/service.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.js)
-- [src/hooks.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.js)
-- [src/identity.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.js)
+- [package.json](package.json)
+- [openclaw.plugin.json](openclaw.plugin.json)
+- [config.schema.json](config.schema.json)
+- [src/index.js](src/index.js)
+- [src/service.js](src/service.js)
+- [src/hooks.js](src/hooks.js)
+- [src/identity.js](src/identity.js)
 
 What it does:
 
@@ -22,16 +22,18 @@ Install from a local packed tarball today:
 
 ```bash
 cd examples/openclaw-plugin
-npm pack
-openclaw plugins install ./cortex-openclaw-1.4.1.tgz
+TARBALL="$(npm pack --silent)"
+openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
 openclaw plugins enable cortex
 openclaw gateway restart
 ```
 
+OpenClaw's installer flags this package because it launches the managed `cortex-mcp` sidecar with Node process APIs. Use `--dangerously-force-unsafe-install` only for this trusted repo checkout or a pinned reviewed artifact.
+
 Once published, the install UX becomes:
 
 ```bash
-openclaw plugins install @cortex/openclaw
+openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install
 openclaw plugins enable cortex
 openclaw gateway restart
 ```
@@ -44,14 +46,20 @@ Recommended config:
     entries: {
       cortex: {
         enabled: true,
-        hooks: { allowPromptInjection: true },
+        hooks: {
+          allowPromptInjection: true,
+          allowConversationAccess: true
+        },
         config: {
           transport: "managed-child",
           defaultTarget: "chatgpt",
           smartRouting: true,
           autoSeedThreads: true,
+          projectDirStrategy: "agent-workspace",
           maxContextChars: 1500,
-          failOpen: true
+          failOpen: true,
+          serviceRestartLimit: 3,
+          serviceRestartBackoffMs: 1000
         }
       }
     }

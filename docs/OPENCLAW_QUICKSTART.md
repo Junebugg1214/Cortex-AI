@@ -7,7 +7,8 @@ The mental model is simple:
 1. install Cortex
 2. seed Cortex with context
 3. install the OpenClaw plugin
-4. let OpenClaw fetch live context from Cortex and write durable memory back after each turn
+4. allow the plugin to inject prompt context and observe conversation-end events
+5. let OpenClaw fetch live context from Cortex and write durable memory back after each turn
 
 ## What You Get
 
@@ -21,7 +22,9 @@ After setup, OpenClaw keeps doing runtime and channel delivery. Cortex adds:
 
 ## 1. Install Cortex
 
-Clone the repo and install from source with Python 3.11+:
+Clone the repo and install from source with Python 3.10+.
+
+The examples below use `python3.11` when it is available:
 
 ```bash
 git clone https://github.com/Junebugg1214/Cortex-AI.git
@@ -30,7 +33,16 @@ python3.11 -m pip install -e ".[server]"
 rehash
 ```
 
-Use `python3.11 -m pip`, not plain `pip`.
+Use `python3.11 -m pip`, not plain `pip`, when you are following this guide exactly. If your environment only has another supported Python 3.10+ interpreter, replace `python3.11` with that interpreter.
+
+OpenClaw itself should already be installed and configured:
+
+```bash
+openclaw --version
+openclaw gateway status
+```
+
+If the gateway refuses to start because `gateway.mode` is missing, run OpenClaw setup/onboarding for local mode or set `gateway.mode` to `local` in your OpenClaw config before continuing.
 
 ## 2. Seed Cortex With Context
 
@@ -66,23 +78,25 @@ cortex scan
 
 ## 3. Install the OpenClaw Plugin
 
-Today, the precise install path is the local packed plugin tarball:
+Until `@cortex/openclaw` is published to npm, install from the local packed plugin tarball:
 
 ```bash
-cd /Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin
-npm pack
-openclaw plugins install ./cortex-openclaw-1.4.1.tgz
+cd examples/openclaw-plugin
+TARBALL="$(npm pack --silent)"
+openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
 openclaw plugins enable cortex
-openclaw gateway restart
 ```
 
-Once published to npm, this becomes:
+OpenClaw's installer flags this plugin because it starts the managed `cortex-mcp` sidecar with Node process APIs. Use `--dangerously-force-unsafe-install` only when you are installing from this trusted repo checkout or a pinned artifact you have reviewed.
+
+Once the package is published to npm, the install command becomes:
 
 ```bash
-openclaw plugins install @cortex/openclaw
+openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install
 openclaw plugins enable cortex
-openclaw gateway restart
 ```
+
+Restart the gateway after the config in the next step is in place.
 
 ## 4. Configure the Plugin
 
@@ -95,7 +109,8 @@ Recommended OpenClaw config:
       cortex: {
         enabled: true,
         hooks: {
-          allowPromptInjection: true
+          allowPromptInjection: true,
+          allowConversationAccess: true
         },
         config: {
           transport: "managed-child",
@@ -116,11 +131,24 @@ Recommended OpenClaw config:
 
 What the important fields mean:
 
+- `hooks.allowPromptInjection: true` lets the plugin prepend routed Cortex context before the model turn
+- `hooks.allowConversationAccess: true` lets the plugin run `agent_end`; without it OpenClaw blocks the post-turn memory write hook
 - `transport: "managed-child"` means the plugin starts and manages `cortex-mcp` for you
 - `defaultTarget` controls which routed slice OpenClaw asks for
 - `smartRouting: true` lets Cortex send the right slice for the runtime instead of one generic blob
 - `autoSeedThreads: true` creates the default per-user and per-thread memory scaffold automatically
 - `failOpen: true` keeps OpenClaw working even if Cortex is temporarily unavailable
+
+Apply the config, then restart and verify:
+
+```bash
+openclaw gateway restart
+openclaw plugins inspect cortex --json
+# Optional broad diagnostics across all plugins:
+openclaw plugins doctor
+```
+
+In the `plugins inspect` output, `services` should include `cortex` and `typedHooks` should include `message_received`, `before_prompt_build`, and `agent_end`.
 
 ## 5. What Happens At Runtime
 
@@ -171,7 +199,7 @@ It is:
 
 ## Related Docs
 
-- [OPENCLAW_NATIVE_PLUGIN.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_NATIVE_PLUGIN.md)
-- [CHANNEL_INTEGRATIONS.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/CHANNEL_INTEGRATIONS.md)
-- [PLATFORM_ONBOARDING.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/PLATFORM_ONBOARDING.md)
-- [PORTABILITY.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/PORTABILITY.md)
+- [OPENCLAW_NATIVE_PLUGIN.md](OPENCLAW_NATIVE_PLUGIN.md)
+- [CHANNEL_INTEGRATIONS.md](CHANNEL_INTEGRATIONS.md)
+- [PLATFORM_ONBOARDING.md](PLATFORM_ONBOARDING.md)
+- [PORTABILITY.md](PORTABILITY.md)

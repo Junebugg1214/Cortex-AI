@@ -2,24 +2,25 @@
 
 This document describes the real Cortex native plugin package for OpenClaw.
 
-If you want the shortest copy-paste install and onboarding flow first, start with [OPENCLAW_QUICKSTART.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_QUICKSTART.md).
+If you want the shortest copy-paste install and onboarding flow first, start with [OPENCLAW_QUICKSTART.md](OPENCLAW_QUICKSTART.md).
 
 Goal:
 
-- install with `openclaw plugins install @cortex/openclaw`
+- install from a local packed tarball today
+- install with `openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install` once the package is published
 - enable with `openclaw plugins enable cortex`
 - restart the gateway
 - get live Cortex context plus cross-channel durable memory automatically
 
 The package scaffold lives in:
 
-- [examples/openclaw-plugin/package.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/package.json)
-- [examples/openclaw-plugin/openclaw.plugin.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/openclaw.plugin.json)
-- [examples/openclaw-plugin/config.schema.json](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/config.schema.json)
-- [examples/openclaw-plugin/src/index.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/index.js)
-- [examples/openclaw-plugin/src/service.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/service.js)
-- [examples/openclaw-plugin/src/hooks.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/hooks.js)
-- [examples/openclaw-plugin/src/identity.js](/Users/marcsaint-jour/Desktop/Cortex-AI/examples/openclaw-plugin/src/identity.js)
+- [examples/openclaw-plugin/package.json](../examples/openclaw-plugin/package.json)
+- [examples/openclaw-plugin/openclaw.plugin.json](../examples/openclaw-plugin/openclaw.plugin.json)
+- [examples/openclaw-plugin/config.schema.json](../examples/openclaw-plugin/config.schema.json)
+- [examples/openclaw-plugin/src/index.js](../examples/openclaw-plugin/src/index.js)
+- [examples/openclaw-plugin/src/service.js](../examples/openclaw-plugin/src/service.js)
+- [examples/openclaw-plugin/src/hooks.js](../examples/openclaw-plugin/src/hooks.js)
+- [examples/openclaw-plugin/src/identity.js](../examples/openclaw-plugin/src/identity.js)
 
 ## Package Shape
 
@@ -34,11 +35,13 @@ The current local test/install flow is:
 
 ```bash
 cd examples/openclaw-plugin
-npm pack
-openclaw plugins install ./cortex-openclaw-1.4.1.tgz
+TARBALL="$(npm pack --silent)"
+openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
 openclaw plugins enable cortex
 openclaw gateway restart
 ```
+
+The `--dangerously-force-unsafe-install` flag is currently required because OpenClaw's installer blocks packages that use Node process APIs. This plugin uses those APIs to start and manage the local `cortex-mcp` sidecar. Treat the flag as a trust decision: use it for this repo checkout or a pinned reviewed artifact, not for unknown plugins.
 
 ## Runtime Model
 
@@ -99,7 +102,8 @@ Recommended OpenClaw config:
       cortex: {
         enabled: true,
         hooks: {
-          allowPromptInjection: true
+          allowPromptInjection: true,
+          allowConversationAccess: true
         },
         config: {
           transport: "managed-child",
@@ -144,6 +148,8 @@ If routed context exists, the plugin injects it through `prependContext`.
 
 The plugin calls `channel_seed_turn_memory` over MCP and materializes the prepared per-user and per-thread memory branches.
 
+OpenClaw blocks this hook for non-bundled plugins unless `plugins.entries.cortex.hooks.allowConversationAccess` is `true`. Without that setting, context injection can still work, but durable post-turn memory seeding will not run.
+
 ### `gateway_stop`
 
 The managed sidecar stops cleanly and the plugin clears its caches.
@@ -185,6 +191,6 @@ This repo now includes the real package scaffold and runtime logic.
 What still remains operational rather than code-level:
 
 - publishing `@cortex/openclaw` to npm
-- exercising `openclaw plugins install @cortex/openclaw` against the published package in release automation
+- exercising `openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install` against the published package in release automation
 
 Those are release steps, not missing runtime architecture.

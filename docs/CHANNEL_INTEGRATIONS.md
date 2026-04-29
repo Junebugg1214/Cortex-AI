@@ -58,7 +58,7 @@ future channel-specific write paths.
 
 If you want the shortest path to a one-click OpenClaw-native install, see the native plugin package:
 
-- [OPENCLAW_NATIVE_PLUGIN.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/OPENCLAW_NATIVE_PLUGIN.md)
+- [OPENCLAW_NATIVE_PLUGIN.md](OPENCLAW_NATIVE_PLUGIN.md)
 
 To seed the identity and thread scaffold safely, use the built-in write helper:
 
@@ -77,7 +77,7 @@ Hermes is a good fit when you want a lighter agent runtime that still shares the
 
 If you want the shortest copy-paste install path for Hermes itself, start with:
 
-- [HERMES_QUICKSTART.md](/Users/marcsaint-jour/Desktop/Cortex-AI/docs/HERMES_QUICKSTART.md)
+- [HERMES_QUICKSTART.md](HERMES_QUICKSTART.md)
 
 Recommended flow:
 
