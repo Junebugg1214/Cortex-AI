@@ -39,7 +39,14 @@
   "openclaw": {
     "extensions": [
       "./src/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.22",
+      "minGatewayVersion": "2026.4.22"
+    },
+    "build": {
+      "openclawVersion": "2026.4.22"
+    }
   },
   "scripts": {
     "check": "node --check ./src/index.js && node --check ./src/service.js && node --check ./src/hooks.js && node --check ./src/identity.js"
