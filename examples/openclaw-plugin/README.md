@@ -24,7 +24,7 @@ Install from a local packed tarball today:
 cd examples/openclaw-plugin
 TARBALL="$(npm pack --silent)"
 openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
-openclaw plugins enable cortex
+openclaw plugins enable cortex-openclaw
 openclaw gateway restart
 ```
 
@@ -34,7 +34,7 @@ Once published, the install UX becomes:
 
 ```bash
 openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install
-openclaw plugins enable cortex
+openclaw plugins enable cortex-openclaw
 openclaw gateway restart
 ```
 
@@ -44,7 +44,7 @@ Recommended config:
 {
   plugins: {
     entries: {
-      cortex: {
+      "cortex-openclaw": {
         enabled: true,
         hooks: {
           allowPromptInjection: true,

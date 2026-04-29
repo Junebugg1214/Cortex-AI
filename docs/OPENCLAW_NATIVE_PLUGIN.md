@@ -8,7 +8,7 @@ Goal:
 
 - install from a local packed tarball today
 - install with `openclaw plugins install @cortex/openclaw --dangerously-force-unsafe-install` once the package is published
-- enable with `openclaw plugins enable cortex`
+- enable with `openclaw plugins enable cortex-openclaw`
 - restart the gateway
 - get live Cortex context plus cross-channel durable memory automatically
 
@@ -37,7 +37,7 @@ The current local test/install flow is:
 cd examples/openclaw-plugin
 TARBALL="$(npm pack --silent)"
 openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
-openclaw plugins enable cortex
+openclaw plugins enable cortex-openclaw
 openclaw gateway restart
 ```
 
@@ -99,7 +99,7 @@ Recommended OpenClaw config:
 {
   plugins: {
     entries: {
-      cortex: {
+      "cortex-openclaw": {
         enabled: true,
         hooks: {
           allowPromptInjection: true,
@@ -148,7 +148,7 @@ If routed context exists, the plugin injects it through `prependContext`.
 
 The plugin calls `channel_seed_turn_memory` over MCP and materializes the prepared per-user and per-thread memory branches.
 
-OpenClaw blocks this hook for non-bundled plugins unless `plugins.entries.cortex.hooks.allowConversationAccess` is `true`. Without that setting, context injection can still work, but durable post-turn memory seeding will not run.
+OpenClaw blocks this hook for non-bundled plugins unless `plugins.entries["cortex-openclaw"].hooks.allowConversationAccess` is `true`. Without that setting, context injection can still work, but durable post-turn memory seeding will not run.
 
 ### `gateway_stop`
 
