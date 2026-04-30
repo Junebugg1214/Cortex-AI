@@ -727,6 +727,44 @@ def test_cortex_api_agent_namespace_filters_status_and_blocks_cross_namespace(tm
     assert "outside namespace 'team-a'" in compile_payload["error"]
 
 
+def test_cortex_api_channel_prepare_and_seed_surface(tmp_path):
+    store_dir = tmp_path / ".cortex"
+    backend = build_sqlite_backend(store_dir)
+    service = MemoryService(store_dir=store_dir, backend=backend)
+
+    prepare_code, prepare_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/channel/prepare-turn",
+        payload={
+            "message": {
+                "platform": "telegram",
+                "workspace_id": "support-bot",
+                "conversation_id": "chat-42",
+                "user_id": "tg-123",
+                "text": "Need help with Next.js.",
+                "display_name": "Casey",
+                "phone_number": "+1 555 0101",
+                "project_dir": str(tmp_path),
+                "metadata": {"message_id": "msg-1"},
+            },
+            "target": "chatgpt",
+            "smart": True,
+        },
+    )
+    seed_code, seed_payload = dispatch_api_request(
+        service,
+        method="POST",
+        path="/v1/channel/seed-turn-memory",
+        payload={"turn": prepare_payload["turn"], "source": "pytest.openclaw"},
+    )
+
+    assert prepare_code == 200
+    assert prepare_payload["status"] == "ok"
+    assert seed_code == 200
+    assert seed_payload["status"] == "ok"
+
+
 def test_cortex_client_agent_compile_dispatch_schedule_and_status_surface(tmp_path, monkeypatch):
     store_dir = tmp_path / ".cortex"
     backend = build_sqlite_backend(store_dir)

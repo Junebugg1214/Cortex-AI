@@ -33,12 +33,17 @@ def test_build_openapi_spec_includes_current_api_surface():
     assert "/v1/agent/dispatch" in spec["paths"]
     assert "/v1/agent/schedule" in spec["paths"]
     assert "/v1/agent/conflicts/review" in spec["paths"]
+    assert "/v1/channel/prepare-turn" in spec["paths"]
+    assert "/v1/channel/seed-turn-memory" in spec["paths"]
+    assert "/v1/packs/context" in spec["paths"]
+    assert "/v1/minds/compose" in spec["paths"]
     assert "/v1/query/search" in spec["paths"]
     assert "/v1/conflicts/detect" in spec["paths"]
     assert "/v1/merge-preview" in spec["paths"]
     assert spec["paths"]["/v1/nodes/upsert"]["post"]["operationId"] == "upsertNode"
     assert spec["paths"]["/v1/agent/status"]["get"]["operationId"] == "agentStatus"
     assert spec["paths"]["/v1/agent/compile"]["post"]["operationId"] == "agentCompile"
+    assert spec["paths"]["/v1/channel/prepare-turn"]["post"]["operationId"] == "channelPrepareTurn"
     assert spec["paths"]["/v1/memory/batch"]["post"]["operationId"] == "memoryBatch"
     assert spec["paths"]["/v1/query/search"]["post"]["operationId"] == "querySearch"
     assert spec["paths"]["/v1/index/rebuild"]["post"]["operationId"] == "indexRebuild"

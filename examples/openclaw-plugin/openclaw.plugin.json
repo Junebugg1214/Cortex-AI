@@ -7,37 +7,16 @@
       "storeDir": {
         "type": "string",
         "default": "~/.openclaw/cortex",
-        "description": "Directory for the Cortex store used by the OpenClaw plugin."
+        "description": "Directory for the Cortex store used by the OpenClaw plugin. This should match the store used by the local cortexd API."
       },
-      "configPath": {
+      "apiBaseUrl": {
         "type": "string",
-        "default": "~/.openclaw/cortex/config.toml",
-        "description": "Path to the Cortex config.toml used by the managed MCP service."
+        "default": "http://127.0.0.1:8766",
+        "description": "Base URL for the local Cortex REST API. Keep this on loopback unless you have configured Cortex API authentication."
       },
-      "transport": {
+      "apiKey": {
         "type": "string",
-        "enum": [
-          "managed-child",
-          "custom-command"
-        ],
-        "default": "managed-child",
-        "description": "How the plugin launches the Cortex MCP runtime."
-      },
-      "mcpCommand": {
-        "type": "string",
-        "default": "cortex-mcp",
-        "description": "Command used to launch the Cortex MCP server."
-      },
-      "mcpArgs": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "default": [
-          "--config",
-          "~/.openclaw/cortex/config.toml"
-        ],
-        "description": "Arguments passed to the Cortex MCP process."
+        "description": "Optional Cortex API key. Required only when cortexd is configured with API authentication."
       },
       "defaultTarget": {
         "type": "string",
@@ -83,13 +62,7 @@
         "type": "integer",
         "minimum": 1000,
         "default": 15000,
-        "description": "Timeout for Cortex MCP or bridge calls."
-      },
-      "healthCheckTimeoutMs": {
-        "type": "integer",
-        "minimum": 1000,
-        "default": 5000,
-        "description": "Timeout for managed cortex-mcp health checks."
+        "description": "Timeout for Cortex API calls."
       },
       "maxContextChars": {
         "type": "integer",
@@ -102,21 +75,9 @@
         "default": true,
         "description": "If Cortex is unavailable, continue the turn without injected context."
       },
-      "serviceRestartLimit": {
-        "type": "integer",
-        "minimum": 0,
-        "default": 3,
-        "description": "Maximum automatic restarts for the managed Cortex MCP child."
-      },
-      "serviceRestartBackoffMs": {
-        "type": "integer",
-        "minimum": 100,
-        "default": 1000,
-        "description": "Base backoff used when restarting the managed Cortex MCP child."
-      },
       "namespace": {
         "type": "string",
-        "description": "Optional namespace to pin the Cortex MCP session to."
+        "description": "Optional namespace to pin the Cortex API session to."
       },
       "identityFields": {
         "type": "object",
@@ -148,18 +109,12 @@
       "label": "Cortex Store Directory",
       "placeholder": "~/.openclaw/cortex"
     },
-    "configPath": {
-      "label": "Cortex Config Path",
-      "placeholder": "~/.openclaw/cortex/config.toml"
+    "apiBaseUrl": {
+      "label": "Cortex API Base URL",
+      "placeholder": "http://127.0.0.1:8766"
     },
-    "transport": {
-      "label": "Cortex Transport"
-    },
-    "mcpCommand": {
-      "label": "Managed MCP Command"
-    },
-    "mcpArgs": {
-      "label": "Managed MCP Args"
+    "apiKey": {
+      "label": "Cortex API Key"
     },
     "defaultTarget": {
       "label": "Default Routed Target"
@@ -179,20 +134,11 @@
     "requestTimeoutMs": {
       "label": "Request Timeout (ms)"
     },
-    "healthCheckTimeoutMs": {
-      "label": "Health Check Timeout (ms)"
-    },
     "maxContextChars": {
       "label": "Max Injected Context Chars"
     },
     "failOpen": {
       "label": "Fail Open On Cortex Outage"
-    },
-    "serviceRestartLimit": {
-      "label": "Managed Restart Limit"
-    },
-    "serviceRestartBackoffMs": {
-      "label": "Managed Restart Backoff (ms)"
     },
     "namespace": {
       "label": "Pinned Cortex Namespace"

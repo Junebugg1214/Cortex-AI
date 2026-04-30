@@ -68,8 +68,7 @@ function register(api) {
 export { normalizePluginConfig };
 
 export default {
-  id: "cortex",
-  name: "Cortex",
+  id: "cortexai-openclaw",
+  name: "CortexAI OpenClaw",
   register,
 };
-

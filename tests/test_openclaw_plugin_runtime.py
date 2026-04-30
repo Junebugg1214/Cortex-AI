@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tarfile
+import threading
 from pathlib import Path
 
 from cortex.channel_runtime import ChannelMessage, TelegramAdapter
 from cortex.cli import main
 from cortex.service.service import MemoryService
+from cortex.service.server import start_api_server
 from cortex.storage import get_storage_backend
 
 
@@ -237,6 +238,19 @@ def _seed_mind_and_mount_openclaw(project_dir: Path, store_dir: Path) -> None:
     )
 
 
+def _start_cortex_api(store_dir: Path):
+    server, url = start_api_server(port=0, store_dir=store_dir)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    return server, thread, url
+
+
+def _stop_cortex_api(server, thread) -> None:
+    server.shutdown()
+    thread.join(timeout=5)
+    server.server_close()
+
+
 def test_openclaw_plugin_package_packs_cleanly(tmp_path):
     root = Path(__file__).resolve().parents[1]
     package_dir = root / "examples" / "openclaw-plugin"
@@ -255,6 +269,12 @@ def test_openclaw_plugin_package_packs_cleanly(tmp_path):
     assert tarball.exists()
     with tarfile.open(tarball, "r:gz") as archive:
         names = set(archive.getnames())
+        javascript_payloads = []
+        for member in names:
+            if member.endswith(".js"):
+                extracted = archive.extractfile(member)
+                if extracted is not None:
+                    javascript_payloads.append(extracted.read().decode("utf-8"))
     tarball.unlink()
     assert "package/package.json" in names
     assert "package/openclaw.plugin.json" in names
@@ -263,9 +283,10 @@ def test_openclaw_plugin_package_packs_cleanly(tmp_path):
     assert "package/src/service.js" in names
     assert "package/src/hooks.js" in names
     assert "package/src/identity.js" in names
+    assert all("node:child_process" not in payload for payload in javascript_payloads)
 
 
-def test_openclaw_plugin_runtime_boots_managed_cortex_and_seeds_memory(tmp_path):
+def test_openclaw_plugin_runtime_uses_local_api_and_seeds_memory(tmp_path):
     root = Path(__file__).resolve().parents[1]
     plugin_entry = (root / "examples" / "openclaw-plugin" / "src" / "index.js").resolve()
     project_dir, store_dir = _seed_portability(tmp_path)
@@ -318,40 +339,43 @@ const prompt = await hooks.get("before_prompt_build")(event, ctx);
 await hooks.get("agent_end")(event, ctx);
 await serviceDef.stop();
 
-process.stdout.write(JSON.stringify({ prompt, logs }));
+process.stdout.write(JSON.stringify({ pluginId: plugin.id, serviceId: serviceDef.id, prompt, logs }));
 """,
         encoding="utf-8",
     )
 
-    env = os.environ.copy()
-    env["CORTEX_PLUGIN_ENTRY"] = plugin_entry.as_uri()
-    env["CORTEX_PROJECT_DIR"] = str(project_dir)
-    env["CORTEX_PLUGIN_EVENT"] = json.dumps(event)
-    env["CORTEX_PLUGIN_CONFIG"] = json.dumps(
-        {
-            "storeDir": str(store_dir),
-            "configPath": str(store_dir / "config.toml"),
-            "transport": "managed-child",
-            "mcpCommand": sys.executable,
-            "mcpArgs": ["-m", "cortex.mcp"],
-            "defaultTarget": "chatgpt",
-            "smartRouting": True,
-            "autoSeedThreads": True,
-            "maxContextChars": 1200,
-            "failOpen": False,
-        }
-    )
-    result = subprocess.run(  # noqa: S603
-        ["node", str(script)],
-        cwd=root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    server, thread, api_base_url = _start_cortex_api(store_dir)
+    try:
+        env = os.environ.copy()
+        env["CORTEX_PLUGIN_ENTRY"] = plugin_entry.as_uri()
+        env["CORTEX_PROJECT_DIR"] = str(project_dir)
+        env["CORTEX_PLUGIN_EVENT"] = json.dumps(event)
+        env["CORTEX_PLUGIN_CONFIG"] = json.dumps(
+            {
+                "storeDir": str(store_dir),
+                "apiBaseUrl": api_base_url,
+                "defaultTarget": "chatgpt",
+                "smartRouting": True,
+                "autoSeedThreads": True,
+                "maxContextChars": 1200,
+                "failOpen": False,
+            }
+        )
+        result = subprocess.run(  # noqa: S603
+            ["node", str(script)],
+            cwd=root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        _stop_cortex_api(server, thread)
     payload = json.loads(result.stdout)
     prompt = payload["prompt"]
 
+    assert payload["pluginId"] == "cortexai-openclaw"
+    assert payload["serviceId"] == "cortex"
     assert "prependContext" in prompt
     assert "python" in prompt["prependContext"].lower()
     assert "next.js" in prompt["prependContext"].lower()
@@ -443,32 +467,33 @@ process.stdout.write(JSON.stringify({ prompt }));
         encoding="utf-8",
     )
 
-    env = os.environ.copy()
-    env["CORTEX_PLUGIN_ENTRY"] = plugin_entry.as_uri()
-    env["CORTEX_PROJECT_DIR"] = str(project_dir)
-    env["CORTEX_PLUGIN_EVENT"] = json.dumps(event)
-    env["CORTEX_PLUGIN_CONFIG"] = json.dumps(
-        {
-            "storeDir": str(store_dir),
-            "configPath": str(store_dir / "config.toml"),
-            "transport": "managed-child",
-            "mcpCommand": sys.executable,
-            "mcpArgs": ["-m", "cortex.mcp"],
-            "defaultTarget": "chatgpt",
-            "smartRouting": True,
-            "autoSeedThreads": True,
-            "maxContextChars": 1200,
-            "failOpen": False,
-        }
-    )
-    result = subprocess.run(  # noqa: S603
-        ["node", str(script)],
-        cwd=root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    server, thread, api_base_url = _start_cortex_api(store_dir)
+    try:
+        env = os.environ.copy()
+        env["CORTEX_PLUGIN_ENTRY"] = plugin_entry.as_uri()
+        env["CORTEX_PROJECT_DIR"] = str(project_dir)
+        env["CORTEX_PLUGIN_EVENT"] = json.dumps(event)
+        env["CORTEX_PLUGIN_CONFIG"] = json.dumps(
+            {
+                "storeDir": str(store_dir),
+                "apiBaseUrl": api_base_url,
+                "defaultTarget": "chatgpt",
+                "smartRouting": True,
+                "autoSeedThreads": True,
+                "maxContextChars": 1200,
+                "failOpen": False,
+            }
+        )
+        result = subprocess.run(  # noqa: S603
+            ["node", str(script)],
+            cwd=root,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        _stop_cortex_api(server, thread)
     payload = json.loads(result.stdout)
     prepend = payload["prompt"]["prependContext"]
 

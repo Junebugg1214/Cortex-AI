@@ -168,6 +168,9 @@ def _required_scope(method: str, path: str) -> str:
         "/v1/query/search",
         "/v1/query/dsl",
         "/v1/query/nl",
+        "/v1/channel/prepare-turn",
+        "/v1/packs/context",
+        "/v1/minds/compose",
     }
     if path in {"/v1/health", "/v1/meta", "/v1/openapi.json", "/v1/metrics"}:
         return "read"
@@ -373,6 +376,14 @@ def dispatch_api_request(
                 status, response = 200, service.agent_schedule(**payload)
             elif parsed.path == "/v1/agent/conflicts/review":
                 status, response = 200, service.agent_review_conflicts(**payload)
+            elif parsed.path == "/v1/channel/prepare-turn":
+                status, response = 200, service.channel_prepare_turn(**payload)
+            elif parsed.path == "/v1/channel/seed-turn-memory":
+                status, response = 200, service.channel_seed_turn_memory(**payload)
+            elif parsed.path == "/v1/packs/context":
+                status, response = 200, service.pack_context(**payload)
+            elif parsed.path == "/v1/minds/compose":
+                status, response = 200, service.mind_compose(**payload)
             elif parsed.path == "/v1/nodes/upsert":
                 status, response = 200, service.upsert_node(**payload)
             elif parsed.path == "/v1/nodes/delete":

@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 
-const PACKAGE_VERSION = "1.6.0";
+const PACKAGE_VERSION = "1.6.1";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:8766";
 const BRAINPACK_MOUNTS_FILE = "brainpacks.mounted.json";
 const MIND_MOUNTS_FILE = "minds.mounted.json";
 const DEFAULT_IDENTITY_FIELDS = Object.freeze({
@@ -30,18 +29,9 @@ function _expandUserPath(value) {
   return text;
 }
 
-function _normalizeTransport(value) {
-  const raw = _coerceString(value, "managed-child").trim().toLowerCase();
-  if (raw === "custom-command" || raw === "managed-child") {
-    return raw;
-  }
-  if (raw === "external-mcp") {
-    return "custom-command";
-  }
-  if (raw === "in-process-python") {
-    return "managed-child";
-  }
-  return "managed-child";
+function _normalizeBaseUrl(value) {
+  const raw = _coerceString(value, DEFAULT_API_BASE_URL).trim() || DEFAULT_API_BASE_URL;
+  return raw.replace(/\/+$/, "");
 }
 
 function _normalizeIdentityFields(value) {
@@ -55,10 +45,6 @@ function _normalizeIdentityFields(value) {
     }
   }
   return base;
-}
-
-function _hasConfigArg(args) {
-  return args.some((item) => item === "--config");
 }
 
 function _pushLog(buffer, message) {
@@ -114,59 +100,23 @@ export function readPluginConfig(api, ctx) {
 
 export function normalizePluginConfig(config = {}) {
   const raw = _isObject(config) ? config : {};
-  const configPath = _expandUserPath(raw.configPath || "~/.openclaw/cortex/config.toml");
-  const rawArgs = Array.isArray(raw.mcpArgs) && raw.mcpArgs.length > 0 ? raw.mcpArgs : ["--config", configPath];
   const requestTimeoutMs = Number(raw.requestTimeoutMs);
-  const healthCheckTimeoutMs = Number(raw.healthCheckTimeoutMs);
   const maxContextChars = Number(raw.maxContextChars);
-  const serviceRestartLimit = Number(raw.serviceRestartLimit);
-  const serviceRestartBackoffMs = Number(raw.serviceRestartBackoffMs);
   return {
     storeDir: path.resolve(_expandUserPath(raw.storeDir || "~/.openclaw/cortex")),
-    configPath: path.resolve(configPath),
-    transport: _normalizeTransport(raw.transport),
-    mcpCommand: _coerceString(raw.mcpCommand || "cortex-mcp", "cortex-mcp").trim() || "cortex-mcp",
-    mcpArgs: rawArgs.map((item) => _expandUserPath(String(item))),
+    apiBaseUrl: _normalizeBaseUrl(raw.apiBaseUrl || raw.baseUrl),
+    apiKey: _coerceString(raw.apiKey).trim(),
     defaultTarget: _coerceString(raw.defaultTarget || "chatgpt", "chatgpt"),
     smartRouting: raw.smartRouting !== false,
     autoSeedThreads: raw.autoSeedThreads !== false,
     projectDirStrategy: _coerceString(raw.projectDirStrategy || "agent-workspace", "agent-workspace"),
     projectDir: raw.projectDir ? path.resolve(_expandUserPath(raw.projectDir)) : "",
     requestTimeoutMs: Number.isFinite(requestTimeoutMs) ? requestTimeoutMs : 15000,
-    healthCheckTimeoutMs: Number.isFinite(healthCheckTimeoutMs) ? healthCheckTimeoutMs : 5000,
     maxContextChars: Number.isFinite(maxContextChars) ? maxContextChars : 1500,
     failOpen: raw.failOpen !== false,
-    serviceRestartLimit: Number.isFinite(serviceRestartLimit) ? serviceRestartLimit : 3,
-    serviceRestartBackoffMs: Number.isFinite(serviceRestartBackoffMs) ? serviceRestartBackoffMs : 1000,
     namespace: _coerceString(raw.namespace),
     identityFields: _normalizeIdentityFields(raw.identityFields),
   };
-}
-
-function _escapeTomlString(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
-async function _ensureManagedConfig(config) {
-  await fs.mkdir(config.storeDir, { recursive: true });
-  await fs.mkdir(path.dirname(config.configPath), { recursive: true });
-  try {
-    await fs.access(config.configPath);
-    return;
-  } catch {}
-  const sections = [
-    "[runtime]",
-    `store_dir = "${_escapeTomlString(config.storeDir)}"`,
-    "",
-    "[mcp]",
-  ];
-  if (config.namespace) {
-    sections.push(`namespace = "${_escapeTomlString(config.namespace)}"`);
-  } else {
-    sections.push('namespace = ""');
-  }
-  sections.push("");
-  await fs.writeFile(config.configPath, sections.join("\n"), "utf-8");
 }
 
 async function _readMountedBrainpacks(config) {
@@ -197,63 +147,62 @@ async function _readMountedMinds(config) {
   }
 }
 
-export function buildManagedChildCommand(config, options = {}) {
-  const normalized = normalizePluginConfig(config);
-  const args = Array.isArray(normalized.mcpArgs) ? [...normalized.mcpArgs] : [];
-  if (normalized.transport === "managed-child" && !_hasConfigArg(args)) {
-    args.push("--config", normalized.configPath);
+async function _requestJson(config, { method = "GET", path: endpoint, payload = null, timeoutMs }) {
+  if (typeof fetch !== "function") {
+    throw new Error("The Cortex OpenClaw plugin requires Node.js 18+ with global fetch support.");
   }
-  if (options.check && !args.includes("--check")) {
-    args.push("--check");
-  }
-  return {
-    command: normalized.mcpCommand,
-    args,
+  const controller = new AbortController();
+  const headers = {
+    Accept: "application/json",
   };
-}
+  if (payload !== null) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+  if (config.namespace) {
+    headers["X-Cortex-Namespace"] = config.namespace;
+  }
 
-async function _runCheckCommand(command, args, timeoutMs, cwd) {
-  const child = spawn(command, args, {
-    cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk) => {
-    stdout += String(chunk);
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += String(chunk);
-  });
-  const exitPromise = new Promise((resolve, reject) => {
-    child.on("error", reject);
-    child.on("exit", (code) => resolve(Number(code ?? 0)));
-  });
-  const code = await _withTimeout(
-    exitPromise,
-    timeoutMs,
-    `Timed out waiting for Cortex MCP health check after ${timeoutMs}ms.`,
-  );
-  if (code !== 0) {
-    const detail = (stderr || stdout || `exit ${code}`).trim();
-    throw new Error(`Cortex MCP health check failed: ${detail}`);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${config.apiBaseUrl}${endpoint}`, {
+      method,
+      headers,
+      body: payload === null ? undefined : JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let body = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { error: text };
+      }
+    }
+    if (!response.ok) {
+      const detail = _coerceString(body?.error || body?.message, `HTTP ${response.status}`);
+      throw new Error(detail);
+    }
+    return body;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Timed out waiting for Cortex API response from ${endpoint}.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-export class CortexMcpService {
+export class CortexApiService {
   constructor(api, initialConfig = {}) {
     this.api = api;
     this.initialConfig = initialConfig;
-    this.child = null;
-    this.pending = new Map();
-    this.nextRequestId = 1;
     this.startPromise = null;
-    this.stopPromise = null;
-    this.restartTimer = null;
-    this.restartCount = 0;
     this.ready = false;
-    this.stopRequested = false;
     this.degradedReason = "";
     this.logBuffer = [];
     this.lastConfig = normalizePluginConfig(initialConfig);
@@ -278,10 +227,9 @@ export class CortexMcpService {
     return {
       ready: this.ready,
       degradedReason: this.degradedReason,
-      restartCount: this.restartCount,
-      transport: this.lastConfig.transport,
-      command: this.lastConfig.mcpCommand,
-      args: [...this.lastConfig.mcpArgs],
+      transport: "http-api",
+      apiBaseUrl: this.lastConfig.apiBaseUrl,
+      version: PACKAGE_VERSION,
       logs: [...this.logBuffer],
     };
   }
@@ -290,190 +238,76 @@ export class CortexMcpService {
     if (this.startPromise) {
       return this.startPromise;
     }
-    if (this.ready && this.child) {
+    if (this.ready) {
       return this.status();
     }
     const config = this.resolveConfig(ctx, overrides);
-    this.stopRequested = false;
-    this.startPromise = this._start(config)
-      .then(() => this.status())
+    this.startPromise = this.health(config.requestTimeoutMs)
+      .then(() => {
+        this.ready = true;
+        this.degradedReason = "";
+        _maybeCall(this.logger().info, `[cortex] Cortex API is ready at ${config.apiBaseUrl}.`);
+        return this.status();
+      })
+      .catch((error) => {
+        this.ready = false;
+        this.degradedReason = error instanceof Error ? error.message : String(error);
+        _pushLog(this.logBuffer, `api: ${this.degradedReason}`);
+        _maybeCall(this.logger().warn, `[cortex] Cortex API unavailable: ${this.degradedReason}`);
+        if (config.failOpen) {
+          return this.status();
+        }
+        throw error;
+      })
       .finally(() => {
         this.startPromise = null;
       });
     return this.startPromise;
   }
 
-  async _start(config) {
-    if (config.transport === "managed-child") {
-      await _ensureManagedConfig(config);
-      const checkCommand = buildManagedChildCommand(config, { check: true });
-      await _runCheckCommand(checkCommand.command, checkCommand.args, config.healthCheckTimeoutMs, process.cwd());
-    }
-
-    const { command, args } = buildManagedChildCommand(config);
-    const child = spawn(command, args, {
-      cwd: process.cwd(),
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-    });
-    this.child = child;
-    this.ready = false;
-    this.degradedReason = "";
-
-    const stdout = readline.createInterface({ input: child.stdout });
-    stdout.on("line", (line) => {
-      this._handleStdoutLine(line);
-    });
-
-    const stderr = readline.createInterface({ input: child.stderr });
-    stderr.on("line", (line) => {
-      const trimmed = String(line || "").trim();
-      if (!trimmed) {
-        return;
-      }
-      _pushLog(this.logBuffer, `stderr: ${trimmed}`);
-      _maybeCall(this.logger().warn, trimmed);
-    });
-
-    child.on("error", (error) => {
-      this.degradedReason = error.message;
-      this._flushPending(error);
-      _maybeCall(this.logger().error, `[cortex] MCP process error: ${error.message}`);
-    });
-    child.on("exit", (code, signal) => {
-      this.ready = false;
-      this.child = null;
-      const reason = `Cortex MCP exited with code ${code ?? "null"}${signal ? ` signal ${signal}` : ""}`.trim();
-      this.degradedReason = reason;
-      this._flushPending(new Error(reason));
-      if (!this.stopRequested && config.transport === "managed-child" && this.restartCount < config.serviceRestartLimit) {
-        this.restartCount += 1;
-        const delay = config.serviceRestartBackoffMs * this.restartCount;
-        _maybeCall(this.logger().warn, `[cortex] ${reason}. Restarting in ${delay}ms.`);
-        this.restartTimer = setTimeout(() => {
-          this.start(null, config).catch((error) => {
-            this.degradedReason = error.message;
-            _maybeCall(this.logger().error, `[cortex] restart failed: ${error.message}`);
-          });
-        }, delay);
-      } else if (!this.stopRequested) {
-        _maybeCall(this.logger().error, `[cortex] ${reason}`);
-      }
-    });
-
-    await this._initialize(config.requestTimeoutMs);
-    await this.health(config.requestTimeoutMs);
-    this.ready = true;
-    this.restartCount = 0;
-    _maybeCall(this.logger().info, "[cortex] Cortex MCP is ready.");
-  }
-
-  _handleStdoutLine(line) {
-    const trimmed = String(line || "").trim();
-    if (!trimmed) {
-      return;
-    }
-    let payload = null;
-    try {
-      payload = JSON.parse(trimmed);
-    } catch {
-      _pushLog(this.logBuffer, `stdout: ${trimmed}`);
-      return;
-    }
-    const requestId = payload?.id;
-    if (requestId !== undefined && this.pending.has(requestId)) {
-      const pending = this.pending.get(requestId);
-      this.pending.delete(requestId);
-      if (payload.error) {
-        pending.reject(new Error(payload.error.message || "Unknown Cortex MCP error."));
-        return;
-      }
-      pending.resolve(payload.result);
-      return;
-    }
-    _pushLog(this.logBuffer, `stdout-json: ${trimmed}`);
-  }
-
-  _flushPending(error) {
-    for (const pending of this.pending.values()) {
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
-
-  _writeMessage(payload) {
-    if (!this.child?.stdin) {
-      throw new Error("Cortex MCP process is not running.");
-    }
-    this.child.stdin.write(`${JSON.stringify(payload)}\n`);
-  }
-
-  async _initialize(timeoutMs) {
-    await this._sendRequest(
-      "initialize",
-      {
-        protocolVersion: "2025-11-25",
-        clientInfo: { name: "cortexai-openclaw", version: PACKAGE_VERSION },
-      },
-      timeoutMs,
-    );
-    this._writeMessage({
-      jsonrpc: "2.0",
-      method: "notifications/initialized",
-    });
-  }
-
-  async _sendRequest(method, params = {}, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    const requestId = this.nextRequestId++;
+  async _get(endpoint, timeoutMs = this.lastConfig.requestTimeoutMs) {
     return _withTimeout(
-      new Promise((resolve, reject) => {
-        this.pending.set(requestId, { resolve, reject });
-        this._writeMessage({
-          jsonrpc: "2.0",
-          id: requestId,
-          method,
-          params,
-        });
+      _requestJson(this.lastConfig, {
+        method: "GET",
+        path: endpoint,
+        timeoutMs,
       }),
-      timeoutMs,
-      `Timed out waiting for Cortex MCP response to ${method}.`,
+      timeoutMs + 250,
+      `Timed out waiting for Cortex API response from ${endpoint}.`,
     );
   }
 
-  async callTool(name, argumentsPayload = {}, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    if (!this.child) {
-      await this.start(null, this.lastConfig);
-    }
-    const result = await this._sendRequest(
-      "tools/call",
-      { name, arguments: argumentsPayload },
-      timeoutMs,
+  async _post(endpoint, payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
+    return _withTimeout(
+      _requestJson(this.lastConfig, {
+        method: "POST",
+        path: endpoint,
+        payload,
+        timeoutMs,
+      }),
+      timeoutMs + 250,
+      `Timed out waiting for Cortex API response from ${endpoint}.`,
     );
-    if (result?.isError) {
-      const structured = result.structuredContent || {};
-      throw new Error(structured.error || `Cortex tool ${name} failed.`);
-    }
-    return result?.structuredContent || {};
   }
 
   async health(timeoutMs = this.lastConfig.requestTimeoutMs) {
-    return this.callTool("health", {}, timeoutMs);
+    return this._get("/v1/health", timeoutMs);
   }
 
   async prepareTurn(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    return this.callTool("channel_prepare_turn", payload, timeoutMs);
+    return this._post("/v1/channel/prepare-turn", payload, timeoutMs);
   }
 
   async seedTurnMemory(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    return this.callTool("channel_seed_turn_memory", payload, timeoutMs);
+    return this._post("/v1/channel/seed-turn-memory", payload, timeoutMs);
   }
 
   async packContext(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    return this.callTool("pack_context", payload, timeoutMs);
+    return this._post("/v1/packs/context", payload, timeoutMs);
   }
 
   async mindCompose(payload, timeoutMs = this.lastConfig.requestTimeoutMs) {
-    return this.callTool("mind_compose", payload, timeoutMs);
+    return this._post("/v1/minds/compose", payload, timeoutMs);
   }
 
   async listMountedBrainpacks(config = this.lastConfig) {
@@ -485,38 +319,11 @@ export class CortexMcpService {
   }
 
   async stop() {
-    if (this.stopPromise) {
-      return this.stopPromise;
-    }
-    this.stopRequested = true;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
-    if (!this.child) {
-      this.ready = false;
-      return undefined;
-    }
-    const child = this.child;
-    this.stopPromise = new Promise((resolve) => {
-      const finalize = () => {
-        this.child = null;
-        this.ready = false;
-        this.stopPromise = null;
-        resolve(undefined);
-      };
-      child.once("exit", finalize);
-      child.kill();
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill("SIGKILL");
-        }
-      }, 2000);
-    });
-    return this.stopPromise;
+    this.ready = false;
+    return undefined;
   }
 }
 
 export function createCortexMcpService(api, initialConfig = {}) {
-  return new CortexMcpService(api, initialConfig);
+  return new CortexApiService(api, initialConfig);
 }

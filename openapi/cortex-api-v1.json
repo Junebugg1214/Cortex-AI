@@ -383,6 +383,130 @@
         }
       }
     },
+    "/v1/channel/prepare-turn": {
+      "post": {
+        "operationId": "channelPrepareTurn",
+        "summary": "Prepare a channel turn for routed context and memory seeding",
+        "tags": [
+          "channel"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelPrepareTurnRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prepared channel turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel/seed-turn-memory": {
+      "post": {
+        "operationId": "channelSeedTurnMemory",
+        "summary": "Materialize prepared channel memory scaffolds",
+        "tags": [
+          "channel"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSeedTurnMemoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Seeded channel memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/packs/context": {
+      "post": {
+        "operationId": "packContext",
+        "summary": "Render a routed Brainpack context slice",
+        "tags": [
+          "packs"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackContextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rendered Brainpack context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/minds/compose": {
+      "post": {
+        "operationId": "mindCompose",
+        "summary": "Compose a routed Mind context slice",
+        "tags": [
+          "minds"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MindComposeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Composed Mind context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/nodes": {
       "get": {
         "operationId": "lookupNodes",
@@ -1871,6 +1995,142 @@
             "default": ""
           }
         },
+        "additionalProperties": false
+      },
+      "ChannelPrepareTurnRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Cortex channel message payload."
+          },
+          "target": {
+            "type": "string",
+            "default": "chatgpt"
+          },
+          "smart": {
+            "type": "boolean",
+            "default": true
+          },
+          "max_chars": {
+            "type": "integer",
+            "default": 1500
+          },
+          "project_dir": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ChannelSeedTurnMemoryRequest": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Prepared channel turn payload."
+          },
+          "ref": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "source": {
+            "type": "string",
+            "default": "channel.runtime"
+          },
+          "approve": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "turn"
+        ],
+        "additionalProperties": false
+      },
+      "PackContextRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string",
+            "default": ""
+          },
+          "smart": {
+            "type": "boolean",
+            "default": true
+          },
+          "policy": {
+            "type": "string",
+            "default": "technical"
+          },
+          "max_chars": {
+            "type": "integer",
+            "default": 1500
+          },
+          "namespace": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "name",
+          "target"
+        ],
+        "additionalProperties": false
+      },
+      "MindComposeRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string",
+            "default": ""
+          },
+          "project_dir": {
+            "type": "string",
+            "default": ""
+          },
+          "smart": {
+            "type": "boolean",
+            "default": true
+          },
+          "policy": {
+            "type": "string",
+            "default": ""
+          },
+          "max_chars": {
+            "type": "integer",
+            "default": 1500
+          },
+          "activation_target": {
+            "type": "string",
+            "default": ""
+          },
+          "namespace": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "name",
+          "target"
+        ],
         "additionalProperties": false
       },
       "IndexRebuildRequest": {

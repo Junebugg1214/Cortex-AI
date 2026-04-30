@@ -255,6 +255,74 @@ def _spec_v1_agent_conflicts_review() -> tuple[str, dict[str, Any]]:
     }
 
 
+def _spec_v1_channel_prepare_turn() -> tuple[str, dict[str, Any]]:
+    return "/v1/channel/prepare-turn", {
+        "post": {
+            "operationId": "channelPrepareTurn",
+            "summary": "Prepare a channel turn for routed context and memory seeding",
+            "tags": ["channel"],
+            "requestBody": _request_body("#/components/schemas/ChannelPrepareTurnRequest"),
+            "responses": {
+                "200": {
+                    "description": "Prepared channel turn",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_channel_seed_turn_memory() -> tuple[str, dict[str, Any]]:
+    return "/v1/channel/seed-turn-memory", {
+        "post": {
+            "operationId": "channelSeedTurnMemory",
+            "summary": "Materialize prepared channel memory scaffolds",
+            "tags": ["channel"],
+            "requestBody": _request_body("#/components/schemas/ChannelSeedTurnMemoryRequest"),
+            "responses": {
+                "200": {
+                    "description": "Seeded channel memory",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_packs_context() -> tuple[str, dict[str, Any]]:
+    return "/v1/packs/context", {
+        "post": {
+            "operationId": "packContext",
+            "summary": "Render a routed Brainpack context slice",
+            "tags": ["packs"],
+            "requestBody": _request_body("#/components/schemas/PackContextRequest"),
+            "responses": {
+                "200": {
+                    "description": "Rendered Brainpack context",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
+def _spec_v1_minds_compose() -> tuple[str, dict[str, Any]]:
+    return "/v1/minds/compose", {
+        "post": {
+            "operationId": "mindCompose",
+            "summary": "Compose a routed Mind context slice",
+            "tags": ["minds"],
+            "requestBody": _request_body("#/components/schemas/MindComposeRequest"),
+            "responses": {
+                "200": {
+                    "description": "Composed Mind context",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiResponse"}}},
+                }
+            },
+        }
+    }
+
+
 def _spec_v1_nodes() -> tuple[str, dict[str, Any]]:
     return "/v1/nodes", {
         "get": {
@@ -924,6 +992,10 @@ PATHS = (
     _spec_v1_agent_dispatch,
     _spec_v1_agent_schedule,
     _spec_v1_agent_conflicts_review,
+    _spec_v1_channel_prepare_turn,
+    _spec_v1_channel_seed_turn_memory,
+    _spec_v1_packs_context,
+    _spec_v1_minds_compose,
     _spec_v1_nodes,
     _spec_v1_nodes_node_id,
     _spec_v1_nodes_upsert,
@@ -1073,6 +1145,59 @@ def build_openapi_spec(*, server_url: str | None = None) -> dict[str, Any]:
                         },
                         "log_dir": {"type": "string", "default": ""},
                     },
+                    "additionalProperties": False,
+                },
+                "ChannelPrepareTurnRequest": {
+                    "type": "object",
+                    "properties": {
+                        "message": _json_object_schema(description="Cortex channel message payload."),
+                        "target": {"type": "string", "default": "chatgpt"},
+                        "smart": {"type": "boolean", "default": True},
+                        "max_chars": {"type": "integer", "default": 1500},
+                        "project_dir": {"type": "string", "default": ""},
+                    },
+                    "required": ["message"],
+                    "additionalProperties": False,
+                },
+                "ChannelSeedTurnMemoryRequest": {
+                    "type": "object",
+                    "properties": {
+                        "turn": _json_object_schema(description="Prepared channel turn payload."),
+                        "ref": {"type": "string", "default": "HEAD"},
+                        "source": {"type": "string", "default": "channel.runtime"},
+                        "approve": {"type": "boolean", "default": False},
+                    },
+                    "required": ["turn"],
+                    "additionalProperties": False,
+                },
+                "PackContextRequest": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "target": {"type": "string"},
+                        "project_dir": {"type": "string", "default": ""},
+                        "smart": {"type": "boolean", "default": True},
+                        "policy": {"type": "string", "default": "technical"},
+                        "max_chars": {"type": "integer", "default": 1500},
+                        "namespace": {"type": "string", "default": ""},
+                    },
+                    "required": ["name", "target"],
+                    "additionalProperties": False,
+                },
+                "MindComposeRequest": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "target": {"type": "string"},
+                        "task": {"type": "string", "default": ""},
+                        "project_dir": {"type": "string", "default": ""},
+                        "smart": {"type": "boolean", "default": True},
+                        "policy": {"type": "string", "default": ""},
+                        "max_chars": {"type": "integer", "default": 1500},
+                        "activation_target": {"type": "string", "default": ""},
+                        "namespace": {"type": "string", "default": ""},
+                    },
+                    "required": ["name", "target"],
                     "additionalProperties": False,
                 },
                 "IndexRebuildRequest": {

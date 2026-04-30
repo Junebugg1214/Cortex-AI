@@ -6,9 +6,10 @@ The mental model is simple:
 
 1. install Cortex
 2. seed Cortex with context
-3. install the OpenClaw plugin
-4. allow the plugin to inject prompt context and observe conversation-end events
-5. let OpenClaw fetch live context from Cortex and write durable memory back after each turn
+3. start the local Cortex API
+4. install the OpenClaw plugin
+5. allow the plugin to inject prompt context and observe conversation-end events
+6. let OpenClaw fetch live context from Cortex and write durable memory back after each turn
 
 ## What You Get
 
@@ -76,29 +77,37 @@ cortex build --from github --from git-history --sync --smart --project .
 cortex scan
 ```
 
-## 3. Install the OpenClaw Plugin
+## 3. Start The Local Cortex API
+
+Run `cortexd` on loopback with the store OpenClaw should use:
+
+```bash
+cortexd --store-dir ~/.openclaw/cortex --host 127.0.0.1 --port 8766
+```
+
+Keep that process running while OpenClaw is active. If you configure Cortex API authentication, add the same API key under `plugins.entries["cortexai-openclaw"].config.apiKey` in the OpenClaw config below.
+
+## 4. Install the OpenClaw Plugin
 
 Until `cortexai-openclaw` is published to npm, install from the local packed plugin tarball:
 
 ```bash
 cd examples/openclaw-plugin
 TARBALL="$(npm pack --silent)"
-openclaw plugins install "./$TARBALL" --force --dangerously-force-unsafe-install
+openclaw plugins install "./$TARBALL" --force
 openclaw plugins enable cortexai-openclaw
 ```
 
-OpenClaw's installer flags this plugin because it starts the managed `cortex-mcp` sidecar with Node process APIs. Use `--dangerously-force-unsafe-install` only when you are installing from this trusted repo checkout or a pinned artifact you have reviewed.
-
-Once the package is published to npm, the install command becomes:
+Once the package is published on ClawHub, the install command becomes:
 
 ```bash
-openclaw plugins install cortexai-openclaw --dangerously-force-unsafe-install
+openclaw plugins install cortexai-openclaw
 openclaw plugins enable cortexai-openclaw
 ```
 
 Restart the gateway after the config in the next step is in place.
 
-## 4. Configure the Plugin
+## 5. Configure the Plugin
 
 Recommended OpenClaw config:
 
@@ -113,15 +122,14 @@ Recommended OpenClaw config:
           allowConversationAccess: true
         },
         config: {
-          transport: "managed-child",
+          apiBaseUrl: "http://127.0.0.1:8766",
+          storeDir: "~/.openclaw/cortex",
           defaultTarget: "chatgpt",
           smartRouting: true,
           autoSeedThreads: true,
           projectDirStrategy: "agent-workspace",
           maxContextChars: 1500,
-          failOpen: true,
-          serviceRestartLimit: 3,
-          serviceRestartBackoffMs: 1000
+          failOpen: true
         }
       }
     }
@@ -133,7 +141,8 @@ What the important fields mean:
 
 - `hooks.allowPromptInjection: true` lets the plugin prepend routed Cortex context before the model turn
 - `hooks.allowConversationAccess: true` lets the plugin run `agent_end`; without it OpenClaw blocks the post-turn memory write hook
-- `transport: "managed-child"` means the plugin starts and manages `cortex-mcp` for you
+- `apiBaseUrl` points at the local `cortexd` REST API
+- `storeDir` points at the same Cortex store used by `cortexd`
 - `defaultTarget` controls which routed slice OpenClaw asks for
 - `smartRouting: true` lets Cortex send the right slice for the runtime instead of one generic blob
 - `autoSeedThreads: true` creates the default per-user and per-thread memory scaffold automatically
@@ -150,7 +159,7 @@ openclaw plugins doctor
 
 In the `plugins inspect` output, `services` should include `cortex` and `typedHooks` should include `message_received`, `before_prompt_build`, and `agent_end`.
 
-## 5. What Happens At Runtime
+## 6. What Happens At Runtime
 
 Once OpenClaw is running with the Cortex plugin:
 
@@ -164,7 +173,7 @@ Once OpenClaw is running with the Cortex plugin:
 
 That means the same person can carry context across channels when a stable identity matches, while each conversation still gets its own thread memory.
 
-## 6. The Ongoing Human Loop
+## 7. The Ongoing Human Loop
 
 After the plugin is installed, the human still uses Cortex directly to curate identity and memory:
 
@@ -177,7 +186,7 @@ cortex sync --smart
 This is the full loop:
 
 - humans curate context with the CLI
-- OpenClaw consumes live routed context over MCP
+- OpenClaw consumes live routed context over the local Cortex API
 - Cortex stores durable per-user and per-thread memory outside the runtime itself
 
 ## 7. Example End State

@@ -5,9 +5,9 @@
   "maturity": "beta",
   "storage_model": "user-owned",
   "release_channel": "self-hosted",
-  "path_count": 49,
-  "operation_count": 50,
-  "contract_hash": "82e9a4f238c965dfd36acd190e90489e69e95d052e9136f5158a91c6b8d5de7b",
+  "path_count": 53,
+  "operation_count": 54,
+  "contract_hash": "75272ffbf61ca68d1954f09d45567e5fbc5ee3f6c9307587a6774177e03d89c6",
   "operations": [
     {
       "method": "POST",
@@ -68,6 +68,18 @@
       "path": "/v1/branches/switch",
       "operation_id": "switchBranch",
       "summary": "Switch the active branch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/channel/prepare-turn",
+      "operation_id": "channelPrepareTurn",
+      "summary": "Prepare a channel turn for routed context and memory seeding"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/channel/seed-turn-memory",
+      "operation_id": "channelSeedTurnMemory",
+      "summary": "Materialize prepared channel memory scaffolds"
     },
     {
       "method": "POST",
@@ -220,6 +232,12 @@
       "summary": "Read self-hosted service metrics"
     },
     {
+      "method": "POST",
+      "path": "/v1/minds/compose",
+      "operation_id": "mindCompose",
+      "summary": "Compose a routed Mind context slice"
+    },
+    {
       "method": "GET",
       "path": "/v1/nodes",
       "operation_id": "lookupNodes",
@@ -248,6 +266,12 @@
       "path": "/v1/openapi.json",
       "operation_id": "openapi",
       "summary": "Fetch the OpenAPI contract"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/packs/context",
+      "operation_id": "packContext",
+      "summary": "Render a routed Brainpack context slice"
     },
     {
       "method": "POST",
@@ -314,12 +338,15 @@
     "agent",
     "audit",
     "branches",
+    "channel",
     "conflicts",
     "index",
     "maintenance",
     "merge",
     "meta",
+    "minds",
     "objects",
+    "packs",
     "query",
     "review",
     "versions"
