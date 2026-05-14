@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
     import tomli as tomllib
 
 from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
+from cortex.hermes_paths import resolve_hermes_home
 from cortex.import_memory import NormalizedContext
 from cortex.portability.context import CONTEXT_TARGETS, CORTEX_END, CORTEX_START, _resolve_path
 from cortex.portability.portability import PORTABLE_DIRECT_TARGETS, PORTABLE_TARGET_ALIASES, PORTABLE_TARGET_ORDER
@@ -203,12 +204,12 @@ COMPATIBILITY_MATRIX = {
     "hermes": CompatibilityEntry(
         target="hermes",
         content_templates=(
-            "{home}/.hermes/memories/USER.md",
-            "{home}/.hermes/memories/MEMORY.md",
+            "{hermes_home}/memories/USER.md",
+            "{hermes_home}/memories/MEMORY.md",
         ),
         mcp_specs=(
             MCPDiscoverySpec(
-                path_templates=("{home}/.hermes/config.yaml",),
+                path_templates=("{hermes_home}/config.yaml",),
                 schema="mcp_servers",
             ),
         ),
@@ -300,6 +301,7 @@ def _compatibility_tokens(project_dir: Path | None, output_dir: Path) -> dict[st
     xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
     return {
         "home": str(home),
+        "hermes_home": str(resolve_hermes_home()),
         "project": str(project_dir or Path.cwd()),
         "output_dir": str(output_dir),
         "appdata": os.environ.get("APPDATA", ""),

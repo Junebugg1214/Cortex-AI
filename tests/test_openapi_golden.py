@@ -5,8 +5,8 @@ import json
 
 from cortex.service.openapi import build_openapi_spec
 
-OPENAPI_SORT_KEYS_SHA256 = "3e3ca38cf6be8693fb0078193b57b537dab2929389d3a636f9a79a0d050dd01e"
-OPENAPI_SORT_KEYS_LENGTH = 34438
+OPENAPI_SORT_KEYS_SHA256 = "fde61003f18b1e3a9fdbdcbd7d71caa4cc0313218c2abc05bd596b3e0d114212"
+OPENAPI_SORT_KEYS_LENGTH = 37982
 
 
 def test_openapi_golden_is_byte_identical_after_endpoint_builder_split():

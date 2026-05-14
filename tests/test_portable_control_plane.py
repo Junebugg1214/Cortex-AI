@@ -6,12 +6,20 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from cortex.cli import main
 from cortex.config import load_selfhost_config
 from cortex.graph.graph import CortexGraph, Node, make_node_id_with_tag
 from cortex.graph.minds import compose_mind, init_mind, set_default_mind
 from cortex.hermes_integration import HERMES_CONFIG_END, HERMES_CONFIG_START
 from cortex.portability.context import CORTEX_END, CORTEX_START
+
+
+@pytest.fixture(autouse=True)
+def _force_offline_extraction_backend(monkeypatch):
+    monkeypatch.setenv("CORTEX_BULK_BACKEND", "heuristic")
+    monkeypatch.setenv("CORTEX_HOT_PATH_BACKEND", "heuristic")
 
 
 def _write_graph(path: Path, rows: list[tuple[str, str, str]]) -> None:
@@ -862,6 +870,50 @@ def test_portable_to_hermes_writes_memory_files_and_config(tmp_path, capsys, mon
     assert "memory_enabled: true" in config_path.read_text(encoding="utf-8")
     assert CORTEX_START in user_path.read_text(encoding="utf-8")
     assert CORTEX_START in memory_path.read_text(encoding="utf-8")
+
+
+def test_portable_to_hermes_uses_active_profile_home(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    export_path = tmp_path / "chatgpt-export.txt"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+
+    default_hermes = home_dir / ".hermes"
+    profile_home = default_hermes / "profiles" / "coder"
+    profile_home.mkdir(parents=True)
+    (default_hermes / "active_profile").write_text("coder\n", encoding="utf-8")
+    export_path.write_text("My name is Casey. I use Python and prefer direct answers.", encoding="utf-8")
+
+    rc = main(
+        [
+            "portable",
+            str(export_path),
+            "--to",
+            "hermes",
+            "--project",
+            str(project_dir),
+            "--store-dir",
+            str(store_dir),
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["targets"][0]["paths"] == [
+        str((profile_home / "memories" / "USER.md").resolve()),
+        str((profile_home / "memories" / "MEMORY.md").resolve()),
+        str((profile_home / "config.yaml").resolve()),
+    ]
+    assert (profile_home / "memories" / "USER.md").exists()
+    assert (profile_home / "memories" / "MEMORY.md").exists()
+    assert (profile_home / "config.yaml").exists()
+    assert not (default_hermes / "memories").exists()
 
 
 def test_scan_detects_hermes_memory_files_and_yaml_mcp(tmp_path, capsys, monkeypatch):

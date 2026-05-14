@@ -4,8 +4,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from cortex.hermes_paths import hermes_config_path, hermes_memory_paths
 from cortex.import_memory import NormalizedContext, TopicDetail
-from cortex.portability.context import _format_plain, _resolve_path, _write_non_destructive
+from cortex.portability.context import _format_plain, _write_non_destructive
 from cortex.portability.portability import build_instruction_pack
 
 HERMES_CONFIG_START = "# CORTEX:HERMES:START"
@@ -293,16 +294,15 @@ def install_hermes_context(
     dry_run: bool = False,
 ) -> HermesInstallResult:
     documents = build_hermes_documents(ctx, max_chars=max_chars, min_confidence=min_confidence)
-    user_path = _resolve_path("{home}/.hermes/memories/USER.md", project_dir)
-    memory_path = _resolve_path("{home}/.hermes/memories/MEMORY.md", project_dir)
-    hermes_config_path = _resolve_path("{home}/.hermes/config.yaml", project_dir)
+    user_path, memory_path = hermes_memory_paths()
+    config_path = hermes_config_path()
     cortex_config_path = ensure_cortex_mcp_config(store_dir, dry_run=dry_run)
 
     user_status = _write_non_destructive(user_path, _format_plain(documents["user"]), dry_run=dry_run)
     memory_status = _write_non_destructive(memory_path, _format_plain(documents["memory"]), dry_run=dry_run)
-    config_status = update_hermes_config(hermes_config_path, cortex_config_path=cortex_config_path, dry_run=dry_run)
+    config_status = update_hermes_config(config_path, cortex_config_path=cortex_config_path, dry_run=dry_run)
 
-    paths = (user_path, memory_path, hermes_config_path)
+    paths = (user_path, memory_path, config_path)
     statuses = {user_status, memory_status, config_status}
     status = "dry-run" if dry_run else ("ok" if {"created", "updated"} & statuses else "skipped")
     note = "Updated Hermes USER.md, MEMORY.md, and MCP config."

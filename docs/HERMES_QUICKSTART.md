@@ -78,6 +78,8 @@ When you target Hermes, Cortex installs the current canonical graph into Hermes-
 - `~/.hermes/memories/MEMORY.md`
 - `~/.hermes/config.yaml`
 
+If `HERMES_HOME` is set, Cortex writes to that Hermes home instead. If `HERMES_HOME` is unset but Hermes has a sticky active profile in `~/.hermes/active_profile`, Cortex writes to that profile directory, such as `~/.hermes/profiles/coder/`.
+
 `config.yaml` gets a managed `mcp_servers.cortex` entry pointing Hermes at `cortex-mcp`. If Cortex creates the file from scratch, it also writes a recommended `memory:` block with memory enabled.
 
 `USER.md` and `MEMORY.md` are non-destructive. Cortex only manages its own marked block and leaves surrounding human-authored text alone.
