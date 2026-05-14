@@ -9,8 +9,8 @@ from pathlib import Path
 
 from cortex.channel_runtime import ChannelMessage, TelegramAdapter
 from cortex.cli import main
-from cortex.service.service import MemoryService
 from cortex.service.server import start_api_server
+from cortex.service.service import MemoryService
 from cortex.storage import get_storage_backend
 
 

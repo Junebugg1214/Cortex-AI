@@ -39,4 +39,3 @@ def hermes_config_path() -> Path:
 def hermes_memory_paths() -> tuple[Path, Path]:
     memories_dir = resolve_hermes_home() / "memories"
     return memories_dir / "USER.md", memories_dir / "MEMORY.md"
-
