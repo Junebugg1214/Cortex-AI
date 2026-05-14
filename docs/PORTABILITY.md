@@ -163,6 +163,8 @@ Cortex is explicit about how each target works.
 | `chatgpt` | Import-ready artifacts | `portable/chatgpt/custom_instructions.md`, `portable/chatgpt/custom_instructions.json` |
 | `grok` | Import-ready artifacts | `portable/grok/context_prompt.md`, `portable/grok/context_prompt.json` |
 
+For Hermes, `~/.hermes` means the active Hermes home: Cortex honors `HERMES_HOME`, and when that is unset it follows Hermes' sticky `~/.hermes/active_profile` profile if one exists.
+
 For a sample generated Claude Code file, see [`docs/examples/CLAUDE.generated.md`](examples/CLAUDE.generated.md).
 That example is separate from the repository root [`CLAUDE.md`](../CLAUDE.md), which is a repository guide for working on Cortex itself.
 

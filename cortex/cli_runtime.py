@@ -26,11 +26,15 @@ def _add_runtime_security_args(parser) -> None:
 def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
     from cortex.portability.context import _resolve_path
 
+    if target == "hermes":
+        from cortex.hermes_paths import hermes_config_path
+
+        return hermes_config_path()
+
     templates = {
         "claude-code": "{project}/.mcp.json",
         "codex": "{home}/.codex/config.toml",
         "cursor": "{project}/.cursor/mcp.json",
-        "hermes": "{home}/.hermes/config.yaml",
     }
     template = templates[target]
     return _resolve_path(template, str(project_dir))
@@ -39,11 +43,15 @@ def _connect_runtime_mcp_config_path(target: str, *, project_dir: Path) -> Path:
 def _connect_runtime_content_paths(target: str, *, project_dir: Path) -> list[str]:
     from cortex.portability.context import _resolve_path
 
+    if target == "hermes":
+        from cortex.hermes_paths import hermes_memory_paths
+
+        return [str(path) for path in hermes_memory_paths()]
+
     templates = {
         "claude-code": ("{home}/.claude/CLAUDE.md", "{project}/CLAUDE.md"),
         "codex": ("{project}/AGENTS.md",),
         "cursor": ("{project}/.cursor/rules/cortex.mdc",),
-        "hermes": ("{home}/.hermes/memories/USER.md", "{home}/.hermes/memories/MEMORY.md"),
     }
     return [str(_resolve_path(template, str(project_dir))) for template in templates[target]]
 

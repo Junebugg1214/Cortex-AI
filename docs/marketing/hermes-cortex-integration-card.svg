@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#f7f4ef"/>
+  <rect x="72" y="64" width="1456" height="772" rx="22" fill="#ffffff" stroke="#1f2937" stroke-width="3"/>
+  <text x="104" y="124" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="800" fill="#111827">What Cortex adds to Hermes agents</text>
+  <text x="104" y="168" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#4b5563">A portable context layer for Hermes memory, MCP, profiles, and cross-agent continuity.</text>
+
+  <rect x="104" y="214" width="1392" height="72" rx="12" fill="#102a43"/>
+  <text x="132" y="260" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Hermes already gives agents</text>
+  <text x="560" y="260" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Cortex integration adds</text>
+  <text x="1172" y="260" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Repo proof</text>
+
+  <g font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#111827">
+    <rect x="104" y="302" width="1392" height="86" fill="#f8fafc" stroke="#d1d5db"/>
+    <text x="132" y="338" font-weight="700">USER.md + MEMORY.md</text>
+    <text x="132" y="368" fill="#4b5563">bounded persistent files</text>
+    <text x="560" y="338" font-weight="700">Canonical graph -> native files</text>
+    <text x="560" y="368" fill="#4b5563">non-destructive sync into Hermes memory</text>
+    <text x="1172" y="338" font-weight="700">install_hermes_context</text>
+    <text x="1172" y="368" fill="#4b5563">marker preservation tests</text>
+
+    <rect x="104" y="388" width="1392" height="86" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="132" y="424" font-weight="700">MCP client config</text>
+    <text x="132" y="454" fill="#4b5563">mcp_servers in config.yaml</text>
+    <text x="560" y="424" font-weight="700">Managed cortex-mcp wiring</text>
+    <text x="560" y="454" fill="#4b5563">Hermes can call live Cortex context tools</text>
+    <text x="1172" y="424" font-weight="700">connect hermes</text>
+    <text x="1172" y="454" fill="#4b5563">install + scan tests</text>
+
+    <rect x="104" y="474" width="1392" height="86" fill="#f8fafc" stroke="#d1d5db"/>
+    <text x="132" y="510" font-weight="700">Independent profiles</text>
+    <text x="132" y="540" fill="#4b5563">HERMES_HOME and active_profile</text>
+    <text x="560" y="510" font-weight="700">Profile-aware mounting</text>
+    <text x="560" y="540" fill="#4b5563">writes into the active Hermes agent home</text>
+    <text x="1172" y="510" font-weight="700">hermes_paths.py</text>
+    <text x="1172" y="540" fill="#4b5563">new profile regressions</text>
+
+    <rect x="104" y="560" width="1392" height="86" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="132" y="596" font-weight="700">Runtime-local memory</text>
+    <text x="132" y="626" fill="#4b5563">great inside Hermes</text>
+    <text x="560" y="596" font-weight="700">Cross-tool continuity</text>
+    <text x="560" y="626" fill="#4b5563">same context for Hermes, Codex, Cursor, Claude Code</text>
+    <text x="1172" y="596" font-weight="700">target matrix</text>
+    <text x="1172" y="626" fill="#4b5563">smart sync flows</text>
+
+    <rect x="104" y="646" width="1392" height="86" fill="#f8fafc" stroke="#d1d5db"/>
+    <text x="132" y="682" font-weight="700">Long-running agents</text>
+    <text x="132" y="712" fill="#4b5563">channels, gateways, sessions</text>
+    <text x="560" y="682" font-weight="700">Shared identity context</text>
+    <text x="560" y="712" fill="#4b5563">subject + thread namespaces outside one runtime</text>
+    <text x="1172" y="682" font-weight="700">ChannelContextBridge</text>
+    <text x="1172" y="712" fill="#4b5563">Hermes+Cortex docs</text>
+  </g>
+
+  <rect x="104" y="764" width="1392" height="44" rx="10" fill="#e6f4f1"/>
+  <text x="132" y="794" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#0f766e">Bottom line:</text>
+  <text x="258" y="794" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#115e59">Hermes runs the agent. Cortex keeps the agent's context portable, auditable, and shared across tools.</text>
+
+  <text x="104" y="828" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#6b7280">Verified 2026-05-14 against upstream Hermes docs/source and Cortex focused tests: 15 passed.</text>
+</svg>

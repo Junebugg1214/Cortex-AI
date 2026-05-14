@@ -242,3 +242,46 @@ def test_connect_runtime_targets_install_and_check(tmp_path, capsys, monkeypatch
     assert payload["install_actions"][-1]["path"] == str(target_config_path.resolve())
     assert str(target_config_path.resolve()) in payload["mcp_paths"]
     assert any(f"cortex mind mount marc --to {target}" in step for step in payload["next_steps"])
+
+
+def test_connect_hermes_install_uses_hermes_home_env(tmp_path, capsys, monkeypatch):
+    home_dir = tmp_path / "home"
+    project_dir = tmp_path / "project"
+    store_dir = tmp_path / ".cortex"
+    hermes_home = home_dir / ".hermes" / "profiles" / "coder"
+    home_dir.mkdir()
+    project_dir.mkdir()
+    hermes_home.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    init_rc = main(["init", "--store-dir", str(store_dir), "--mind", "marc", "--owner", "marc", "--format", "json"])
+    capsys.readouterr()
+    rc = main(
+        [
+            "connect",
+            "hermes",
+            "--store-dir",
+            str(store_dir),
+            "--project",
+            str(project_dir),
+            "--install",
+            "--check",
+            "--format",
+            "json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    target_config_path = hermes_home / "config.yaml"
+    assert init_rc == 0
+    assert rc == 0
+    assert payload["status"] == "ok"
+    assert payload["mcp_config_path"] == str(target_config_path.resolve())
+    assert payload["managed_content_paths"] == [
+        str(hermes_home / "memories" / "USER.md"),
+        str(hermes_home / "memories" / "MEMORY.md"),
+    ]
+    assert target_config_path.exists()
+    assert "cortex-mcp" in target_config_path.read_text(encoding="utf-8")
+    assert not (home_dir / ".hermes" / "config.yaml").exists()
