@@ -263,6 +263,11 @@ def update_hermes_config(config_path: Path, *, cortex_config_path: Path, dry_run
 
 
 def ensure_cortex_mcp_config(store_dir: Path, *, dry_run: bool = False) -> Path:
+    store_dir = store_dir.expanduser()
+    if not store_dir.is_absolute():
+        store_dir = (Path.cwd() / store_dir).resolve()
+    else:
+        store_dir = store_dir.resolve()
     config_path = store_dir / "config.toml"
     if config_path.exists():
         return config_path

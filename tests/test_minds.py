@@ -33,6 +33,7 @@ from cortex.graph.minds import (
     remember_on_mind,
     resolve_default_mind,
     set_default_mind,
+    sync_mind_compatibility_targets,
 )
 from cortex.packs import compile_pack, graph_path, ingest_pack, init_pack, mount_pack, pack_path
 from cortex.portability.portable_runtime import load_portability_state, save_canonical_graph
@@ -451,6 +452,35 @@ def test_mind_mount_materializes_targets_and_persists_mount_records(tmp_path, mo
     assert registry["mounts"][0]["name"] == "marc"
     assert registry["mounts"][0]["activation_target"] == "openclaw"
     assert registry["mounts"][0]["task"] == "support"
+
+
+def test_sync_mind_compatibility_hermes_uses_absolute_cortex_config_for_relative_store_dir(tmp_path, monkeypatch):
+    home_dir = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    project_dir = workspace / "project"
+    home_dir.mkdir()
+    project_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.chdir(workspace)
+
+    store_dir = Path(".cortex")
+    init_mind(store_dir, "marc", kind="person", owner="marc")
+    remember_on_mind(store_dir, "marc", statement="Cortex-AI integrates with Hermes through cortex-mcp.")
+
+    sync_mind_compatibility_targets(
+        store_dir,
+        "marc",
+        targets=["hermes"],
+        project_dir=project_dir,
+        smart=True,
+        policy_name="",
+        max_chars=900,
+    )
+
+    config_text = (home_dir / ".hermes" / "config.yaml").read_text(encoding="utf-8")
+    expected_config = str((workspace / ".cortex" / "config.toml").resolve())
+    assert expected_config in config_text
+    assert '".cortex/config.toml"' not in config_text
 
 
 def test_mind_remember_updates_core_graph_and_refreshes_mounts(tmp_path, monkeypatch):
